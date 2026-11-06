@@ -50,10 +50,11 @@
         }
       ],
       "artifactName": "ClassroomDesk-Setup-${version}.${ext}",
-      "signingHashAlgorithms": ["sha256"],
-      "rfc3161TimeStampServer": "http://timestamp.digicert.com"
+      "signtoolOptions": {
+        "signingHashAlgorithms": ["sha256"],
+        "rfc3161TimeStampServer": "http://timestamp.digicert.com"
+      }
     },
-    "forceCodeSigning": false,
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,

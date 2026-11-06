@@ -99,9 +99,10 @@ Auth: `Authorization: Bearer <jwt>`（除注明公开接口外）
 | DELETE | `/api/v1/attendance/schedules/:id` | 教师 | 删除规则 |
 | GET | `/api/v1/attendance/holidays?classId=` | 教师 | 节假日例外列表 |
 | POST | `/api/v1/attendance/holidays` | 教师 | `{ holidayDate, name, classId? }` |
-| POST | `/api/v1/attendance/holidays/import` | 教师 | `{ csv, classId? }` 批量导入校历 `YYYY-MM-DD,名称` |
+| POST | `/api/v1/attendance/holidays/import` | 教师 | `{ csv, classId?, dryRun? }` 校历 `YYYY-MM-DD,名称`；`dryRun` 返回冲突预览 |
 | DELETE | `/api/v1/attendance/holidays/:id` | 教师 | 删除节假日 |
-| POST | `/api/v1/classes/:id/students/import` | 教师 | `{ csv }` 支持 `姓名` 或 `姓名,学号` |
+| POST | `/api/v1/classes/:id/students/import` | 教师 | `{ csv }`「姓名」或「姓名,学号」；返回 `failures[]` 行号明细 |
+| GET | `/api/v1/questions/export.csv?classId=&includeOptions=0\|1` | 教师 | 题目统计；`includeOptions=1` 含选项分布列 |
 | POST | `/api/v1/uploads` | 教师 | `multipart/form-data` 字段 `file`（MIME 白名单），返回 `{ url }` |
 | GET | `/api/v1/uploads/allowed-types` | 登录 | 允许的 MIME/扩展名 |
 | GET | `/uploads/:filename` | 无（校内静态） | 附件下载 |

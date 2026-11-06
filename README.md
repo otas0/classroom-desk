@@ -83,7 +83,7 @@ npm run dist:win
 
 安装包内嵌 `resources/config.json`（`apiBase`）。安装后改成教室服务器，例如 `http://192.168.1.50:8787`；也可在学生端「我的」用管理密码保存。打包态由 Electron 主进程施加生产 CSP。
 
-**代码签名（可选）**：在 Windows CI/构建机设置 `CSC_LINK`（.pfx 路径或 base64）与 `CSC_KEY_PASSWORD`。未设置时仍可出包（`forceCodeSigning: false`）。
+**代码签名**：仓库 Secrets 配置 `CSC_LINK`（.pfx 路径或 base64）与 `CSC_KEY_PASSWORD`；CI 有密钥则签名，无密钥则 `-c.win.signExecutable=false` 出未签名包。时间戳：`signtoolOptions.rfc3161TimeStampServer`（DigiCert）。Artifact 名 `classroom-desk-windows-setup`，路径 `apps/student-desktop/release/*.exe`。生产部署清单见 [docs/DEPLOY.md](docs/DEPLOY.md)。
 
 **卸载（合规）**：学生端无卸载按钮。管理员密码可打开系统「应用和功能」正常卸载；无防卸载。
 

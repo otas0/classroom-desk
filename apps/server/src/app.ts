@@ -53,8 +53,22 @@ export function createApp() {
 
   const teacherDist = resolveTeacherDist();
   if (teacherDist) {
-    app.use('/admin', express.static(teacherDist, { index: false }));
+    app.use(
+      '/admin',
+      express.static(teacherDist, {
+        index: false,
+        setHeaders(res, filePath) {
+          if (filePath.endsWith('index.html')) {
+            res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+          } else {
+            res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+          }
+        },
+      }),
+    );
+    // SPA fallback: deep links under /admin/* serve index.html (no-cache).
     app.get(/^\/admin(?:\/.*)?$/, (_req, res) => {
+      res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
       res.sendFile(path.join(teacherDist, 'index.html'));
     });
     console.log(`[classroom-desk-server] teacher admin UI: /admin (${teacherDist})`);

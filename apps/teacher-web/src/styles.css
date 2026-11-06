@@ -178,3 +178,20 @@ button {
   padding: 1px 8px;
   font-size: 11px;
 }
+
+.dropzone {
+  border: 1px dashed #8aa0b5;
+  border-radius: 10px;
+  padding: 16px;
+  text-align: center;
+  color: #5b6b7c;
+  background: #f7fafc;
+  margin: 8px 0;
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}

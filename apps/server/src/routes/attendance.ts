@@ -351,6 +351,7 @@ attendanceRouter.post(
   requireRoles('teacher', 'admin'),
   (req: AuthedRequest, res) => {
     const classId = req.body?.classId ? String(req.body.classId) : null;
+    const dryRun = Boolean(req.body?.dryRun);
     const csvText = String(req.body?.csv ?? '');
     const lines = csvText
       .split(/\r?\n/)
@@ -368,6 +369,42 @@ attendanceRouter.post(
     }
 
     const db = openDb();
+    const exists = db.prepare(
+      `SELECT id, name FROM attendance_holidays
+       WHERE holiday_date = ? AND ((class_id IS NULL AND ? IS NULL) OR class_id = ?)`,
+    );
+    const conflicts: Array<{ holidayDate: string; name: string; existingName: string }> = [];
+    const willCreate: Array<{ holidayDate: string; name: string }> = [];
+    const seen = new Set<string>();
+    const duplicatesInFile: Array<{ holidayDate: string; name: string }> = [];
+
+    for (const row of lines) {
+      const key = `${classId ?? 'null'}|${row.holidayDate}`;
+      if (seen.has(key)) {
+        duplicatesInFile.push(row);
+        continue;
+      }
+      seen.add(key);
+      const hit = exists.get(row.holidayDate, classId, classId) as { id: string; name: string } | undefined;
+      if (hit) {
+        conflicts.push({ holidayDate: row.holidayDate, name: row.name, existingName: hit.name });
+      } else {
+        willCreate.push(row);
+      }
+    }
+
+    if (dryRun) {
+      res.json({
+        dryRun: true,
+        total: lines.length,
+        willCreate: willCreate.length,
+        conflicts,
+        duplicatesInFile,
+        preview: willCreate.slice(0, 50),
+      });
+      return;
+    }
+
     const insert = db.prepare(
       `INSERT INTO attendance_holidays (id, class_id, holiday_date, name, created_at)
        VALUES (?, ?, ?, ?, ?)`,
@@ -375,7 +412,7 @@ attendanceRouter.post(
     let created = 0;
     let skipped = 0;
     const createdAt = nowIso();
-    for (const row of lines) {
+    for (const row of willCreate) {
       try {
         insert.run(newId(), classId, row.holidayDate, row.name, createdAt);
         created += 1;
@@ -383,7 +420,14 @@ attendanceRouter.post(
         skipped += 1;
       }
     }
-    res.status(201).json({ created, skipped, total: lines.length });
+    skipped += conflicts.length + duplicatesInFile.length;
+    res.status(201).json({
+      created,
+      skipped,
+      total: lines.length,
+      conflicts,
+      duplicatesInFile,
+    });
   },
 );
 

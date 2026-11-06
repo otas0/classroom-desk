@@ -71,26 +71,9 @@ classesRouter.post(
     }
 
     const csvText = String(req.body?.csv ?? '');
-    const rows = csvText
-      .split(/\r?\n/)
-      .map((line) => line.trim())
-      .filter(Boolean)
-      .map((line) => {
-        const parts = line.split(',').map((p) => p.trim());
-        return { name: parts[0] ?? '', studentNo: parts[1] || null };
-      })
-      .filter((row) => {
-        const n = row.name.toLowerCase();
-        return row.name && !['name', 'display_name', 'display-name', '姓名'].includes(n);
-      });
-
-    if (rows.length === 0) {
-      res.status(400).json({ error: 'empty_csv' });
-      return;
-    }
-
     let created = 0;
     let skipped = 0;
+    const failures: Array<{ line: number; name: string; studentNo: string | null; reason: string }> = [];
     const createdAt = nowIso();
     const insert = db.prepare(
       `INSERT INTO users (id, role, display_name, username, password_hash, student_no, class_id, total_points, created_at)
@@ -103,19 +86,37 @@ classesRouter.post(
       `SELECT id FROM users WHERE role = 'student' AND class_id = ? AND student_no = ?`,
     );
 
-    for (const row of rows) {
-      if (existsByName.get(classId, row.name)) {
+    const rawLines = csvText.split(/\r?\n/);
+    let dataLine = 0;
+    for (let i = 0; i < rawLines.length; i += 1) {
+      const line = rawLines[i]?.trim() ?? '';
+      if (!line) continue;
+      const parts = line.split(',').map((p) => p.trim());
+      const name = parts[0] ?? '';
+      const studentNo = parts[1] || null;
+      const n = name.toLowerCase();
+      if (!name || ['name', 'display_name', 'display-name', '姓名'].includes(n)) continue;
+      dataLine += 1;
+      const lineNo = i + 1;
+      if (existsByName.get(classId, name)) {
         skipped += 1;
+        failures.push({ line: lineNo, name, studentNo, reason: 'duplicate_name' });
         continue;
       }
-      if (row.studentNo && existsByNo.get(classId, row.studentNo)) {
+      if (studentNo && existsByNo.get(classId, studentNo)) {
         skipped += 1;
+        failures.push({ line: lineNo, name, studentNo, reason: 'duplicate_student_no' });
         continue;
       }
-      insert.run(newId(), row.name, row.studentNo, classId, createdAt);
+      insert.run(newId(), name, studentNo, classId, createdAt);
       created += 1;
     }
 
-    res.status(201).json({ created, skipped, total: rows.length });
+    if (dataLine === 0) {
+      res.status(400).json({ error: 'empty_csv' });
+      return;
+    }
+
+    res.status(201).json({ created, skipped, total: dataLine, failures });
   },
 );

@@ -163,6 +163,7 @@ export function App() {
                   className="badge clickable"
                   data-no-drag
                   title="查看未读留言"
+                  aria-label={`有 ${unread} 条未读留言，按 Enter 打开留言`}
                   onClick={() => {
                     void (async () => {
                       if (window.classroomDesk) {
@@ -173,8 +174,15 @@ export function App() {
                       setTab('messages');
                     })();
                   }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      (e.currentTarget as HTMLButtonElement).click();
+                    }
+                  }}
                 >
                   {unread}
+                  <span className="sr-only">未读留言</span>
                 </button>
               ) : null}
             </span>
@@ -282,13 +290,64 @@ function AttachmentPreview({ url }: { url: string }) {
   const lower = url.toLowerCase();
   const isImage = /\.(png|jpe?g|webp|gif)(\?|$)/.test(lower);
   const isPdf = /\.pdf(\?|$)/.test(lower);
+  const [zoom, setZoom] = useState(1);
+  const [pdfPage, setPdfPage] = useState(1);
+
+  if (!isImage && !isPdf) {
+    return (
+      <div className="preview">
+        <a className="link" href={url} target="_blank" rel="noreferrer">
+          下载附件
+        </a>
+      </div>
+    );
+  }
+
   return (
     <div className="preview">
       <a className="link" href={url} target="_blank" rel="noreferrer">
         打开附件
       </a>
-      {isImage ? <img src={url} alt="作业附件" className="preview-media" /> : null}
-      {isPdf ? <iframe title="pdf-preview" src={url} className="preview-media pdf" /> : null}
+      {isImage ? (
+        <div className="preview-controls">
+          <button type="button" className="secondary" onClick={() => setZoom((z) => Math.max(0.5, z - 0.25))}>
+            缩小
+          </button>
+          <span className="hint">{Math.round(zoom * 100)}%</span>
+          <button type="button" className="secondary" onClick={() => setZoom((z) => Math.min(3, z + 0.25))}>
+            放大
+          </button>
+          <div className="preview-scroll">
+            <img
+              src={url}
+              alt="作业附件预览"
+              className="preview-media"
+              style={{ transform: `scale(${zoom})`, transformOrigin: 'top left' }}
+            />
+          </div>
+        </div>
+      ) : null}
+      {isPdf ? (
+        <div className="preview-controls">
+          <button
+            type="button"
+            className="secondary"
+            onClick={() => setPdfPage((p) => Math.max(1, p - 1))}
+            aria-label="上一页"
+          >
+            上一页
+          </button>
+          <span className="hint">第 {pdfPage} 页</span>
+          <button type="button" className="secondary" onClick={() => setPdfPage((p) => p + 1)} aria-label="下一页">
+            下一页
+          </button>
+          <iframe
+            title={`pdf-preview-page-${pdfPage}`}
+            src={`${url}#page=${pdfPage}`}
+            className="preview-media pdf"
+          />
+        </div>
+      ) : null}
     </div>
   );
 }

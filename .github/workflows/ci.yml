@@ -81,10 +81,35 @@ jobs:
       - name: Install
         run: npm install
       - name: Build Windows NSIS
-        run: npm run dist:win --workspace=@classroom-desk/student-desktop
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+        shell: pwsh
+        run: |
+          if (-not $env:CSC_LINK) {
+            Write-Host 'CSC_LINK secret not set — building unsigned (signExecutable=false). Add repo secrets CSC_LINK + CSC_KEY_PASSWORD to enable signing.'
+            npm run dist:win --workspace=@classroom-desk/student-desktop -- --publish never -c.win.signExecutable=false
+          } else {
+            Write-Host 'CSC_LINK present — signing with DigiCert RFC3161 timestamp.'
+            npm run dist:win --workspace=@classroom-desk/student-desktop -- --publish never
+          }
+      - name: Assert installer artifact path
+        shell: pwsh
+        run: |
+          $exe = Get-ChildItem -Path 'apps/student-desktop/release' -Filter '*.exe' -ErrorAction SilentlyContinue
+          if (-not $exe) {
+            Write-Error @"
+          windows-pack failed: no .exe under apps/student-desktop/release/
+          Expected: apps/student-desktop/release/ClassroomDesk-Setup-*.exe
+          Upload artifact name: classroom-desk-windows-setup
+          Check electron-builder logs above (schema/signing/NSIS).
+          "@
+            exit 1
+          }
+          Write-Host "Found installer(s): $($exe.FullName -join ', ')"
       - name: Upload installer
         uses: actions/upload-artifact@v4
         with:
           name: classroom-desk-windows-setup
           path: apps/student-desktop/release/*.exe
-          if-no-files-found: warn
+          if-no-files-found: error

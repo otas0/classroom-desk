@@ -248,8 +248,13 @@ questionsRouter.get(
       errorRate: number;
     }>;
 
+    const includeOptions = String(req.query.includeOptions ?? '1') !== '0';
     const csvRows: Array<Array<string | number>> = [];
     for (const r of rows) {
+      if (!includeOptions) {
+        csvRows.push([r.title, r.type, r.answered, r.wrong, r.errorRate]);
+        continue;
+      }
       const options = db
         .prepare(
           `SELECT qo.label, qo.content,
@@ -280,10 +285,19 @@ questionsRouter.get(
       }
     }
 
-    const csv = toCsv(
-      ['title', 'type', 'answered', 'wrong', 'errorRate', 'optionLabel', 'optionContent', 'optionChosenCount'],
-      csvRows,
-    );
+    const headers = includeOptions
+      ? [
+          'title',
+          'type',
+          'answered',
+          'wrong',
+          'errorRate',
+          'optionLabel',
+          'optionContent',
+          'optionChosenCount', // 该选项被选次数（选项分布）
+        ]
+      : ['title', 'type', 'answered', 'wrong', 'errorRate'];
+    const csv = toCsv(headers, csvRows);
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', 'attachment; filename="question-stats.csv"');
     res.send('\uFEFF' + csv);

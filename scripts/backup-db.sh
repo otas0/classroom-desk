@@ -45,5 +45,6 @@ if [[ -n "$NAS_DIR" ]]; then
   cp -p "$DEST" "$NAS_DIR/"
   [[ -f "$DEST-wal" ]] && cp -p "$DEST-wal" "$NAS_DIR/" || true
   [[ -f "$DEST-shm" ]] && cp -p "$DEST-shm" "$NAS_DIR/" || true
-  echo "[backup] synced to NAS $NAS_DIR"
+  find "$NAS_DIR" -name 'classroom-*.db' -type f -mtime +"$KEEP_DAYS" -delete 2>/dev/null || true
+  echo "[backup] synced to NAS $NAS_DIR (retention ${KEEP_DAYS}d)"
 fi

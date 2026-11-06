@@ -166,6 +166,23 @@ function ClassesPanel({ onChanged }: { onChanged: () => void }) {
 
       <h3>批量导入学生 CSV</h3>
       <p className="hint">支持「姓名」或「姓名,学号」；已存在同名/同学号会跳过。</p>
+      <button
+        type="button"
+        className="secondary"
+        onClick={() => {
+          const blob = new Blob(['姓名,学号\n张三,2026001\n李四,2026002\n'], {
+            type: 'text/csv;charset=utf-8',
+          });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = 'students-template.csv';
+          a.click();
+          URL.revokeObjectURL(url);
+        }}
+      >
+        下载模板（姓名,学号）
+      </button>
       <label>
         目标班级
         <select value={classId} onChange={(e) => setClassId(e.target.value)}>
@@ -180,10 +197,21 @@ function ClassesPanel({ onChanged }: { onChanged: () => void }) {
       <button
         type="button"
         onClick={() =>
-          void api<{ created: number; skipped: number }>(`/api/v1/classes/${classId}/students/import`, {
+          void api<{
+            created: number;
+            skipped: number;
+            failures?: Array<{ line: number; name: string; studentNo: string | null; reason: string }>;
+          }>(`/api/v1/classes/${classId}/students/import`, {
             method: 'POST',
             body: JSON.stringify({ csv }),
-          }).then((r) => setImportResult(`新建 ${r.created}，跳过 ${r.skipped}`))
+          }).then((r) => {
+            const fail = (r.failures ?? [])
+              .map((f) => `L${f.line} ${f.name}${f.studentNo ? `(${f.studentNo})` : ''} → ${f.reason}`)
+              .join('；');
+            setImportResult(
+              `新建 ${r.created}，跳过 ${r.skipped}${fail ? `。失败明细：${fail}` : ''}`,
+            );
+          })
         }
       >
         导入
@@ -192,6 +220,8 @@ function ClassesPanel({ onChanged }: { onChanged: () => void }) {
     </section>
   );
 }
+
+const ASSIGNMENTS_BC = 'classroom-desk-assignments-refresh';
 
 function AssignmentsPanel({ classId }: { classId: string }) {
   const [title, setTitle] = useState('');
@@ -209,6 +239,24 @@ function AssignmentsPanel({ classId }: { classId: string }) {
 
   useEffect(() => {
     void load().catch(() => setItems([]));
+  }, [classId]);
+
+  // Cross-tab badge sync: BroadcastChannel + short polling while panel open.
+  useEffect(() => {
+    if (!classId) return;
+    const bc = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel(ASSIGNMENTS_BC) : null;
+    const onMsg = () => {
+      void load().catch(() => undefined);
+    };
+    bc?.addEventListener('message', onMsg);
+    const timer = window.setInterval(() => {
+      void load().catch(() => undefined);
+    }, 12_000);
+    return () => {
+      bc?.removeEventListener('message', onMsg);
+      bc?.close();
+      window.clearInterval(timer);
+    };
   }, [classId]);
 
   async function upload(file: File) {
@@ -249,6 +297,11 @@ function AssignmentsPanel({ classId }: { classId: string }) {
     });
     await loadSubs(selected);
     await load(); // refresh pendingReviewCount badges
+    try {
+      new BroadcastChannel(ASSIGNMENTS_BC).postMessage({ type: 'reviewed', classId });
+    } catch {
+      /* ignore */
+    }
   }
 
   return (
@@ -458,7 +511,7 @@ function AttendancePanel({ classId }: { classId: string }) {
       </ul>
 
       <h3>节假日例外</h3>
-      <p className="hint">命中日期不会自动开签到场次。可单条添加，或批量导入校历 CSV（日期,名称）。</p>
+      <p className="hint">命中日期不会自动开签到场次。可单条添加，或拖拽/粘贴校历 CSV（YYYY-MM-DD,名称）。</p>
       <input type="date" value={holidayDate} onChange={(e) => setHolidayDate(e.target.value)} />
       <input value={holidayName} onChange={(e) => setHolidayName(e.target.value)} placeholder="名称" />
       <button
@@ -472,20 +525,72 @@ function AttendancePanel({ classId }: { classId: string }) {
       >
         添加节假日
       </button>
+      <div
+        className="dropzone"
+        onDragOver={(e) => e.preventDefault()}
+        onDrop={(e) => {
+          e.preventDefault();
+          const file = e.dataTransfer.files?.[0];
+          if (!file) return;
+          void file.text().then((text) => {
+            setHolidayCsv(text);
+            void api<{
+              willCreate: number;
+              conflicts: Array<{ holidayDate: string; name: string; existingName: string }>;
+              duplicatesInFile: Array<{ holidayDate: string }>;
+            }>('/api/v1/attendance/holidays/import', {
+              method: 'POST',
+              body: JSON.stringify({ classId, csv: text, dryRun: true }),
+            }).then((r) => {
+              const c = (r.conflicts ?? []).map((x) => `${x.holidayDate}已有「${x.existingName}」`).join('；');
+              const d = (r.duplicatesInFile ?? []).map((x) => x.holidayDate).join('、');
+              setHolidayImportMsg(
+                `预览：将新建 ${r.willCreate}${c ? `；冲突 ${c}` : ''}${d ? `；文件内重复 ${d}` : ''}`,
+              );
+            });
+          });
+        }}
+      >
+        拖拽校历 CSV 到此处预览冲突
+      </div>
       <textarea value={holidayCsv} onChange={(e) => setHolidayCsv(e.target.value)} rows={4} />
       <button
         type="button"
         onClick={() =>
-          void api<{ created: number; skipped: number }>('/api/v1/attendance/holidays/import', {
+          void api<{
+            willCreate: number;
+            conflicts: Array<{ holidayDate: string; name: string; existingName: string }>;
+            duplicatesInFile: Array<{ holidayDate: string }>;
+          }>('/api/v1/attendance/holidays/import', {
             method: 'POST',
-            body: JSON.stringify({ classId, csv: holidayCsv }),
+            body: JSON.stringify({ classId, csv: holidayCsv, dryRun: true }),
           }).then((r) => {
+            const c = (r.conflicts ?? []).map((x) => `${x.holidayDate}已有「${x.existingName}」`).join('；');
+            const d = (r.duplicatesInFile ?? []).map((x) => x.holidayDate).join('、');
+            setHolidayImportMsg(
+              `预览：将新建 ${r.willCreate}${c ? `；冲突 ${c}` : ''}${d ? `；文件内重复 ${d}` : ''}`,
+            );
+          })
+        }
+      >
+        预览冲突
+      </button>
+      <button
+        type="button"
+        onClick={() =>
+          void api<{ created: number; skipped: number; conflicts?: unknown[] }>(
+            '/api/v1/attendance/holidays/import',
+            {
+              method: 'POST',
+              body: JSON.stringify({ classId, csv: holidayCsv }),
+            },
+          ).then((r) => {
             setHolidayImportMsg(`导入成功 ${r.created}，跳过 ${r.skipped}`);
             return load();
           })
         }
       >
-        批量导入校历
+        确认导入校历
       </button>
       {holidayImportMsg ? <p className="hint">{holidayImportMsg}</p> : null}
       <ul>
@@ -661,6 +766,41 @@ function QuestionsPanel({ classId }: { classId: string }) {
       <button type="button" onClick={() => void create()}>
         发布题目
       </button>
+      <div className="row">
+        <button
+          type="button"
+          onClick={() =>
+            void api<string>(`/api/v1/questions/export.csv?classId=${classId}&includeOptions=1`).then((csv) => {
+              const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement('a');
+              a.href = url;
+              a.download = 'question-stats-with-options.csv';
+              a.click();
+              URL.revokeObjectURL(url);
+            })
+          }
+        >
+          导出 CSV（含选项分布）
+        </button>
+        <button
+          type="button"
+          onClick={() =>
+            void api<string>(`/api/v1/questions/export.csv?classId=${classId}&includeOptions=0`).then((csv) => {
+              const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement('a');
+              a.href = url;
+              a.download = 'question-stats.csv';
+              a.click();
+              URL.revokeObjectURL(url);
+            })
+          }
+        >
+          导出 CSV（仅题干统计）
+        </button>
+      </div>
+      <p className="hint">含分布列：optionLabel / optionContent / optionChosenCount（选项被选次数）</p>
       <ul>
         {items.map((q) => (
           <li key={String(q.id)}>
@@ -772,6 +912,7 @@ function SettingsPanel() {
   const [cleanupStats, setCleanupStats] = useState<Array<Record<string, unknown>>>([]);
   const [lastCleanupAt, setLastCleanupAt] = useState<string | null>(null);
   const [lastCleanupKind, setLastCleanupKind] = useState<string | null>(null);
+  const [diag, setDiag] = useState('');
 
   useEffect(() => {
     void api<{
@@ -791,9 +932,38 @@ function SettingsPanel() {
     });
   }, []);
 
+  async function runNetworkDiag() {
+    setDiag('检测中…');
+    const t0 = performance.now();
+    try {
+      const res = await fetch(`${API_BASE}/health`, { cache: 'no-store' });
+      const ms = Math.round(performance.now() - t0);
+      const body = (await res.json()) as {
+        ok?: boolean;
+        backup?: { latestAt?: string | null; ageHours?: number | null };
+      };
+      if (!res.ok || !body.ok) {
+        setDiag(`失败 HTTP ${res.status} · ${ms}ms · ${API_BASE}/health`);
+        return;
+      }
+      const bak = body.backup?.latestAt
+        ? `备份 ${body.backup.latestAt}（${body.backup.ageHours ?? '?'}h 前）`
+        : '尚无备份记录';
+      setDiag(`正常 · 延迟 ${ms}ms · ${bak} · ${API_BASE}`);
+    } catch (e) {
+      const ms = Math.round(performance.now() - t0);
+      setDiag(`无法连接（${ms}ms）：${e instanceof Error ? e.message : 'network_error'} · ${API_BASE}`);
+    }
+  }
+
   return (
     <section>
       <h2>设置</h2>
+      <h3>网络诊断</h3>
+      <button type="button" onClick={() => void runNetworkDiag()}>
+        一键检测 /health
+      </button>
+      {diag ? <p className="hint">{diag}</p> : null}
       <label>
         加分请求有效期（分钟，1–10080）
         <input type="number" value={ttl} onChange={(e) => setTtl(Number(e.target.value))} />
