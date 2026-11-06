@@ -7,7 +7,7 @@
 | /health（学生浏览器） | `http://192.168.31.179:8787/health` | 上课前强制；也可用 `/ready` 看中文页 |
 | /admin | `http://192.168.31.179:8787/admin/` | 教师后台（同域，勿写死 127.0.0.1） |
 | classId | `00d6b800-6628-4d20-a49c-9765325d9eef` | 「指派学生机」复制；与 pack 一致 |
-| 班级名 | `本教室` | 花名册用 Excel 正式导入 |
+| 班级名 | `本教室` | 名单用 Excel 正式导入 |
 | 教师账号 | `teacher` | 设置里改掉初始密码 |
 | 学生 config | `releases/<IP>/config.json` | `pack-classroom-config` 生成 |
 
@@ -20,4 +20,4 @@ node scripts/pack-classroom-config.mjs \
   --apiBase http://192.168.31.179:8787 --classId <classId>
 ```
 
-花名册模板：`docs/templates/roster-import-template.csv`
+名单模板：`docs/templates/roster-import-template.csv`

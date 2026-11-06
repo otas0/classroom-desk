@@ -1,12 +1,12 @@
 # Classroom Desk
 
-学校课堂答题（正确率/错误率）、花名册积分请求、留言工具。学生端 Electron 小窗；教师端 Web；教师机跑 Express + SQLite。无班级码进入：上课前教师把班级 `classId` 指派到每台学生机，学生在花名册点自己的名字。
+学校课堂答题（正确率/错误率）、名单积分请求、留言工具。学生端 Electron 小窗；教师端 Web；教师机跑 Express + SQLite。无班级码进入：上课前教师把班级 `classId` 指派到每台学生机，学生在名单点自己的名字。
 
 ## 从 GitHub 安装（推荐 · 无优盘）
 
 仓库即安装源。教师机 `git clone` 后跑服务；学生机下载 **Releases** 里的 `ClassroomDesk-Setup-*.exe`，再写入教师下发的 `config.json`。
 
-**完整步骤（固定 IP / 防火墙 / 自启 / 花名册 / 验收）：**  
+**完整步骤（固定 IP / 防火墙 / 自启 / 名单 / 验收）：**  
 → **[docs/SETUP_FROM_GITHUB.md](docs/SETUP_FROM_GITHUB.md)**
 
 | 角色 | 怎么装 |
@@ -69,6 +69,10 @@ npm run start --workspace=@classroom-desk/server
 cd ~/Projects/classroom-desk
 npm install
 
+# 一键联调（API + 教师 + 学生；单进程退出会自动重启，不断整链）
+npm run dev:stack
+
+# 或分端启动：
 # API
 JWT_SECRET=dev-secret-change-me \
 ADMIN_PASSWORD=AdminPass123 \
@@ -83,7 +87,9 @@ npm run dev:teacher
 npm run dev:student
 ```
 
-首次启动用环境变量设置教师/管理员密码（见上）；正式课堂 UI **不预填**演示账号。联调口令仅用于本机/e2e。
+联调核对：`npm run verify:1plus1`（需 API 已起）；月末边界：`npm run test:month`；U 盘/host 脚本：`npm run verify:usb-host`。
+
+首次启动用环境变量设置教师/管理员密码（见上）；正式课堂 UI **不预填**演示账号。联调口令仅用于本机/e2e。Electron 默认开启；仅 `ELECTRON_OFF=1` 可跳过（残留 `.electron-off` 会被自动删掉）。
 
 ## Windows 安装包
 

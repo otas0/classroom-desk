@@ -23,7 +23,7 @@ type User = {
 type RosterRow = { id: string; displayName: string; studentNo: string | null; totalPoints: number };
 
 const TABS: { id: TabId; label: string }[] = [
-  { id: 'points', label: '积分' },
+  { id: 'points', label: '名单' },
   { id: 'attendance', label: '签到' },
   { id: 'quiz', label: '答题' },
   { id: 'messages', label: '留言' },
@@ -335,9 +335,9 @@ export function App() {
         {tab === 'attendance' && user && (
           <AttendanceTab showToast={showToast} classId={classId} />
         )}
-        {tab === 'attendance' && !user && <p className="hint">请先在「积分」页点选自己的姓名</p>}
+        {tab === 'attendance' && !user && <p className="hint">请先在「名单」点选自己的姓名</p>}
         {tab === 'quiz' && user && <QuizTab onAnswered={showToast} />}
-        {tab === 'quiz' && !user && <p className="hint">请先在「积分」页点选自己的姓名</p>}
+        {tab === 'quiz' && !user && <p className="hint">请先在「名单」点选自己的姓名</p>}
         {tab === 'messages' && messagesEnabled && user && (
           <MessagesTab
             userId={user.id}
@@ -346,7 +346,7 @@ export function App() {
           />
         )}
         {tab === 'messages' && messagesEnabled && !user && (
-          <p className="hint">请先在「积分」页点选自己的姓名</p>
+          <p className="hint">请先在「名单」点选自己的姓名</p>
         )}
         {tab === 'admin' && (
           <AdminTab
@@ -442,8 +442,8 @@ function PointsPanel({
 
   return (
     <section className="panel">
-      <h1>积分花名册</h1>
-      <p className="hint">点选自己的姓名登录；填写真实理由与分值后提交，由教师审核入账。</p>
+      <h1>本班名单</h1>
+      <p className="hint">点选自己的姓名进入；需要加分时填写理由与分值，由教师审核入账。</p>
       {error ? <p className="error">{error}</p> : null}
       <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="搜索姓名或学号" />
       {user ? (
@@ -666,12 +666,20 @@ function MessagesTab({
     setItems(r.items);
     for (const msg of r.items) {
       if (String(msg.toStudentId ?? '') === userId && !msg.readAt) {
-        await api(`/api/v1/messages/${String(msg.id)}/read`, { method: 'POST', body: '{}' }).catch(() => undefined);
+        try {
+          await api(`/api/v1/messages/${String(msg.id)}/read`, { method: 'POST', body: '{}' });
+        } catch (e) {
+          setErr(e instanceof Error ? e.message : '标记已读失败');
+        }
       }
       const replies = (msg.replies as Array<{ id: string; readAt?: string | null; authorId?: string }>) ?? [];
       for (const reply of replies) {
         if (!reply.readAt && reply.authorId !== userId) {
-          await api(`/api/v1/messages/replies/${reply.id}/read`, { method: 'POST', body: '{}' }).catch(() => undefined);
+          try {
+            await api(`/api/v1/messages/replies/${reply.id}/read`, { method: 'POST', body: '{}' });
+          } catch (e) {
+            setErr(e instanceof Error ? e.message : '标记回复已读失败');
+          }
         }
       }
     }
@@ -751,7 +759,7 @@ function MessagesTab({
       <button type="button" className="secondary" onClick={() => void load().catch((e) => setErr(String(e)))}>
         刷新
       </button>
-      {peers.length === 0 ? <p className="hint">本班暂无其他同学可私信（需老师先导入花名册）。</p> : null}
+      {peers.length === 0 ? <p className="hint">本班暂无其他同学可私信（需老师先导入名单）。</p> : null}
       {items.length === 0 ? <p className="hint">暂无留言</p> : null}
       {items.map((msg) => {
         const fromMe = String(msg.studentId) === userId;

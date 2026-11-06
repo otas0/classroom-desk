@@ -19,7 +19,7 @@ Auth: `Authorization: Bearer <jwt>`（除注明公开接口外）
 | Method | Path | Auth | 说明 |
 |---|---|---|---|
 | POST | `/api/v1/auth/login` | 无 | 教师登录 `{ username, password }` |
-| POST | `/api/v1/auth/student-select` | 无 | 本机 `classId` + 花名册 `studentId` 选身份（无班级码入班） |
+| POST | `/api/v1/auth/student-select` | 无 | 本机 `classId` + 名单 `studentId` 选身份（无班级码入班） |
 | POST | `/api/v1/auth/admin-unlock` | 无 | 校验管理员密码 `{ password }` |
 | GET | `/api/v1/auth/me` | 登录 | 当前用户 |
 | GET | `/api/v1/auth/bootstrap-info` | 无 | 是否已写入管理员哈希等 |

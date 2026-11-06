@@ -92,7 +92,7 @@ async function main() {
   }
   ok('class', classId);
 
-  // ensure students via CSV import
+  // ensure 1 primary student (1班+1生); second peer only for DM
   const csv = `姓名,学号\n联调甲,L001\n联调乙,L002\n`;
   const imp = await req('POST', `/api/v1/classes/${classId}/students/import`, {
     token: teacherToken,
@@ -104,13 +104,14 @@ async function main() {
   );
 
   const students = await req('GET', `/api/v1/classes/${classId}/students`, { token: teacherToken });
-  const studentRow = (students.json?.items ?? students.json ?? []).find((s) => s.studentNo === 'L001')
-    ?? (students.json?.items ?? students.json ?? [])[0];
+  const items = students.json?.items ?? students.json ?? [];
+  const studentRow = items.find((s) => s.studentNo === 'L001') ?? items[0];
+  const peerRow = items.find((s) => s.studentNo === 'L002') ?? items.find((s) => s.id !== studentRow?.id);
   if (!studentRow?.id) {
     fail('roster.student', JSON.stringify(students.json));
     throw new Error('no student');
   }
-  ok('roster.student', `${studentRow.displayName} ${studentRow.studentNo}`);
+  ok('roster.1plus1', `class=${classId} student=${studentRow.displayName}/${studentRow.studentNo}`);
 
   // 3. student select (点名)
   const sel = await req('POST', '/api/v1/auth/student-select', {
@@ -123,7 +124,26 @@ async function main() {
   const studentToken = sel.json.token;
   ok('student.select', sel.json.user?.displayName);
 
-  // 4. 点名加分：学生请求 + 教师确认
+  // 3b. student tabs surface (API each tab needs)
+  {
+    const roster = await req('GET', `/api/v1/classes/${classId}/students`, { token: studentToken });
+    if (!roster.res.ok) fail('tab.points.roster', roster.text);
+    else ok('tab.points.roster', `n=${(roster.json?.items ?? roster.json ?? []).length}`);
+
+    const pub = await req('GET', '/api/v1/settings/public');
+    if (!pub.res.ok) fail('tab.settings.public', pub.text);
+    else ok('tab.settings.public', `messagesEnabled=${pub.json?.messagesEnabled}`);
+
+    const qlist = await req('GET', `/api/v1/questions?classId=${classId}`, { token: studentToken });
+    if (!qlist.res.ok) fail('tab.quiz.list', qlist.text);
+    else ok('tab.quiz.list', `n=${(qlist.json?.items ?? []).length}`);
+
+    const unread = await req('GET', '/api/v1/messages/unread-count', { token: studentToken });
+    if (!unread.res.ok) fail('tab.messages.unread', unread.text);
+    else ok('tab.messages.unread', `count=${unread.json?.count ?? 0}`);
+  }
+
+  // 4. 点名加分：有理由 + 空理由（可选）
   const pr = await req('POST', '/api/v1/point-requests', {
     token: studentToken,
     body: { points: 2, reason: '1+1联调发言' },
@@ -139,7 +159,79 @@ async function main() {
         body: {},
       });
       if (!conf.res.ok) fail('points.confirm', conf.text);
-      else ok('points.confirm', `+${item.points ?? 2}`);
+      else ok('points.confirm', `+${item.points ?? 2} reason=${item.reason || '（有理由）'}`);
+    }
+  }
+
+  const prEmpty = await req('POST', '/api/v1/point-requests', {
+    token: studentToken,
+    body: { points: 1, reason: '' },
+  });
+  if (!prEmpty.res.ok) fail('points.request.emptyReason', prEmpty.text);
+  else {
+    const pending = await req('GET', '/api/v1/point-requests/pending', { token: teacherToken });
+    const item =
+      (pending.json?.items ?? []).find((x) => x.id === prEmpty.json.id) ??
+      (pending.json?.items ?? []).find((x) => !x.reason || String(x.reason).trim() === '');
+    if (!item) fail('points.pending.emptyReason', JSON.stringify(pending.json));
+    else {
+      const shown = String(item.reason || '').trim() === '' ? '（无理由）' : item.reason;
+      const conf = await req('POST', `/api/v1/point-requests/${item.id}/confirm`, {
+        token: teacherToken,
+        body: {},
+      });
+      if (!conf.res.ok) fail('points.confirm.emptyReason', conf.text);
+      else ok('points.optionalReason', `teacher sees ${shown}`);
+    }
+  }
+
+  // 4b. messages: to teacher + peer DM + teacher reply
+  {
+    await req('PATCH', '/api/v1/settings', {
+      token: teacherToken,
+      body: { messagesEnabled: true },
+    });
+
+    const toTeacher = await req('POST', '/api/v1/messages', {
+      token: studentToken,
+      body: { body: '联调给老师', toStudentId: null },
+    });
+    if (!toTeacher.res.ok) fail('messages.toTeacher', toTeacher.text);
+    else ok('messages.toTeacher', toTeacher.json?.id);
+
+    const teacherInbox = await req('GET', `/api/v1/messages?classId=${classId}`, { token: teacherToken });
+    const teacherMsg = (teacherInbox.json?.items ?? []).find((m) => m.id === toTeacher.json?.id);
+    if (!teacherMsg) fail('messages.teacherInbox', JSON.stringify(teacherInbox.json)?.slice(0, 200));
+    else {
+      const reply = await req('POST', `/api/v1/messages/${teacherMsg.id}/replies`, {
+        token: teacherToken,
+        body: { body: '老师已收到' },
+      });
+      if (!reply.res.ok) fail('messages.teacherReply', reply.text);
+      else ok('messages.teacherReply', reply.json?.id ?? 'ok');
+    }
+
+    if (!peerRow?.id) {
+      fail('messages.peer', 'need second student L002');
+    } else {
+      const peerSel = await req('POST', '/api/v1/auth/student-select', {
+        body: { classId, studentId: peerRow.id },
+      });
+      if (!peerSel.res.ok) fail('messages.peer.select', peerSel.text);
+      else {
+        const peerToken = peerSel.json.token;
+        const dm = await req('POST', '/api/v1/messages', {
+          token: studentToken,
+          body: { body: '联调同学私信', toStudentId: peerRow.id },
+        });
+        if (!dm.res.ok) fail('messages.peer.dm', dm.text);
+        else {
+          const peerBox = await req('GET', '/api/v1/messages', { token: peerToken });
+          const found = (peerBox.json?.items ?? []).find((m) => m.id === dm.json?.id);
+          if (!found) fail('messages.peer.inbox', 'dm not visible to peer');
+          else ok('messages.peer.e2e', `${studentRow.studentNo}→${peerRow.studentNo}`);
+        }
+      }
     }
   }
 

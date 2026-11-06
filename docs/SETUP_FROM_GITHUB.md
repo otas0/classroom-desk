@@ -71,7 +71,7 @@ npm run start:server
 ### 5. 上课前在后台完成
 
 1. 登录 → 选班「本教室」（或新建正式班）。  
-2. 花名册：Excel/CSV 导入（可勾选「覆盖导入」，先 `npm run backup:db`）。  
+2. 名单：Excel/CSV 导入（可勾选「覆盖导入」，先 `npm run backup:db`）。  
 3. 「指派学生机」：记下 `apiBase` + `classId`，或下载 `config.json`。  
 4. 「留言」按需关闭（关闭后学生端无留言 Tab）。  
 5. 「设置」修改个人登录密码。
@@ -101,7 +101,7 @@ npm run start:server
 **禁止** `127.0.0.1` / `localhost`。
 
 4. 浏览器先打开 `http://教师IP:8787/ready`，通了再启动客户端。  
-5. 花名册点自己的姓名 → 签到 / 答题 / 加分。
+5. 名单点自己的姓名 → 签到 / 答题 / 加分。
 
 ### 方式 2：Actions Artifact
 
@@ -125,9 +125,9 @@ npm run dist:win
 
 - [ ] 教师机 `/health` 含正确 `lanIps`  
 - [ ] 学生浏览器能打开 `/ready`  
-- [ ] 学生客户端能出花名册并点名  
+- [ ] 学生客户端能出名单并点名  
 - [ ] 关留言时学生端无「留言」Tab  
-- [ ] 教师能导入花名册、发题（含附件）、导出四格式  
+- [ ] 教师能导入名单、发题（含附件）、导出四格式  
 - [ ] 讲台卡已贴：IP + classId  
 
 网络不通先查 AP 隔离：[NETWORK.md](./NETWORK.md)。完整教室互联说明：[CLASSROOM_TEACHER_HOST.md](./CLASSROOM_TEACHER_HOST.md)。

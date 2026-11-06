@@ -6,6 +6,7 @@ export default defineConfig(({ mode }) => ({
   base: mode === 'production' ? '/admin/' : '/',
   plugins: [react()],
   server: {
+    host: '127.0.0.1',
     port: 5174,
     strictPort: true,
     // Dev same-origin: browser calls /api on :5174 → Express :8787

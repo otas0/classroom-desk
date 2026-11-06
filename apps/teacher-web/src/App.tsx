@@ -88,7 +88,7 @@ export function App() {
         </label>
         {(
           [
-            ['roster', '花名册导入'],
+            ['roster', '名单导入'],
             ['questions', '发题/正确率'],
             ['requests', '加分审核'],
             ['attendance', '签到统计'],
@@ -206,7 +206,7 @@ function RosterPanel({
 
   return (
     <section>
-      <h2>班级与花名册</h2>
+      <h2>班级与名单</h2>
       <div className="row">
         <input value={name} onChange={(e) => setName(e.target.value)} placeholder="新班级名称" />
         <button
@@ -223,14 +223,14 @@ function RosterPanel({
       </div>
 
       <h3>批量导入（Excel / CSV）</h3>
-      <p className="hint">支持 .xlsx / .xls / .csv，列：姓名、学号（学号可选）。导入后学生机花名册即可点名加分。</p>
+      <p className="hint">支持 .xlsx / .xls / .csv，列：姓名、学号（学号可选）。导入后学生机名单即可点名加分。</p>
       <label className="row">
         <input type="checkbox" checked={replaceRoster} onChange={(e) => setReplaceRoster(e.target.checked)} />
         覆盖导入（先清空本班现有学生，再写入表格；请先 backup:db）
       </label>
       <label className="dropzone dropzone-wrap">
         <strong>点击选择文件</strong>
-        <p className="hint">或拖入 Excel / CSV（真实上传到本班花名册）</p>
+        <p className="hint">或拖入 Excel / CSV（真实上传到本班名单）</p>
         <input
           type="file"
           accept=".csv,.xlsx,.xls"
@@ -245,13 +245,13 @@ function RosterPanel({
         value={csv}
         onChange={(e) => setCsv(e.target.value)}
         rows={5}
-        placeholder={'姓名,学号\n（粘贴真实花名册）'}
+        placeholder={'姓名,学号\n（粘贴真实名单）'}
       />
       <button
         type="button"
         onClick={() => {
           if (!csv.trim()) {
-            setImportResult('请粘贴真实花名册 CSV，或使用上方文件上传');
+            setImportResult('请粘贴真实名单 CSV，或使用上方文件上传');
             return;
           }
           void api<{
@@ -867,7 +867,7 @@ function RequestsPanel({ classId }: { classId: string }) {
   return (
     <section>
       <h2>加分请求审核</h2>
-      <p className="hint">学生在花名册点选姓名后提交请求；通过后写入积分。</p>
+      <p className="hint">学生在名单点选姓名后提交请求；通过后写入积分。</p>
       {items.length === 0 ? <p>暂无待审请求</p> : null}
       {items.map((item) => (
         <div key={String(item.id)} className="row request-row">

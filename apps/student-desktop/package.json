@@ -1,12 +1,13 @@
 {
   "name": "@classroom-desk/student-desktop",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "Student desktop widget for Classroom Desk",
   "author": "School IT",
   "main": "dist-electron/main.js",
   "scripts": {
-    "dev": "vite",
+    "dev": "node scripts/maybe-dev.mjs",
+    "dev:electron": "FORCE_ELECTRON=1 node scripts/maybe-dev.mjs",
     "build": "tsc -p tsconfig.node.json --noEmit && tsc -p tsconfig.json --noEmit && vite build",
     "preview": "vite preview",
     "dist:win": "node scripts/dist-win.mjs"
@@ -22,7 +23,7 @@
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "@vitejs/plugin-react": "^4.3.4",
-    "electron": "34.5.8",
+    "electron": "^34.5.8",
     "electron-builder": "^26.18.0",
     "typescript": "^5.7.3",
     "vite": "^6.0.7",
@@ -53,7 +54,9 @@
       "artifactName": "ClassroomDesk-Setup-${version}.${ext}",
       "signExecutable": false,
       "signtoolOptions": {
-        "signingHashAlgorithms": ["sha256"],
+        "signingHashAlgorithms": [
+          "sha256"
+        ],
         "rfc3161TimeStampServer": "http://timestamp.digicert.com"
       }
     },

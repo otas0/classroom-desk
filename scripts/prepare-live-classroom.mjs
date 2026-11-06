@@ -168,7 +168,8 @@ fs.writeFileSync(cfgPath, JSON.stringify(identity.studentConfig, null, 2) + '\n'
 
 const rosterTpl = path.join(root, 'docs/templates/roster-import-template.csv');
 fs.mkdirSync(path.dirname(rosterTpl), { recursive: true });
-fs.writeFileSync(rosterTpl, '姓名,学号\n张三,2026001\n李四,2026002\n王五,2026003\n');
+// Header-only template — no fake student names/numbers in repo defaults (no-mock).
+fs.writeFileSync(rosterTpl, '姓名,学号\n');
 
 console.log(JSON.stringify(identity, null, 2));
 console.log('Wrote', path.join(outDir, 'classroom-identity.json'));
