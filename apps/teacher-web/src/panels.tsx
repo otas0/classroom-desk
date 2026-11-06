@@ -13,10 +13,12 @@ export function RosterPanel({
   classId,
   classes,
   onClasses,
+  onRosterChanged,
 }: {
   classId: string;
   classes: ClassItem[];
   onClasses: () => Promise<void>;
+  onRosterChanged?: () => void;
 }) {
   const [name, setName] = useState('');
   const [csv, setCsv] = useState('');
@@ -30,11 +32,14 @@ export function RosterPanel({
   const [awardPts, setAwardPts] = useState(1);
   const [awardReason, setAwardReason] = useState('表扬');
   const [awardMsg, setAwardMsg] = useState('');
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkBusy, setBulkBusy] = useState(false);
 
   async function loadStudents() {
     if (!classId) return;
     const r = await api<{ items: Array<Record<string, unknown>> }>(`/api/v1/classes/${classId}/students`);
     setStudents(r.items);
+    setSelectedIds(new Set());
   }
 
   async function addOneStudent() {
@@ -55,6 +60,7 @@ export function RosterPanel({
       setNewStudentNo('');
       setImportResult(`已添加 ${displayName}`);
       await loadStudents();
+      onRosterChanged?.();
     } catch (e) {
       setImportResult(e instanceof Error ? e.message : '添加失败');
     }
@@ -169,6 +175,7 @@ export function RosterPanel({
       }`,
     );
     await loadStudents();
+    onRosterChanged?.();
   }
 
   return (
@@ -294,6 +301,7 @@ export function RosterPanel({
                 }`,
               );
               await loadStudents();
+              onRosterChanged?.();
             } catch (err) {
               setImportResult(String(err instanceof Error ? err.message : err));
             }
@@ -305,11 +313,63 @@ export function RosterPanel({
       {importResult ? <p className={/失败|错误|无效|损坏/.test(importResult) ? 'error' : 'hint'}>{importResult}</p> : null}
 
       <h3>当前班名单（{classes.find((c) => c.id === classId)?.name ?? ''}）· 按学号排序</h3>
-      <p className="hint">可直接改姓名/学号并保存，或删除学生（相关签到/加分记录一并清除）。</p>
+      <p className="hint">可直接改姓名/学号并保存；勾选后可批量删除（相关签到/加分/作答等一并清除）。</p>
       <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="搜索姓名/学号" />
+      <div className="row bulk-bar">
+        <label className="row">
+          <input
+            type="checkbox"
+            checked={
+              filteredStudents.length > 0 &&
+              filteredStudents.every((s) => selectedIds.has(String(s.id)))
+            }
+            onChange={(e) => {
+              if (e.target.checked) {
+                setSelectedIds(new Set(filteredStudents.map((s) => String(s.id))));
+              } else {
+                setSelectedIds(new Set());
+              }
+            }}
+          />
+          全选当前列表（{filteredStudents.length}）
+        </label>
+        <button
+          type="button"
+          disabled={bulkBusy || selectedIds.size === 0}
+          onClick={() =>
+            void (async () => {
+              const n = selectedIds.size;
+              if (
+                !window.confirm(
+                  `确定批量删除选中的 ${n} 名学生？\n签到、积分流水、作答、留言、加分请求等关联记录也会清除。`,
+                )
+              ) {
+                return;
+              }
+              setBulkBusy(true);
+              try {
+                const r = await api<{ message?: string; deleted: number }>(
+                  `/api/v1/classes/${classId}/students/bulk-delete`,
+                  { method: 'POST', body: JSON.stringify({ ids: [...selectedIds] }) },
+                );
+                setImportResult(r.message ?? `已删除 ${r.deleted} 人`);
+                await loadStudents();
+                onRosterChanged?.();
+              } catch (e) {
+                setImportResult(e instanceof Error ? e.message : '批量删除失败');
+              } finally {
+                setBulkBusy(false);
+              }
+            })()
+          }
+        >
+          批量删除（{selectedIds.size}）
+        </button>
+      </div>
       <table className="data-table">
         <thead>
           <tr>
+            <th style={{ width: '2.5rem' }}>选</th>
             <th>学号</th>
             <th>姓名</th>
             <th>积分</th>
@@ -322,7 +382,17 @@ export function RosterPanel({
               key={String(s.id)}
               classId={classId}
               student={s}
+              selected={selectedIds.has(String(s.id))}
+              onSelectChange={(id, on) => {
+                setSelectedIds((prev) => {
+                  const next = new Set(prev);
+                  if (on) next.add(id);
+                  else next.delete(id);
+                  return next;
+                });
+              }}
               onChanged={() => void loadStudents()}
+              onRemoved={() => onRosterChanged?.()}
               onError={(msg) => setImportResult(msg)}
             />
           ))}
@@ -336,12 +406,18 @@ export function RosterPanel({
 export function StudentRow({
   classId,
   student,
+  selected,
+  onSelectChange,
   onChanged,
+  onRemoved,
   onError,
 }: {
   classId: string;
   student: Record<string, unknown>;
+  selected?: boolean;
+  onSelectChange?: (id: string, selected: boolean) => void;
   onChanged: () => void;
+  onRemoved?: () => void;
   onError: (msg: string) => void;
 }) {
   const id = String(student.id);
@@ -389,6 +465,7 @@ export function StudentRow({
       if (!window.confirm(`确定删除「${name || id}」？\n${impactText}`)) return;
       await api(`/api/v1/classes/${classId}/students/${id}`, { method: 'DELETE' });
       onChanged();
+      onRemoved?.();
     } catch (e) {
       onError(e instanceof Error ? e.message : '删除失败');
     } finally {
@@ -398,6 +475,15 @@ export function StudentRow({
 
   return (
     <tr>
+      <td>
+        <input
+          type="checkbox"
+          checked={Boolean(selected)}
+          disabled={busy}
+          aria-label={`选择 ${name || id}`}
+          onChange={(e) => onSelectChange?.(id, e.target.checked)}
+        />
+      </td>
       <td>
         <input
           value={studentNo}
@@ -438,6 +524,13 @@ export function QuestionsPanel({ classId }: { classId: string }) {
   const [title, setTitle] = useState('');
   const [stem, setStem] = useState('');
   const [type, setType] = useState<'single' | 'multi' | 'bool' | 'blank'>('single');
+  const [correctSingle, setCorrectSingle] = useState<'A' | 'B'>('A');
+  const [correctMulti, setCorrectMulti] = useState<{ A: boolean; B: boolean; C: boolean }>({
+    A: true,
+    B: true,
+    C: false,
+  });
+  const [boolCorrect, setBoolCorrect] = useState<'A' | 'B'>('A');
   const [optA, setOptA] = useState('');
   const [optB, setOptB] = useState('');
   const [optC, setOptC] = useState('');
@@ -459,6 +552,8 @@ export function QuestionsPanel({ classId }: { classId: string }) {
     options: Array<{ label: string; content: string; chosenCount: number }>;
   } | null>(null);
   const [editingQuestion, setEditingQuestion] = useState<Record<string, unknown> | null>(null);
+  const [selectedQIds, setSelectedQIds] = useState<Set<string>>(new Set());
+  const [bulkQBusy, setBulkQBusy] = useState(false);
 
   async function load() {
     const q = showArchived ? '&includeArchived=1' : '';
@@ -466,6 +561,47 @@ export function QuestionsPanel({ classId }: { classId: string }) {
       `/api/v1/questions?classId=${classId}${q}`,
     );
     setItems(r.items);
+    setSelectedQIds(new Set());
+  }
+
+  async function bulkQuestions(action: 'delete' | 'close' | 'reopen' | 'archive' | 'unarchive') {
+    if (selectedQIds.size === 0) return;
+    const labels: Record<typeof action, string> = {
+      delete: '删除',
+      close: '收卷',
+      reopen: '重开',
+      archive: '下线',
+      unarchive: '恢复',
+    };
+    if (action === 'delete') {
+      if (
+        !window.confirm(
+          `确定批量删除选中的 ${selectedQIds.size} 道题？作答记录也会清除。`,
+        )
+      ) {
+        return;
+      }
+    } else if (
+      !window.confirm(`确定对选中的 ${selectedQIds.size} 道题执行「${labels[action]}」？`)
+    ) {
+      return;
+    }
+    setBulkQBusy(true);
+    try {
+      const r = await api<{ message?: string; affected: number }>('/api/v1/questions/bulk', {
+        method: 'POST',
+        body: JSON.stringify({ classId, ids: [...selectedQIds], action }),
+      });
+      setCreateMsg(r.message ?? `已${labels[action]} ${r.affected} 题`);
+      if (action === 'delete' && editingQuestion && selectedQIds.has(String(editingQuestion.id))) {
+        setEditingQuestion(null);
+      }
+      await load();
+    } catch (e) {
+      setCreateMsg(e instanceof Error ? e.message : '批量操作失败');
+    } finally {
+      setBulkQBusy(false);
+    }
   }
 
   useEffect(() => {
@@ -539,13 +675,17 @@ export function QuestionsPanel({ classId }: { classId: string }) {
         attachments,
         closesAt,
         options: [
-          { label: 'A', content: '正确', isCorrect: true },
-          { label: 'B', content: '错误', isCorrect: false },
+          { label: 'A', content: '正确', isCorrect: boolCorrect === 'A' },
+          { label: 'B', content: '错误', isCorrect: boolCorrect === 'B' },
         ],
       };
     } else if (type === 'multi') {
       if (!optA.trim() || !optB.trim() || !optC.trim()) {
-        setCreateMsg('多选题请填写选项 A/B/C 真实内容（默认 A、B 为正确）');
+        setCreateMsg('多选题请填写选项 A/B/C 的真实内容');
+        return;
+      }
+      if (!correctMulti.A && !correctMulti.B && !correctMulti.C) {
+        setCreateMsg('多选题请至少勾选一个正确答案');
         return;
       }
       body = {
@@ -556,14 +696,14 @@ export function QuestionsPanel({ classId }: { classId: string }) {
         attachments,
         closesAt,
         options: [
-          { label: 'A', content: optA.trim(), isCorrect: true },
-          { label: 'B', content: optB.trim(), isCorrect: true },
-          { label: 'C', content: optC.trim(), isCorrect: false },
+          { label: 'A', content: optA.trim(), isCorrect: correctMulti.A },
+          { label: 'B', content: optB.trim(), isCorrect: correctMulti.B },
+          { label: 'C', content: optC.trim(), isCorrect: correctMulti.C },
         ],
       };
     } else {
       if (!optA.trim() || !optB.trim()) {
-        setCreateMsg('单选题请填写选项 A/B 真实内容（默认 A 为正确）');
+        setCreateMsg('单选题请填写选项 A/B 的真实内容');
         return;
       }
       body = {
@@ -574,8 +714,8 @@ export function QuestionsPanel({ classId }: { classId: string }) {
         attachments,
         closesAt,
         options: [
-          { label: 'A', content: optA.trim(), isCorrect: true },
-          { label: 'B', content: optB.trim(), isCorrect: false },
+          { label: 'A', content: optA.trim(), isCorrect: correctSingle === 'A' },
+          { label: 'B', content: optB.trim(), isCorrect: correctSingle === 'B' },
         ],
       };
     }
@@ -588,6 +728,9 @@ export function QuestionsPanel({ classId }: { classId: string }) {
     setBlankKey('');
     setClosesAtLocal('');
     setAttachments([]);
+    setCorrectSingle('A');
+    setCorrectMulti({ A: true, B: true, C: false });
+    setBoolCorrect('A');
     setCreateMsg('已发布');
     await load();
   }
@@ -652,14 +795,73 @@ export function QuestionsPanel({ classId }: { classId: string }) {
       {type === 'blank' ? (
         <input value={blankKey} onChange={(e) => setBlankKey(e.target.value)} placeholder="参考答案（必填）" />
       ) : type === 'bool' ? (
-        <p className="hint">判断题选项固定为「正确 / 错误」</p>
+        <>
+          <p className="hint">判断题选项固定为「正确 / 错误」</p>
+          <div className="row" role="radiogroup" aria-label="正确答案">
+            <span>正确答案：</span>
+            <label className="choice">
+              <input
+                type="radio"
+                name="q-bool-correct"
+                checked={boolCorrect === 'A'}
+                onChange={() => setBoolCorrect('A')}
+              />
+              正确
+            </label>
+            <label className="choice">
+              <input
+                type="radio"
+                name="q-bool-correct"
+                checked={boolCorrect === 'B'}
+                onChange={() => setBoolCorrect('B')}
+              />
+              错误
+            </label>
+          </div>
+        </>
       ) : (
         <>
-          <input value={optA} onChange={(e) => setOptA(e.target.value)} placeholder="选项 A（正确，必填）" />
+          <input value={optA} onChange={(e) => setOptA(e.target.value)} placeholder="选项 A（必填）" />
           <input value={optB} onChange={(e) => setOptB(e.target.value)} placeholder="选项 B（必填）" />
           {type === 'multi' ? (
             <input value={optC} onChange={(e) => setOptC(e.target.value)} placeholder="选项 C（必填）" />
           ) : null}
+          {type === 'single' ? (
+            <div className="row" role="radiogroup" aria-label="正确答案">
+              <span>正确答案</span>
+              <label className="choice">
+                <input
+                  type="radio"
+                  name="q-correct-single"
+                  checked={correctSingle === 'A'}
+                  onChange={() => setCorrectSingle('A')}
+                />
+                A
+              </label>
+              <label className="choice">
+                <input
+                  type="radio"
+                  name="q-correct-single"
+                  checked={correctSingle === 'B'}
+                  onChange={() => setCorrectSingle('B')}
+                />
+                B
+              </label>
+            </div>
+          ) : (
+            <div className="row">
+              {(['A', 'B', 'C'] as const).map((letter) => (
+                <label key={letter} className="choice">
+                  <input
+                    type="checkbox"
+                    checked={correctMulti[letter]}
+                    onChange={(e) => setCorrectMulti((prev) => ({ ...prev, [letter]: e.target.checked }))}
+                  />
+                  {letter} 正确
+                </label>
+              ))}
+            </div>
+          )}
         </>
       )}
       <label>
@@ -702,29 +904,73 @@ export function QuestionsPanel({ classId }: { classId: string }) {
         发布题目
       </button>
       {createMsg ? <p className="hint">{createMsg}</p> : null}
+      <div className="row bulk-bar">
+        <label className="row">
+          <input
+            type="checkbox"
+            checked={items.length > 0 && items.every((q) => selectedQIds.has(String(q.id)))}
+            onChange={(e) => {
+              if (e.target.checked) setSelectedQIds(new Set(items.map((q) => String(q.id))));
+              else setSelectedQIds(new Set());
+            }}
+          />
+          全选（{items.length}）· 已选 {selectedQIds.size}
+        </label>
+        <button type="button" disabled={bulkQBusy || selectedQIds.size === 0} onClick={() => void bulkQuestions('close')}>
+          批量收卷
+        </button>
+        <button type="button" className="secondary" disabled={bulkQBusy || selectedQIds.size === 0} onClick={() => void bulkQuestions('reopen')}>
+          批量重开
+        </button>
+        <button type="button" className="secondary" disabled={bulkQBusy || selectedQIds.size === 0} onClick={() => void bulkQuestions('archive')}>
+          批量下线
+        </button>
+        <button type="button" className="secondary" disabled={bulkQBusy || selectedQIds.size === 0} onClick={() => void bulkQuestions('unarchive')}>
+          批量恢复
+        </button>
+        <button type="button" disabled={bulkQBusy || selectedQIds.size === 0} onClick={() => void bulkQuestions('delete')}>
+          批量删除
+        </button>
+      </div>
       <ul className="question-list">
         {items.map((q) => {
-          const active = editingQuestion && String(editingQuestion.id) === String(q.id);
+          const qid = String(q.id);
+          const active = editingQuestion && String(editingQuestion.id) === qid;
           const closed = Boolean(q.closed);
           const archived = Boolean(q.archived);
           return (
             <li
-              key={String(q.id)}
+              key={qid}
               className={`question-item${active ? ' active' : ''}`}
               tabIndex={0}
               role="button"
               onClick={() => {
                 setEditingQuestion(q);
-                void showStats(String(q.id), String(q.title));
+                void showStats(qid, String(q.title));
               }}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' || e.key === ' ') {
                   e.preventDefault();
                   setEditingQuestion(q);
-                  void showStats(String(q.id), String(q.title));
+                  void showStats(qid, String(q.title));
                 }
               }}
             >
+              <label className="choice" onClick={(e) => e.stopPropagation()}>
+                <input
+                  type="checkbox"
+                  checked={selectedQIds.has(qid)}
+                  onChange={(e) => {
+                    setSelectedQIds((prev) => {
+                      const next = new Set(prev);
+                      if (e.target.checked) next.add(qid);
+                      else next.delete(qid);
+                      return next;
+                    });
+                  }}
+                  aria-label={`选择 ${String(q.title)}`}
+                />
+              </label>
               <span className="title">
                 [{String(q.type)}] {String(q.title)}
                 {closed ? ' · 已收卷' : ''}
@@ -1049,7 +1295,7 @@ export function AttendancePanel({ classId }: { classId: string }) {
 
   return (
     <section>
-      <h2>签到统计（月）</h2>
+      <h2>出勤报表（月）</h2>
       <p className="hint">
         按教师机本地时区自然月统计（非 UTC）。学生端点「签到」写入今日场次。
       </p>

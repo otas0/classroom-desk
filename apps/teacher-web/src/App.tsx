@@ -32,7 +32,7 @@ const PREP_ITEMS: Array<[PrepTab, string]> = [
   ['roster', '名单'],
   ['questions', '发题'],
   ['requests', '加分'],
-  ['attendance', '签到'],
+  ['attendance', '出勤报表'],
   ['exports', '导出'],
   ['messages', '留言'],
   ['settings', '设置'],
@@ -57,6 +57,7 @@ export function App() {
   const [projectionMode, setProjectionMode] = useState(false);
   const [studentCount, setStudentCount] = useState(0);
   const [hasApiBase, setHasApiBase] = useState(false);
+  const [setupTick, setSetupTick] = useState(0);
   const [pendingCount, setPendingCount] = useState(0);
 
   async function loadClasses() {
@@ -86,7 +87,7 @@ export function App() {
     return () => {
       cancelled = true;
     };
-  }, [tokenReady, tab]);
+  }, [tokenReady, tab, setupTick]);
 
   useEffect(() => {
     if (!tokenReady || !classId) {
@@ -104,7 +105,7 @@ export function App() {
     return () => {
       cancelled = true;
     };
-  }, [tokenReady, classId, tab, prepTab]);
+  }, [tokenReady, classId, tab, prepTab, setupTick]);
 
   useEffect(() => {
     if (!tokenReady || !classId || mustChangePassword) {
@@ -362,6 +363,7 @@ export function App() {
               classes={classes}
               studentCount={studentCount}
               hasApiBase={hasApiBase}
+              refreshTick={setupTick}
               onGo={openDest}
               onCreateClass={() => openDest('prep')}
             />
@@ -374,9 +376,16 @@ export function App() {
                   setTab('prep');
                 }}
                 onGoAssign={() => setTab('assign')}
+                onSetupChanged={() => setSetupTick((n) => n + 1)}
               />
             )}
-            {tab === 'assign' && <ClassroomConnect classId={classId} classes={classes} />}
+            {tab === 'assign' && (
+              <ClassroomConnect
+                classId={classId}
+                classes={classes}
+                onApiBaseSaved={() => setSetupTick((n) => n + 1)}
+              />
+            )}
             {tab === 'prep' && (
               <>
                 <div className="prep-subnav">
@@ -392,7 +401,12 @@ export function App() {
                   ))}
                 </div>
                 {prepTab === 'roster' && (
-                  <RosterPanel classId={classId} classes={classes} onClasses={loadClasses} />
+                  <RosterPanel
+                    classId={classId}
+                    classes={classes}
+                    onClasses={loadClasses}
+                    onRosterChanged={() => setSetupTick((n) => n + 1)}
+                  />
                 )}
                 {prepTab === 'questions' && <QuestionsPanel classId={classId} />}
                 {prepTab === 'requests' && <RequestsPanel classId={classId} />}

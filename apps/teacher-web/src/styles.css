@@ -225,6 +225,19 @@ button.linkish,
   border-top: 1px solid var(--line-soft);
 }
 
+section label.choice {
+  display: inline-flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  width: auto;
+  font-size: 14px;
+}
+
+section label.choice input {
+  width: auto;
+}
+
 .hint {
   color: var(--muted);
   font-size: 12px;
@@ -420,8 +433,19 @@ button.linkish,
   line-height: 1.45;
 }
 
-.data-table {
-  width: 100%;
+.bulk-bar {
+  flex-wrap: wrap;
+  gap: 0.5rem 0.75rem;
+  align-items: center;
+  margin: 0.5rem 0 0.75rem;
+}
+
+.question-item .choice {
+  flex: 0 0 auto;
+  margin-right: 0.25rem;
+}
+
+.data-table {  width: 100%;
   border-collapse: collapse;
   margin-top: 12px;
 }

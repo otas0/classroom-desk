@@ -1,53 +1,35 @@
-# 纯本地部署 · U 盘联调检查表（无签名）
+# 可选：U 盘 / 内网共享落盘清单（任意教室）
 
-本教室联调身份见 [CLASSROOM_IDENTITY.example.md](./CLASSROOM_IDENTITY.example.md)。  
-U 盘目录示例：`releases/192.168.31.179/`（exe 已 gitignore，本机生成）。
+> 优盘不是必须。优先用 [SETUP_FROM_GITHUB.md](./SETUP_FROM_GITHUB.md) 从 GitHub Releases 安装。  
+> 下列路径仅为**本机落盘示例**，请改成你的教室目录名（不要提交真实 exe 进 git）。
 
-## 已在本机备好（可连学生机）
+建议目录：`releases/<教师机IP或教室代号>/`（exe 已 gitignore）。
 
-- 班级：**本教室** · `classId=00d6b800-6628-4d20-a49c-9765325d9eef`
-- `apiBase=http://192.168.31.179:8787`（已写入 settings + student `config.json`）
-- 名单/题目/留言：禁止预填假名；空库显示空状态；仅真实导入与真实发题
-- 留言默认关；签到记为到课（无学校作息迟到配置）
-- 教师请在设置里改成个人密码
-- `releases/**` 二进制不入库；只提交 `releases/README.md`
+## 原则
 
-清库重生：`npm run prepare:live -- --apiBase http://192.168.31.179:8787 --className 本教室`
+- `apiBase=http://<教师机局域网IP>:8787`（写入 settings + 学生 `config.json`）  
+- 名单/题目/留言：**禁止预填假名**；空库显示空状态；仅真实导入与真实发题  
+- 未签名包：SmartScreen 步骤见 [SMARTSCREEN.md](./SMARTSCREEN.md)
 
-## A. U 盘
+清库重生（改成自己的 IP / 班名）：
 
-- [ ] Actions 下最新 `classroom-desk-windows-setup`（或用 `releases/<IP>/` 已有 exe）
-- [ ] 同目录：`config.json`、`PRINT_DESK_CARD.md`、身份 JSON、名单模板
+```bash
+npm run prepare:live -- --apiBase http://192.168.x.x:8787 --className 高一(3)班
+```
 
-## B. 教师机 Windows
+## 教师机勾选
 
-- [ ] 固定 IP：`windows-set-fixed-ip.ps1`（默认 192.168.31.179）
-- [ ] `windows-teacher-host.ps1` + `windows-autostart-server.ps1`
-- [ ] 重启服务加载最新 API 后：`/health` 含 `suggestedApiBase` / `lanIps`
-- [ ] `npm run backup:db` → `lastError` 空
+- [ ] 固定 IP（`windows-set-fixed-ip.ps1`，参数用本教室地址）  
+- [ ] 防火墙放行 8787 + 开机自启  
+- [ ] `.env` 中 `JWT_SECRET` / 教师密码已自设  
+- [ ] `npm run start:server`，`/health` 含正确 `lanIps`  
+- [ ] 后台导入真实名单、指派并下载 `config.json`  
+- [ ] `npm run backup:db`，`/health` 无 `lastError`
 
-## C. 学生机
+## 学生机勾选
 
-- [ ] 浏览器：`http://192.168.31.179:8787/health` 或 `/ready`
-- [ ] 时钟与教师机一致
-- [ ] 安装 exe 或写入 `config.json`（禁止 127.0.0.1）
-- [ ] 名单点自己的名；关留言时无「留言」Tab
+- [ ] 浏览器：`http://<教师机IP>:8787/ready` 通过  
+- [ ] 安装 Release exe + 本班 `config.json`  
+- [ ] 点名「确认是我」后可答题  
 
-## C2. 锁退出（安装态必测）
-
-详见 [EXIT_LOCK_MDM.md](./EXIT_LOCK_MDM.md)。静态检查：`npm run verify:exit-lock-packaged`。
-
-- [ ] 安装后标题栏常显「已锁定」；关窗 / Alt+F4 无效
-- [ ] 教师「批量允许关闭」前有二次确认；学生标题栏出现「可退出 m:ss」倒计时后可关
-- [ ] 教师「重新锁定」后再次无法关闭
-- [ ] 本机「设置」输入解除码可退出；错误码多次后提示限流
-- [ ] 教师设置页能看到退出锁定审计（batch_unlock / relock / code_*）
-- [ ] （可选）MDM/分配访问挡住任务管理器结束进程
-
-## D. 课堂核对
-
-- [ ] 导出四格式人工对列
-- [ ] 正式班 Excel 覆盖导入（教师端勾选「覆盖导入」；先 `backup:db`；模板见 `releases/.../ops-verify/正式班-名单.xlsx`）
-- [ ] 损坏 `.xlsx` → 中文「文件损坏…」（需新版 server）
-- [ ] 月末/月初出勤边界
-- [ ] 打印讲台卡并手写 IP/classId
+网络不通先查 [NETWORK.md](./NETWORK.md)。退出锁定说明见 [EXIT_LOCK_MDM.md](./EXIT_LOCK_MDM.md)。

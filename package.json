@@ -1,7 +1,7 @@
 {
   "name": "classroom-desk",
   "private": true,
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "School classroom homework, attendance, and points toolkit",
   "workspaces": [
     "apps/*",

@@ -14,13 +14,16 @@ export function SessionHome({
   onEnterProjection,
   onGoPrep,
   onGoAssign,
+  onSetupChanged,
 }: {
   classId: string;
   onEnterProjection: () => void;
   onGoPrep?: () => void;
   onGoAssign?: () => void;
+  onSetupChanged?: () => void;
 }) {
   const [kind, setKind] = useState<'bool' | 'blank'>('bool');
+  const [boolCorrect, setBoolCorrect] = useState<'A' | 'B'>('A');
   const [title, setTitle] = useState('');
   const [stem, setStem] = useState('');
   const [blankKey, setBlankKey] = useState('');
@@ -140,8 +143,8 @@ export function SessionHome({
             type: 'bool',
             closesAt,
             options: [
-              { label: 'A', content: '正确', isCorrect: true },
-              { label: 'B', content: '错误', isCorrect: false },
+              { label: 'A', content: '正确', isCorrect: boolCorrect === 'A' },
+              { label: 'B', content: '错误', isCorrect: boolCorrect === 'B' },
             ],
           };
     if (kind === 'blank' && !blankKey.trim()) {
@@ -157,6 +160,7 @@ export function SessionHome({
       setClosesAtLocal('');
       setPublishMsg('已发布');
       setBoardKey((n) => n + 1);
+      onSetupChanged?.();
     } catch (e) {
       setPublishMsg(e instanceof Error ? e.message : '发布失败');
     } finally {
@@ -239,7 +243,30 @@ export function SessionHome({
         {kind === 'blank' ? (
           <input value={blankKey} onChange={(e) => setBlankKey(e.target.value)} placeholder="参考答案（必填）" />
         ) : (
-          <p className="hint">判断题选项固定为「正确 / 错误」</p>
+          <>
+            <p className="hint">判断题选项固定为「正确 / 错误」</p>
+            <div className="row" role="radiogroup" aria-label="正确答案">
+              <span>正确答案：</span>
+              <label className="choice">
+                <input
+                  type="radio"
+                  name="session-bool-correct"
+                  checked={boolCorrect === 'A'}
+                  onChange={() => setBoolCorrect('A')}
+                />
+                正确
+              </label>
+              <label className="choice">
+                <input
+                  type="radio"
+                  name="session-bool-correct"
+                  checked={boolCorrect === 'B'}
+                  onChange={() => setBoolCorrect('B')}
+                />
+                错误
+              </label>
+            </div>
+          </>
         )}
         <label>
           截止时间（可选，到点自动收卷）

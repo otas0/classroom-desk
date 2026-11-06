@@ -3,7 +3,15 @@ import QRCode from 'qrcode';
 import { API_BASE, api } from '../api';
 import type { ClassItem } from '../types';
 
-export function ClassroomConnect({ classId, classes }: { classId: string; classes: ClassItem[] }) {
+export function ClassroomConnect({
+  classId,
+  classes,
+  onApiBaseSaved,
+}: {
+  classId: string;
+  classes: ClassItem[];
+  onApiBaseSaved?: () => void;
+}) {
   const [apiBase, setApiBase] = useState('');
   const [lanIps, setLanIps] = useState<string[]>([]);
   const [healthHint, setHealthHint] = useState('');
@@ -40,6 +48,7 @@ export function ClassroomConnect({ classId, classes }: { classId: string; classe
       body: JSON.stringify({ classroomApiBase: base }),
     });
     setHealthHint(`${base}/health`);
+    onApiBaseSaved?.();
   }
 
   function configObject() {

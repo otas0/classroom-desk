@@ -2,18 +2,18 @@
 
 学校课堂答题（正确率/错误率）、名单积分请求、留言工具。学生端 Electron 小窗；教师端 Web；教师机跑 Express + SQLite。无班级码进入：上课前教师把班级 `classId` 指派到每台学生机，学生在名单点自己的名字。
 
-## 从 GitHub 安装（推荐 · 无优盘）
+## 从 GitHub 安装（推荐 · 任意机房 · 无优盘 · 可未签名）
 
-仓库即安装源。教师机 `git clone` 后跑服务；学生机下载 **Releases** 里的 `ClassroomDesk-Setup-*.exe`，再写入教师下发的 `config.json`。
+开源自托管：任意教室一台教师机跑 API，学生机装客户端并写入**本教室**的 `apiBase` + `classId`。不绑定固定示范 IP。
 
-**完整步骤（固定 IP / 防火墙 / 自启 / 名单 / 验收）：**  
+**完整说明书（固定 IP / 防火墙 / 自启 / 名单 / SmartScreen / 验收）：**  
 → **[docs/SETUP_FROM_GITHUB.md](docs/SETUP_FROM_GITHUB.md)**
 
 | 角色 | 怎么装 |
 |---|---|
-| 教师机 | `git clone https://github.com/otas0/classroom-desk.git` → `npm install` → `build:teacher` → Windows 脚本固定 IP → `npm run start:server` → 浏览器 `/admin/` |
-| 学生机 | [Releases](https://github.com/otas0/classroom-desk/releases) 下 exe（或 Actions 产物）→ 配置 `apiBase`+`classId` → 浏览器先开 `/ready` |
-| 发版 | 打标签 `git tag v0.1.0 && git push origin v0.1.0`，Actions `Release` 会把 exe 挂到 Release 页 |
+| 教师机 | `git clone` → `npm install` → `build:teacher` → 按本教室改 Windows 固定 IP 脚本 → `npm run start:server` → `/admin/` |
+| 学生机 | [Releases](https://github.com/otas0/classroom-desk/releases) 下 `ClassroomDesk-Setup-*.exe` + `config.example.json` 改成 `config.json` → 浏览器先验 `/ready` |
+| 发版 | `git tag v0.1.2 && git push origin v0.1.2` → Actions `Release` 挂 exe（无证书则为未签名包） |
 
 - 需求：[docs/REQUIREMENTS.md](docs/REQUIREMENTS.md)
 - API：[docs/API.md](docs/API.md)

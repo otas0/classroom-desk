@@ -1284,6 +1284,13 @@ function playNewQuestionChime() {
   }
 }
 
+function optionQuestionSig(q: Record<string, unknown>): string {
+  const opts = (q.options as Array<{ id?: string; label?: string; content?: string }>) ?? [];
+  return `${String(q.stem ?? '')}|${opts
+    .map((o) => `${String(o.id ?? '')}:${String(o.label ?? '')}:${String(o.content ?? '')}`)
+    .join(',')}`;
+}
+
 function QuizTab({
   onAnswered,
   onOpenCount,
@@ -1294,6 +1301,8 @@ function QuizTab({
   const [items, setItems] = useState<Array<Record<string, unknown>>>([]);
   const [multi, setMulti] = useState<Record<string, string[]>>({});
   const [blank, setBlank] = useState<Record<string, string>>({});
+  const [picked, setPicked] = useState<Record<string, string>>({});
+  const questionSigRef = useRef<Record<string, string>>({});
   const [err, setErr] = useState('');
   const [busyId, setBusyId] = useState<string | null>(null);
   const [onlyWrongRetry, setOnlyWrongRetry] = useState(false);
@@ -1312,6 +1321,29 @@ function QuizTab({
     }, 5000);
     return () => window.clearInterval(t);
   }, []);
+
+  useEffect(() => {
+    const nextSig: Record<string, string> = {};
+    for (const q of items) nextSig[String(q.id)] = optionQuestionSig(q);
+    setPicked((prev) => {
+      let changed = false;
+      const next: Record<string, string> = {};
+      for (const [id, optId] of Object.entries(prev)) {
+        const sig = nextSig[id];
+        const prevSig = questionSigRef.current[id];
+        const q = items.find((item) => String(item.id) === id);
+        const opts = (q?.options as Array<{ id: string }>) ?? [];
+        if (!sig || (prevSig && prevSig !== sig) || !opts.some((o) => o.id === optId)) {
+          changed = true;
+          continue;
+        }
+        next[id] = optId;
+      }
+      if (Object.keys(prev).length !== Object.keys(next).length) changed = true;
+      return changed ? next : prev;
+    });
+    questionSigRef.current = nextSig;
+  }, [items]);
 
   const ordered = useMemo(() => {
     let list = [...items];
@@ -1343,6 +1375,12 @@ function QuizTab({
             ? '回答正确'
             : '回答错误',
       );
+      setPicked((prev) => {
+        if (prev[id] == null) return prev;
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
       await load();
     } catch (e) {
       onAnswered(e instanceof Error ? e.message : '提交失败');
@@ -1418,19 +1456,29 @@ function QuizTab({
             ) : null}
             {canRetryWrong ? <p className="hint">上次错误 · 可再答一次</p> : null}
             {closed && !canAnswer ? <p className="hint">已收卷，不能再交</p> : null}
-            {(type === 'single' || type === 'bool') && canAnswer
-              ? opts.map((opt) => (
+            {(type === 'single' || type === 'bool') && canAnswer ? (
+              <>
+                {opts.map((opt) => (
                   <button
                     key={opt.id}
                     type="button"
-                    className="option-btn"
+                    className={picked[id] === opt.id ? 'option-btn selected' : 'option-btn'}
                     disabled={busy}
-                    onClick={() => void answer(id, { optionIds: [opt.id] })}
+                    onClick={() => setPicked((prev) => ({ ...prev, [id]: opt.id }))}
                   >
                     {opt.label}. {opt.content}
                   </button>
-                ))
-              : null}
+                ))}
+                <button
+                  type="button"
+                  className="primary"
+                  disabled={busy || !picked[id]}
+                  onClick={() => void answer(id, { optionIds: [picked[id]!] })}
+                >
+                  {busy ? '提交中…' : '确认提交'}
+                </button>
+              </>
+            ) : null}
             {type === 'multi' && canAnswer ? (
               <>
                 {opts.map((opt) => {

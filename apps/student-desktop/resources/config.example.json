@@ -1,5 +1,5 @@
 {
-  "apiBase": "http://192.168.31.179:8787",
-  "classId": "1c8d291d-012c-468f-a855-bfbc166b130e",
-  "comment": "Example for this classroom. Copy to config.json on each student PC. Never use 127.0.0.1."
+  "apiBase": "http://YOUR_TEACHER_LAN_IP:8787",
+  "classId": "YOUR_CLASS_ID",
+  "comment": "Copy to config.json on each student PC. Replace IP and classId for THIS classroom. Never use 127.0.0.1."
 }

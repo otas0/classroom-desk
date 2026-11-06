@@ -1,23 +1,23 @@
-# 本教室身份（复制为 CLASSROOM_IDENTITY.md 后手写，勿提交密码）
+# 教室身份卡（示例模板 · 请复制后改成本班）
 
-| 项 | 本机联调已填（可改） | 注意 |
+> 此文件是**写法示例**，不是某一间真实教室的公开口令本。  
+> 请复制为校内私有笔记（勿把真实密码推进公开仓库）。
+
+| 项 | 填写 | 说明 |
 |---|---|---|
-| 教师机局域网 IP | `192.168.31.179` | 路由器 DHCP 预留 / 静态 IP |
-| apiBase | `http://192.168.31.179:8787` | 学生机 **禁止** `127.0.0.1` |
-| /health（学生浏览器） | `http://192.168.31.179:8787/health` | 上课前强制；也可用 `/ready` 看中文页 |
-| /admin | `http://192.168.31.179:8787/admin/` | 教师后台（同域，勿写死 127.0.0.1） |
-| classId | `00d6b800-6628-4d20-a49c-9765325d9eef` | 「指派学生机」复制；与 pack 一致 |
-| 班级名 | `本教室` | 名单用 Excel 正式导入 |
-| 教师账号 | `teacher` | 设置里改掉初始密码 |
-| 学生 config | `releases/<IP>/config.json` | `pack-classroom-config` 生成 |
+| 教师机局域网 IP | `192.168.x.x` | 路由器 DHCP 预留或静态 IP |
+| apiBase | `http://192.168.x.x:8787` | 学生机禁止 `127.0.0.1` |
+| /health · /ready | `http://192.168.x.x:8787/ready` | 上课前学生浏览器强制检测 |
+| /admin | `http://192.168.x.x:8787/admin/` | 教师后台（可用教师机本机 `127.0.0.1`） |
+| classId | （登录后台 → 指派学生机复制） | UUID |
+| 班级显示名 | （自定） | 如「高一(3)班」 |
+| 教师账号 | （首启环境变量） | 登录后立即改个人密码 |
 
-清假数据并重生：
+清库并按本教室重生（示例命令，改 IP/班名）：
 
 ```bash
-TEACHER_PASSWORD='你的密码' node scripts/prepare-live-classroom.mjs \
-  --apiBase http://192.168.31.179:8787 --className 本教室
-node scripts/pack-classroom-config.mjs \
-  --apiBase http://192.168.31.179:8787 --classId <classId>
+npm run prepare:live -- \
+  --apiBase http://192.168.x.x:8787 --className 高一(3)班
 ```
 
-名单模板：`docs/templates/roster-import-template.csv`
+完整开源安装步骤：[SETUP_FROM_GITHUB.md](./SETUP_FROM_GITHUB.md)。

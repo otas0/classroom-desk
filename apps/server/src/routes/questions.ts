@@ -330,6 +330,103 @@ questionsRouter.delete(
   },
 );
 
+/** Bulk question actions: delete | close | reopen | archive | unarchive */
+questionsRouter.post(
+  '/api/v1/questions/bulk',
+  requireAuth,
+  requireRoles('teacher', 'admin'),
+  (req: AuthedRequest, res) => {
+    const classId = String(req.body?.classId ?? '').trim();
+    const action = String(req.body?.action ?? '').trim();
+    const rawIds = Array.isArray(req.body?.ids) ? (req.body.ids as unknown[]) : [];
+    const ids = [
+      ...new Set(
+        rawIds
+          .map((x) => String(x ?? '').trim())
+          .filter((x): x is string => x.length > 0),
+      ),
+    ];
+    if (!classId) {
+      res.status(400).json({ error: 'class_id_required', message: '缺少班级' });
+      return;
+    }
+    if (ids.length === 0) {
+      res.status(400).json({ error: 'ids_required', message: '请选择题目' });
+      return;
+    }
+    if (ids.length > 200) {
+      res.status(400).json({ error: 'too_many', message: '单次最多处理 200 题' });
+      return;
+    }
+    if (!['delete', 'close', 'reopen', 'archive', 'unarchive'].includes(action)) {
+      res.status(400).json({
+        error: 'invalid_action',
+        message: 'action 须为 delete / close / reopen / archive / unarchive',
+      });
+      return;
+    }
+
+    const db = openDb();
+    const at = nowIso();
+    let affected = 0;
+    const missing: string[] = [];
+    db.exec('BEGIN');
+    try {
+      for (const id of ids) {
+        const row = db
+          .prepare(`SELECT id FROM questions WHERE id = ? AND class_id = ?`)
+          .get(id, classId) as { id: string } | undefined;
+        if (!row) {
+          missing.push(id);
+          continue;
+        }
+        if (action === 'delete') {
+          db.prepare(`DELETE FROM questions WHERE id = ?`).run(id);
+          affected += 1;
+        } else if (action === 'close') {
+          const info = db.prepare(`UPDATE questions SET closed_at = ? WHERE id = ?`).run(at, id);
+          if (info.changes) affected += 1;
+        } else if (action === 'reopen') {
+          const info = db
+            .prepare(
+              `UPDATE questions SET closed_at = NULL, published = 1, archived = 0 WHERE id = ?`,
+            )
+            .run(id);
+          if (info.changes) affected += 1;
+        } else if (action === 'archive') {
+          const info = db.prepare(`UPDATE questions SET archived = 1 WHERE id = ?`).run(id);
+          if (info.changes) affected += 1;
+        } else if (action === 'unarchive') {
+          const info = db.prepare(`UPDATE questions SET archived = 0, published = 1 WHERE id = ?`).run(id);
+          if (info.changes) affected += 1;
+        }
+      }
+      db.exec('COMMIT');
+    } catch (e) {
+      db.exec('ROLLBACK');
+      throw e;
+    }
+
+    const labels: Record<string, string> = {
+      delete: '删除',
+      close: '收卷',
+      reopen: '重开',
+      archive: '下线',
+      unarchive: '恢复',
+    };
+    res.json({
+      ok: true,
+      action,
+      affected,
+      requested: ids.length,
+      missing,
+      message: missing.length
+        ? `已${labels[action]} ${affected} 题，${missing.length} 题不在本班`
+        : `已${labels[action]} ${affected} 题`,
+    });
+  },
+);
+
 function refreshErrorStats(db: ReturnType<typeof openDb>, questionId: string, at: string): void {
   const stats = db
     .prepare(

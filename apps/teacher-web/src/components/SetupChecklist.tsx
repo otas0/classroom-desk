@@ -7,6 +7,7 @@ export function SetupChecklist({
   classes,
   studentCount,
   hasApiBase,
+  refreshTick = 0,
   onGo,
   onCreateClass,
 }: {
@@ -14,6 +15,7 @@ export function SetupChecklist({
   classes: ClassItem[];
   studentCount: number;
   hasApiBase: boolean;
+  refreshTick?: number;
   onGo: (tab: 'prep' | 'assign' | 'session') => void;
   onCreateClass?: () => void;
 }) {
@@ -42,7 +44,7 @@ export function SetupChecklist({
     return () => {
       cancelled = true;
     };
-  }, [classId]);
+  }, [classId, refreshTick]);
 
   const rosterDone = classes.length > 0 && Boolean(classId) && studentCount > 0;
   const assignDone = hasApiBase && Boolean(classId);

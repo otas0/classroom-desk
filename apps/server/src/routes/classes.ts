@@ -487,3 +487,58 @@ classesRouter.delete(
     res.json({ ok: true, id: studentId });
   },
 );
+
+/** Bulk delete students in a class (CASCADE cleans related rows). */
+classesRouter.post(
+  '/api/v1/classes/:id/students/bulk-delete',
+  requireAuth,
+  requireRoles('teacher', 'admin'),
+  (req: AuthedRequest, res) => {
+    const classId = paramId(req.params.id);
+    const rawIds = Array.isArray(req.body?.ids) ? (req.body.ids as unknown[]) : [];
+    const ids = [
+      ...new Set(
+        rawIds
+          .map((x) => String(x ?? '').trim())
+          .filter((x): x is string => x.length > 0),
+      ),
+    ];
+    if (ids.length === 0) {
+      res.status(400).json({ error: 'ids_required', message: '请选择要删除的学生' });
+      return;
+    }
+    if (ids.length > 500) {
+      res.status(400).json({ error: 'too_many', message: '单次最多删除 500 人' });
+      return;
+    }
+    const db = openDb();
+    if (!db.prepare(`SELECT id FROM classes WHERE id = ?`).get(classId)) {
+      res.status(404).json({ error: 'class_not_found', message: '班级不存在' });
+      return;
+    }
+    const del = db.prepare(`DELETE FROM users WHERE id = ? AND role = 'student' AND class_id = ?`);
+    let deleted = 0;
+    const missing: string[] = [];
+    db.exec('BEGIN');
+    try {
+      for (const id of ids) {
+        const info = del.run(id, classId);
+        if (info.changes) deleted += 1;
+        else missing.push(id);
+      }
+      db.exec('COMMIT');
+    } catch (e) {
+      db.exec('ROLLBACK');
+      throw e;
+    }
+    res.json({
+      ok: true,
+      deleted,
+      requested: ids.length,
+      missing,
+      message: missing.length
+        ? `已删除 ${deleted} 人，${missing.length} 人未在本班`
+        : `已删除 ${deleted} 人`,
+    });
+  },
+);

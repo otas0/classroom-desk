@@ -1,26 +1,47 @@
-# 从 GitHub 安装（教师机 + 学生机 · 无 U 盘）
+# 从 GitHub 安装（任意教室 · 无签名 · 无优盘）
 
-仓库：<https://github.com/otas0/classroom-desk>  
-拓扑：教师机跑 API（`:8787`）；学生机只装客户端，全部连教师机局域网 IP。无需代码签名、无需优盘——**克隆仓库 / 下 Release 安装包**即可。
+仓库：<https://github.com/otas0/classroom-desk>
 
-本教室联调身份示例：
+本项目是**开源、可自托管**的课堂工具：任意学校机房只要有一台「教师机/教室服务器」跑 API，学生机装未签名客户端并写入本教室的 `apiBase` + `classId` 即可。  
+**不绑定**某一固定 IP 或某一班级；下文中的地址一律改成你自己的局域网配置。
 
-| 项 | 值 |
-|---|---|
-| 教师机 IP | `192.168.31.179`（请按实际固定 IP 修改） |
-| API | `http://192.168.31.179:8787` |
-| 班级 | 本教室 · `classId=00d6b800-6628-4d20-a49c-9765325d9eef` |
-| 教师账号 | `teacher`（密码在设置页自改，勿写进公开 Issue） |
+## 拓扑
+
+```
+学生机 × N  ──局域网──►  教师机（Express :8787 + SQLite + /admin）
+```
+
+| 角色 | 做什么 |
+|------|--------|
+| 教师机 | `git clone` → 安装依赖 → 固定 IP（可选）→ 放行防火墙 → 启动服务 → 浏览器开 `/admin/` |
+| 学生机 | 下载 Release 的 `ClassroomDesk-Setup-*.exe` → 写入 `config.json` → 浏览器先验 `/ready` → 开客户端 |
+
+未签名安装包：Windows SmartScreen →「更多信息」→「仍要运行」。说明见 [SMARTSCREEN.md](./SMARTSCREEN.md)。
 
 ---
 
-## A. 教师机（Windows，一次即可）
+## 你需要准备的本班参数
 
-### 1. 安装前置
+部署前在教师机记下（或打印讲台卡 [PRINT_DESK_CARD.md](./PRINT_DESK_CARD.md)）：
 
-1. 安装 [Node.js 22 LTS](https://nodejs.org/)（勾选加入 PATH）。  
-2. 安装 [Git](https://git-scm.com/download/win)。  
-3. 管理员 PowerShell：
+| 参数 | 含义 | 示例（请替换） |
+|------|------|----------------|
+| 教师机局域网 IP | 学生机能 ping 通的地址 | `192.168.1.50` |
+| `apiBase` | `http://<教师机IP>:8787` | `http://192.168.1.50:8787` |
+| `classId` | 教师后台「指派学生机」复制 | UUID，登录后台后可见 |
+| 教师账号 | 首启用环境变量创建 | 默认用户名常为 `teacher`，**密码自设** |
+
+禁止在学生机使用 `127.0.0.1` / `localhost`（那是学生本机，连不上教师机服务）。
+
+---
+
+## A. 教师机（Windows 推荐；macOS/Linux 亦可跑服务）
+
+### 1. 前置
+
+1. [Node.js 22.5+](https://nodejs.org/)（勾选加入 PATH）  
+2. [Git](https://git-scm.com/)  
+3. 管理员终端：
 
 ```powershell
 cd C:\
@@ -30,111 +51,117 @@ npm install
 npm run build:teacher
 ```
 
-若仓库为私有：先在浏览器登录 GitHub，再用有权限的账号 `git clone`，或改用 SSH。
+macOS / Linux 同样：`git clone` → `npm install` → `npm run build:teacher`。
 
-### 2. 固定 IP + 防火墙 + 开机自启
+### 2. 环境变量
+
+复制 `.env.example` → `.env`（勿提交到 git）：
+
+```env
+JWT_SECRET=请改成足够长的随机串
+TEACHER_USERNAME=teacher
+TEACHER_PASSWORD=请改成个人强密码
+ADMIN_PASSWORD=请改成管理强密码
+HOST=0.0.0.0
+PORT=8787
+# 可选：数据目录
+# CLASSROOM_DESK_DATA_DIR=C:\classroom-desk-data
+```
+
+首启用环境变量写入教师/管理员哈希；正式课堂 **UI 不预填**演示口令。登录后请在「设置」再改一次个人密码。
+
+### 3. 固定 IP · 防火墙 · 开机自启（Windows）
+
+按本教室网段改脚本参数（不要照抄别人教室的 IP）：
 
 ```powershell
 cd C:\classroom-desk
-# 按教室改 IP（默认已是 192.168.31.179）
-powershell -ExecutionPolicy Bypass -File .\scripts\windows-set-fixed-ip.ps1
+powershell -ExecutionPolicy Bypass -File .\scripts\windows-set-fixed-ip.ps1 -IpAddress 192.168.1.50
 powershell -ExecutionPolicy Bypass -File .\scripts\windows-teacher-host.ps1 -SmokeTest
 powershell -ExecutionPolicy Bypass -File .\scripts\windows-autostart-server.ps1 -RepoRoot C:\classroom-desk
 ```
 
-### 3. 环境变量
+放行 TCP `8787` 入站。若学生连不上，先查访客 Wi‑Fi / AP 隔离：[NETWORK.md](./NETWORK.md)。
 
-复制 `.env.example` → `.env`，至少设置：
-
-```env
-JWT_SECRET=请改成一长串随机字符
-TEACHER_USERNAME=teacher
-TEACHER_PASSWORD=请改成个人密码
-ADMIN_PASSWORD=请改成管理密码
-HOST=0.0.0.0
-PORT=8787
-```
-
-### 4. 启动服务
+### 4. 启动
 
 ```powershell
 cd C:\classroom-desk
 npm run start:server
 ```
 
-本机浏览器打开：
+本机浏览器：
 
 - 教师后台：<http://127.0.0.1:8787/admin/>  
-- 健康检查：<http://127.0.0.1:8787/health>（应含 `lanIps` / `suggestedApiBase`）  
-- 上课页：<http://127.0.0.1:8787/ready>
+- 健康 JSON：<http://127.0.0.1:8787/health>（应含 `lanIps`、`suggestedApiBase`）  
+- 上课前检测页：<http://127.0.0.1:8787/ready>  
 
-### 5. 上课前在后台完成
+局域网验收用：`http://<教师机IP>:8787/ready`。
 
-1. 登录 → 选班「本教室」（或新建正式班）。  
-2. 名单：Excel/CSV 导入（可勾选「覆盖导入」，先 `npm run backup:db`）。  
-3. 「指派学生机」：记下 `apiBase` + `classId`，或下载 `config.json`。  
-4. 「留言」按需关闭（关闭后学生端无留言 Tab）。  
-5. 「设置」修改个人登录密码。
+### 5. 开课前在后台完成
 
-备份：`npm run backup:db` → 确认 `/health` 无 `lastError`。
+1. 登录 → 若提示改密，先改个人密码。  
+2. 默认进入「上课」；若无班/无名单/未指派，按顶部**开课清单**三步走。  
+3. 「备课 → 名单」：Excel/CSV 导入（支持常见表头与分隔，不必是英文逗号）；可覆盖导入前先 `npm run backup:db`。  
+4. 「指派学生机」：保存教室 `apiBase`、复制/下载 `config.json`、可扫 QR。  
+5. 「备课 → 设置」：留言开关、备份提示等。  
 
-讲台一页纸：[PRINT_DESK_CARD.md](./PRINT_DESK_CARD.md)（手写 IP / classId）。
+备份：`npm run backup:db`；服务也会按日自动备份到数据目录下 `backups/`（保留约 N 份）。确认 `/health` 无 `backup.lastError`。
+
+教室互联补充：[CLASSROOM_TEACHER_HOST.md](./CLASSROOM_TEACHER_HOST.md)。
 
 ---
 
 ## B. 学生机（Windows）
 
-### 方式 1（推荐）：GitHub Releases 安装包
+### 方式 1（推荐）：GitHub Releases
 
-1. 打开仓库 **Releases**：<https://github.com/otas0/classroom-desk/releases>  
-2. 下载最新 `ClassroomDesk-Setup-*.exe`（未签名：SmartScreen → 更多信息 → 仍要运行，见 [SMARTSCREEN.md](./SMARTSCREEN.md)）。  
-3. 安装后，把教师发的 `config.json` 放到安装目录的 `resources\config.json`（或与 exe 同级按客户端说明），内容示例：
+1. 打开 [Releases](https://github.com/otas0/classroom-desk/releases)  
+2. 下载最新 `ClassroomDesk-Setup-*.exe`（可核对同页 `.sha256`）  
+3. 下载同页 `config.example.json`，改名为 `config.json`，填入**本教室**值：
 
 ```json
 {
-  "apiBase": "http://192.168.31.179:8787",
-  "classId": "00d6b800-6628-4d20-a49c-9765325d9eef",
-  "comment": "Classroom-specific. Do not use 127.0.0.1."
+  "apiBase": "http://<教师机局域网IP>:8787",
+  "classId": "<本班-classId>",
+  "comment": "Per-classroom. Never use 127.0.0.1."
 }
 ```
 
-**禁止** `127.0.0.1` / `localhost`。
-
-4. 浏览器先打开 `http://教师IP:8787/ready`，通了再启动客户端。  
-5. 名单点自己的姓名 → 签到 / 答题 / 加分。
+4. 将 `config.json` 放到客户端说明的安装目录（常见为 `resources\config.json`，或以客户端「设置」保存为准）。  
+5. 浏览器先打开 `http://<教师机IP>:8787/ready`，通过后再启动 Classroom Desk。  
+6. 点自己的姓名 →「确认是我」→ 签到 / 答题 / 积分。
 
 ### 方式 2：Actions Artifact
 
-若尚无 Release：仓库 **Actions** → 最新成功 `CI` → `windows-pack` → 下载 `classroom-desk-windows-setup` 里的 exe，步骤同方式 1。
+尚无 Release 时：仓库 **Actions** → 成功的 `CI` → `windows-pack` → 下载 `classroom-desk-windows-setup` 内 exe，配置同上。
 
-### 方式 3：教师机本机打安装包再分发
-
-在教师机（已 clone）上：
+### 方式 3：教师机本机打包再分发
 
 ```powershell
 cd C:\classroom-desk
-node scripts\pack-classroom-config.mjs --apiBase http://192.168.31.179:8787 --classId <本班classId>
+node scripts\pack-classroom-config.mjs --apiBase http://<教师机IP>:8787 --classId <本班classId>
 npm run dist:win
 ```
 
-产物在 `apps\student-desktop\release\`。用网盘/内网共享/邮件发 exe + `config.json` 给学生机（exe≈100MB，邮件可能被拒，优先 Release/网盘）。
+产物在 `apps\student-desktop\release\`。用网盘/内网共享分发（exe 约百兆，邮件易被拒）。
+
+**代码签名**：可选。仓库 Secrets 配置 `CSC_LINK` + `CSC_KEY_PASSWORD` 则 CI 签名；未配置则发**未签名**包，教室仍可按 SmartScreen 步骤安装。
 
 ---
 
-## C. 验收清单
+## C. 验收清单（任意机房）
 
-- [ ] 教师机 `/health` 含正确 `lanIps`  
+- [ ] `/health` 的 `lanIps` 含学生机能访问的教师机 IP  
 - [ ] 学生浏览器能打开 `/ready`  
-- [ ] 学生客户端能出名单并点名  
-- [ ] 关留言时学生端无「留言」Tab  
-- [ ] 教师能导入名单、发题（含附件）、导出四格式  
-- [ ] 讲台卡已贴：IP + classId  
-
-网络不通先查 AP 隔离：[NETWORK.md](./NETWORK.md)。完整教室互联说明：[CLASSROOM_TEACHER_HOST.md](./CLASSROOM_TEACHER_HOST.md)。
+- [ ] 学生客户端名单来自真实导入，无预填假名  
+- [ ] 点名确认后可答题；关留言时无「留言」Tab  
+- [ ] 教师能导入名单、发题（可选正确项）、收卷、导出  
+- [ ] 讲台卡已写：IP + classId（非仓库里别人的示例）
 
 ---
 
-## D. 更新版本
+## D. 更新
 
 教师机：
 
@@ -143,7 +170,19 @@ cd C:\classroom-desk
 git pull
 npm install
 npm run build:teacher
-# 重启服务 / 或注销再登录触发自启任务
+# 重启服务或注销再登录以触发自启任务
 ```
 
-学生机：重新下载新 Release exe 覆盖安装；`config.json` 一般不用改。
+学生机：下载新 Release 覆盖安装；`config.json` 一般不用改。
+
+---
+
+## E. 与「某一间示范教室」文档的关系
+
+仓库内可能仍有 `CLASSROOM_IDENTITY.example.md`、U 盘清单等**示例**路径/IP，仅供对照写法。开源部署时请：
+
+1. 复制示例 → 改成自己的 IP / classId；  
+2. **不要**把真实班级密码、完整花名册提交进公开仓库；  
+3. Issue / PR 截图打码学号与人脸。
+
+数据与合规原则见 [SECURITY.md](./SECURITY.md)、[DEPLOY.md](./DEPLOY.md)。
