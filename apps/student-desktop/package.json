@@ -9,10 +9,11 @@
     "dev": "vite",
     "build": "tsc -p tsconfig.node.json --noEmit && tsc -p tsconfig.json --noEmit && vite build",
     "preview": "vite preview",
-    "dist:win": "npm run build && electron-builder --win nsis --x64"
+    "dist:win": "node scripts/dist-win.mjs"
   },
   "dependencies": {
     "@classroom-desk/shared": "*",
+    "pdfjs-dist": "^5.4.296",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },
@@ -50,6 +51,7 @@
         }
       ],
       "artifactName": "ClassroomDesk-Setup-${version}.${ext}",
+      "signExecutable": false,
       "signtoolOptions": {
         "signingHashAlgorithms": ["sha256"],
         "rfc3161TimeStampServer": "http://timestamp.digicert.com"

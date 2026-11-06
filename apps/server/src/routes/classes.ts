@@ -73,7 +73,13 @@ classesRouter.post(
     const csvText = String(req.body?.csv ?? '');
     let created = 0;
     let skipped = 0;
-    const failures: Array<{ line: number; name: string; studentNo: string | null; reason: string }> = [];
+    const failures: Array<{
+      line: number;
+      name: string;
+      studentNo: string | null;
+      reason: string;
+      reasonText: string;
+    }> = [];
     const createdAt = nowIso();
     const insert = db.prepare(
       `INSERT INTO users (id, role, display_name, username, password_hash, student_no, class_id, total_points, created_at)
@@ -100,12 +106,24 @@ classesRouter.post(
       const lineNo = i + 1;
       if (existsByName.get(classId, name)) {
         skipped += 1;
-        failures.push({ line: lineNo, name, studentNo, reason: 'duplicate_name' });
+        failures.push({
+          line: lineNo,
+          name,
+          studentNo,
+          reason: 'duplicate_name',
+          reasonText: '同名已存在',
+        });
         continue;
       }
       if (studentNo && existsByNo.get(classId, studentNo)) {
         skipped += 1;
-        failures.push({ line: lineNo, name, studentNo, reason: 'duplicate_student_no' });
+        failures.push({
+          line: lineNo,
+          name,
+          studentNo,
+          reason: 'duplicate_student_no',
+          reasonText: '学号已存在',
+        });
         continue;
       }
       insert.run(newId(), name, studentNo, classId, createdAt);

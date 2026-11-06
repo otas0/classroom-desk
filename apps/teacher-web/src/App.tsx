@@ -23,14 +23,37 @@ const WEEKDAYS = [
   { v: 7, label: '日' },
 ];
 
+const TABS: Tab[] = [
+  'classes',
+  'assignments',
+  'requests',
+  'attendance',
+  'messages',
+  'questions',
+  'exports',
+  'settings',
+];
+const ASSIGNMENTS_BC = 'classroom-desk-assignments-refresh';
+
+function tabFromPath(): Tab {
+  const raw = window.location.pathname.replace(/^\/admin\/?/, '').split('/')[0] ?? '';
+  return (TABS.includes(raw as Tab) ? raw : 'assignments') as Tab;
+}
+
+function pathForTab(tab: Tab): string {
+  const base = window.location.pathname.startsWith('/admin') ? '/admin' : '';
+  return `${base}/${tab}`;
+}
+
 export function App() {
   const [tokenReady, setTokenReady] = useState(Boolean(getToken()));
   const [username, setUsername] = useState('teacher');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
-  const [tab, setTab] = useState<Tab>('assignments');
+  const [tab, setTab] = useState<Tab>(() => tabFromPath());
   const [classes, setClasses] = useState<ClassItem[]>([]);
   const [classId, setClassId] = useState('');
+  const [pendingReviewTotal, setPendingReviewTotal] = useState(0);
 
   async function loadClasses() {
     const res = await api<{ items: ClassItem[] }>('/api/v1/classes');
@@ -38,11 +61,53 @@ export function App() {
     if (!classId && res.items[0]) setClassId(res.items[0].id);
   }
 
+  async function refreshPendingBadge(activeClassId = classId) {
+    if (!activeClassId) {
+      setPendingReviewTotal(0);
+      return;
+    }
+    try {
+      const r = await api<{ items: Array<{ pendingReviewCount?: number }> }>(
+        `/api/v1/assignments?classId=${activeClassId}`,
+      );
+      setPendingReviewTotal(r.items.reduce((sum, item) => sum + Number(item.pendingReviewCount ?? 0), 0));
+    } catch {
+      /* ignore */
+    }
+  }
+
   useEffect(() => {
     if (!tokenReady) return;
     void loadClasses().catch((e) => setError(e instanceof Error ? e.message : 'load_failed'));
   }, [tokenReady]);
 
+  useEffect(() => {
+    if (!tokenReady || !classId) return;
+    void refreshPendingBadge(classId);
+    const bc = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel(ASSIGNMENTS_BC) : null;
+    const onMsg = () => void refreshPendingBadge(classId);
+    bc?.addEventListener('message', onMsg);
+    const timer = window.setInterval(() => void refreshPendingBadge(classId), 12_000);
+    return () => {
+      bc?.removeEventListener('message', onMsg);
+      bc?.close();
+      window.clearInterval(timer);
+    };
+  }, [tokenReady, classId]);
+
+  useEffect(() => {
+    const onPop = () => setTab(tabFromPath());
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, []);
+
+  function goTab(next: Tab) {
+    setTab(next);
+    const path = pathForTab(next);
+    if (window.location.pathname !== path) {
+      window.history.pushState({}, '', path);
+    }
+  }
   async function login() {
     setError('');
     try {
@@ -104,8 +169,16 @@ export function App() {
             ['settings', '设置'],
           ] as const
         ).map(([id, label]) => (
-          <button key={id} type="button" className={tab === id ? 'nav active' : 'nav'} onClick={() => setTab(id)}>
+          <button
+            key={id}
+            type="button"
+            className={tab === id ? 'nav active' : 'nav'}
+            onClick={() => goTab(id)}
+          >
             {label}
+            {id === 'assignments' && pendingReviewTotal > 0 ? (
+              <span className="pending-badge">待审 {pendingReviewTotal}</span>
+            ) : null}
           </button>
         ))}
         <button
@@ -121,7 +194,9 @@ export function App() {
       </aside>
       <main>
         {tab === 'classes' && <ClassesPanel onChanged={() => void loadClasses()} />}
-        {tab === 'assignments' && <AssignmentsPanel classId={classId} />}
+        {tab === 'assignments' && (
+          <AssignmentsPanel classId={classId} onPendingChange={() => void refreshPendingBadge(classId)} />
+        )}
         {tab === 'requests' && <RequestsPanel classId={classId} />}
         {tab === 'attendance' && <AttendancePanel classId={classId} />}
         {tab === 'messages' && <MessagesPanel classId={classId} />}
@@ -206,7 +281,16 @@ function ClassesPanel({ onChanged }: { onChanged: () => void }) {
             body: JSON.stringify({ csv }),
           }).then((r) => {
             const fail = (r.failures ?? [])
-              .map((f) => `L${f.line} ${f.name}${f.studentNo ? `(${f.studentNo})` : ''} → ${f.reason}`)
+              .map((f) => {
+                const text =
+                  (f as { reasonText?: string }).reasonText ??
+                  (f.reason === 'duplicate_name'
+                    ? '同名已存在'
+                    : f.reason === 'duplicate_student_no'
+                      ? '学号已存在'
+                      : f.reason);
+                return `第${f.line}行 ${f.name}${f.studentNo ? `(${f.studentNo})` : ''} → ${text}`;
+              })
               .join('；');
             setImportResult(
               `新建 ${r.created}，跳过 ${r.skipped}${fail ? `。失败明细：${fail}` : ''}`,
@@ -221,9 +305,13 @@ function ClassesPanel({ onChanged }: { onChanged: () => void }) {
   );
 }
 
-const ASSIGNMENTS_BC = 'classroom-desk-assignments-refresh';
-
-function AssignmentsPanel({ classId }: { classId: string }) {
+function AssignmentsPanel({
+  classId,
+  onPendingChange,
+}: {
+  classId: string;
+  onPendingChange?: () => void;
+}) {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [attachmentUrl, setAttachmentUrl] = useState('');
@@ -235,28 +323,11 @@ function AssignmentsPanel({ classId }: { classId: string }) {
     if (!classId) return;
     const r = await api<{ items: Array<Record<string, unknown>> }>(`/api/v1/assignments?classId=${classId}`);
     setItems(r.items);
+    onPendingChange?.();
   }
 
   useEffect(() => {
     void load().catch(() => setItems([]));
-  }, [classId]);
-
-  // Cross-tab badge sync: BroadcastChannel + short polling while panel open.
-  useEffect(() => {
-    if (!classId) return;
-    const bc = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel(ASSIGNMENTS_BC) : null;
-    const onMsg = () => {
-      void load().catch(() => undefined);
-    };
-    bc?.addEventListener('message', onMsg);
-    const timer = window.setInterval(() => {
-      void load().catch(() => undefined);
-    }, 12_000);
-    return () => {
-      bc?.removeEventListener('message', onMsg);
-      bc?.close();
-      window.clearInterval(timer);
-    };
   }, [classId]);
 
   async function upload(file: File) {
@@ -433,6 +504,26 @@ function AttendancePanel({ classId }: { classId: string }) {
     });
   }, [classId]);
 
+  async function previewHolidayCsv(csv: string) {
+    const r = await api<{
+      willCreate: number;
+      conflicts: Array<{ message?: string; holidayDate: string; existingName: string; scope?: string }>;
+      notices?: Array<{ message?: string }>;
+      duplicatesInFile: Array<{ holidayDate: string }>;
+    }>('/api/v1/attendance/holidays/import', {
+      method: 'POST',
+      body: JSON.stringify({ classId, csv, dryRun: true }),
+    });
+    const c = (r.conflicts ?? [])
+      .map((x) => x.message ?? `${x.holidayDate} 冲突（${x.scope === 'global' ? '全局' : '本班'}「${x.existingName}」）`)
+      .join('；');
+    const n = (r.notices ?? []).map((x) => x.message).filter(Boolean).join('；');
+    const d = (r.duplicatesInFile ?? []).map((x) => x.holidayDate).join('、');
+    setHolidayImportMsg(
+      `预览：将新建 ${r.willCreate}${c ? `；跳过 ${c}` : ''}${n ? `；注意 ${n}` : ''}${d ? `；文件内重复 ${d}` : ''}`,
+    );
+  }
+
   async function startManual() {
     await api('/api/v1/attendance/sessions', {
       method: 'POST',
@@ -534,45 +625,14 @@ function AttendancePanel({ classId }: { classId: string }) {
           if (!file) return;
           void file.text().then((text) => {
             setHolidayCsv(text);
-            void api<{
-              willCreate: number;
-              conflicts: Array<{ holidayDate: string; name: string; existingName: string }>;
-              duplicatesInFile: Array<{ holidayDate: string }>;
-            }>('/api/v1/attendance/holidays/import', {
-              method: 'POST',
-              body: JSON.stringify({ classId, csv: text, dryRun: true }),
-            }).then((r) => {
-              const c = (r.conflicts ?? []).map((x) => `${x.holidayDate}已有「${x.existingName}」`).join('；');
-              const d = (r.duplicatesInFile ?? []).map((x) => x.holidayDate).join('、');
-              setHolidayImportMsg(
-                `预览：将新建 ${r.willCreate}${c ? `；冲突 ${c}` : ''}${d ? `；文件内重复 ${d}` : ''}`,
-              );
-            });
+            void previewHolidayCsv(text);
           });
         }}
       >
         拖拽校历 CSV 到此处预览冲突
       </div>
       <textarea value={holidayCsv} onChange={(e) => setHolidayCsv(e.target.value)} rows={4} />
-      <button
-        type="button"
-        onClick={() =>
-          void api<{
-            willCreate: number;
-            conflicts: Array<{ holidayDate: string; name: string; existingName: string }>;
-            duplicatesInFile: Array<{ holidayDate: string }>;
-          }>('/api/v1/attendance/holidays/import', {
-            method: 'POST',
-            body: JSON.stringify({ classId, csv: holidayCsv, dryRun: true }),
-          }).then((r) => {
-            const c = (r.conflicts ?? []).map((x) => `${x.holidayDate}已有「${x.existingName}」`).join('；');
-            const d = (r.duplicatesInFile ?? []).map((x) => x.holidayDate).join('、');
-            setHolidayImportMsg(
-              `预览：将新建 ${r.willCreate}${c ? `；冲突 ${c}` : ''}${d ? `；文件内重复 ${d}` : ''}`,
-            );
-          })
-        }
-      >
+      <button type="button" onClick={() => void previewHolidayCsv(holidayCsv)}>
         预览冲突
       </button>
       <button
@@ -940,7 +1000,11 @@ function SettingsPanel() {
       const ms = Math.round(performance.now() - t0);
       const body = (await res.json()) as {
         ok?: boolean;
-        backup?: { latestAt?: string | null; ageHours?: number | null };
+        backup?: {
+          latestAt?: string | null;
+          ageHours?: number | null;
+          lastError?: { at?: string; message?: string } | null;
+        };
       };
       if (!res.ok || !body.ok) {
         setDiag(`失败 HTTP ${res.status} · ${ms}ms · ${API_BASE}/health`);
@@ -949,7 +1013,10 @@ function SettingsPanel() {
       const bak = body.backup?.latestAt
         ? `备份 ${body.backup.latestAt}（${body.backup.ageHours ?? '?'}h 前）`
         : '尚无备份记录';
-      setDiag(`正常 · 延迟 ${ms}ms · ${bak} · ${API_BASE}`);
+      const err = body.backup?.lastError?.message;
+      setDiag(
+        `正常 · 延迟 ${ms}ms · ${bak}${err ? ` · 备份错误：${err}` : ''} · ${API_BASE}（AP 隔离见 docs/NETWORK.md）`,
+      );
     } catch (e) {
       const ms = Math.round(performance.now() - t0);
       setDiag(`无法连接（${ms}ms）：${e instanceof Error ? e.message : 'network_error'} · ${API_BASE}`);

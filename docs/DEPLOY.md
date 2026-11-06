@@ -30,8 +30,55 @@
 2. Push to `main` → `windows-pack` uploads `classroom-desk-windows-setup` artifact (`apps/student-desktop/release/*.exe`).
 3. Without secrets, CI builds unsigned (`signExecutable=false`); SmartScreen may warn.
 
+## systemd unit example
+
+`/etc/classroom-desk.env`（权限 `640`，属主 `root:classroom`）:
+
+```bash
+JWT_SECRET=replace-me
+ADMIN_PASSWORD=
+TEACHER_PASSWORD=
+DEFAULT_CLASS_CODE=DEMO01
+CLASSROOM_DESK_DATA_DIR=/var/lib/classroom-desk
+CLASSROOM_DESK_NAS_DIR=/mnt/school-nas/classroom-desk
+CLASSROOM_DESK_BACKUP_KEEP_DAYS=14
+PORT=8787
+HOST=127.0.0.1
+```
+
+`/etc/systemd/system/classroom-desk.service`:
+
+```ini
+[Unit]
+Description=Classroom Desk API
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=classroom
+Group=classroom
+WorkingDirectory=/opt/classroom-desk
+EnvironmentFile=/etc/classroom-desk.env
+ExecStart=/usr/bin/npm run start --workspace=@classroom-desk/server
+Restart=on-failure
+RestartSec=5
+# Harden a bit
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now classroom-desk
+# Cron: bash scripts/install-backup-cron.example.sh
+```
+
 ## Post-install smoke
 
 1. Install NSIS package on a lab PC; set `apiBase` to classroom server.
 2. Student join → submit homework; teacher `/admin` review → points update.
-3. `curl -fsS https://…/health` shows `ok` and recent backup.
+3. `curl -fsS https://…/health` shows `ok` and recent backup (`backup.lastError` should be null).

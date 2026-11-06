@@ -369,11 +369,22 @@ attendanceRouter.post(
     }
 
     const db = openDb();
-    const exists = db.prepare(
-      `SELECT id, name FROM attendance_holidays
+    const findSameScope = db.prepare(
+      `SELECT id, name, class_id AS classId FROM attendance_holidays
        WHERE holiday_date = ? AND ((class_id IS NULL AND ? IS NULL) OR class_id = ?)`,
     );
-    const conflicts: Array<{ holidayDate: string; name: string; existingName: string }> = [];
+    const findGlobal = db.prepare(
+      `SELECT id, name FROM attendance_holidays WHERE holiday_date = ? AND class_id IS NULL`,
+    );
+    type Conflict = {
+      holidayDate: string;
+      name: string;
+      existingName: string;
+      scope: 'class' | 'global';
+      message: string;
+    };
+    const conflicts: Conflict[] = [];
+    const notices: Conflict[] = [];
     const willCreate: Array<{ holidayDate: string; name: string }> = [];
     const seen = new Set<string>();
     const duplicatesInFile: Array<{ holidayDate: string; name: string }> = [];
@@ -385,12 +396,52 @@ attendanceRouter.post(
         continue;
       }
       seen.add(key);
-      const hit = exists.get(row.holidayDate, classId, classId) as { id: string; name: string } | undefined;
-      if (hit) {
-        conflicts.push({ holidayDate: row.holidayDate, name: row.name, existingName: hit.name });
-      } else {
-        willCreate.push(row);
+      const same = findSameScope.get(row.holidayDate, classId, classId) as
+        | { id: string; name: string; classId: string | null }
+        | undefined;
+      if (same) {
+        const scope = same.classId ? 'class' : 'global';
+        conflicts.push({
+          holidayDate: row.holidayDate,
+          name: row.name,
+          existingName: same.name,
+          scope,
+          message:
+            scope === 'global'
+              ? `${row.holidayDate} 已存在全局假日「${same.name}」，跳过导入`
+              : `${row.holidayDate} 已存在本班假日「${same.name}」，跳过导入`,
+        });
+        continue;
       }
+      // Cross-scope notice: importing class holiday when global exists (or vice versa)
+      if (classId) {
+        const g = findGlobal.get(row.holidayDate) as { name: string } | undefined;
+        if (g) {
+          notices.push({
+            holidayDate: row.holidayDate,
+            name: row.name,
+            existingName: g.name,
+            scope: 'global',
+            message: `${row.holidayDate} 另有全局假日「${g.name}」；将再写入本班假日「${row.name}」（签到时全局+班级均生效）`,
+          });
+        }
+      } else {
+        const anyClass = db
+          .prepare(
+            `SELECT name, class_id AS classId FROM attendance_holidays WHERE holiday_date = ? AND class_id IS NOT NULL LIMIT 3`,
+          )
+          .all(row.holidayDate) as Array<{ name: string; classId: string }>;
+        for (const hit of anyClass) {
+          notices.push({
+            holidayDate: row.holidayDate,
+            name: row.name,
+            existingName: hit.name,
+            scope: 'class',
+            message: `${row.holidayDate} 已有班级假日「${hit.name}」；导入全局假日后两者并存`,
+          });
+        }
+      }
+      willCreate.push(row);
     }
 
     if (dryRun) {
@@ -399,6 +450,7 @@ attendanceRouter.post(
         total: lines.length,
         willCreate: willCreate.length,
         conflicts,
+        notices,
         duplicatesInFile,
         preview: willCreate.slice(0, 50),
       });
@@ -426,6 +478,7 @@ attendanceRouter.post(
       skipped,
       total: lines.length,
       conflicts,
+      notices,
       duplicatesInFile,
     });
   },

@@ -28,7 +28,7 @@ type PublicSettings = {
 };
 
 const TABS: { id: TabId; label: string }[] = [
-  { id: 'homework', label: '作业' },
+  { id: 'homework', label: '积分' },
   { id: 'messages', label: '留言' },
   { id: 'quiz', label: '答题' },
   { id: 'me', label: '我的' },
@@ -292,6 +292,34 @@ function AttachmentPreview({ url }: { url: string }) {
   const isPdf = /\.pdf(\?|$)/.test(lower);
   const [zoom, setZoom] = useState(1);
   const [pdfPage, setPdfPage] = useState(1);
+  const [pdfPageCount, setPdfPageCount] = useState<number | null>(null);
+  const [pdfError, setPdfError] = useState('');
+
+  useEffect(() => {
+    if (!isPdf) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const pdfjs = await import('pdfjs-dist');
+        pdfjs.GlobalWorkerOptions.workerSrc = new URL(
+          'pdfjs-dist/build/pdf.worker.min.mjs',
+          import.meta.url,
+        ).toString();
+        const doc = await pdfjs.getDocument(url).promise;
+        if (!cancelled) {
+          setPdfPageCount(doc.numPages);
+          setPdfPage((p) => Math.min(Math.max(1, p), doc.numPages));
+          setPdfError('');
+        }
+        await doc.destroy();
+      } catch (e) {
+        if (!cancelled) setPdfError(e instanceof Error ? e.message : 'pdf_load_failed');
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [url, isPdf]);
 
   if (!isImage && !isPdf) {
     return (
@@ -302,6 +330,8 @@ function AttachmentPreview({ url }: { url: string }) {
       </div>
     );
   }
+
+  const maxPage = pdfPageCount ?? 1;
 
   return (
     <div className="preview">
@@ -332,15 +362,25 @@ function AttachmentPreview({ url }: { url: string }) {
           <button
             type="button"
             className="secondary"
+            disabled={pdfPage <= 1}
             onClick={() => setPdfPage((p) => Math.max(1, p - 1))}
             aria-label="上一页"
           >
             上一页
           </button>
-          <span className="hint">第 {pdfPage} 页</span>
-          <button type="button" className="secondary" onClick={() => setPdfPage((p) => p + 1)} aria-label="下一页">
+          <span className="hint">
+            第 {pdfPage} / {pdfPageCount ?? '…'} 页
+          </span>
+          <button
+            type="button"
+            className="secondary"
+            disabled={pdfPageCount != null && pdfPage >= maxPage}
+            onClick={() => setPdfPage((p) => Math.min(maxPage, p + 1))}
+            aria-label="下一页"
+          >
             下一页
           </button>
+          {pdfError ? <p className="error">PDF 预览失败，请点「打开附件」</p> : null}
           <iframe
             title={`pdf-preview-page-${pdfPage}`}
             src={`${url}#page=${pdfPage}`}
@@ -373,8 +413,8 @@ function HomeworkTab() {
 
   return (
     <section className="panel">
-      <h1>作业</h1>
-      {items.length === 0 ? <p>暂无作业</p> : null}
+      <h1>积分</h1>
+      {items.length === 0 ? <p>暂无作业（审核通过后加分）</p> : null}
       {items.map((item) => {
         const id = String(item.id);
         const submission = item.mySubmission as { status?: string } | null;
