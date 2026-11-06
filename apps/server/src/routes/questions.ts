@@ -201,7 +201,14 @@ questionsRouter.post('/api/v1/questions/:id/answer', requireAuth, requireRoles('
     .prepare(`SELECT id, is_correct FROM question_options WHERE question_id = ?`)
     .all(question.id) as Array<{ id: string; is_correct: number }>;
 
-  const answerPayload = req.body?.answerPayload ?? req.body?.answer ?? null;
+  let answerPayload = req.body?.answerPayload ?? req.body?.answer ?? null;
+  // Accept flat optionIds/optionId for convenience (student app sends answerPayload)
+  if (answerPayload == null && (req.body?.optionIds != null || req.body?.optionId != null)) {
+    answerPayload = {
+      optionIds: req.body.optionIds,
+      optionId: req.body.optionId,
+    };
+  }
   const isCorrect = gradeAnswer({
     type: question.type,
     answerKey: question.answer_key,

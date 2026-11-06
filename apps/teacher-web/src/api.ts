@@ -23,7 +23,10 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
     return text as T;
   }
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error((data as { error?: string }).error ?? `http_${res.status}`);
+  if (!res.ok) {
+    const err = data as { error?: string; message?: string };
+    throw new Error(err.message ?? err.error ?? `http_${res.status}`);
+  }
   return data as T;
 }
 

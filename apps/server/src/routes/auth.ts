@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { openDb } from '../db/client.js';
 import { getSetting } from '../db/migrate.js';
 import {
+  findUserById,
   findUserByUsername,
   hashPassword,
   mapUser,
@@ -142,6 +143,34 @@ authRouter.post('/api/v1/auth/change-admin-password', requireAuth, async (req: A
      ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
   ).run(hash);
   res.json({ ok: true });
+});
+
+/** Teacher login password (users.password_hash). Teachers change this in /admin 设置. */
+authRouter.post('/api/v1/auth/change-password', requireAuth, async (req: AuthedRequest, res) => {
+  if (req.user?.role !== 'teacher' && req.user?.role !== 'admin') {
+    res.status(403).json({ error: 'forbidden' });
+    return;
+  }
+  const currentPassword = String(req.body?.currentPassword ?? '');
+  const newPassword = String(req.body?.newPassword ?? '');
+  if (!currentPassword || newPassword.length < 6) {
+    res.status(400).json({ error: 'invalid_password', message: '新密码至少 6 位' });
+    return;
+  }
+  const db = openDb();
+  const user = findUserByUsername(db, String(req.user.username ?? '')) ?? findUserById(db, req.user.id);
+  if (!user?.password_hash) {
+    res.status(404).json({ error: 'user_not_found' });
+    return;
+  }
+  const ok = await verifyPassword(currentPassword, user.password_hash);
+  if (!ok) {
+    res.status(401).json({ error: 'invalid_credentials', message: '当前密码不正确' });
+    return;
+  }
+  const hash = await hashPassword(newPassword);
+  db.prepare(`UPDATE users SET password_hash = ? WHERE id = ?`).run(hash, user.id);
+  res.json({ ok: true, message: '登录密码已更新，请下次用新密码登录' });
 });
 
 authRouter.get('/api/v1/auth/bootstrap-info', (_req, res) => {

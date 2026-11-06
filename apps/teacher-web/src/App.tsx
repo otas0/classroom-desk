@@ -54,6 +54,7 @@ export function App() {
     return (
       <div className="login">
         <h1>{APP_NAME} 教师后台</h1>
+        <p className="hint">初始账号 teacher；登录后请到「设置」修改为自己的密码。</p>
         <label>
           用户名
           <input value={username} onChange={(e) => setUsername(e.target.value)} />
@@ -834,6 +835,9 @@ function SettingsPanel() {
   const [classStart, setClassStart] = useState('08:00');
   const [lateMins, setLateMins] = useState(15);
   const [saveMsg, setSaveMsg] = useState('');
+  const [curPwd, setCurPwd] = useState('');
+  const [newPwd, setNewPwd] = useState('');
+  const [pwdMsg, setPwdMsg] = useState('');
 
   useEffect(() => {
     void api<{
@@ -876,6 +880,35 @@ function SettingsPanel() {
         一键检测 /health
       </button>
       {diag ? <p className="hint">{diag}</p> : null}
+
+      <h3>教师登录密码</h3>
+      <p className="hint">初次由管理员下发临时密码；请在此改成自己的密码（至少 6 位）。</p>
+      <label>
+        当前密码
+        <input type="password" value={curPwd} onChange={(e) => setCurPwd(e.target.value)} autoComplete="current-password" />
+      </label>
+      <label>
+        新密码
+        <input type="password" value={newPwd} onChange={(e) => setNewPwd(e.target.value)} autoComplete="new-password" />
+      </label>
+      <button
+        type="button"
+        onClick={() =>
+          void api<{ message?: string }>('/api/v1/auth/change-password', {
+            method: 'POST',
+            body: JSON.stringify({ currentPassword: curPwd, newPassword: newPwd }),
+          })
+            .then((r) => {
+              setPwdMsg(r.message ?? '已更新');
+              setCurPwd('');
+              setNewPwd('');
+            })
+            .catch((e) => setPwdMsg(e instanceof Error ? e.message : '改密失败'))
+        }
+      >
+        修改登录密码
+      </button>
+      {pwdMsg ? <p className="hint">{pwdMsg}</p> : null}
 
       <h3>加分请求</h3>
       <label>

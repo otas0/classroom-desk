@@ -17,9 +17,17 @@
 
 ## 学生机
 
-- `apiBase = http://教师IP:8787`（禁止 127.0.0.1）  
-- `classId` = 本班（「指派学生机」或 `pack-classroom-config`）  
+- `apiBase = http://教师IP:8787`（**禁止** `127.0.0.1` / localhost）  
+- `classId` = 本班（「指派学生机」或 `pack-classroom-config`）— 写进身份表  
 - 客户端启动会强制 `/health`；未签名包：SmartScreen → 更多信息 → 仍要运行  
+- 时间与教师机一致（迟到按本地作息时刻）  
+
+## 本教室填写（部署时手写）
+
+| 教师 IP | classId |
+|---|---|
+| _______________ | _______________ |
+
 
 ## 课堂操作
 

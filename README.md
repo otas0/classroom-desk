@@ -81,7 +81,7 @@ npm run dist:win
 
 产物：`apps/student-desktop/release/ClassroomDesk-Setup-*.exe`。
 
-安装包内嵌 `resources/config.json`（`apiBase`）。安装后改成教室服务器，例如 `http://192.168.1.50:8787`；也可在学生端「我的」用管理密码保存。打包态由 Electron 主进程施加生产 CSP。
+安装包内嵌 `resources/config.json`（`apiBase` + `classId`）。安装后改成教室服务器，例如 `http://192.168.1.50:8787`；也可在学生端「设置」用管理密码保存。无班级码进入。打包态由 Electron 主进程施加生产 CSP。
 
 **代码签名**：仓库 Secrets 配置 `CSC_LINK`（.pfx 路径或 base64）与 `CSC_KEY_PASSWORD`；CI 有密钥则签名，无密钥则未签名包。时间戳：DigiCert RFC3161。Artifact：`classroom-desk-windows-setup` → `apps/student-desktop/release/*.exe`。生产清单见 [docs/DEPLOY.md](docs/DEPLOY.md)。
 

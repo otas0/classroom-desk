@@ -25,7 +25,7 @@ New-NetFirewallRule -DisplayName "Classroom Desk API" -Direction Inbound -Protoc
 { "apiBase": "http://192.168.1.50:8787" }
 ```
 
-首次运行会复制到用户目录。管理员可在学生端「我的」输入管理密码后修改并保存。
+首次运行会复制到用户目录。管理员可在学生端「设置」输入管理密码后修改并保存。
 
 ## 健康检查
 
