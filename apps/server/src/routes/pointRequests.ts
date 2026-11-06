@@ -41,8 +41,8 @@ pointRequestsRouter.post('/api/v1/point-requests', requireAuth, requireRoles('st
   const reason = String(req.body?.reason ?? '').trim();
   const category = String(req.body?.category ?? '').trim() || 'other';
   const points = Number(req.body?.points ?? 1);
-  if (!reason || !Number.isFinite(points) || points === 0) {
-    res.status(400).json({ error: 'invalid_request' });
+  if (!Number.isFinite(points) || points === 0) {
+    res.status(400).json({ error: 'invalid_request', message: '分值无效' });
     return;
   }
 

@@ -411,11 +411,6 @@ function PointsPanel({
 
   async function requestPoints() {
     if (!user) return;
-    const why = reason.trim();
-    if (!why) {
-      showToast('请填写加分理由');
-      return;
-    }
     const pts = Math.trunc(Number(points));
     if (!Number.isFinite(pts) || pts < 1) {
       showToast('分值至少为 1');
@@ -426,7 +421,7 @@ function PointsPanel({
       await api('/api/v1/point-requests', {
         method: 'POST',
         body: JSON.stringify({
-          reason: why,
+          reason: reason.trim(),
           category: 'student_request',
           points: pts,
         }),
@@ -452,7 +447,7 @@ function PointsPanel({
           <p>
             当前：{user.displayName} · {user.totalPoints} 分
           </p>
-          <input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="加分理由（必填）" />
+          <input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="加分理由（可选）" />
           <input
             type="number"
             min={1}

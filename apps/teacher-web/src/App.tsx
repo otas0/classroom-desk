@@ -846,7 +846,7 @@ function RequestsPanel({ classId }: { classId: string }) {
       {items.map((item) => (
         <div key={String(item.id)} className="row request-row">
           <span>
-            {String(item.studentName)} · {String(item.reason)} · {String(item.points)} 分
+            {String(item.studentName)} · {String(item.reason || '（无理由）')} · {String(item.points)} 分
           </span>
           <button
             type="button"

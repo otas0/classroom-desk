@@ -72,12 +72,15 @@ CREATE TABLE IF NOT EXISTS messages (
   id TEXT PRIMARY KEY,
   class_id TEXT NOT NULL REFERENCES classes(id) ON DELETE CASCADE,
   student_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  to_student_id TEXT REFERENCES users(id) ON DELETE CASCADE,
   body TEXT NOT NULL,
-  created_at TEXT NOT NULL
+  created_at TEXT NOT NULL,
+  read_at TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_messages_class_created ON messages(class_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_messages_student_created ON messages(student_id, created_at);
+-- idx_messages_to_student created in migrate.ts after ensureColumn (existing DBs)
 
 CREATE TABLE IF NOT EXISTS message_replies (
   id TEXT PRIMARY KEY,

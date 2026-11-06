@@ -21,7 +21,10 @@ export function migrate(database?: DatabaseSync): DatabaseSync {
   conn.exec(sql);
   ensureColumn(conn, 'users', 'student_no', 'TEXT');
   ensureColumn(conn, 'questions', 'attachments', 'TEXT');
+  ensureColumn(conn, 'messages', 'to_student_id', 'TEXT');
+  ensureColumn(conn, 'messages', 'read_at', 'TEXT');
   conn.exec(`CREATE INDEX IF NOT EXISTS idx_users_student_no ON users(class_id, student_no)`);
+  conn.exec(`CREATE INDEX IF NOT EXISTS idx_messages_to_student ON messages(to_student_id, created_at)`);
   seedSettings(conn);
   return conn;
 }
