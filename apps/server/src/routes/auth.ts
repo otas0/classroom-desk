@@ -37,7 +37,18 @@ authRouter.post('/api/v1/auth/login', async (req, res) => {
 
   const authUser = mapUser(user);
   const token = await signToken(authUser);
-  res.json({ token, user: authUser });
+  const weakPasswords = new Set([
+    'ChangeMe123',
+    'TeacherPass123',
+    'Classroom2026!',
+    'Desk@179#2026',
+    'AdminPass123',
+    'password',
+    '123456',
+  ]);
+  const passwordMarkedOk = getSetting(db, 'teacher_password_ok') === '1';
+  const mustChangePassword = !passwordMarkedOk || weakPasswords.has(password);
+  res.json({ token, user: authUser, mustChangePassword });
 });
 
 /**
@@ -153,8 +164,28 @@ authRouter.post('/api/v1/auth/change-password', requireAuth, async (req: AuthedR
   }
   const currentPassword = String(req.body?.currentPassword ?? '');
   const newPassword = String(req.body?.newPassword ?? '');
-  if (!currentPassword || newPassword.length < 6) {
-    res.status(400).json({ error: 'invalid_password', message: '新密码至少 6 位' });
+  const weakPasswords = new Set([
+    'ChangeMe123',
+    'TeacherPass123',
+    'Classroom2026!',
+    'Desk@179#2026',
+    'AdminPass123',
+    'password',
+    '123456',
+  ]);
+  if (!currentPassword || newPassword.length < 8) {
+    res.status(400).json({ error: 'invalid_password', message: '新密码至少 8 位' });
+    return;
+  }
+  if (!/[A-Za-z]/.test(newPassword) || !/[0-9]/.test(newPassword)) {
+    res.status(400).json({
+      error: 'weak_password',
+      message: '新密码需同时包含字母与数字',
+    });
+    return;
+  }
+  if (weakPasswords.has(newPassword)) {
+    res.status(400).json({ error: 'weak_password', message: '请勿使用联调/示例口令' });
     return;
   }
   const db = openDb();
@@ -170,6 +201,10 @@ authRouter.post('/api/v1/auth/change-password', requireAuth, async (req: AuthedR
   }
   const hash = await hashPassword(newPassword);
   db.prepare(`UPDATE users SET password_hash = ? WHERE id = ?`).run(hash, user.id);
+  db.prepare(
+    `INSERT INTO settings (key, value) VALUES ('teacher_password_ok', '1')
+     ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+  ).run();
   res.json({ ok: true, message: '登录密码已更新，请下次用新密码登录' });
 });
 

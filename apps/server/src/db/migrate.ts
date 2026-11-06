@@ -10,6 +10,7 @@ const DEFAULT_SETTINGS: Record<string, string> = {
   notice_text: '本工具由学校部署，用于答题、积分与留言。',
   attendance_notice_text: '签到仅记录本工具内的登录和在线状态。',
   messages_enabled: '1',
+  teacher_password_ok: '0',
   server_bind: '0.0.0.0',
   schema_version: '1',
 };

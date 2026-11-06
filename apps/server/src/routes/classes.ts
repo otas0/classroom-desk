@@ -331,3 +331,96 @@ classesRouter.post(
     res.status(201).json(result);
   },
 );
+
+classesRouter.patch(
+  '/api/v1/classes/:id/students/:studentId',
+  requireAuth,
+  requireRoles('teacher', 'admin'),
+  (req: AuthedRequest, res) => {
+    const classId = paramId(req.params.id);
+    const studentId = paramId(req.params.studentId);
+    const db = openDb();
+    const row = db
+      .prepare(
+        `SELECT id, display_name AS displayName, student_no AS studentNo
+         FROM users WHERE id = ? AND role = 'student' AND class_id = ?`,
+      )
+      .get(studentId, classId) as
+      | { id: string; displayName: string; studentNo: string | null }
+      | undefined;
+    if (!row) {
+      res.status(404).json({ error: 'student_not_found', message: '学生不在本班名单中' });
+      return;
+    }
+
+    const nextName =
+      req.body?.displayName != null ? String(req.body.displayName).trim() : row.displayName;
+    const hasNo =
+      req.body?.studentNo !== undefined
+        ? String(req.body.studentNo ?? '').trim() || null
+        : row.studentNo;
+
+    if (!/^[\u4e00-\u9fffA-Za-z0-9·•\s._-]{1,40}$/.test(nextName)) {
+      res.status(400).json({ error: 'invalid_name', message: '姓名含非法字符或过长' });
+      return;
+    }
+    if (hasNo && !/^[A-Za-z0-9_-]{1,32}$/.test(hasNo)) {
+      res.status(400).json({ error: 'invalid_student_no', message: '学号含非法字符（仅字母数字_-）' });
+      return;
+    }
+
+    const dupName = db
+      .prepare(
+        `SELECT id FROM users
+         WHERE role = 'student' AND class_id = ? AND display_name = ? COLLATE NOCASE AND id != ?`,
+      )
+      .get(classId, nextName, studentId);
+    if (dupName) {
+      res.status(409).json({ error: 'duplicate_name', message: '同名已存在' });
+      return;
+    }
+    if (hasNo) {
+      const dupNo = db
+        .prepare(
+          `SELECT id FROM users
+           WHERE role = 'student' AND class_id = ? AND student_no = ? AND id != ?`,
+        )
+        .get(classId, hasNo, studentId);
+      if (dupNo) {
+        res.status(409).json({ error: 'duplicate_student_no', message: '学号已存在' });
+        return;
+      }
+    }
+
+    db.prepare(`UPDATE users SET display_name = ?, student_no = ? WHERE id = ?`).run(
+      nextName,
+      hasNo,
+      studentId,
+    );
+    res.json({
+      ok: true,
+      id: studentId,
+      displayName: nextName,
+      studentNo: hasNo,
+    });
+  },
+);
+
+classesRouter.delete(
+  '/api/v1/classes/:id/students/:studentId',
+  requireAuth,
+  requireRoles('teacher', 'admin'),
+  (req: AuthedRequest, res) => {
+    const classId = paramId(req.params.id);
+    const studentId = paramId(req.params.studentId);
+    const db = openDb();
+    const info = db
+      .prepare(`DELETE FROM users WHERE id = ? AND role = 'student' AND class_id = ?`)
+      .run(studentId, classId);
+    if (!info.changes) {
+      res.status(404).json({ error: 'student_not_found', message: '学生不在本班名单中' });
+      return;
+    }
+    res.json({ ok: true, id: studentId });
+  },
+);

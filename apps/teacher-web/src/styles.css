@@ -6,6 +6,8 @@
   --line-soft: #ccc;
   --fill: #111;
   --fill-soft: #f2f2f2;
+  --alert: #8b1a1a;
+  --alert-bg: #fff4f4;
   font-family: "IBM Plex Sans", "PingFang SC", "Hiragino Sans GB", sans-serif;
   color: var(--ink);
   background: var(--paper);
@@ -232,6 +234,16 @@ button.linkish,
   color: var(--ink);
   font-weight: 700;
   text-decoration: underline;
+}
+
+.banner-alert {
+  margin: 0 0 10px;
+  padding: 8px 10px;
+  border: 2px solid var(--alert);
+  background: var(--alert-bg);
+  color: var(--alert);
+  font-size: 12px;
+  line-height: 1.4;
 }
 
 .check {

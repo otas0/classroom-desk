@@ -217,6 +217,23 @@ questionsRouter.patch(
   },
 );
 
+questionsRouter.delete(
+  '/api/v1/questions/:id',
+  requireAuth,
+  requireRoles('teacher', 'admin'),
+  (req: AuthedRequest, res) => {
+    const id = paramId(req.params.id);
+    const db = openDb();
+    const existing = db.prepare(`SELECT id FROM questions WHERE id = ?`).get(id);
+    if (!existing) {
+      res.status(404).json({ error: 'not_found', message: '题目不存在' });
+      return;
+    }
+    db.prepare(`DELETE FROM questions WHERE id = ?`).run(id);
+    res.json({ ok: true, id });
+  },
+);
+
 questionsRouter.post('/api/v1/questions/:id/answer', requireAuth, requireRoles('student'), (req: AuthedRequest, res) => {
   const db = openDb();
   const question = db.prepare(`SELECT * FROM questions WHERE id = ? AND published = 1`).get(paramId(req.params.id)) as

@@ -15,7 +15,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '24'
           cache: npm
       - name: Install
         run: npm install
@@ -34,20 +34,26 @@ jobs:
             Write-Host ("sha256 {0} {1}" -f $hash, $_.Name)
             Set-Content -Path ("{0}.sha256" -f $_.FullName) -Value ("{0}  {1}" -f $hash, $_.Name)
           }
+      - name: Stage config.example.json
+        shell: pwsh
+        run: |
+          Copy-Item apps/student-desktop/resources/config.example.json apps/student-desktop/release/config.example.json -Force
       - name: Upload to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
             apps/student-desktop/release/ClassroomDesk-Setup-*.exe
             apps/student-desktop/release/ClassroomDesk-Setup-*.exe.sha256
+            apps/student-desktop/release/config.example.json
           fail_on_unmatched_files: true
           generate_release_notes: true
           body: |
             ## 安装说明
-            教师机 / 学生机从 GitHub 安装步骤见仓库文档：
+            教师机 / 学生机从 GitHub 安装步骤见：
             [docs/SETUP_FROM_GITHUB.md](https://github.com/otas0/classroom-desk/blob/main/docs/SETUP_FROM_GITHUB.md)
 
-            学生机下载本页 `ClassroomDesk-Setup-*.exe`，再按教师下发的 `config.json`（apiBase + classId）配置。
+            学生机：下载本页 `ClassroomDesk-Setup-*.exe` + `config.example.json`（改名为 `config.json` 并按本班改 IP/classId）。
+            本教室示例 classId：`1c8d291d-012c-468f-a855-bfbc166b130e` · apiBase：`http://192.168.31.179:8787`
             未签名包：SmartScreen → 更多信息 → 仍要运行。
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

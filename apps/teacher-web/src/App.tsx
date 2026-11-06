@@ -17,6 +17,25 @@ const IMPORT_ERROR_ZH: Record<string, string> = {
   import_failed: '导入失败',
 };
 
+function preferClassroomId(items: ClassItem[], current: string): string {
+  if (current && items.some((c) => c.id === current)) return current;
+  const preferred =
+    items.find((c) => c.name === '本教室') ??
+    items.find((c) => c.name.includes('本教室')) ??
+    items[0];
+  return preferred?.id ?? '';
+}
+
+function monthString(d = new Date()): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function shiftMonth(month: string, delta: number): string {
+  const [y, m] = month.split('-').map(Number);
+  const d = new Date(y!, (m! - 1) + delta, 1);
+  return monthString(d);
+}
+
 export function App() {
   const [tokenReady, setTokenReady] = useState(Boolean(getToken()));
   const [username, setUsername] = useState('');
@@ -25,27 +44,74 @@ export function App() {
   const [tab, setTab] = useState<Tab>('roster');
   const [classes, setClasses] = useState<ClassItem[]>([]);
   const [classId, setClassId] = useState('');
+  const [mustChangePassword, setMustChangePassword] = useState(
+    () => sessionStorage.getItem('cd_must_change_password') === '1',
+  );
+  const [messagesEnabled, setMessagesEnabled] = useState(true);
+  const [healthAlert, setHealthAlert] = useState('');
 
   async function loadClasses() {
     const res = await api<{ items: ClassItem[] }>('/api/v1/classes');
     setClasses(res.items);
-    if (!classId && res.items[0]) setClassId(res.items[0].id);
+    setClassId((prev) => preferClassroomId(res.items, prev));
   }
 
   useEffect(() => {
     if (!tokenReady) return;
     void loadClasses().catch((e) => setError(e instanceof Error ? e.message : 'load_failed'));
+    void api<{ messagesEnabled?: boolean }>('/api/v1/settings')
+      .then((s) => setMessagesEnabled(s.messagesEnabled !== false))
+      .catch(() => undefined);
   }, [tokenReady]);
+
+  useEffect(() => {
+    if (!tokenReady) return;
+    let cancelled = false;
+    async function pollHealth() {
+      try {
+        const res = await fetch(`${API_BASE}/health`, { cache: 'no-store' });
+        const body = (await res.json()) as {
+          ok?: boolean;
+          backup?: { lastError?: { message?: string } | null };
+        };
+        if (cancelled) return;
+        const err = body.backup?.lastError;
+        setHealthAlert(
+          !body.ok
+            ? '服务异常：/health 未就绪'
+            : err
+              ? `备份异常：${err.message ?? JSON.stringify(err)}（请在教师机运行 npm run backup:db）`
+              : '',
+        );
+      } catch {
+        if (!cancelled) setHealthAlert('无法读取 /health');
+      }
+    }
+    void pollHealth();
+    const t = window.setInterval(() => void pollHealth(), 30_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(t);
+    };
+  }, [tokenReady]);
+
+  useEffect(() => {
+    if (mustChangePassword) setTab('settings');
+  }, [mustChangePassword]);
 
   async function login() {
     setError('');
     try {
-      const res = await api<{ token: string }>('/api/v1/auth/login', {
+      const res = await api<{ token: string; mustChangePassword?: boolean }>('/api/v1/auth/login', {
         method: 'POST',
         body: JSON.stringify({ username, password }),
       });
       setToken(res.token);
+      const force = Boolean(res.mustChangePassword);
+      setMustChangePassword(force);
+      sessionStorage.setItem('cd_must_change_password', force ? '1' : '0');
       setTokenReady(true);
+      if (force) setTab('settings');
     } catch (e) {
       setError(e instanceof Error ? e.message : 'login_failed');
     }
@@ -55,14 +121,19 @@ export function App() {
     return (
       <div className="login">
         <h1>{APP_NAME} 教师后台</h1>
-        <p className="hint">使用教师账号登录；首次登录后请到「设置」修改密码。</p>
+        <p className="hint">使用教师账号登录。若仍是联调口令，登录后须先改个人密码。</p>
         <label>
           用户名
-          <input value={username} onChange={(e) => setUsername(e.target.value)} />
+          <input value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="username" />
         </label>
         <label>
           密码
-          <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
+          <input
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            autoComplete="current-password"
+          />
         </label>
         {error ? <p className="error">{error}</p> : null}
         <button type="button" onClick={() => void login()}>
@@ -72,13 +143,35 @@ export function App() {
     );
   }
 
+  const navItems = (
+    [
+      ['roster', '名单导入'],
+      ['questions', '发题/正确率'],
+      ['requests', '加分审核'],
+      ['attendance', '签到统计'],
+      ['exports', '导出'],
+      ...(messagesEnabled ? ([['messages', '留言']] as const) : []),
+      ['assign', '指派学生机'],
+      ['settings', '设置'],
+    ] as const
+  ).filter((row) => !mustChangePassword || row[0] === 'settings');
+
   return (
     <div className="layout">
       <aside>
         <h1>{APP_NAME}</h1>
+        {healthAlert ? <p className="banner-alert">{healthAlert}</p> : null}
+        {mustChangePassword ? (
+          <p className="banner-alert">请先修改个人密码（至少 8 位，含字母与数字）</p>
+        ) : null}
         <label>
           当前班级
-          <select value={classId} onChange={(e) => setClassId(e.target.value)}>
+          <select
+            value={classId}
+            disabled={mustChangePassword}
+            onChange={(e) => setClassId(e.target.value)}
+          >
+            {classes.length === 0 ? <option value="">（暂无班级）</option> : null}
             {classes.map((c) => (
               <option key={c.id} value={c.id}>
                 {c.name}
@@ -86,18 +179,7 @@ export function App() {
             ))}
           </select>
         </label>
-        {(
-          [
-            ['roster', '名单导入'],
-            ['questions', '发题/正确率'],
-            ['requests', '加分审核'],
-            ['attendance', '签到统计'],
-            ['exports', '导出'],
-            ['messages', '留言'],
-            ['assign', '指派学生机'],
-            ['settings', '设置'],
-          ] as const
-        ).map(([id, label]) => (
+        {navItems.map(([id, label]) => (
           <button
             key={id}
             type="button"
@@ -107,26 +189,46 @@ export function App() {
             {label}
           </button>
         ))}
+        {!messagesEnabled && !mustChangePassword ? (
+          <p className="hint">留言已关闭（学生端无留言 Tab）</p>
+        ) : null}
         <button
           type="button"
           className="nav"
           onClick={() => {
             setToken(null);
             setTokenReady(false);
+            setMustChangePassword(false);
+            sessionStorage.removeItem('cd_must_change_password');
           }}
         >
           退出登录
         </button>
       </aside>
       <main>
-        {tab === 'roster' && <RosterPanel classId={classId} classes={classes} onClasses={loadClasses} />}
-        {tab === 'questions' && <QuestionsPanel classId={classId} />}
-        {tab === 'requests' && <RequestsPanel classId={classId} />}
-        {tab === 'attendance' && <AttendancePanel classId={classId} />}
-        {tab === 'exports' && <ExportsPanel classId={classId} />}
-        {tab === 'messages' && <MessagesPanel classId={classId} />}
-        {tab === 'assign' && <AssignPanel classId={classId} classes={classes} />}
-        {tab === 'settings' && <SettingsPanel />}
+        {mustChangePassword ? (
+          <SettingsPanel
+            forcePasswordOnly
+            onPasswordChanged={() => {
+              setMustChangePassword(false);
+              sessionStorage.setItem('cd_must_change_password', '0');
+              setTab('roster');
+            }}
+          />
+        ) : (
+          <>
+            {tab === 'roster' && <RosterPanel classId={classId} classes={classes} onClasses={loadClasses} />}
+            {tab === 'questions' && <QuestionsPanel classId={classId} />}
+            {tab === 'requests' && <RequestsPanel classId={classId} />}
+            {tab === 'attendance' && <AttendancePanel classId={classId} />}
+            {tab === 'exports' && <ExportsPanel classId={classId} />}
+            {tab === 'messages' && messagesEnabled && (
+              <MessagesPanel classId={classId} onEnabledChange={setMessagesEnabled} />
+            )}
+            {tab === 'assign' && <AssignPanel classId={classId} classes={classes} />}
+            {tab === 'settings' && <SettingsPanel onMessagesChange={setMessagesEnabled} />}
+          </>
+        )}
       </main>
     </div>
   );
@@ -171,7 +273,38 @@ function RosterPanel({
     void loadStudents().catch(() => setStudents([]));
   }, [classId]);
 
+  async function confirmBeforeImport(): Promise<boolean> {
+    try {
+      const res = await fetch(`${API_BASE}/health`, { cache: 'no-store' });
+      const body = (await res.json()) as {
+        backup?: { latestAt?: string | null; ageHours?: number | null; lastError?: unknown };
+      };
+      const age = body.backup?.ageHours;
+      const stale = body.backup?.latestAt == null || (typeof age === 'number' && age > 24);
+      const err = body.backup?.lastError;
+      if (err || stale) {
+        const ok = window.confirm(
+          `${err ? '检测到备份异常。' : '近 24 小时内未见备份。'}导入前建议在教师机执行 npm run backup:db。\n仍要继续导入吗？`,
+        );
+        if (!ok) return false;
+      }
+    } catch {
+      const ok = window.confirm('无法确认备份状态。仍要继续导入吗？');
+      if (!ok) return false;
+    }
+    if (replaceRoster) {
+      const n = students.length;
+      return window.confirm(
+        n > 0
+          ? `覆盖导入将清空本班现有 ${n} 名学生，再写入表格。此操作不可撤销，确定继续？`
+          : '将按覆盖模式导入（当前班暂无学生）。确定继续？',
+      );
+    }
+    return true;
+  }
+
   async function importFile(file: File) {
+    if (!(await confirmBeforeImport())) return;
     const fd = new FormData();
     fd.append('file', file);
     if (replaceRoster) fd.append('replace', '1');
@@ -254,16 +387,18 @@ function RosterPanel({
             setImportResult('请粘贴真实名单 CSV，或使用上方文件上传');
             return;
           }
-          void api<{
-            created: number;
-            skipped: number;
-            replaced?: number;
-            failures?: Array<{ line: number; name: string; reasonText?: string; reason: string }>;
-          }>(`/api/v1/classes/${classId}/students/import`, {
-            method: 'POST',
-            body: JSON.stringify({ csv, replace: replaceRoster }),
-          })
-            .then((r) => {
+          void (async () => {
+            if (!(await confirmBeforeImport())) return;
+            try {
+              const r = await api<{
+                created: number;
+                skipped: number;
+                replaced?: number;
+                failures?: Array<{ line: number; name: string; reasonText?: string; reason: string }>;
+              }>(`/api/v1/classes/${classId}/students/import`, {
+                method: 'POST',
+                body: JSON.stringify({ csv, replace: replaceRoster }),
+              });
               const fail = (r.failures ?? [])
                 .map((f) => `第${f.line}行 ${f.name} → ${f.reasonText ?? f.reason}`)
                 .join('；');
@@ -272,9 +407,11 @@ function RosterPanel({
                   fail ? `。${fail}` : ''
                 }`,
               );
-              return loadStudents();
-            })
-            .catch((err) => setImportResult(String(err instanceof Error ? err.message : err)));
+              await loadStudents();
+            } catch (err) {
+              setImportResult(String(err instanceof Error ? err.message : err));
+            }
+          })();
         }}
       >
         从文本导入 CSV
@@ -282,6 +419,7 @@ function RosterPanel({
       {importResult ? <p className={/失败|错误|无效|损坏/.test(importResult) ? 'error' : 'hint'}>{importResult}</p> : null}
 
       <h3>当前班名单（{classes.find((c) => c.id === classId)?.name ?? ''}）· 按学号排序</h3>
+      <p className="hint">可直接改姓名/学号并保存，或删除学生（相关签到/加分记录一并清除）。</p>
       <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="搜索姓名/学号" />
       <table className="data-table">
         <thead>
@@ -289,19 +427,105 @@ function RosterPanel({
             <th>学号</th>
             <th>姓名</th>
             <th>积分</th>
+            <th>操作</th>
           </tr>
         </thead>
         <tbody>
           {filteredStudents.map((s) => (
-            <tr key={String(s.id)}>
-              <td>{String(s.studentNo ?? '—')}</td>
-              <td>{String(s.displayName)}</td>
-              <td>{String(s.totalPoints)}</td>
-            </tr>
+            <StudentRow
+              key={String(s.id)}
+              classId={classId}
+              student={s}
+              onChanged={() => void loadStudents()}
+              onError={(msg) => setImportResult(msg)}
+            />
           ))}
         </tbody>
       </table>
+      {filteredStudents.length === 0 ? <p className="hint">暂无学生</p> : null}
     </section>
+  );
+}
+
+function StudentRow({
+  classId,
+  student,
+  onChanged,
+  onError,
+}: {
+  classId: string;
+  student: Record<string, unknown>;
+  onChanged: () => void;
+  onError: (msg: string) => void;
+}) {
+  const id = String(student.id);
+  const [name, setName] = useState(String(student.displayName ?? ''));
+  const [studentNo, setStudentNo] = useState(String(student.studentNo ?? ''));
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    setName(String(student.displayName ?? ''));
+    setStudentNo(String(student.studentNo ?? ''));
+  }, [student.displayName, student.studentNo, student.id]);
+
+  async function save() {
+    setBusy(true);
+    try {
+      await api(`/api/v1/classes/${classId}/students/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ displayName: name.trim(), studentNo: studentNo.trim() }),
+      });
+      onChanged();
+    } catch (e) {
+      onError(e instanceof Error ? e.message : '保存失败');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function remove() {
+    if (!window.confirm(`确定删除「${name || id}」？其签到与加分记录也会清除。`)) return;
+    setBusy(true);
+    try {
+      await api(`/api/v1/classes/${classId}/students/${id}`, { method: 'DELETE' });
+      onChanged();
+    } catch (e) {
+      onError(e instanceof Error ? e.message : '删除失败');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <tr>
+      <td>
+        <input
+          value={studentNo}
+          disabled={busy}
+          onChange={(e) => setStudentNo(e.target.value)}
+          placeholder="学号"
+          aria-label="学号"
+        />
+      </td>
+      <td>
+        <input
+          value={name}
+          disabled={busy}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="姓名"
+          aria-label="姓名"
+        />
+      </td>
+      <td>{String(student.totalPoints)}</td>
+      <td>
+        <button type="button" className="secondary" disabled={busy} onClick={() => void save()}>
+          保存
+        </button>{' '}
+        <button type="button" disabled={busy} onClick={() => void remove()}>
+          删除
+        </button>
+      </td>
+    </tr>
   );
 }
 
@@ -563,7 +787,23 @@ function QuestionsPanel({ classId }: { classId: string }) {
                   setEditingQuestion(q);
                 }}
               >
-                编辑原题
+                编辑
+              </button>
+              <button
+                type="button"
+                className="secondary"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (!window.confirm(`确定删除题目「${String(q.title)}」？作答记录也会清除。`)) return;
+                  void api(`/api/v1/questions/${String(q.id)}`, { method: 'DELETE' })
+                    .then(async () => {
+                      if (String(editingQuestion?.id) === String(q.id)) setEditingQuestion(null);
+                      await load();
+                    })
+                    .catch((err) => setCreateMsg(err instanceof Error ? err.message : '删除失败'));
+                }}
+              >
+                删除
               </button>
             </li>
           );
@@ -574,6 +814,10 @@ function QuestionsPanel({ classId }: { classId: string }) {
         classId={classId}
         seed={editingQuestion}
         onSaved={async () => {
+          setEditingQuestion(null);
+          await load();
+        }}
+        onDeleted={async () => {
           setEditingQuestion(null);
           await load();
         }}
@@ -614,10 +858,12 @@ function QuestionEditForm({
   classId,
   seed,
   onSaved,
+  onDeleted,
 }: {
   classId: string;
   seed: Record<string, unknown> | null;
   onSaved: () => Promise<void>;
+  onDeleted?: () => Promise<void>;
 }) {
   const [qid, setQid] = useState('');
   const [title, setTitle] = useState('');
@@ -645,7 +891,7 @@ function QuestionEditForm({
 
   return (
     <div className="card">
-      <p className="hint">点列表「编辑原题」加载选项；可改标题/题干/选项后保存。班级 {classId}</p>
+      <p className="hint">点列表「编辑」加载选项；可改标题/题干/选项后保存，或删除。班级 {classId}</p>
       <input value={qid} onChange={(e) => setQid(e.target.value)} placeholder="题目 ID" readOnly />
       <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="标题" />
       <textarea value={stem} onChange={(e) => setStem(e.target.value)} placeholder="题干" />
@@ -694,6 +940,22 @@ function QuestionEditForm({
         }
       >
         保存编辑
+      </button>{' '}
+      <button
+        type="button"
+        className="secondary"
+        disabled={!qid}
+        onClick={() => {
+          if (!window.confirm(`确定删除题目「${title || qid}」？`)) return;
+          void api(`/api/v1/questions/${qid}`, { method: 'DELETE' })
+            .then(() => {
+              setMsg('已删除');
+              return onDeleted?.() ?? onSaved();
+            })
+            .catch((e) => setMsg(e instanceof Error ? e.message : '删除失败'));
+        }}
+      >
+        删除题目
       </button>
       {msg ? <p className="hint">{msg}</p> : null}
     </div>
@@ -764,9 +1026,7 @@ function AttendancePanel({ classId }: { classId: string }) {
 }
 
 function ExportsPanel({ classId }: { classId: string }) {
-  const [month, setMonth] = useState(
-    `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`,
-  );
+  const [month, setMonth] = useState(monthString());
   const [format, setFormat] = useState<'csv' | 'xlsx' | 'json' | 'tsv'>('csv');
 
   async function download(path: string, filename: string) {
@@ -785,9 +1045,19 @@ function ExportsPanel({ classId }: { classId: string }) {
   }
 
   const ext = format;
+  const thisMonth = monthString();
+  const lastMonth = shiftMonth(thisMonth, -1);
   return (
     <section>
       <h2>导出（多格式）</h2>
+      <div className="row">
+        <button type="button" className="secondary" onClick={() => setMonth(lastMonth)}>
+          上月（{lastMonth}）
+        </button>
+        <button type="button" className="secondary" onClick={() => setMonth(thisMonth)}>
+          本月（{thisMonth}）
+        </button>
+      </div>
       <label>
         月份
         <input value={month} onChange={(e) => setMonth(e.target.value)} />
@@ -903,7 +1173,13 @@ function RequestsPanel({ classId }: { classId: string }) {
   );
 }
 
-function MessagesPanel({ classId }: { classId: string }) {
+function MessagesPanel({
+  classId,
+  onEnabledChange,
+}: {
+  classId: string;
+  onEnabledChange?: (enabled: boolean) => void;
+}) {
   const [items, setItems] = useState<Array<Record<string, unknown>>>([]);
   const [reply, setReply] = useState<Record<string, string>>({});
   const [enabled, setEnabled] = useState(true);
@@ -916,7 +1192,9 @@ function MessagesPanel({ classId }: { classId: string }) {
       api<{ messagesEnabled: boolean }>('/api/v1/settings'),
     ]);
     setItems(msgs.items);
-    setEnabled(settings.messagesEnabled !== false);
+    const on = settings.messagesEnabled !== false;
+    setEnabled(on);
+    onEnabledChange?.(on);
   }
 
   useEffect(() => {
@@ -937,11 +1215,14 @@ function MessagesPanel({ classId }: { classId: string }) {
               method: 'PATCH',
               body: JSON.stringify({ messagesEnabled: e.target.checked }),
             })
-              .then(() => setEnabled(e.target.checked))
+              .then(() => {
+                setEnabled(e.target.checked);
+                onEnabledChange?.(e.target.checked);
+              })
               .catch((ex) => setErr(ex instanceof Error ? ex.message : '保存失败'))
           }
         />
-        允许学生留言（关闭后学生端隐藏留言并禁止发送）
+        允许学生留言（关闭后学生端与本侧「留言」入口一并隐藏）
       </label>
       <button type="button" className="secondary" onClick={() => void load().catch((e) => setErr(String(e)))}>
         刷新
@@ -1032,17 +1313,22 @@ function AssignPanel({ classId, classes }: { classId: string; classes: ClassItem
     setHealthHint(`${base}/health`);
   }
 
+  function configObject() {
+    const base = apiBase.replace(/\/$/, '');
+    return {
+      apiBase: base,
+      classId,
+      comment: `本教室 ${klass?.name ?? classId}。学生机专用，禁止 127.0.0.1。`,
+    };
+  }
+
   function downloadConfig() {
     const base = apiBase.replace(/\/$/, '');
     if (/127\.0\.0\.1|localhost/i.test(base)) {
       window.alert('禁止使用 127.0.0.1 / localhost，请填教师机局域网 IP');
       return;
     }
-    const cfg = {
-      apiBase: base,
-      classId,
-      comment: `本教室 ${klass?.name ?? classId}。学生机专用，禁止 127.0.0.1。`,
-    };
+    const cfg = configObject();
     const blob = new Blob([JSON.stringify(cfg, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -1050,6 +1336,15 @@ function AssignPanel({ classId, classes }: { classId: string; classes: ClassItem
     a.download = `classroom-${klass?.name ?? 'class'}-config.json`;
     a.click();
     URL.revokeObjectURL(url);
+  }
+
+  async function copyText(label: string, text: string) {
+    try {
+      await navigator.clipboard.writeText(text);
+      window.alert(`已复制${label}`);
+    } catch {
+      window.prompt(`复制${label}：`, text);
+    }
   }
 
   return (
@@ -1063,7 +1358,26 @@ function AssignPanel({ classId, classes }: { classId: string; classes: ClassItem
         当前班级：<strong>{klass?.name ?? '—'}</strong>
       </p>
       <p>
-        classId：<code>{classId || '（请先选班）'}</code>
+        classId：<code>{classId || '（请先选班）'}</code>{' '}
+        <button
+          type="button"
+          className="secondary"
+          disabled={!classId}
+          onClick={() => void copyText('classId', classId)}
+        >
+          复制 classId
+        </button>
+      </p>
+      <p>
+        apiBase：<code>{apiBase || '—'}</code>{' '}
+        <button
+          type="button"
+          className="secondary"
+          disabled={!apiBase}
+          onClick={() => void copyText('apiBase', apiBase.replace(/\/$/, ''))}
+        >
+          复制 apiBase
+        </button>
       </p>
       {lanIps.length ? (
         <p className="hint">
@@ -1089,6 +1403,14 @@ function AssignPanel({ classId, classes }: { classId: string; classes: ClassItem
       </button>{' '}
       <button type="button" disabled={!classId || !apiBase} onClick={downloadConfig}>
         下载本教室 config.json
+      </button>{' '}
+      <button
+        type="button"
+        className="secondary"
+        disabled={!classId || !apiBase}
+        onClick={() => void copyText('config.json', JSON.stringify(configObject(), null, 2))}
+      >
+        复制 config.json
       </button>
       <p className="hint">
         学生浏览器强制检测：{' '}
@@ -1108,17 +1430,27 @@ function AssignPanel({ classId, classes }: { classId: string; classes: ClassItem
   );
 }
 
-function SettingsPanel() {
+function SettingsPanel({
+  forcePasswordOnly = false,
+  onPasswordChanged,
+  onMessagesChange,
+}: {
+  forcePasswordOnly?: boolean;
+  onPasswordChanged?: () => void;
+  onMessagesChange?: (enabled: boolean) => void;
+} = {}) {
   const [diag, setDiag] = useState('');
   const [ttl, setTtl] = useState(60);
   const [saveMsg, setSaveMsg] = useState('');
   const [curPwd, setCurPwd] = useState('');
   const [newPwd, setNewPwd] = useState('');
   const [pwdMsg, setPwdMsg] = useState('');
+  const [messagesOn, setMessagesOn] = useState(true);
 
   useEffect(() => {
-    void api<{ pointRequestTtlMinutes: number }>('/api/v1/settings').then((s) => {
+    void api<{ pointRequestTtlMinutes: number; messagesEnabled?: boolean }>('/api/v1/settings').then((s) => {
       setTtl(s.pointRequestTtlMinutes);
+      setMessagesOn(s.messagesEnabled !== false);
     });
   }, []);
 
@@ -1146,16 +1478,32 @@ function SettingsPanel() {
     }
   }
 
+  const pwdHint =
+    newPwd.length === 0
+      ? '至少 8 位，须含字母与数字；勿用 ChangeMe123 等联调口令'
+      : newPwd.length < 8
+        ? '还差字符：至少 8 位'
+        : !/[A-Za-z]/.test(newPwd) || !/[0-9]/.test(newPwd)
+          ? '还需同时包含字母与数字'
+          : '强度看起来可以提交';
+
   return (
     <section>
       <h2>设置</h2>
-      <button type="button" onClick={() => void runDiag()}>
-        一键检测 /health
-      </button>
-      {diag ? <p className="hint">{diag}</p> : null}
+      {forcePasswordOnly ? (
+        <p className="error">首次/联调口令登录：必须先改成个人密码才能使用其它功能。</p>
+      ) : null}
+      {!forcePasswordOnly ? (
+        <>
+          <button type="button" onClick={() => void runDiag()}>
+            一键检测 /health
+          </button>
+          {diag ? <p className="hint">{diag}</p> : null}
+        </>
+      ) : null}
 
       <h3>教师登录密码</h3>
-      <p className="hint">请改成自己的密码（至少 6 位），勿使用联调口令。</p>
+      <p className="hint">{pwdHint}</p>
       <label>
         当前密码
         <input type="password" value={curPwd} onChange={(e) => setCurPwd(e.target.value)} autoComplete="current-password" />
@@ -1175,6 +1523,7 @@ function SettingsPanel() {
               setPwdMsg(r.message ?? '已更新');
               setCurPwd('');
               setNewPwd('');
+              onPasswordChanged?.();
             })
             .catch((e) => setPwdMsg(e instanceof Error ? e.message : '改密失败'))
         }
@@ -1183,26 +1532,50 @@ function SettingsPanel() {
       </button>
       {pwdMsg ? <p className="hint">{pwdMsg}</p> : null}
 
-      <h3>加分请求</h3>
-      <label>
-        有效期（分钟）
-        <input type="number" value={ttl} onChange={(e) => setTtl(Number(e.target.value))} />
-      </label>
-      <button
-        type="button"
-        onClick={() =>
-          void api('/api/v1/settings', {
-            method: 'PATCH',
-            body: JSON.stringify({ pointRequestTtlMinutes: ttl }),
-          })
-            .then(() => setSaveMsg('已保存'))
-            .catch((e) => setSaveMsg(e instanceof Error ? e.message : '保存失败'))
-        }
-      >
-        保存设置
-      </button>
-      {saveMsg ? <p className="hint">{saveMsg}</p> : null}
-      <p className="hint">本地备份：教师机 `npm run backup:db`；确认 /health 无 lastError。</p>
+      {forcePasswordOnly ? null : (
+        <>
+          <h3>留言</h3>
+          <label className="row">
+            <input
+              type="checkbox"
+              checked={messagesOn}
+              onChange={(e) =>
+                void api('/api/v1/settings', {
+                  method: 'PATCH',
+                  body: JSON.stringify({ messagesEnabled: e.target.checked }),
+                })
+                  .then(() => {
+                    setMessagesOn(e.target.checked);
+                    onMessagesChange?.(e.target.checked);
+                  })
+                  .catch((err) => setSaveMsg(err instanceof Error ? err.message : '保存失败'))
+              }
+            />
+            允许学生留言（关闭后侧栏隐藏「留言」）
+          </label>
+
+          <h3>加分请求</h3>
+          <label>
+            有效期（分钟）
+            <input type="number" value={ttl} onChange={(e) => setTtl(Number(e.target.value))} />
+          </label>
+          <button
+            type="button"
+            onClick={() =>
+              void api('/api/v1/settings', {
+                method: 'PATCH',
+                body: JSON.stringify({ pointRequestTtlMinutes: ttl }),
+              })
+                .then(() => setSaveMsg('已保存'))
+                .catch((e) => setSaveMsg(e instanceof Error ? e.message : '保存失败'))
+            }
+          >
+            保存设置
+          </button>
+          {saveMsg ? <p className="hint">{saveMsg}</p> : null}
+          <p className="hint">本地备份：教师机 `npm run backup:db`；确认 /health 无 lastError。</p>
+        </>
+      )}
     </section>
   );
 }

@@ -238,11 +238,9 @@ export function App() {
           </div>
         </header>
         <main className="content" data-no-drag>
-          <h1>无法连接教师机</h1>
+          <h1>连不上教师机</h1>
           <p className="hint">{healthDetail}</p>
-          <p className="hint">
-            请用浏览器打开「教师机IP:8787/health」确认通；再检查本机 apiBase、同一网段、防火墙与时间同步。
-          </p>
+          <p className="hint">找老师检查 IP / 是否同一 Wi‑Fi，浏览器先打开「教师机IP:8787/ready」。</p>
           <button
             type="button"
             onClick={() =>
@@ -289,7 +287,7 @@ export function App() {
     <div className="shell">
       {offline ? (
         <div className="offline-banner" data-no-drag>
-          无法连接服务器（{getApiBase()}）
+          离线（{getApiBase()}）· 找老师检查 IP
           <button type="button" className="icon-btn" onClick={() => void refreshMe()}>
             重试
           </button>
@@ -443,7 +441,8 @@ function PointsPanel({
   return (
     <section className="panel">
       <h1>本班名单</h1>
-      <p className="hint">点选自己的姓名进入；需要加分时填写理由与分值，由教师审核入账。</p>
+      <p className="hint">点名进入 · 申请加分</p>
+      <p className="hint">先点自己的姓名；登录后可填写理由与分值申请加分（教师审核）。</p>
       {error ? <p className="error">{error}</p> : null}
       <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="搜索姓名或学号" />
       {user ? (
@@ -469,7 +468,7 @@ function PointsPanel({
       <button type="button" className="secondary" onClick={onRefresh}>
         刷新名单
       </button>
-      {filtered.length === 0 ? <p>暂无名单，请老师导入 Excel/CSV</p> : null}
+      {filtered.length === 0 ? <p className="hint">暂无名单 · 找老师导入名单</p> : null}
       <table className="roster-table">
         <thead>
           <tr>
