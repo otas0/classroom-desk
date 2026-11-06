@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { APP_NAME } from '@classroom-desk/shared';
 import {
   ApiOfflineError,
@@ -23,12 +23,29 @@ type User = {
 type RosterRow = { id: string; displayName: string; studentNo: string | null; totalPoints: number };
 
 const TABS: { id: TabId; label: string }[] = [
-  { id: 'points', label: '名单' },
+  { id: 'points', label: '首页' },
   { id: 'attendance', label: '签到' },
   { id: 'quiz', label: '答题' },
   { id: 'messages', label: '留言' },
   { id: 'admin', label: '设置' },
 ];
+
+function countOpenUnanswered(items: Array<Record<string, unknown>>): number {
+  return items.filter((q) => {
+    const mine = q.myAnswer as { answeredAt?: string } | null | undefined;
+    return Boolean(q.acceptingAnswers) && !mine?.answeredAt;
+  }).length;
+}
+
+function questionTypeZh(type: string): string {
+  const map: Record<string, string> = {
+    single: '单选',
+    multi: '多选',
+    bool: '判断',
+    blank: '填空',
+  };
+  return map[type] ?? type;
+}
 
 export function App() {
   const [tab, setTab] = useState<TabId>('points');
@@ -45,11 +62,66 @@ export function App() {
   const [ready, setReady] = useState(false);
   const [healthOk, setHealthOk] = useState<boolean | null>(null);
   const [healthDetail, setHealthDetail] = useState('');
+  const [newQuizPulse, setNewQuizPulse] = useState(false);
+  const [openQuizCount, setOpenQuizCount] = useState(0);
+  const [pendingIdentity, setPendingIdentity] = useState<RosterRow | null>(null);
+  const [switchIdentity, setSwitchIdentity] = useState(false);
+  const [selecting, setSelecting] = useState(false);
+  const [gateAdmin, setGateAdmin] = useState(false);
+  const [exitAllowed, setExitAllowed] = useState(false);
+  const [exitUnlockUntil, setExitUnlockUntil] = useState<string | null>(null);
+  const [nowTick, setNowTick] = useState(() => Date.now());
+  const knownQuestionIdsRef = useRef(new Set<string>());
 
   const showToast = useCallback((msg: string) => {
     setToast(msg);
     window.setTimeout(() => setToast(''), 2200);
   }, []);
+
+  const syncExitLock = useCallback(async (allowed: boolean) => {
+    setExitAllowed(allowed);
+    if (window.classroomDesk?.setExitAllowed) {
+      const st = await window.classroomDesk.setExitAllowed(allowed);
+      setExitAllowed(Boolean(st.exitAllowed));
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!window.classroomDesk?.onBlockedClose) return;
+    return window.classroomDesk.onBlockedClose(() => {
+      showToast('课堂锁定中，找老师或输入解除码');
+      setTab('admin');
+    });
+  }, [showToast]);
+
+  useEffect(() => {
+    const t = window.setInterval(() => setNowTick(Date.now()), 1000);
+    return () => window.clearInterval(t);
+  }, []);
+
+  const announceNewQuestions = useCallback(
+    (items: Array<Record<string, unknown>>) => {
+      const known = knownQuestionIdsRef.current;
+      if (known.size === 0) {
+        for (const q of items) known.add(String(q.id));
+        return false;
+      }
+      const fresh = items.filter((q) => {
+        const id = String(q.id);
+        const mine = q.myAnswer as { answeredAt?: string } | null;
+        const open = Boolean(q.acceptingAnswers) && !mine?.answeredAt;
+        return open && !known.has(id);
+      });
+      for (const q of items) known.add(String(q.id));
+      if (fresh.length === 0) return false;
+      playNewQuestionChime();
+      setNewQuizPulse(true);
+      window.setTimeout(() => setNewQuizPulse(false), 1800);
+      showToast(`新题：${String(fresh[0]?.title ?? '')}`);
+      return true;
+    },
+    [showToast],
+  );
 
   const loadRoster = useCallback(async (cid: string) => {
     if (!cid) {
@@ -65,8 +137,14 @@ export function App() {
 
   const refreshMe = useCallback(async () => {
     try {
-      const pub = await api<{ messagesEnabled?: boolean }>('/api/v1/settings/public');
+      const pub = await api<{
+        messagesEnabled?: boolean;
+        clientExitAllowed?: boolean;
+        clientExitUnlockUntil?: string | null;
+      }>('/api/v1/settings/public');
       setMessagesEnabled(pub.messagesEnabled !== false);
+      setExitUnlockUntil(pub.clientExitUnlockUntil ?? null);
+      await syncExitLock(pub.clientExitAllowed === true);
       if (!getToken()) {
         setUser(null);
         setOffline(false);
@@ -85,7 +163,7 @@ export function App() {
       if (e instanceof ApiOfflineError) setOffline(true);
       else setUser(null);
     }
-  }, []);
+  }, [syncExitLock]);
 
   const probeHealth = useCallback(async () => {
     const base = getApiBase();
@@ -145,12 +223,61 @@ export function App() {
     return () => window.clearInterval(t);
   }, [refreshMe]);
 
+  useEffect(() => {
+    if (!user) return;
+    let cancelled = false;
+    async function pollQuestions() {
+      try {
+        const r = await api<{ items: Array<Record<string, unknown>> }>('/api/v1/questions');
+        if (cancelled) return;
+        setOpenQuizCount(countOpenUnanswered(r.items));
+        announceNewQuestions(r.items);
+      } catch {
+        /* offline */
+      }
+    }
+    void pollQuestions();
+    const t = window.setInterval(() => void pollQuestions(), 5000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(t);
+    };
+  }, [user, announceNewQuestions]);
+
+  useEffect(() => {
+    if (!user) setOpenQuizCount(0);
+  }, [user]);
+
+  function beginSwitch() {
+    setError('');
+    setPendingIdentity(null);
+    setGateAdmin(false);
+    setSwitchIdentity(true);
+  }
+
+  async function expandCollapsed() {
+    if (window.classroomDesk) {
+      const still = await window.classroomDesk.getCollapsed();
+      if (still) await window.classroomDesk.toggleCollapse();
+    }
+    setCollapsed(false);
+  }
+
+  async function expandTo(next: TabId) {
+    await expandCollapsed();
+    setSwitchIdentity(false);
+    setPendingIdentity(null);
+    setTab(next);
+  }
+
   async function selectStudent(row: RosterRow) {
     setError('');
     if (!classId) {
-      setError('本机未指派班级，请教师在设置中写入 classId');
+      setError('本机未指派班级，请老师在「教师设置」里填写班级');
       return;
     }
+    if (selecting) return;
+    setSelecting(true);
     try {
       const res = await api<{ token: string; user: User; class: { name: string } }>(
         '/api/v1/auth/student-select',
@@ -159,19 +286,47 @@ export function App() {
       setToken(res.token);
       setUser(res.user);
       setClassName(res.class.name);
+      setPendingIdentity(null);
+      setSwitchIdentity(false);
+      setGateAdmin(false);
       showToast(`已选择 ${res.user.displayName}`);
-      setTab('points');
+      let openCount = 0;
+      try {
+        const qs = await api<{ items: Array<Record<string, unknown>> }>('/api/v1/questions');
+        openCount = countOpenUnanswered(qs.items);
+        setOpenQuizCount(openCount);
+        for (const q of qs.items) knownQuestionIdsRef.current.add(String(q.id));
+      } catch {
+        setOpenQuizCount(0);
+      }
+      setTab(openCount > 0 ? 'quiz' : 'points');
       await loadRoster(classId);
       await refreshMe();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'select_failed');
+    } finally {
+      setSelecting(false);
     }
   }
 
   const meta = useMemo(() => {
-    if (!user) return className ? `${className} · 请点选自己的姓名` : '请教师指派班级';
-    return `${className || '班级'} · ${user.displayName} · ${user.totalPoints} 分`;
+    if (!user) return className ? `${className} · 请点选自己的姓名` : '请老师指派班级';
+    return className ? `${className} · ${user.totalPoints} 分` : `${user.totalPoints} 分`;
   }, [user, className]);
+
+  const exitLockLabel = useMemo(() => {
+    void nowTick;
+    if (!exitAllowed) return '已锁定';
+    if (exitUnlockUntil) {
+      const left = Math.max(0, Date.parse(exitUnlockUntil) - Date.now());
+      if (left <= 0) return '已锁定';
+      const sec = Math.ceil(left / 1000);
+      const m = Math.floor(sec / 60);
+      const s = String(sec % 60).padStart(2, '0');
+      return `可退出 ${m}:${s}`;
+    }
+    return '可退出';
+  }, [exitAllowed, exitUnlockUntil, nowTick]);
 
   async function onToggleCollapse() {
     if (window.classroomDesk) {
@@ -190,28 +345,44 @@ export function App() {
 
   if (collapsed) {
     return (
-      <div className="shell collapsed">
+      <div className={`shell collapsed${newQuizPulse ? ' quiz-flash' : ''}`}>
         <header className="titlebar" data-drag>
           <div className="collapsed-meta">
             <span className="brand">{APP_NAME}</span>
             <span className="collapsed-stats">
-              {offline ? '离线' : `积分 ${user?.totalPoints ?? '--'}`}
+              <span className={exitAllowed ? 'lock-badge unlocked' : 'lock-badge'} title="退出锁定状态">
+                {exitLockLabel}
+              </span>
+              {user ? (
+                <button
+                  type="button"
+                  className="identity-chip"
+                  data-no-drag
+                  aria-label={`当前身份 ${user.displayName}，更换需确认`}
+                  onClick={() => void expandCollapsed().then(() => beginSwitch())}
+                >
+                  <span className="chip-name">{user.displayName}</span>
+                </button>
+              ) : null}
+              {offline ? '离线' : user ? `${user.totalPoints} 分` : '未登录'}
+              {openQuizCount > 0 ? (
+                <button
+                  type="button"
+                  className={`badge clickable unanswered-badge${newQuizPulse ? ' quiz-badge' : ''}`}
+                  data-no-drag
+                  aria-label={`未答 ${openQuizCount}`}
+                  onClick={() => void expandTo('quiz')}
+                >
+                  未答 {openQuizCount}
+                </button>
+              ) : null}
               {unread > 0 && messagesEnabled ? (
                 <button
                   type="button"
                   className="badge clickable"
                   data-no-drag
                   aria-label={`未读留言 ${unread}`}
-                  onClick={() => {
-                    void (async () => {
-                      if (window.classroomDesk) {
-                        const still = await window.classroomDesk.getCollapsed();
-                        if (still) await window.classroomDesk.toggleCollapse();
-                      }
-                      setCollapsed(false);
-                      setTab('messages');
-                    })();
-                  }}
+                  onClick={() => void expandTo('messages')}
                 >
                   {unread}
                 </button>
@@ -234,50 +405,57 @@ export function App() {
         <header className="titlebar" data-drag>
           <div className="titlebar-main">
             <strong className="brand">{APP_NAME}</strong>
-            <span className="meta">上课前须通过 /health</span>
+            <span className="meta">请找老师</span>
           </div>
         </header>
         <main className="content" data-no-drag>
-          <h1>连不上教师机</h1>
-          <p className="hint">{healthDetail}</p>
-          <p className="hint">找老师检查 IP / 是否同一 Wi‑Fi，浏览器先打开「教师机IP:8787/ready」。</p>
-          <button
-            type="button"
-            onClick={() =>
-              void probeHealth().then(async (ok) => {
-                if (!ok) return;
-                if (classId) {
-                  try {
-                    await loadRoster(classId);
-                  } catch {
-                    /* */
+          <section className="panel">
+            <h1>连不上老师电脑</h1>
+            <p className="lead">请找老师检查电脑和网络</p>
+            <button
+              type="button"
+              className="primary"
+              onClick={() =>
+                void probeHealth().then(async (ok) => {
+                  if (!ok) return;
+                  if (classId) {
+                    try {
+                      await loadRoster(classId);
+                    } catch (e) {
+                      setError(e instanceof Error ? e.message : '名单加载失败');
+                    }
                   }
-                }
-                await refreshMe();
-              })
-            }
-          >
-            重新检测 /health
-          </button>
-          <label className="field">
-            临时改 apiBase（连通后再用设置页正式保存）
-            <input
-              defaultValue={getApiBase()}
-              id="health-api-base"
-              placeholder="http://192.168.1.50:8787"
-            />
-          </label>
-          <button
-            type="button"
-            onClick={() => {
-              const el = document.getElementById('health-api-base') as HTMLInputElement | null;
-              const next = String(el?.value ?? '').trim().replace(/\/$/, '');
-              if (!next) return;
-              void setApiBase(next).then(() => probeHealth());
-            }}
-          >
-            应用并重测
-          </button>
+                  await refreshMe();
+                })
+              }
+            >
+              重试
+            </button>
+            <details className="teacher-debug">
+              <summary>教师调试</summary>
+              <p className="hint">{healthDetail}</p>
+              <label className="field">
+                临时改 apiBase（连通后再到设置里保存）
+                <input
+                  defaultValue={getApiBase()}
+                  id="health-api-base"
+                  placeholder="http://192.168.1.50:8787"
+                />
+              </label>
+              <button
+                type="button"
+                className="secondary"
+                onClick={() => {
+                  const el = document.getElementById('health-api-base') as HTMLInputElement | null;
+                  const next = String(el?.value ?? '').trim().replace(/\/$/, '');
+                  if (!next) return;
+                  void setApiBase(next).then(() => probeHealth());
+                }}
+              >
+                应用并重测
+              </button>
+            </details>
+          </section>
         </main>
       </div>
     );
@@ -287,15 +465,32 @@ export function App() {
     <div className="shell">
       {offline ? (
         <div className="offline-banner" data-no-drag>
-          离线（{getApiBase()}）· 找老师检查 IP
+          断线了 · 查网线 / 同一 Wi‑Fi · 找老师
           <button type="button" className="icon-btn" onClick={() => void refreshMe()}>
-            重试
+            重连
           </button>
         </div>
       ) : null}
       <header className="titlebar" data-drag>
         <div className="titlebar-main">
-          <strong className="brand">{APP_NAME}</strong>
+          <div className="titlebar-row">
+            <strong className="brand">{APP_NAME}</strong>
+            <span className={`lock-badge${exitAllowed ? ' unlocked' : ''}`} title="退出锁定状态">
+              {exitLockLabel}
+            </span>
+            {user ? (
+              <button
+                type="button"
+                className="identity-chip"
+                data-no-drag
+                aria-label={`当前身份 ${user.displayName}，更换需确认`}
+                onClick={beginSwitch}
+              >
+                <span className="chip-name">{user.displayName}</span>
+                <span className="chip-action">换人</span>
+              </button>
+            ) : null}
+          </div>
           <span className="meta">{meta}</span>
         </div>
         <div className="titlebar-actions" data-no-drag>
@@ -305,60 +500,112 @@ export function App() {
         </div>
       </header>
 
-      <nav className="tabs" aria-label="主导航">
-        {visibleTabs.map((item) => (
-          <button
-            key={item.id}
-            type="button"
-            className={tab === item.id ? 'tab active' : 'tab'}
-            onClick={() => setTab(item.id)}
-          >
-            {item.label}
-            {item.id === 'messages' && unread > 0 ? <span className="badge">{unread}</span> : null}
-          </button>
-        ))}
-      </nav>
+      {!user || switchIdentity ? (
+        <main className="content" data-no-drag>
+          {gateAdmin && !switchIdentity ? (
+            <>
+              <button type="button" className="secondary" onClick={() => setGateAdmin(false)}>
+                返回选姓名
+              </button>
+              <AdminTab
+                classId={classId}
+                className={className}
+                user={user}
+                exitAllowed={exitAllowed}
+                onExitAllowed={() => void syncExitLock(true)}
+                onSwitchIdentity={beginSwitch}
+                onSaved={async (next) => {
+                  setClassId(next.classId);
+                  await loadRoster(next.classId);
+                  showToast('本机配置已保存');
+                  await probeHealth();
+                  await refreshMe();
+                }}
+              />
+            </>
+          ) : (
+            <IdentityGate
+              roster={roster}
+              className={className}
+              classId={classId}
+              error={error}
+              pending={pendingIdentity}
+              selecting={selecting}
+              switching={switchIdentity}
+              onPick={setPendingIdentity}
+              onConfirm={() => {
+                if (pendingIdentity) void selectStudent(pendingIdentity);
+              }}
+              onCancelPending={() => setPendingIdentity(null)}
+              onRefresh={() => void loadRoster(classId)}
+              onOpenAdmin={() => {
+                setPendingIdentity(null);
+                setGateAdmin(true);
+                setSwitchIdentity(false);
+              }}
+              onCancelSwitch={() => {
+                setPendingIdentity(null);
+                setSwitchIdentity(false);
+              }}
+            />
+          )}
+        </main>
+      ) : (
+        <>
+          <nav className="tabs" aria-label="主导航">
+            {visibleTabs.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                className={tab === item.id ? 'tab active' : 'tab'}
+                onClick={() => setTab(item.id)}
+              >
+                {item.label}
+                {item.id === 'quiz' && openQuizCount > 0 ? (
+                  <span className="badge" aria-label={`未答 ${openQuizCount}`}>
+                    {openQuizCount}
+                  </span>
+                ) : null}
+                {item.id === 'messages' && unread > 0 ? <span className="badge">{unread}</span> : null}
+              </button>
+            ))}
+          </nav>
 
-      <main className="content">
-        {tab === 'points' && (
-          <PointsPanel
-            roster={roster}
-            user={user}
-            error={error}
-            onSelect={(row) => void selectStudent(row)}
-            showToast={showToast}
-            onRefresh={() => void loadRoster(classId)}
-          />
-        )}
-        {tab === 'attendance' && user && (
-          <AttendanceTab showToast={showToast} classId={classId} />
-        )}
-        {tab === 'attendance' && !user && <p className="hint">请先在「名单」点选自己的姓名</p>}
-        {tab === 'quiz' && user && <QuizTab onAnswered={showToast} />}
-        {tab === 'quiz' && !user && <p className="hint">请先在「名单」点选自己的姓名</p>}
-        {tab === 'messages' && messagesEnabled && user && (
-          <MessagesTab
-            userId={user.id}
-            roster={roster}
-            onRead={() => void refreshMe()}
-          />
-        )}
-        {tab === 'messages' && messagesEnabled && !user && (
-          <p className="hint">请先在「名单」点选自己的姓名</p>
-        )}
-        {tab === 'admin' && (
-          <AdminTab
-            classId={classId}
-            onSaved={async (next) => {
-              setClassId(next.classId);
-              await loadRoster(next.classId);
-              showToast('本机配置已保存');
-              await probeHealth();
-              await refreshMe();
-            }}
-          />
-        )}
-      </main>
+          <main className="content">
+            {tab === 'points' && (
+              <HomePanel
+                user={user}
+                openQuizCount={openQuizCount}
+                showToast={showToast}
+                onGoAttendance={() => setTab('attendance')}
+                onGoQuiz={() => setTab('quiz')}
+              />
+            )}
+            {tab === 'attendance' && <AttendanceTab showToast={showToast} classId={classId} />}
+            {tab === 'quiz' && <QuizTab onAnswered={showToast} onOpenCount={setOpenQuizCount} />}
+            {tab === 'messages' && messagesEnabled && (
+              <MessagesTab userId={user.id} roster={roster} onRead={() => void refreshMe()} />
+            )}
+            {tab === 'admin' && (
+              <AdminTab
+                classId={classId}
+                className={className}
+                user={user}
+                exitAllowed={exitAllowed}
+                onExitAllowed={() => void syncExitLock(true)}
+                onSwitchIdentity={beginSwitch}
+                onSaved={async (next) => {
+                  setClassId(next.classId);
+                  await loadRoster(next.classId);
+                  showToast('本机配置已保存');
+                  await probeHealth();
+                  await refreshMe();
+                }}
+              />
+            )}
+          </main>
+        </>
+      )}
 
       {toast ? <div className="toast">{toast}</div> : null}
     </div>
@@ -376,26 +623,36 @@ function statusZh(status: string): string {
   return map[status] ?? status;
 }
 
-function PointsPanel({
+function IdentityGate({
   roster,
-  user,
+  className,
+  classId,
   error,
-  onSelect,
-  showToast,
+  pending,
+  selecting,
+  switching,
+  onPick,
+  onConfirm,
+  onCancelPending,
   onRefresh,
+  onOpenAdmin,
+  onCancelSwitch,
 }: {
   roster: RosterRow[];
-  user: User | null;
+  className: string;
+  classId: string;
   error: string;
-  onSelect: (row: RosterRow) => void;
-  showToast: (msg: string) => void;
+  pending: RosterRow | null;
+  selecting: boolean;
+  switching: boolean;
+  onPick: (row: RosterRow) => void;
+  onConfirm: () => void;
+  onCancelPending: () => void;
   onRefresh: () => void;
+  onOpenAdmin: () => void;
+  onCancelSwitch: () => void;
 }) {
   const [q, setQ] = useState('');
-  const [reason, setReason] = useState('');
-  const [points, setPoints] = useState(1);
-  const [busy, setBusy] = useState(false);
-
   const filtered = useMemo(() => {
     const key = q.trim().toLowerCase();
     const list = [...roster].sort((a, b) =>
@@ -411,8 +668,111 @@ function PointsPanel({
     );
   }, [roster, q]);
 
+  return (
+    <section className="panel identity-gate">
+      <h1>{switching ? '更换身份' : '你是谁？'}</h1>
+      <p className="hint">
+        {className
+          ? `${className} · 点自己的姓名，再点确认`
+          : classId
+            ? '点自己的姓名，再点确认'
+            : '本机还没有班级，请老师先配置'}
+      </p>
+      {error ? <p className="error">{error}</p> : null}
+      <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="搜索姓名或学号" />
+      {pending ? (
+        <div className="confirm-bar">
+          <p>
+            是 {pending.displayName}
+            {pending.studentNo ? `（${pending.studentNo}）` : ''} 吗？
+          </p>
+          <button type="button" className="primary" disabled={selecting} onClick={onConfirm}>
+            {selecting ? '确认中…' : '确认是我'}
+          </button>
+          <button type="button" className="secondary" disabled={selecting} onClick={onCancelPending}>
+            重选
+          </button>
+        </div>
+      ) : null}
+      <button type="button" className="secondary" onClick={onRefresh}>
+        刷新名单
+      </button>
+      {filtered.length === 0 ? <p className="hint">暂无名单 · 找老师导入名单</p> : null}
+      <div className="identity-list">
+        {filtered.map((row) => (
+          <button
+            key={row.id}
+            type="button"
+            className={pending?.id === row.id ? 'identity-btn selected' : 'identity-btn'}
+            onClick={() => onPick(row)}
+            aria-pressed={pending?.id === row.id}
+          >
+            <span>{row.displayName}</span>
+            <span className="identity-no">{row.studentNo || '无学号'}</span>
+          </button>
+        ))}
+      </div>
+      {switching ? (
+        <button type="button" className="secondary" onClick={onCancelSwitch}>
+          取消更换
+        </button>
+      ) : (
+        <button type="button" className={classId ? 'link-btn' : 'primary'} onClick={onOpenAdmin}>
+          教师设置
+        </button>
+      )}
+    </section>
+  );
+}
+
+function HomePanel({
+  user,
+  openQuizCount,
+  showToast,
+  onGoAttendance,
+  onGoQuiz,
+}: {
+  user: User;
+  openQuizCount: number;
+  showToast: (msg: string) => void;
+  onGoAttendance: () => void;
+  onGoQuiz: () => void;
+}) {
+  const [showPoints, setShowPoints] = useState(false);
+  const [reason, setReason] = useState('');
+  const [points, setPoints] = useState(1);
+  const [busy, setBusy] = useState(false);
+  const [myRank, setMyRank] = useState<number | null>(null);
+  const [myMonthPoints, setMyMonthPoints] = useState<number | null>(null);
+  const [rankMonth, setRankMonth] = useState('');
+
+  useEffect(() => {
+    if (!showPoints || !user.classId) return;
+    let cancelled = false;
+    void api<{
+      month: string;
+      label?: string;
+      myRank: number | null;
+      myMonthPoints: number;
+    }>(`/api/v1/points/leaderboard?classId=${user.classId}&period=month`)
+      .then((r) => {
+        if (cancelled) return;
+        setMyRank(r.myRank);
+        setMyMonthPoints(r.myMonthPoints);
+        setRankMonth(r.label ?? r.month);
+      })
+      .catch((e) => {
+        if (cancelled) return;
+        setMyRank(null);
+        setMyMonthPoints(null);
+        showToast(e instanceof Error ? e.message : '积分排行加载失败');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [showPoints, user.classId, user.totalPoints, showToast]);
+
   async function requestPoints() {
-    if (!user) return;
     const pts = Math.trunc(Number(points));
     if (!Number.isFinite(pts) || pts < 1) {
       showToast('分值至少为 1');
@@ -440,16 +800,31 @@ function PointsPanel({
 
   return (
     <section className="panel">
-      <h1>本班名单</h1>
-      <p className="hint">点名进入 · 申请加分</p>
-      <p className="hint">先点自己的姓名；登录后可填写理由与分值申请加分（教师审核）。</p>
-      {error ? <p className="error">{error}</p> : null}
-      <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="搜索姓名或学号" />
-      {user ? (
+      <h1>你好，{user.displayName}</h1>
+      <p className="hint">
+        {openQuizCount > 0 ? `还有 ${openQuizCount} 道题没答` : '选一个下一步'}
+      </p>
+      <button type="button" className="primary" onClick={onGoAttendance}>
+        去签到
+      </button>
+      <button type="button" className="primary" onClick={onGoQuiz}>
+        等待老师出题
+      </button>
+      <button type="button" className="secondary" onClick={() => setShowPoints((v) => !v)}>
+        {showPoints ? '收起积分' : '积分'}
+      </button>
+      {showPoints ? (
         <div className="card-block">
           <p>
-            当前：{user.displayName} · {user.totalPoints} 分
+            当前 {user.totalPoints} 分
           </p>
+          {myRank != null ? (
+            <p className="hint">
+              {rankMonth} 月积分排行：第 {myRank} 名
+              {myMonthPoints != null ? ` · 本月 ${myMonthPoints} 分` : ''}
+              （仅自己可见）
+            </p>
+          ) : null}
           <input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="加分理由（可选）" />
           <input
             type="number"
@@ -462,50 +837,7 @@ function PointsPanel({
             {busy ? '提交中…' : '请求加分'}
           </button>
         </div>
-      ) : (
-        <p className="hint">尚未选择身份：在下方名单中点击自己的名字。</p>
-      )}
-      <button type="button" className="secondary" onClick={onRefresh}>
-        刷新名单
-      </button>
-      {filtered.length === 0 ? <p className="hint">暂无名单 · 找老师导入名单</p> : null}
-      <table className="roster-table">
-        <thead>
-          <tr>
-            <th>学号</th>
-            <th>姓名</th>
-            <th>积分</th>
-          </tr>
-        </thead>
-        <tbody>
-          {filtered.map((row) => {
-            const mine = user?.id === row.id;
-            return (
-              <tr
-                key={row.id}
-                className={mine ? 'roster-row mine' : 'roster-row'}
-                onClick={() => onSelect(row)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' || e.key === ' ') {
-                    e.preventDefault();
-                    onSelect(row);
-                  }
-                }}
-                tabIndex={0}
-                role="button"
-                aria-label={`选择 ${row.displayName}`}
-              >
-                <td>{row.studentNo || '—'}</td>
-                <td>
-                  {row.displayName}
-                  {mine ? '（我）' : ''}
-                </td>
-                <td>{row.totalPoints}</td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
+      ) : null}
     </section>
   );
 }
@@ -589,15 +921,51 @@ function AttendanceTab({
 }
 function AdminTab({
   classId,
+  className,
+  user,
+  exitAllowed,
+  onExitAllowed,
   onSaved,
+  onSwitchIdentity,
 }: {
   classId: string;
+  className: string;
+  user: User | null;
+  exitAllowed: boolean;
+  onExitAllowed: () => void;
   onSaved: (cfg: { apiBase: string; classId: string }) => Promise<void>;
+  onSwitchIdentity: () => void;
 }) {
   const [apiBase, setApiBaseLocal] = useState(getApiBase());
   const [cid, setCid] = useState(classId);
   const [adminPassword, setAdminPassword] = useState('');
+  const [exitCode, setExitCode] = useState('');
   const [msg, setMsg] = useState('');
+  const [exitMsg, setExitMsg] = useState('');
+  const [busyExit, setBusyExit] = useState(false);
+  const [teacherOpen, setTeacherOpen] = useState(false);
+  const [unlockBusy, setUnlockBusy] = useState(false);
+
+  async function unlockConfig() {
+    setMsg('');
+    if (!adminPassword.trim()) {
+      setMsg('请输入管理密码');
+      return;
+    }
+    setUnlockBusy(true);
+    try {
+      await api('/api/v1/auth/admin-unlock', {
+        method: 'POST',
+        body: JSON.stringify({ password: adminPassword }),
+      });
+      setTeacherOpen(true);
+      setMsg('已验证，可以修改教师配置');
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : '验证失败');
+    } finally {
+      setUnlockBusy(false);
+    }
+  }
 
   async function save() {
     setMsg('');
@@ -617,26 +985,123 @@ function AdminTab({
     }
   }
 
+  async function unlockAndQuit() {
+    setExitMsg('');
+    setBusyExit(true);
+    try {
+      if (!exitAllowed) {
+        await api('/api/v1/auth/exit-unlock', {
+          method: 'POST',
+          body: JSON.stringify({ code: exitCode }),
+        });
+        onExitAllowed();
+      }
+      if (window.classroomDesk?.grantExitAndQuit) {
+        const ok = await window.classroomDesk.grantExitAndQuit();
+        if (!ok) setExitMsg('仍无法退出，请重试或找老师批量解除');
+      } else {
+        setExitMsg('浏览器预览无法强制退出；请用桌面端');
+      }
+      setExitCode('');
+    } catch (e) {
+      setExitMsg(e instanceof Error ? e.message : '解除失败');
+    } finally {
+      setBusyExit(false);
+    }
+  }
+
   return (
     <section className="panel">
-      <h1>本机指派（教师）</h1>
-      <p className="hint">上课前由教师填写教室服务器地址与班级 ID（从教师后台复制）。</p>
-      <label className="field">
-        服务器 apiBase
-        <input value={apiBase} onChange={(e) => setApiBaseLocal(e.target.value)} placeholder="http://192.168.1.50:8787" />
-      </label>
-      <label className="field">
-        班级 classId
-        <input value={cid} onChange={(e) => setCid(e.target.value)} placeholder="从教师后台复制" />
-      </label>
-      <label className="field">
-        管理密码
-        <input type="password" value={adminPassword} onChange={(e) => setAdminPassword(e.target.value)} />
-      </label>
-      <button type="button" className="primary" onClick={() => void save()}>
-        保存本机配置
+      <h1>设置</h1>
+      <h2>当前身份</h2>
+      {user ? (
+        <>
+          <p>
+            {user.displayName}
+            {className ? ` · ${className}` : ''}
+            {` · ${user.totalPoints} 分`}
+          </p>
+          <button type="button" className="secondary" onClick={onSwitchIdentity}>
+            更换身份
+          </button>
+        </>
+      ) : (
+        <p className="hint">尚未选择姓名</p>
+      )}
+
+      <h2>退出锁定</h2>
+      <p className="hint">
+        {exitAllowed
+          ? '当前已允许退出（教师批量解除或已输入解除码）。'
+          : '课堂锁定中，找老师或输入解除码。'}
+      </p>
+      {!exitAllowed ? (
+        <label className="field">
+          解除码
+          <input
+            type="password"
+            value={exitCode}
+            onChange={(e) => setExitCode(e.target.value)}
+            placeholder="教师设置的解除码或管理密码"
+            autoComplete="off"
+          />
+        </label>
+      ) : null}
+      <button type="button" className="secondary" disabled={busyExit} onClick={() => void unlockAndQuit()}>
+        {busyExit ? '处理中…' : exitAllowed ? '退出程序' : '验证解除码并退出'}
       </button>
-      {msg ? <p className="hint">{msg}</p> : null}
+      {exitMsg ? <p className="error">{exitMsg}</p> : null}
+
+      <h2>教师配置</h2>
+      {!teacherOpen ? (
+        <>
+          <p className="hint">服务器地址和班级由老师配置。直接展开后，保存仍需要管理密码。</p>
+          <label className="field">
+            管理密码
+            <input
+              type="password"
+              value={adminPassword}
+              onChange={(e) => setAdminPassword(e.target.value)}
+              autoComplete="off"
+            />
+          </label>
+          <button type="button" className="secondary" disabled={unlockBusy} onClick={() => void unlockConfig()}>
+            {unlockBusy ? '验证中…' : '验证并展开'}
+          </button>
+          <button type="button" className="secondary" onClick={() => setTeacherOpen(true)}>
+            展开教师配置
+          </button>
+          {msg ? <p className="hint">{msg}</p> : null}
+        </>
+      ) : (
+        <>
+          <p className="hint">上课前由老师填写教室服务器地址和班级 ID（从教师后台复制）。</p>
+          <label className="field">
+            服务器 apiBase
+            <input value={apiBase} onChange={(e) => setApiBaseLocal(e.target.value)} placeholder="http://192.168.1.50:8787" />
+          </label>
+          <label className="field">
+            班级 classId
+            <input value={cid} onChange={(e) => setCid(e.target.value)} placeholder="从教师后台复制" />
+          </label>
+          <label className="field">
+            管理密码
+            <input
+              type="password"
+              value={adminPassword}
+              onChange={(e) => setAdminPassword(e.target.value)}
+              autoComplete="off"
+            />
+          </label>
+          <button type="button" className="primary" onClick={() => void save()}>
+            保存本机配置
+          </button>
+          <button type="button" className="secondary" onClick={() => setTeacherOpen(false)}>
+            收起教师配置
+          </button>
+          {msg ? <p className="hint">{msg}</p> : null}
+        </>
+      )}
     </section>
   );
 }
@@ -798,31 +1263,86 @@ function MessagesTab({
   );
 }
 
-function QuizTab({ onAnswered }: { onAnswered: (msg: string) => void }) {
+function playNewQuestionChime() {
+  try {
+    const Ctx = window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!Ctx) return;
+    const ctx = new Ctx();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.value = 880;
+    gain.gain.value = 0.08;
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start();
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.35);
+    osc.stop(ctx.currentTime + 0.4);
+    window.setTimeout(() => void ctx.close(), 500);
+  } catch {
+    /* ignore audio failures */
+  }
+}
+
+function QuizTab({
+  onAnswered,
+  onOpenCount,
+}: {
+  onAnswered: (msg: string) => void;
+  onOpenCount: (count: number) => void;
+}) {
   const [items, setItems] = useState<Array<Record<string, unknown>>>([]);
   const [multi, setMulti] = useState<Record<string, string[]>>({});
   const [blank, setBlank] = useState<Record<string, string>>({});
   const [err, setErr] = useState('');
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [onlyWrongRetry, setOnlyWrongRetry] = useState(false);
 
   async function load() {
     setErr('');
     const r = await api<{ items: Array<Record<string, unknown>> }>('/api/v1/questions');
     setItems(r.items);
+    onOpenCount(countOpenUnanswered(r.items));
   }
 
   useEffect(() => {
     void load().catch((e) => setErr(e instanceof Error ? e.message : '加载失败'));
+    const t = window.setInterval(() => {
+      void load().catch((e) => setErr(e instanceof Error ? e.message : '加载失败'));
+    }, 5000);
+    return () => window.clearInterval(t);
   }, []);
+
+  const ordered = useMemo(() => {
+    let list = [...items];
+    if (onlyWrongRetry) {
+      list = list.filter((q) => Boolean(q.canRetryWrong));
+    }
+    list.sort((a, b) => {
+      const aOpen = Boolean(a.acceptingAnswers);
+      const bOpen = Boolean(b.acceptingAnswers);
+      if (aOpen !== bOpen) return aOpen ? -1 : 1;
+      return String(b.createdAt ?? '').localeCompare(String(a.createdAt ?? ''));
+    });
+    return list;
+  }, [items, onlyWrongRetry]);
 
   async function answer(id: string, payload: unknown) {
     setBusyId(id);
     try {
-      const res = await api<{ isCorrect: boolean }>(`/api/v1/questions/${id}/answer`, {
+      const res = await api<{ isCorrect: boolean; retry?: boolean }>(`/api/v1/questions/${id}/answer`, {
         method: 'POST',
         body: JSON.stringify({ answerPayload: payload }),
       });
-      onAnswered(res.isCorrect ? '回答正确' : '回答错误');
+      onAnswered(
+        res.retry
+          ? res.isCorrect
+            ? '重练正确'
+            : '重练仍错误'
+          : res.isCorrect
+            ? '回答正确'
+            : '回答错误',
+      );
       await load();
     } catch (e) {
       onAnswered(e instanceof Error ? e.message : '提交失败');
@@ -831,25 +1351,46 @@ function QuizTab({ onAnswered }: { onAnswered: (msg: string) => void }) {
     }
   }
 
+  const hasRetry = items.some((q) => Boolean(q.canRetryWrong));
+
   return (
     <section className="panel">
       <h1>答题</h1>
       {err ? <p className="error">{err}</p> : null}
-      <button type="button" className="secondary" onClick={() => void load().catch((e) => setErr(String(e)))}>
-        刷新题目
-      </button>
-      {items.length === 0 ? <p className="hint">暂无已发布题目</p> : null}
-      {items.map((q) => {
+      <div className="row">
+        <button type="button" className="secondary" onClick={() => void load().catch((e) => setErr(String(e)))}>
+          刷新题目
+        </button>
+        {hasRetry ? (
+          <label className="check">
+            <input
+              type="checkbox"
+              checked={onlyWrongRetry}
+              onChange={(e) => setOnlyWrongRetry(e.target.checked)}
+            />
+            只看错题重练
+          </label>
+        ) : null}
+      </div>
+      {ordered.length === 0 ? (
+        <p className="hint">{onlyWrongRetry ? '暂无开放的错题重练' : '暂无已发布题目'}</p>
+      ) : null}
+      {ordered.map((q) => {
         const id = String(q.id);
         const type = String(q.type);
         const opts = (q.options as Array<{ id: string; label: string; content: string }>) ?? [];
         const mine = q.myAnswer as { isCorrect?: boolean | number; answeredAt?: string } | null;
         const answered = Boolean(mine?.answeredAt || mine?.isCorrect != null);
+        const canRetryWrong = Boolean(q.canRetryWrong);
+        const closed = Boolean(q.closed);
+        const canAnswer = Boolean(q.acceptingAnswers);
         const busy = busyId === id;
+        const current = canAnswer && (!answered || canRetryWrong);
         return (
-          <article key={id} className="card-block">
+          <article key={id} className={`card-block${current ? ' current-question' : ''}`}>
             <strong>
-              [{type}] {String(q.title)}
+              {current ? (canRetryWrong ? '【错题重练】' : '【当前题】') : ''}[{questionTypeZh(type)}] {String(q.title)}
+              {closed && !canAnswer ? ' · 已截止' : ''}
             </strong>
             <p>{String(q.stem)}</p>
             {((q.attachments as Array<{ url: string; originalName: string; mime?: string }>) ?? []).map((a) => {
@@ -869,13 +1410,15 @@ function QuizTab({ onAnswered }: { onAnswered: (msg: string) => void }) {
                 </div>
               );
             })}
-            {answered ? (
+            {answered && !canRetryWrong ? (
               <p className="hint">
                 已作答 · {mine?.isCorrect ? '正确' : '错误'}
                 {mine?.answeredAt ? ` · ${new Date(String(mine.answeredAt)).toLocaleString()}` : ''}
               </p>
             ) : null}
-            {(type === 'single' || type === 'bool') && !answered
+            {canRetryWrong ? <p className="hint">上次错误 · 可再答一次</p> : null}
+            {closed && !canAnswer ? <p className="hint">已收卷，不能再交</p> : null}
+            {(type === 'single' || type === 'bool') && canAnswer
               ? opts.map((opt) => (
                   <button
                     key={opt.id}
@@ -888,12 +1431,12 @@ function QuizTab({ onAnswered }: { onAnswered: (msg: string) => void }) {
                   </button>
                 ))
               : null}
-            {type === 'multi' && !answered ? (
+            {type === 'multi' && canAnswer ? (
               <>
                 {opts.map((opt) => {
                   const selected = (multi[id] ?? []).includes(opt.id);
                   return (
-                    <label key={opt.id} className="check">
+                    <label key={opt.id} className="check option-line">
                       <input
                         type="checkbox"
                         checked={selected}
@@ -916,11 +1459,11 @@ function QuizTab({ onAnswered }: { onAnswered: (msg: string) => void }) {
                   disabled={busy || (multi[id] ?? []).length === 0}
                   onClick={() => void answer(id, { optionIds: multi[id] ?? [] })}
                 >
-                  {busy ? '提交中…' : '提交多选'}
+                  {busy ? '提交中…' : canRetryWrong ? '重练提交' : '提交多选'}
                 </button>
               </>
             ) : null}
-            {type === 'blank' && !answered ? (
+            {type === 'blank' && canAnswer ? (
               <>
                 <input
                   value={blank[id] ?? ''}
@@ -933,7 +1476,7 @@ function QuizTab({ onAnswered }: { onAnswered: (msg: string) => void }) {
                   disabled={busy || !(blank[id] ?? '').trim()}
                   onClick={() => void answer(id, { text: (blank[id] ?? '').trim() })}
                 >
-                  {busy ? '提交中…' : '提交填空'}
+                  {busy ? '提交中…' : canRetryWrong ? '重练提交' : '提交填空'}
                 </button>
               </>
             ) : null}

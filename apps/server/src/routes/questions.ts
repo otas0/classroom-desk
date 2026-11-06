@@ -32,6 +32,12 @@ function parseAttachments(raw: unknown): QuestionAttachment[] {
   return [];
 }
 
+function isClosed(row: { closed_at?: string | null; closes_at?: string | null }, now = nowIso()): boolean {
+  if (row.closed_at) return true;
+  if (row.closes_at && row.closes_at <= now) return true;
+  return false;
+}
+
 questionsRouter.get('/api/v1/questions', requireAuth, (req: AuthedRequest, res) => {
   const classId = String(req.query.classId ?? req.user?.classId ?? '');
   if (!classId) {
@@ -40,12 +46,17 @@ questionsRouter.get('/api/v1/questions', requireAuth, (req: AuthedRequest, res) 
   }
   const db = openDb();
   const teacher = req.user?.role === 'teacher' || req.user?.role === 'admin';
+  const includeArchived = teacher && String(req.query.includeArchived ?? '') === '1';
   const rows = db
     .prepare(
       `SELECT id, class_id AS classId, title, stem, type, answer_key AS answerKey, points,
-              attachments, created_by AS createdBy, created_at AS createdAt, published
+              attachments, created_by AS createdBy, created_at AS createdAt, published,
+              closed_at AS closedAt, closes_at AS closesAt, COALESCE(archived, 0) AS archived,
+              COALESCE(retry_wrong, 0) AS retryWrong
        FROM questions
-       WHERE class_id = ? ${teacher ? '' : 'AND published = 1'}
+       WHERE class_id = ?
+         ${teacher ? '' : 'AND published = 1 AND COALESCE(archived, 0) = 0'}
+         ${teacher && !includeArchived ? 'AND COALESCE(archived, 0) = 0' : ''}
        ORDER BY created_at DESC`,
     )
     .all(classId) as Array<{
@@ -60,8 +71,13 @@ questionsRouter.get('/api/v1/questions', requireAuth, (req: AuthedRequest, res) 
       createdBy: string;
       createdAt: string;
       published: number;
+      closedAt: string | null;
+      closesAt: string | null;
+      archived: number;
+      retryWrong: number;
     }>;
 
+  const now = nowIso();
   const items = rows.map((q) => {
     const options = db
       .prepare(
@@ -84,12 +100,24 @@ questionsRouter.get('/api/v1/questions', requireAuth, (req: AuthedRequest, res) 
             .get(q.id, req.user.id)
         : null;
     const { attachments: rawAtt, ...rest } = q;
+    const closed = isClosed({ closed_at: q.closedAt, closes_at: q.closesAt }, now);
+    const mineRow = mine as { isCorrect?: number; answeredAt?: string } | null;
+    const canRetryWrong =
+      Boolean(q.retryWrong) &&
+      closed &&
+      mineRow != null &&
+      Number(mineRow.isCorrect) === 0;
     return {
       ...rest,
       answerKey: teacher ? q.answerKey : undefined,
       attachments: parseAttachments(rawAtt),
       options,
       myAnswer: mine,
+      closed,
+      retryWrong: Boolean(q.retryWrong),
+      canRetryWrong,
+      acceptingAnswers:
+        Boolean(q.published) && !q.archived && (!closed || canRetryWrong),
     };
   });
 
@@ -111,14 +139,18 @@ questionsRouter.post(
     }
 
     const attachmentsJson = JSON.stringify(parseAttachments(req.body?.attachments));
+    const closesAt =
+      req.body?.closesAt != null && String(req.body.closesAt).trim()
+        ? String(req.body.closesAt).trim()
+        : null;
     const id = newId();
     const createdAt = nowIso();
     const db = openDb();
     withTransaction(db, () => {
       db.prepare(
         `INSERT INTO questions
-          (id, class_id, title, stem, type, answer_key, points, attachments, created_by, created_at, published)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          (id, class_id, title, stem, type, answer_key, points, attachments, created_by, created_at, published, closed_at, closes_at, archived)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, 0)`,
       ).run(
         id,
         classId,
@@ -131,6 +163,7 @@ questionsRouter.post(
         req.user!.id,
         createdAt,
         req.body?.published === false ? 0 : 1,
+        closesAt,
       );
 
       const options = Array.isArray(req.body?.options) ? req.body.options : [];
@@ -142,7 +175,7 @@ questionsRouter.post(
       }
     });
 
-    res.status(201).json({ id, createdAt });
+    res.status(201).json({ id, createdAt, closesAt });
   },
 );
 
@@ -175,7 +208,11 @@ questionsRouter.patch(
         req.body?.answerKey !== undefined ||
         req.body?.points != null ||
         req.body?.published != null ||
-        req.body?.attachments !== undefined
+        req.body?.attachments !== undefined ||
+        req.body?.closesAt !== undefined ||
+        req.body?.closed !== undefined ||
+        req.body?.archived !== undefined ||
+        req.body?.retryWrong !== undefined
       ) {
         const row = db.prepare(`SELECT * FROM questions WHERE id = ?`).get(id) as {
           title: string;
@@ -185,13 +222,33 @@ questionsRouter.patch(
           points: number;
           published: number;
           attachments: string | null;
+          closed_at: string | null;
+          closes_at: string | null;
+          archived: number | null;
+          retry_wrong: number | null;
         };
         const nextAtt =
           req.body?.attachments !== undefined
             ? JSON.stringify(parseAttachments(req.body.attachments))
             : row.attachments;
+        let nextClosed = row.closed_at;
+        if (req.body?.closed === true) nextClosed = nowIso();
+        if (req.body?.closed === false) nextClosed = null;
+        const nextCloses =
+          req.body?.closesAt !== undefined
+            ? String(req.body.closesAt ?? '').trim() || null
+            : row.closes_at;
+        const nextArchived =
+          req.body?.archived === true ? 1 : req.body?.archived === false ? 0 : Number(row.archived ?? 0);
+        const nextRetry =
+          req.body?.retryWrong === true
+            ? 1
+            : req.body?.retryWrong === false
+              ? 0
+              : Number(row.retry_wrong ?? 0);
         db.prepare(
-          `UPDATE questions SET title = ?, stem = ?, type = ?, answer_key = ?, points = ?, attachments = ?, published = ? WHERE id = ?`,
+          `UPDATE questions SET title = ?, stem = ?, type = ?, answer_key = ?, points = ?, attachments = ?,
+            published = ?, closed_at = ?, closes_at = ?, archived = ?, retry_wrong = ? WHERE id = ?`,
         ).run(
           title ?? row.title,
           stem ?? row.stem,
@@ -200,6 +257,10 @@ questionsRouter.patch(
           req.body?.points != null ? Number(req.body.points) : row.points,
           nextAtt,
           req.body?.published === false ? 0 : req.body?.published === true ? 1 : row.published,
+          nextClosed,
+          nextCloses,
+          nextArchived,
+          nextRetry,
           id,
         );
       }
@@ -213,6 +274,41 @@ questionsRouter.patch(
         }
       }
     });
+    res.json({ ok: true, id });
+  },
+);
+
+questionsRouter.post(
+  '/api/v1/questions/:id/close',
+  requireAuth,
+  requireRoles('teacher', 'admin'),
+  (req: AuthedRequest, res) => {
+    const id = paramId(req.params.id);
+    const db = openDb();
+    const closedAt = nowIso();
+    const info = db.prepare(`UPDATE questions SET closed_at = ? WHERE id = ?`).run(closedAt, id);
+    if (!info.changes) {
+      res.status(404).json({ error: 'not_found', message: '题目不存在' });
+      return;
+    }
+    res.json({ ok: true, id, closedAt });
+  },
+);
+
+questionsRouter.post(
+  '/api/v1/questions/:id/reopen',
+  requireAuth,
+  requireRoles('teacher', 'admin'),
+  (req: AuthedRequest, res) => {
+    const id = paramId(req.params.id);
+    const db = openDb();
+    const info = db
+      .prepare(`UPDATE questions SET closed_at = NULL, published = 1, archived = 0 WHERE id = ?`)
+      .run(id);
+    if (!info.changes) {
+      res.status(404).json({ error: 'not_found', message: '题目不存在' });
+      return;
+    }
     res.json({ ok: true, id });
   },
 );
@@ -234,14 +330,40 @@ questionsRouter.delete(
   },
 );
 
+function refreshErrorStats(db: ReturnType<typeof openDb>, questionId: string, at: string): void {
+  const stats = db
+    .prepare(
+      `SELECT COUNT(*) AS answered, SUM(CASE WHEN is_correct = 0 THEN 1 ELSE 0 END) AS wrong
+       FROM student_answers WHERE question_id = ?`,
+    )
+    .get(questionId) as { answered: number; wrong: number };
+  const answered = Number(stats.answered);
+  const wrong = Number(stats.wrong ?? 0);
+  const errorRate = computeErrorRate(answered, wrong);
+  db.prepare(
+    `INSERT INTO error_stats (question_id, answered_count, wrong_count, error_rate, updated_at)
+     VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT(question_id) DO UPDATE SET
+       answered_count = excluded.answered_count,
+       wrong_count = excluded.wrong_count,
+       error_rate = excluded.error_rate,
+       updated_at = excluded.updated_at`,
+  ).run(questionId, answered, wrong, errorRate, at);
+}
+
 questionsRouter.post('/api/v1/questions/:id/answer', requireAuth, requireRoles('student'), (req: AuthedRequest, res) => {
   const db = openDb();
-  const question = db.prepare(`SELECT * FROM questions WHERE id = ? AND published = 1`).get(paramId(req.params.id)) as
+  const question = db
+    .prepare(`SELECT * FROM questions WHERE id = ? AND published = 1 AND COALESCE(archived, 0) = 0`)
+    .get(paramId(req.params.id)) as
     | {
         id: string;
         class_id: string;
         type: QuestionType;
         answer_key: string | null;
+        closed_at: string | null;
+        closes_at: string | null;
+        retry_wrong: number | null;
       }
     | undefined;
   if (!question || question.class_id !== req.user?.classId) {
@@ -250,9 +372,20 @@ questionsRouter.post('/api/v1/questions/:id/answer', requireAuth, requireRoles('
   }
 
   const existing = db
-    .prepare(`SELECT id FROM student_answers WHERE question_id = ? AND student_id = ?`)
-    .get(question.id, req.user.id);
-  if (existing) {
+    .prepare(
+      `SELECT id, is_correct AS isCorrect FROM student_answers WHERE question_id = ? AND student_id = ?`,
+    )
+    .get(question.id, req.user.id) as { id: string; isCorrect: number } | undefined;
+
+  const closed = isClosed(question);
+  const retryWrong = Boolean(question.retry_wrong);
+  const isWrongRetry = Boolean(existing && Number(existing.isCorrect) === 0 && retryWrong && closed);
+
+  if (closed && !isWrongRetry) {
+    res.status(403).json({ error: 'question_closed', message: '题目已截止，不能再交' });
+    return;
+  }
+  if (existing && !isWrongRetry) {
     res.status(409).json({ error: 'already_answered' });
     return;
   }
@@ -262,7 +395,6 @@ questionsRouter.post('/api/v1/questions/:id/answer', requireAuth, requireRoles('
     .all(question.id) as Array<{ id: string; is_correct: number }>;
 
   let answerPayload = req.body?.answerPayload ?? req.body?.answer ?? null;
-  // Accept flat optionIds/optionId for convenience (student app sends answerPayload)
   if (answerPayload == null && (req.body?.optionIds != null || req.body?.optionId != null)) {
     answerPayload = {
       optionIds: req.body.optionIds,
@@ -276,44 +408,141 @@ questionsRouter.post('/api/v1/questions/:id/answer', requireAuth, requireRoles('
     answerPayload,
   });
 
-  const id = newId();
   const answeredAt = nowIso();
+  let id = existing?.id ?? newId();
   withTransaction(db, () => {
-    db.prepare(
-      `INSERT INTO student_answers (id, question_id, student_id, answer_payload, is_correct, answered_at)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-    ).run(id, question.id, req.user!.id, JSON.stringify(answerPayload), isCorrect ? 1 : 0, answeredAt);
-
-    const stats = db
-      .prepare(
-        `SELECT COUNT(*) AS answered, SUM(CASE WHEN is_correct = 0 THEN 1 ELSE 0 END) AS wrong
-         FROM student_answers WHERE question_id = ?`,
-      )
-      .get(question.id) as { answered: number; wrong: number };
-    const answered = Number(stats.answered);
-    const wrong = Number(stats.wrong ?? 0);
-    const errorRate = computeErrorRate(answered, wrong);
-    db.prepare(
-      `INSERT INTO error_stats (question_id, answered_count, wrong_count, error_rate, updated_at)
-       VALUES (?, ?, ?, ?, ?)
-       ON CONFLICT(question_id) DO UPDATE SET
-         answered_count = excluded.answered_count,
-         wrong_count = excluded.wrong_count,
-         error_rate = excluded.error_rate,
-         updated_at = excluded.updated_at`,
-    ).run(question.id, answered, wrong, errorRate, answeredAt);
+    if (isWrongRetry && existing) {
+      db.prepare(
+        `UPDATE student_answers
+         SET answer_payload = ?, is_correct = ?, answered_at = ?
+         WHERE id = ?`,
+      ).run(JSON.stringify(answerPayload), isCorrect ? 1 : 0, answeredAt, existing.id);
+      id = existing.id;
+    } else {
+      db.prepare(
+        `INSERT INTO student_answers (id, question_id, student_id, answer_payload, is_correct, answered_at)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+      ).run(id, question.id, req.user!.id, JSON.stringify(answerPayload), isCorrect ? 1 : 0, answeredAt);
+    }
+    refreshErrorStats(db, question.id, answeredAt);
   });
 
-  res.status(201).json({ id, isCorrect, answeredAt });
+  res.status(isWrongRetry ? 200 : 201).json({ id, isCorrect, answeredAt, retry: isWrongRetry });
 });
+
+questionsRouter.get(
+  '/api/v1/questions/live-board',
+  requireAuth,
+  requireRoles('teacher', 'admin'),
+  (req, res) => {
+    const classId = String(req.query.classId ?? '');
+    if (!classId) {
+      res.status(400).json({ error: 'class_id_required' });
+      return;
+    }
+    const db = openDb();
+    const rosterTotal = Number(
+      (
+        db
+          .prepare(`SELECT COUNT(*) AS c FROM users WHERE role = 'student' AND class_id = ?`)
+          .get(classId) as { c: number }
+      ).c,
+    );
+    const now = nowIso();
+    const rows = db
+      .prepare(
+        `SELECT q.id, q.title, q.type, q.published, q.closed_at AS closedAt, q.closes_at AS closesAt,
+                COALESCE(q.retry_wrong, 0) AS retryWrong,
+                COALESCE(e.answered_count, 0) AS answeredCount,
+                COALESCE(e.wrong_count, 0) AS wrongCount
+         FROM questions q
+         LEFT JOIN error_stats e ON e.question_id = q.id
+         WHERE q.class_id = ? AND COALESCE(q.archived, 0) = 0 AND q.published = 1
+         ORDER BY q.created_at DESC
+         LIMIT 12`,
+      )
+      .all(classId) as Array<{
+      id: string;
+      title: string;
+      type: string;
+      published: number;
+      closedAt: string | null;
+      closesAt: string | null;
+      retryWrong: number;
+      answeredCount: number;
+      wrongCount: number;
+    }>;
+
+    const pendingStmt = db.prepare(
+      `SELECT u.display_name AS displayName, u.student_no AS studentNo
+       FROM users u
+       WHERE u.role = 'student' AND u.class_id = ?
+         AND NOT EXISTS (
+           SELECT 1 FROM student_answers sa WHERE sa.question_id = ? AND sa.student_id = u.id
+         )
+       ORDER BY u.student_no COLLATE NOCASE, u.display_name COLLATE NOCASE
+       LIMIT 120`,
+    );
+
+    const items = rows.map((r) => {
+      const answered = Number(r.answeredCount);
+      const wrong = Number(r.wrongCount);
+      const correct = Math.max(0, answered - wrong);
+      const pendingStudents = pendingStmt.all(classId, r.id) as Array<{
+        displayName: string;
+        studentNo: string | null;
+      }>;
+      return {
+        id: r.id,
+        title: r.title,
+        type: r.type,
+        closed: isClosed({ closed_at: r.closedAt, closes_at: r.closesAt }, now),
+        closesAt: r.closesAt,
+        closedAt: r.closedAt,
+        retryWrong: Boolean(r.retryWrong),
+        rosterTotal,
+        answeredCount: answered,
+        pendingCount: Math.max(0, rosterTotal - answered),
+        correctCount: correct,
+        wrongCount: wrong,
+        correctRate: answered > 0 ? correct / answered : 0,
+        pendingStudents,
+      };
+    });
+    res.json({ rosterTotal, items });
+  },
+);
 
 questionsRouter.get(
   '/api/v1/questions/:id/stats',
   requireAuth,
   requireRoles('teacher', 'admin'),
   (req, res) => {
+    const qid = paramId(req.params.id);
     const db = openDb();
-    const stats = db.prepare(`SELECT * FROM error_stats WHERE question_id = ?`).get(paramId(req.params.id)) as
+    const q = db
+      .prepare(
+        `SELECT id, class_id AS classId, title, closed_at AS closedAt, closes_at AS closesAt,
+                COALESCE(archived, 0) AS archived, published
+         FROM questions WHERE id = ?`,
+      )
+      .get(qid) as
+      | {
+          id: string;
+          classId: string;
+          title: string;
+          closedAt: string | null;
+          closesAt: string | null;
+          archived: number;
+          published: number;
+        }
+      | undefined;
+    if (!q) {
+      res.status(404).json({ error: 'not_found' });
+      return;
+    }
+
+    const stats = db.prepare(`SELECT * FROM error_stats WHERE question_id = ?`).get(qid) as
       | {
           answered_count: number;
           wrong_count: number;
@@ -321,6 +550,19 @@ questionsRouter.get(
           updated_at: string;
         }
       | undefined;
+
+    const rosterTotal = Number(
+      (
+        db
+          .prepare(`SELECT COUNT(*) AS c FROM users WHERE role = 'student' AND class_id = ?`)
+          .get(q.classId) as { c: number }
+      ).c,
+    );
+    const answeredCount = Number(stats?.answered_count ?? 0);
+    const wrongCount = Number(stats?.wrong_count ?? 0);
+    const correctCount = Math.max(0, answeredCount - wrongCount);
+    const pendingCount = Math.max(0, rosterTotal - answeredCount);
+    const correctRate = answeredCount > 0 ? correctCount / answeredCount : 0;
 
     const optionDist = db
       .prepare(
@@ -332,14 +574,38 @@ questionsRouter.get(
          GROUP BY qo.id
          ORDER BY qo.label`,
       )
-      .all(paramId(req.params.id));
+      .all(qid);
+
+    const pendingStudents = db
+      .prepare(
+        `SELECT u.display_name AS displayName, u.student_no AS studentNo
+         FROM users u
+         WHERE u.role = 'student' AND u.class_id = ?
+           AND NOT EXISTS (
+             SELECT 1 FROM student_answers sa WHERE sa.question_id = ? AND sa.student_id = u.id
+           )
+         ORDER BY u.student_no COLLATE NOCASE, u.display_name COLLATE NOCASE
+         LIMIT 80`,
+      )
+      .all(q.classId, qid);
 
     res.json({
-      answeredCount: stats?.answered_count ?? 0,
-      wrongCount: stats?.wrong_count ?? 0,
+      title: q.title,
+      answeredCount,
+      wrongCount,
+      correctCount,
+      pendingCount,
+      rosterTotal,
+      correctRate,
       errorRate: stats?.error_rate ?? 0,
       updatedAt: stats?.updated_at ?? null,
+      closed: isClosed({ closed_at: q.closedAt, closes_at: q.closesAt }),
+      closedAt: q.closedAt,
+      closesAt: q.closesAt,
+      archived: Boolean(q.archived),
+      published: Boolean(q.published),
       optionDistribution: optionDist,
+      pendingStudents,
     });
   },
 );
@@ -419,7 +685,7 @@ questionsRouter.get(
           'errorRate',
           'optionLabel',
           'optionContent',
-          'optionChosenCount', // 该选项被选次数（选项分布）
+          'optionChosenCount',
         ]
       : ['title', 'type', 'answered', 'wrong', 'errorRate'];
     const csv = toCsv(headers, csvRows);

@@ -3,6 +3,11 @@ import multer from 'multer';
 import * as XLSX from 'xlsx';
 import { openDb } from '../db/client.js';
 import { requireAuth, requireRoles, type AuthedRequest } from '../middleware/auth.js';
+import {
+  parseCsvToRows,
+  parseSheetMatrixToRows,
+  type ImportRow,
+} from '../services/rosterParse.js';
 import { newClassCode, newId, nowIso } from '../utils/id.js';
 import { paramId } from '../utils/params.js';
 
@@ -20,29 +25,6 @@ type ImportFailure = {
   reason: string;
   reasonText: string;
 };
-
-type ImportRow = { name: string; studentNo: string | null; line: number };
-
-function isHeaderName(name: string): boolean {
-  const n = name.toLowerCase();
-  return ['name', 'display_name', 'display-name', '姓名'].includes(n);
-}
-
-function parseCsvToRows(csvText: string): ImportRow[] {
-  const rows: ImportRow[] = [];
-  const rawLines = csvText.split(/\r?\n/);
-  for (let i = 0; i < rawLines.length; i += 1) {
-    const line = rawLines[i]?.trim() ?? '';
-    if (!line) continue;
-    const parts = line.split(',').map((p) => p.trim());
-    const name = parts[0] ?? '';
-    if (!name || isHeaderName(name)) continue;
-    const hasNoCol = parts.length >= 2;
-    const studentNo = hasNoCol ? parts[1] || null : null;
-    rows.push({ name, studentNo: hasNoCol && !parts[1] ? '' : studentNo, line: i + 1 });
-  }
-  return rows;
-}
 
 function parseSheetToRows(buffer: Buffer): ImportRow[] {
   // xlsx is a zip; reject obvious corrupt/non-Excel bytes early for readable ZH errors
@@ -62,24 +44,12 @@ function parseSheetToRows(buffer: Buffer): ImportRow[] {
   }
   const sheet = wb.Sheets[wb.SheetNames[0] ?? ''];
   if (!sheet) return [];
-  const json = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: '' });
-  const rows: ImportRow[] = [];
-  json.forEach((row, idx) => {
-    const keys = Object.keys(row);
-    const nameKey =
-      keys.find((k) => /^(姓名|name|display_?name)$/i.test(k.trim())) ?? keys[0];
-    const noKey = keys.find((k) => /^(学号|student_?no|studentno)$/i.test(k.trim())) ?? keys[1];
-    const name = String(row[nameKey ?? ''] ?? '').trim();
-    if (!name || isHeaderName(name)) return;
-    const rawNo = noKey != null ? String(row[noKey] ?? '').trim() : '';
-    const hasNoCol = noKey != null;
-    rows.push({
-      name,
-      studentNo: hasNoCol ? rawNo || '' : null,
-      line: idx + 2, // + header
-    });
-  });
-  return rows;
+  const matrix = XLSX.utils.sheet_to_json<unknown[]>(sheet, {
+    header: 1,
+    defval: '',
+    raw: true,
+  }) as unknown[][];
+  return parseSheetMatrixToRows(matrix);
 }
 
 function clearClassStudents(classId: string): number {
@@ -111,8 +81,8 @@ function importStudentRows(classId: string, rows: ImportRow[], opts?: { replace?
 
   for (const row of rows) {
     const { name, line } = row;
-    const hasStudentNoColumn = row.studentNo !== null;
-    const studentNo = row.studentNo === '' ? null : row.studentNo;
+    // Auto-detect may omit studentNo; empty string means "column present but blank"
+    const studentNo = row.studentNo === '' || row.studentNo == null ? null : row.studentNo;
     const nameOk = /^[\u4e00-\u9fffA-Za-z0-9·•\s._-]{1,40}$/.test(name);
     if (!nameOk) {
       skipped += 1;
@@ -122,17 +92,6 @@ function importStudentRows(classId: string, rows: ImportRow[], opts?: { replace?
         studentNo,
         reason: 'invalid_name',
         reasonText: '姓名含非法字符或过长',
-      });
-      continue;
-    }
-    if (hasStudentNoColumn && !studentNo) {
-      skipped += 1;
-      failures.push({
-        line,
-        name,
-        studentNo: null,
-        reason: 'empty_student_no',
-        reasonText: '学号为空',
       });
       continue;
     }
@@ -329,6 +288,110 @@ classesRouter.post(
       return;
     }
     res.status(201).json(result);
+  },
+);
+
+classesRouter.post(
+  '/api/v1/classes/:id/students',
+  requireAuth,
+  requireRoles('teacher', 'admin'),
+  (req: AuthedRequest, res) => {
+    const classId = paramId(req.params.id);
+    const db = openDb();
+    if (!db.prepare(`SELECT id FROM classes WHERE id = ?`).get(classId)) {
+      res.status(404).json({ error: 'class_not_found', message: '班级不存在' });
+      return;
+    }
+    const displayName = String(req.body?.displayName ?? '').trim();
+    const studentNoRaw = req.body?.studentNo;
+    const studentNo =
+      studentNoRaw === undefined || studentNoRaw === null
+        ? null
+        : String(studentNoRaw).trim() || null;
+
+    if (!/^[\u4e00-\u9fffA-Za-z0-9·•\s._-]{1,40}$/.test(displayName)) {
+      res.status(400).json({ error: 'invalid_name', message: '姓名含非法字符或过长' });
+      return;
+    }
+    if (studentNo && !/^[A-Za-z0-9_-]{1,32}$/.test(studentNo)) {
+      res.status(400).json({ error: 'invalid_student_no', message: '学号含非法字符（仅字母数字_-）' });
+      return;
+    }
+    if (
+      db
+        .prepare(
+          `SELECT id FROM users WHERE role = 'student' AND class_id = ? AND display_name = ? COLLATE NOCASE`,
+        )
+        .get(classId, displayName)
+    ) {
+      res.status(409).json({ error: 'duplicate_name', message: '同名已存在' });
+      return;
+    }
+    if (
+      studentNo &&
+      db
+        .prepare(`SELECT id FROM users WHERE role = 'student' AND class_id = ? AND student_no = ?`)
+        .get(classId, studentNo)
+    ) {
+      res.status(409).json({ error: 'duplicate_student_no', message: '学号已存在' });
+      return;
+    }
+
+    const id = newId();
+    const createdAt = nowIso();
+    db.prepare(
+      `INSERT INTO users (id, role, display_name, username, password_hash, student_no, class_id, total_points, created_at)
+       VALUES (?, 'student', ?, NULL, NULL, ?, ?, 0, ?)`,
+    ).run(id, displayName, studentNo, classId, createdAt);
+    res.status(201).json({ id, displayName, studentNo, totalPoints: 0, createdAt });
+  },
+);
+
+classesRouter.get(
+  '/api/v1/classes/:id/students/:studentId/impact',
+  requireAuth,
+  requireRoles('teacher', 'admin'),
+  (req, res) => {
+    const classId = paramId(req.params.id);
+    const studentId = paramId(req.params.studentId);
+    const db = openDb();
+    const row = db
+      .prepare(
+        `SELECT id, display_name AS displayName FROM users
+         WHERE id = ? AND role = 'student' AND class_id = ?`,
+      )
+      .get(studentId, classId) as { id: string; displayName: string } | undefined;
+    if (!row) {
+      res.status(404).json({ error: 'student_not_found', message: '学生不在本班名单中' });
+      return;
+    }
+    const countOne = (sql: string) =>
+      Number((db.prepare(sql).get(studentId) as { c: number }).c);
+    const attendanceRecords = countOne(
+      `SELECT COUNT(*) AS c FROM attendance_records WHERE student_id = ?`,
+    );
+    const pointsLog = countOne(`SELECT COUNT(*) AS c FROM points_log WHERE student_id = ?`);
+    const answers = countOne(`SELECT COUNT(*) AS c FROM student_answers WHERE student_id = ?`);
+    const messages = Number(
+      (
+        db
+          .prepare(
+            `SELECT COUNT(*) AS c FROM messages WHERE student_id = ? OR to_student_id = ?`,
+          )
+          .get(studentId, studentId) as { c: number }
+      ).c,
+    );
+    const pointRequests = countOne(`SELECT COUNT(*) AS c FROM point_requests WHERE student_id = ?`);
+    res.json({
+      id: row.id,
+      displayName: row.displayName,
+      attendanceRecords,
+      pointsLog,
+      answers,
+      messages,
+      pointRequests,
+      total: attendanceRecords + pointsLog + answers + messages + pointRequests,
+    });
   },
 );
 

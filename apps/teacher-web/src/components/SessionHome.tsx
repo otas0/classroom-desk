@@ -1,0 +1,314 @@
+import { useEffect, useState } from 'react';
+import { api } from '../api';
+import { POINT_REASON_CHIPS } from '../types';
+import { LiveBoard } from './LiveBoard';
+
+type RosterStudent = {
+  id: string;
+  displayName: string;
+  studentNo: string | null;
+};
+
+export function SessionHome({
+  classId,
+  onEnterProjection,
+  onGoPrep,
+  onGoAssign,
+}: {
+  classId: string;
+  onEnterProjection: () => void;
+  onGoPrep?: () => void;
+  onGoAssign?: () => void;
+}) {
+  const [kind, setKind] = useState<'bool' | 'blank'>('bool');
+  const [title, setTitle] = useState('');
+  const [stem, setStem] = useState('');
+  const [blankKey, setBlankKey] = useState('');
+  const [closesAtLocal, setClosesAtLocal] = useState('');
+  const [publishMsg, setPublishMsg] = useState('');
+  const [publishing, setPublishing] = useState(false);
+  const [boardKey, setBoardKey] = useState(0);
+
+  const [students, setStudents] = useState<RosterStudent[]>([]);
+  const [picked, setPicked] = useState<RosterStudent | null>(null);
+  const [awardPts, setAwardPts] = useState(1);
+  const [awardReason, setAwardReason] = useState('表扬');
+  const [awardMsg, setAwardMsg] = useState('');
+
+  const [requests, setRequests] = useState<Array<Record<string, unknown>>>([]);
+  const [requestErr, setRequestErr] = useState('');
+
+  useEffect(() => {
+    if (!classId) {
+      setStudents([]);
+      setPicked(null);
+      return;
+    }
+    let cancelled = false;
+    void api<{ items: Array<Record<string, unknown>> }>(`/api/v1/classes/${classId}/students`)
+      .then((r) => {
+        if (cancelled) return;
+        setStudents(
+          r.items.map((s) => ({
+            id: String(s.id),
+            displayName: String(s.displayName ?? ''),
+            studentNo: s.studentNo == null || s.studentNo === '' ? null : String(s.studentNo),
+          })),
+        );
+      })
+      .catch(() => {
+        if (!cancelled) setStudents([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [classId]);
+
+  useEffect(() => {
+    if (!classId) {
+      setRequests([]);
+      return;
+    }
+    let cancelled = false;
+    async function load() {
+      try {
+        const r = await api<{ items: Array<Record<string, unknown>> }>(
+          `/api/v1/point-requests/pending?classId=${encodeURIComponent(classId)}`,
+        );
+        if (!cancelled) {
+          setRequests(r.items);
+          setRequestErr('');
+        }
+      } catch (e) {
+        if (!cancelled) setRequestErr(e instanceof Error ? e.message : '加载加分请求失败');
+      }
+    }
+    void load();
+    const t = window.setInterval(() => void load(), 5000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(t);
+    };
+  }, [classId]);
+
+  function applyTemplate(next: 'bool' | 'blank') {
+    setKind(next);
+    if (next === 'bool') {
+      setTitle((t) => t || '判断题');
+      setStem((s) => s || '（请改成真实题干）下列说法正确吗？');
+      setBlankKey('');
+    } else {
+      setTitle((t) => t || '填空题');
+      setStem((s) => s || '（请改成真实题干）请填写答案：____');
+    }
+  }
+
+  async function publish() {
+    setPublishMsg('');
+    if (!classId) {
+      setPublishMsg('请先选择班级');
+      return;
+    }
+    if (!title.trim() || !stem.trim()) {
+      setPublishMsg('请填写题目标题与题干');
+      return;
+    }
+    let closesAt: string | undefined;
+    if (closesAtLocal) {
+      const d = new Date(closesAtLocal);
+      if (Number.isNaN(d.getTime())) {
+        setPublishMsg('截止时间无效');
+        return;
+      }
+      closesAt = d.toISOString();
+    }
+    const body: Record<string, unknown> =
+      kind === 'blank'
+        ? {
+            classId,
+            title: title.trim(),
+            stem: stem.trim(),
+            type: 'blank',
+            answerKey: blankKey.trim(),
+            options: [],
+            closesAt,
+          }
+        : {
+            classId,
+            title: title.trim(),
+            stem: stem.trim(),
+            type: 'bool',
+            closesAt,
+            options: [
+              { label: 'A', content: '正确', isCorrect: true },
+              { label: 'B', content: '错误', isCorrect: false },
+            ],
+          };
+    if (kind === 'blank' && !blankKey.trim()) {
+      setPublishMsg('请填写填空参考答案');
+      return;
+    }
+    setPublishing(true);
+    try {
+      await api('/api/v1/questions', { method: 'POST', body: JSON.stringify(body) });
+      setTitle('');
+      setStem('');
+      setBlankKey('');
+      setClosesAtLocal('');
+      setPublishMsg('已发布');
+      setBoardKey((n) => n + 1);
+    } catch (e) {
+      setPublishMsg(e instanceof Error ? e.message : '发布失败');
+    } finally {
+      setPublishing(false);
+    }
+  }
+
+  function drawStudent() {
+    if (students.length === 0) {
+      setAwardMsg('名单为空，无法抽答');
+      setPicked(null);
+      return;
+    }
+    const row = students[Math.floor(Math.random() * students.length)]!;
+    setPicked(row);
+    setAwardMsg(`抽到：${row.displayName}`);
+  }
+
+  async function awardPicked() {
+    if (!picked || !classId) return;
+    try {
+      await api('/api/v1/points/manual', {
+        method: 'POST',
+        body: JSON.stringify({
+          classId,
+          studentId: picked.id,
+          points: awardPts,
+          reasonSummary: awardReason.trim() || '课堂抽答',
+        }),
+      });
+      setAwardMsg(`已给 ${picked.displayName} +${awardPts}（${awardReason.trim() || '课堂抽答'}）`);
+    } catch (e) {
+      setAwardMsg(e instanceof Error ? e.message : '加分失败');
+    }
+  }
+
+  async function decideRequest(id: string, action: 'confirm' | 'reject') {
+    try {
+      await api(`/api/v1/point-requests/${id}/${action}`, { method: 'POST', body: '{}' });
+      const r = await api<{ items: Array<Record<string, unknown>> }>(
+        `/api/v1/point-requests/pending?classId=${encodeURIComponent(classId)}`,
+      );
+      setRequests(r.items);
+      setRequestErr('');
+    } catch (e) {
+      setRequestErr(e instanceof Error ? e.message : '处理加分请求失败');
+    }
+  }
+
+  return (
+    <div className="session-home">
+      <div className="session-toolbar">
+        <button type="button" onClick={onEnterProjection} disabled={!classId}>
+          投影全屏
+        </button>
+        {onGoPrep ? (
+          <button type="button" className="secondary" onClick={onGoPrep}>
+            去备课
+          </button>
+        ) : null}
+        {onGoAssign ? (
+          <button type="button" className="secondary" onClick={onGoAssign}>
+            去指派
+          </button>
+        ) : null}
+      </div>
+
+      <section id="session-quick-publish">
+        <h2>快速发题</h2>
+        <div className="row">
+          <button type="button" className={kind === 'bool' ? 'chip active-chip' : 'chip'} onClick={() => applyTemplate('bool')}>
+            判断题模板
+          </button>
+          <button type="button" className={kind === 'blank' ? 'chip active-chip' : 'chip'} onClick={() => applyTemplate('blank')}>
+            填空题模板
+          </button>
+        </div>
+        <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="题目标题（必填）" />
+        <textarea value={stem} onChange={(e) => setStem(e.target.value)} placeholder="题干（必填）" />
+        {kind === 'blank' ? (
+          <input value={blankKey} onChange={(e) => setBlankKey(e.target.value)} placeholder="参考答案（必填）" />
+        ) : (
+          <p className="hint">判断题选项固定为「正确 / 错误」</p>
+        )}
+        <label>
+          截止时间（可选，到点自动收卷）
+          <input type="datetime-local" value={closesAtLocal} onChange={(e) => setClosesAtLocal(e.target.value)} />
+        </label>
+        <button type="button" disabled={!classId || publishing} onClick={() => void publish()}>
+          发布题目
+        </button>
+        {publishMsg ? <p className={/失败|无效|请/.test(publishMsg) ? 'error' : 'hint'}>{publishMsg}</p> : null}
+      </section>
+
+      <section>
+        <h2>抽答加分</h2>
+        <p className="hint">本班 {students.length} 人</p>
+        <div className="row">
+          <button type="button" disabled={!classId} onClick={drawStudent}>
+            抽一人
+          </button>
+          <input
+            type="number"
+            min={1}
+            value={awardPts}
+            onChange={(e) => setAwardPts(Number(e.target.value) || 1)}
+            style={{ width: 72 }}
+          />
+          <input value={awardReason} onChange={(e) => setAwardReason(e.target.value)} placeholder="理由" />
+          <button type="button" disabled={!picked} onClick={() => void awardPicked()}>
+            给抽中的人加分
+          </button>
+        </div>
+        <div className="chip-row">
+          {POINT_REASON_CHIPS.map((c) => (
+            <button key={c} type="button" className="chip" onClick={() => setAwardReason(c)}>
+              {c}
+            </button>
+          ))}
+        </div>
+        {picked ? (
+          <p className="projection-name">
+            {picked.displayName}
+            {picked.studentNo ? ` · ${picked.studentNo}` : ''}
+          </p>
+        ) : null}
+        {awardMsg ? <p className="hint">{awardMsg}</p> : null}
+      </section>
+
+      <section>
+        <h2>待审加分</h2>
+        <p className="hint">约每 5 秒刷新。通过后写入积分。</p>
+        {requestErr ? <p className="error">{requestErr}</p> : null}
+        {requests.length === 0 ? <p className="hint">暂无待审请求</p> : null}
+        {requests.map((item) => (
+          <div key={String(item.id)} className="row request-row">
+            <span>
+              {String(item.studentName)} · {String(item.reason || '（无理由）')} · {String(item.points)} 分
+            </span>
+            <button type="button" onClick={() => void decideRequest(String(item.id), 'confirm')}>
+              通过
+            </button>
+            <button type="button" className="secondary" onClick={() => void decideRequest(String(item.id), 'reject')}>
+              拒绝
+            </button>
+          </div>
+        ))}
+      </section>
+
+      <div className="session-live">
+        <LiveBoard key={boardKey} classId={classId} />
+      </div>
+    </div>
+  );
+}

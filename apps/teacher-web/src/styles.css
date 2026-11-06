@@ -246,6 +246,102 @@ button.linkish,
   line-height: 1.4;
 }
 
+.banner-alert p {
+  margin: 0 0 6px;
+}
+
+.banner-alert .hint.light {
+  color: var(--alert);
+  opacity: 0.85;
+}
+
+.banner-alert button {
+  margin-top: 4px;
+}
+
+.chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 8px 0;
+}
+
+.chip {
+  border: 1px solid var(--ink);
+  background: var(--paper);
+  color: var(--ink);
+  padding: 4px 10px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.chip:hover:not(:disabled),
+.chip:focus-visible:not(:disabled),
+.chip.active-chip {
+  background: var(--ink);
+  color: var(--paper);
+}
+
+.pending-list {
+  margin-top: 10px;
+  max-height: 220px;
+  overflow: auto;
+  border: 1px solid var(--ink);
+  padding: 8px 12px;
+  font-size: clamp(14px, 1.6vw, 20px);
+}
+
+.pending-list ul {
+  margin: 0;
+  padding-left: 1.2em;
+  columns: 2;
+}
+
+.projection-name {
+  font-size: clamp(28px, 5vw, 48px);
+  font-weight: 700;
+  margin: 12px 0;
+}
+
+.projection-stats {
+  font-size: clamp(18px, 2.5vw, 28px);
+  font-weight: 600;
+  margin: 8px 0;
+}
+
+.bar-track.tall {
+  height: 28px;
+  margin: 8px 0;
+}
+
+.live-board .live-card {
+  border: 2px solid var(--ink);
+  padding: 16px;
+  margin-bottom: 16px;
+}
+
+.live-board h3 {
+  font-size: clamp(20px, 3vw, 32px);
+  margin: 0 0 8px;
+}
+
+.leaderboard {
+  font-size: clamp(16px, 2vw, 22px);
+  line-height: 1.6;
+}
+
+.qr-block {
+  margin: 12px 0;
+}
+
+.toast-inline {
+  border: 2px solid var(--ink);
+  background: var(--fill-soft);
+  padding: 8px 12px;
+  font-weight: 600;
+}
+
 .check {
   display: inline-flex;
   align-items: center;
@@ -468,4 +564,143 @@ a:hover {
     border-right: none;
     border-bottom: 2px solid var(--ink);
   }
+}
+
+.layout.projection-active {
+  grid-template-columns: 1fr;
+}
+
+.layout.projection-active aside {
+  display: none;
+}
+
+aside .pending-badge {
+  background: var(--paper);
+  color: var(--ink);
+}
+
+aside .nav.active .pending-badge {
+  background: var(--ink);
+  color: var(--paper);
+}
+
+.live-board.projection-mode {
+  min-height: 100vh;
+  min-height: 100dvh;
+  border: none;
+  padding: clamp(16px, 3vw, 40px);
+}
+
+.live-board.projection-mode h2 {
+  font-size: clamp(32px, 4.5vw, 56px);
+  margin: 0;
+}
+
+.live-board.projection-mode h3 {
+  font-size: clamp(28px, 4vw, 48px);
+}
+
+.live-board.projection-mode .projection-stats {
+  font-size: clamp(22px, 3vw, 40px);
+}
+
+.live-board.projection-mode .hint,
+.live-board.projection-mode button {
+  font-size: clamp(16px, 2vw, 24px);
+}
+
+.live-board.projection-mode .pending-list {
+  max-height: none;
+  font-size: clamp(20px, 2.6vw, 36px);
+}
+
+.live-board.projection-mode .bar-track.tall {
+  height: 40px;
+}
+
+.setup-checklist {
+  border: 2px solid var(--ink);
+  background: var(--paper);
+  padding: 16px;
+  margin-bottom: 16px;
+  display: grid;
+  gap: 12px;
+}
+
+.setup-checklist h2 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.setup-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.setup-step {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 12px;
+  border: 1px solid var(--ink);
+}
+
+.setup-step.done {
+  background: var(--fill-soft);
+}
+
+.setup-step .status {
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.session-home {
+  display: grid;
+  gap: 16px;
+  align-items: start;
+}
+
+.session-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+@media (min-width: 960px) {
+  .session-home {
+    grid-template-columns: minmax(300px, 420px) minmax(0, 1fr);
+  }
+
+  .session-home .session-live {
+    grid-column: 2;
+    grid-row: 1 / span 5;
+  }
+}
+
+.prep-subnav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.prep-subnav button {
+  background: var(--paper);
+  color: var(--ink);
+}
+
+.prep-subnav button.active {
+  background: var(--ink);
+  color: var(--paper);
+  font-weight: 700;
+}
+
+.prep-subnav button.active:hover:not(:disabled),
+.prep-subnav button.active:focus-visible:not(:disabled) {
+  background: var(--ink);
+  color: var(--paper);
 }

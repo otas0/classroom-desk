@@ -10,9 +10,9 @@ Auth: `Authorization: Bearer <jwt>`（除注明公开接口外）
 | Method | Path | Auth | 说明 |
 |---|---|---|---|
 | GET | `/health` | 无 | 服务与数据库健康检查 |
-| GET | `/api/v1/settings/public` | 无 | 告知文案、TTL、每日清空时刻 |
-| GET | `/api/v1/settings` | 教师 | 完整设置 |
-| PATCH | `/api/v1/settings` | 教师 | 可改 `pointRequestTtlMinutes`；清空时刻只读 |
+| GET | `/api/v1/settings/public` | 无 | 告知文案、TTL、每日清空时刻；含 `clientExitAllowed` / `clientExitUnlockUntil` |
+| GET | `/api/v1/settings` | 教师 | 完整设置（含退出锁定状态） |
+| PATCH | `/api/v1/settings` | 教师 | `pointRequestTtlMinutes`；`clientExitUnlockMinutes` 批量解除；`clientExitRelock`；`exitUnlockCode`；清空时刻只读 |
 
 ## Auth
 
@@ -21,6 +21,8 @@ Auth: `Authorization: Bearer <jwt>`（除注明公开接口外）
 | POST | `/api/v1/auth/login` | 无 | 教师登录 `{ username, password }` |
 | POST | `/api/v1/auth/student-select` | 无 | 本机 `classId` + 名单 `studentId` 选身份（无班级码入班） |
 | POST | `/api/v1/auth/admin-unlock` | 无 | 校验管理员密码 `{ password }` |
+| POST | `/api/v1/auth/exit-unlock` | 无 | 学生端退出：`{ code }`；失败限流 429 `exit_unlock_rate_limited` |
+| GET | `/api/v1/settings/exit-lock-events` | 教师 | 退出锁定审计（batch_unlock / relock / code_*） |
 | GET | `/api/v1/auth/me` | 登录 | 当前用户 |
 | GET | `/api/v1/auth/bootstrap-info` | 无 | 是否已写入管理员哈希等 |
 | POST | `/api/v1/auth/change-admin-password` | 教师 | 修改管理员密码 |

@@ -104,7 +104,11 @@ CREATE TABLE IF NOT EXISTS questions (
   attachments TEXT,
   created_by TEXT NOT NULL REFERENCES users(id),
   created_at TEXT NOT NULL,
-  published INTEGER NOT NULL DEFAULT 0
+  published INTEGER NOT NULL DEFAULT 0,
+  closed_at TEXT,
+  closes_at TEXT,
+  archived INTEGER NOT NULL DEFAULT 0,
+  retry_wrong INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE INDEX IF NOT EXISTS idx_questions_class_created ON questions(class_id, created_at);
@@ -201,6 +205,18 @@ CREATE TABLE IF NOT EXISTS cleanup_stats (
 );
 
 CREATE INDEX IF NOT EXISTS idx_cleanup_stats_date ON cleanup_stats(cleanup_date);
+
+CREATE TABLE IF NOT EXISTS exit_lock_events (
+  id TEXT PRIMARY KEY,
+  kind TEXT NOT NULL,
+  actor_user_id TEXT,
+  actor_role TEXT,
+  detail TEXT NOT NULL DEFAULT '',
+  client_ip TEXT,
+  created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_exit_lock_events_created ON exit_lock_events(created_at DESC);
 
 CREATE TABLE IF NOT EXISTS settings (
   key TEXT PRIMARY KEY,

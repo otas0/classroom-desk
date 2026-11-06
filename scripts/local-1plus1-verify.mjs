@@ -22,9 +22,10 @@ function fail(name, detail) {
   console.error(`✗ ${name} — ${detail}`);
 }
 
-async function req(method, urlPath, { token, body, formData, raw } = {}) {
+async function req(method, urlPath, { token, body, formData, raw, forwardFor } = {}) {
   const headers = {};
   if (token) headers.Authorization = `Bearer ${token}`;
+  if (forwardFor) headers['X-Forwarded-For'] = forwardFor;
   let bodyInit = undefined;
   if (formData) {
     bodyInit = formData;
@@ -124,9 +125,9 @@ async function main() {
   const studentToken = sel.json.token;
   ok('student.select', sel.json.user?.displayName);
 
-  // 3b. student tabs surface (API each tab needs)
+  // 3b. student tabs surface (API each tab needs — same paths as student-desktop)
   {
-    const roster = await req('GET', `/api/v1/classes/${classId}/students`, { token: studentToken });
+    const roster = await req('GET', `/api/v1/classes/${classId}/roster`);
     if (!roster.res.ok) fail('tab.points.roster', roster.text);
     else ok('tab.points.roster', `n=${(roster.json?.items ?? roster.json ?? []).length}`);
 
@@ -141,6 +142,10 @@ async function main() {
     const unread = await req('GET', '/api/v1/messages/unread-count', { token: studentToken });
     if (!unread.res.ok) fail('tab.messages.unread', unread.text);
     else ok('tab.messages.unread', `count=${unread.json?.count ?? 0}`);
+
+    const attProbe = await req('GET', `/api/v1/attendance/my-status`, { token: studentToken });
+    if (!attProbe.res.ok) fail('tab.attendance.my-status', attProbe.text);
+    else ok('tab.attendance.my-status', `checkedIn=${attProbe.json?.checkedIn ?? attProbe.json?.status ?? 'n/a'}`);
   }
 
   // 4. 点名加分：有理由 + 空理由（可选）
@@ -410,6 +415,89 @@ async function main() {
     token: teacherToken,
     body: { messagesEnabled: true },
   });
+
+  // 11. exit lock: public flag, batch unlock, code, audit, rate limit
+  {
+    const unlockIp = `203.0.113.${50 + (Date.now() % 200)}`;
+    const rateIp = `198.51.100.${50 + (Date.now() % 200)}`;
+
+    const relock = await req('PATCH', '/api/v1/settings', {
+      token: teacherToken,
+      body: { clientExitRelock: true },
+    });
+    if (!relock.res.ok) fail('exitLock.relock', relock.text);
+    else ok('exitLock.relock', 'locked');
+
+    const pubLocked = await req('GET', '/api/v1/settings/public');
+    if (pubLocked.json?.clientExitAllowed === false) ok('exitLock.public.locked', 'clientExitAllowed=false');
+    else fail('exitLock.public.locked', JSON.stringify(pubLocked.json));
+
+    const setCode = await req('PATCH', '/api/v1/settings', {
+      token: teacherToken,
+      body: { exitUnlockCode: 'ExitLock99' },
+    });
+    if (!setCode.res.ok || !setCode.json?.hasExitUnlockCode) fail('exitLock.setCode', setCode.text);
+    else ok('exitLock.setCode', 'hasExitUnlockCode');
+
+    const bad = await req('POST', '/api/v1/auth/exit-unlock', {
+      body: { code: 'wrong-exit-code' },
+      forwardFor: unlockIp,
+    });
+    if (bad.res.status === 401) ok('exitLock.code.bad', '401');
+    else fail('exitLock.code.bad', `status=${bad.res.status}`);
+
+    const batch = await req('PATCH', '/api/v1/settings', {
+      token: teacherToken,
+      body: { clientExitUnlockMinutes: 3 },
+    });
+    if (!batch.res.ok || !batch.json?.clientExitAllowed || !batch.json?.clientExitUnlockUntil) {
+      fail('exitLock.batch', batch.text);
+    } else ok('exitLock.batch', batch.json.clientExitUnlockUntil);
+
+    const pubOpen = await req('GET', '/api/v1/settings/public');
+    if (pubOpen.json?.clientExitAllowed === true && pubOpen.json?.clientExitUnlockUntil) {
+      ok('exitLock.public.open', pubOpen.json.clientExitUnlockUntil);
+    } else fail('exitLock.public.open', JSON.stringify(pubOpen.json));
+
+    await req('PATCH', '/api/v1/settings', {
+      token: teacherToken,
+      body: { clientExitRelock: true },
+    });
+
+    const good = await req('POST', '/api/v1/auth/exit-unlock', {
+      body: { code: 'ExitLock99' },
+      forwardFor: unlockIp,
+    });
+    if (good.res.ok && good.json?.allowExit) ok('exitLock.code.ok', 'allowExit');
+    else fail('exitLock.code.ok', good.text);
+
+    const events = await req('GET', '/api/v1/settings/exit-lock-events?limit=20', {
+      token: teacherToken,
+    });
+    const kinds = new Set((events.json?.items ?? []).map((e) => e.kind));
+    if (kinds.has('batch_unlock') && kinds.has('relock') && kinds.has('code_ok')) {
+      ok('exitLock.audit', [...kinds].join(','));
+    } else fail('exitLock.audit', JSON.stringify([...kinds]));
+
+    let limited = false;
+    for (let i = 0; i < 8; i++) {
+      const r = await req('POST', '/api/v1/auth/exit-unlock', {
+        body: { code: `bad-rate-${i}` },
+        forwardFor: rateIp,
+      });
+      if (r.res.status === 429 || r.json?.error === 'exit_unlock_rate_limited') {
+        limited = true;
+        ok('exitLock.rateLimit', `retryAfterSec=${r.json?.retryAfterSec ?? '?'}`);
+        break;
+      }
+    }
+    if (!limited) fail('exitLock.rateLimit', 'expected 429 after repeated failures');
+
+    await req('PATCH', '/api/v1/settings', {
+      token: teacherToken,
+      body: { clientExitRelock: true },
+    });
+  }
 
   // write classroom identity for pack / docs
   const identity = {

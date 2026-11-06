@@ -11,6 +11,7 @@ const DEFAULT_SETTINGS: Record<string, string> = {
   attendance_notice_text: '签到仅记录本工具内的登录和在线状态。',
   messages_enabled: '1',
   teacher_password_ok: '0',
+  last_auto_backup_at: '',
   server_bind: '0.0.0.0',
   schema_version: '1',
 };
@@ -22,10 +23,25 @@ export function migrate(database?: DatabaseSync): DatabaseSync {
   conn.exec(sql);
   ensureColumn(conn, 'users', 'student_no', 'TEXT');
   ensureColumn(conn, 'questions', 'attachments', 'TEXT');
+  ensureColumn(conn, 'questions', 'closed_at', 'TEXT');
+  ensureColumn(conn, 'questions', 'closes_at', 'TEXT');
+  ensureColumn(conn, 'questions', 'archived', 'INTEGER DEFAULT 0');
+  ensureColumn(conn, 'questions', 'retry_wrong', 'INTEGER DEFAULT 0');
   ensureColumn(conn, 'messages', 'to_student_id', 'TEXT');
   ensureColumn(conn, 'messages', 'read_at', 'TEXT');
   conn.exec(`CREATE INDEX IF NOT EXISTS idx_users_student_no ON users(class_id, student_no)`);
   conn.exec(`CREATE INDEX IF NOT EXISTS idx_messages_to_student ON messages(to_student_id, created_at)`);
+  conn.exec(`CREATE INDEX IF NOT EXISTS idx_questions_closes ON questions(closes_at)`);
+  conn.exec(`CREATE TABLE IF NOT EXISTS exit_lock_events (
+    id TEXT PRIMARY KEY,
+    kind TEXT NOT NULL,
+    actor_user_id TEXT,
+    actor_role TEXT,
+    detail TEXT NOT NULL DEFAULT '',
+    client_ip TEXT,
+    created_at TEXT NOT NULL
+  )`);
+  conn.exec(`CREATE INDEX IF NOT EXISTS idx_exit_lock_events_created ON exit_lock_events(created_at DESC)`);
   seedSettings(conn);
   return conn;
 }

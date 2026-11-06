@@ -117,6 +117,24 @@ authRouter.post('/api/v1/auth/admin-unlock', async (req, res) => {
   res.json({ ok: true });
 });
 
+/** Local student-desktop exit: dedicated 解除码 or admin password (rate-limited). */
+authRouter.post('/api/v1/auth/exit-unlock', async (req, res) => {
+  const code = String(req.body?.code ?? req.body?.password ?? '');
+  const { attemptExitUnlock } = await import('../services/exitLock.js');
+  const clientIp = String(req.headers['x-forwarded-for'] ?? req.socket.remoteAddress ?? '').split(',')[0].trim();
+  const result = await attemptExitUnlock(openDb(), code, { clientIp });
+  if (!result.ok) {
+    if (result.retryAfterSec) res.setHeader('Retry-After', String(result.retryAfterSec));
+    res.status(result.status).json({
+      error: result.error,
+      message: result.message,
+      retryAfterSec: result.retryAfterSec,
+    });
+    return;
+  }
+  res.json({ ok: true, allowExit: true });
+});
+
 authRouter.get('/api/v1/auth/me', requireAuth, (req: AuthedRequest, res) => {
   const db = openDb();
   let classInfo = null;

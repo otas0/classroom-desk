@@ -22,6 +22,7 @@ const REQUIRED_TABLES = [
   'point_requests',
   'presence_heartbeats',
   'cleanup_stats',
+  'exit_lock_events',
   'settings',
   'attendance_schedules',
   'attendance_holidays',

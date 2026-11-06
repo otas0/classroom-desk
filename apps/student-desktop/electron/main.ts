@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, screen, session } from 'electron';
+import { app, BrowserWindow, ipcMain, Menu, screen, session } from 'electron';
 import path from 'node:path';
 import { loadConfig, saveConfig } from './configStore';
 
@@ -10,6 +10,15 @@ const MARGIN = 16;
 let mainWindow: BrowserWindow | null = null;
 let collapsed = false;
 
+/**
+ * Exit lock: students cannot close/quit unless unlocked.
+ * Unlock via teacher batch (renderer polls) or local 解除码 (IPC grant).
+ * Dev override: ALLOW_STUDENT_EXIT=1
+ *
+ * Note: OS Task Manager / kill -9 cannot be blocked by a normal app.
+ */
+let exitAllowed = process.env.ALLOW_STUDENT_EXIT === '1';
+
 function placeBottomRight(win: BrowserWindow, height: number) {
   const display = screen.getPrimaryDisplay();
   const { workArea } = display;
@@ -19,7 +28,6 @@ function placeBottomRight(win: BrowserWindow, height: number) {
 }
 
 function applyProductionCsp() {
-  // Packaged builds: tighten CSP (no Vite HMR). API host comes from configurable apiBase.
   if (!app.isPackaged) return;
   const { apiBase } = loadConfig();
   let connectSrc = "'self' http://127.0.0.1:* http://localhost:*";
@@ -50,6 +58,8 @@ function createWindow() {
     frame: false,
     resizable: false,
     maximizable: false,
+    minimizable: true,
+    closable: false,
     fullscreenable: false,
     alwaysOnTop: true,
     skipTaskbar: false,
@@ -75,14 +85,38 @@ function createWindow() {
     mainWindow?.show();
   });
 
+  mainWindow.on('close', (event) => {
+    if (exitAllowed) return;
+    event.preventDefault();
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.show();
+      mainWindow.focus();
+      mainWindow.setAlwaysOnTop(true);
+      mainWindow.webContents.send('lock:blocked-close');
+    }
+  });
+
   mainWindow.on('closed', () => {
     mainWindow = null;
   });
 }
 
+function quitIfAllowed() {
+  if (!exitAllowed) return false;
+  // Temporarily allow OS close path
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.setClosable(true);
+  }
+  app.quit();
+  return true;
+}
+
 app.whenReady().then(() => {
   applyProductionCsp();
   loadConfig();
+
+  // Remove default menu Quit (Cmd/Ctrl+Q)
+  Menu.setApplicationMenu(null);
 
   app.setLoginItemSettings({
     openAtLogin: true,
@@ -94,13 +128,26 @@ app.whenReady().then(() => {
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       createWindow();
+    } else {
+      mainWindow?.show();
+      mainWindow?.focus();
     }
   });
 });
 
+app.on('before-quit', (event) => {
+  if (exitAllowed) return;
+  event.preventDefault();
+});
+
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
-    app.quit();
+  if (exitAllowed) {
+    if (process.platform !== 'darwin') app.quit();
+    return;
+  }
+  // Recreate if somehow closed while locked
+  if (BrowserWindow.getAllWindows().length === 0) {
+    createWindow();
   }
 });
 
@@ -119,8 +166,31 @@ ipcMain.handle('window:snap-bottom-right', () => {
   placeBottomRight(mainWindow, collapsed ? COLLAPSED_HEIGHT : WINDOW_HEIGHT);
 });
 
+ipcMain.handle('lock:get-state', () => ({
+  exitAllowed,
+  allowStudentExitEnv: process.env.ALLOW_STUDENT_EXIT === '1',
+}));
+
+ipcMain.handle('lock:set-exit-allowed', (_event, allowed: boolean) => {
+  // Teacher batch unlock (from renderer poll) or revoke when window expires
+  exitAllowed = Boolean(allowed) || process.env.ALLOW_STUDENT_EXIT === '1';
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.setClosable(exitAllowed);
+  }
+  return { exitAllowed };
+});
+
+ipcMain.handle('lock:grant-exit-and-quit', () => {
+  exitAllowed = true;
+  return quitIfAllowed();
+});
+
 ipcMain.handle('admin:quit', () => {
-  app.quit();
+  if (!exitAllowed) {
+    return { ok: false, error: 'exit_locked' };
+  }
+  quitIfAllowed();
+  return { ok: true };
 });
 
 ipcMain.handle('admin:set-autostart', (_event, enabled: boolean) => {

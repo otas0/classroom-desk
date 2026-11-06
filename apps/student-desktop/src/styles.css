@@ -30,6 +30,7 @@ button {
 }
 
 .shell {
+  position: relative;
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -64,6 +65,13 @@ button {
   display: flex;
   flex-direction: column;
   gap: 2px;
+  min-width: 0;
+}
+
+.titlebar-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   min-width: 0;
 }
 
@@ -128,6 +136,7 @@ button {
 }
 
 .tab {
+  position: relative;
   border: 2px solid #000;
   background: #fff;
   color: var(--ink);
@@ -148,6 +157,11 @@ button {
   background: #000;
   color: #fff;
   font-weight: 700;
+}
+
+.tab.active .badge {
+  background: #fff;
+  color: #000;
 }
 
 .content {
@@ -324,6 +338,24 @@ textarea {
   line-height: 16px;
 }
 
+.lock-badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 6px;
+  border: 1px solid #000;
+  background: #000;
+  color: #fff;
+  font-size: 10px;
+  line-height: 14px;
+  letter-spacing: 0.02em;
+  flex-shrink: 0;
+}
+
+.lock-badge.unlocked {
+  background: #fff;
+  color: #000;
+}
+
 .panel h2 {
   margin: 16px 0 8px;
   font-size: 14px;
@@ -384,6 +416,48 @@ textarea {
   color: #fff;
   font-size: 12px;
   border-bottom: 1px solid #000;
+}
+
+.quiz-flash {
+  animation: quizPulse 1.4s ease;
+}
+
+.quiz-badge {
+  background: #fff !important;
+  color: #000 !important;
+  border: 1px solid #fff;
+  animation: quizPulse 1.4s ease;
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin: 8px 0;
+}
+
+.quiz-alert {
+  font-weight: 700;
+  font-size: 16px;
+  border: 2px solid #000;
+  padding: 8px 10px;
+  background: #fff;
+}
+
+.current-question {
+  border: 3px solid #000;
+  box-shadow: 0 0 0 3px #fff, 0 0 0 5px #000;
+}
+
+@keyframes quizPulse {
+  0%,
+  100% {
+    background: transparent;
+  }
+  30% {
+    background: #f2f2f2;
+  }
 }
 
 .collapsed-meta {
@@ -563,7 +637,9 @@ textarea {
   border: 1px solid #000;
   background: #fff;
   color: #000;
-  padding: 10px 12px;
+  min-height: 44px;
+  padding: 12px 14px;
+  font-size: 15px;
   cursor: pointer;
 }
 
@@ -572,6 +648,17 @@ textarea {
   background: #000;
   color: #fff;
   outline: none;
+}
+
+.option-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.check.option-line {
+  min-height: 40px;
+  padding: 8px 2px;
+  font-size: 15px;
 }
 
 .option-btn.selected {
@@ -596,4 +683,168 @@ textarea {
   border: 1px solid #000;
   margin-top: 6px;
   object-fit: contain;
+}
+
+.panel .lead,
+.lead {
+  color: var(--ink);
+  font-size: 15px;
+  font-weight: 700;
+  margin: 0 0 12px;
+  line-height: 1.5;
+}
+
+.panel .confirm-bar p {
+  color: var(--ink);
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.identity-chip {
+  -webkit-app-region: no-drag;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 160px;
+  border: 1px solid #000;
+  background: #fff;
+  color: #000;
+  padding: 2px 8px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  line-height: 18px;
+}
+
+.identity-chip span:first-child,
+.identity-chip .chip-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chip-action {
+  font-weight: 600;
+  font-size: 11px;
+  text-decoration: underline;
+  flex-shrink: 0;
+}
+
+.identity-chip:hover,
+.identity-chip:focus-visible {
+  background: #000;
+  color: #fff;
+  outline: none;
+}
+
+.shell.collapsed .identity-chip {
+  border-color: #fff;
+  background: transparent;
+  color: #fff;
+  max-width: 88px;
+  padding: 0 6px;
+}
+
+.shell.collapsed .identity-chip:hover,
+.shell.collapsed .identity-chip:focus-visible {
+  background: #fff;
+  color: #000;
+}
+
+.identity-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.identity-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 2px;
+  width: 100%;
+  min-height: 52px;
+  padding: 10px 14px;
+  border: 2px solid #000;
+  background: #fff;
+  color: #000;
+  text-align: left;
+  font-size: 16px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.identity-btn .identity-no {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.identity-btn:hover,
+.identity-btn:focus-visible {
+  background: var(--fill-soft);
+  outline: 2px solid #000;
+  outline-offset: 1px;
+}
+
+.identity-btn.selected {
+  background: #000;
+  color: #fff;
+}
+
+.identity-btn.selected .identity-no {
+  color: #fff;
+}
+
+.confirm-bar {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  margin-top: 12px;
+  padding: 12px;
+  border: 2px solid #000;
+  background: #fff;
+}
+
+.confirm-bar p {
+  color: var(--ink);
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.link-btn {
+  margin-top: 14px;
+  background: none;
+  border: none;
+  padding: 8px 0;
+  color: #000;
+  font-size: 12px;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.teacher-debug,
+.teacher-config {
+  margin-top: 16px;
+  border: 1px solid #000;
+  padding: 8px 10px;
+  background: #fff;
+}
+
+.teacher-debug summary,
+.teacher-config summary {
+  cursor: pointer;
+  font-weight: 700;
+  font-size: 13px;
+  color: var(--ink);
+}
+
+.unanswered-badge {
+  background: #fff;
+  color: #000;
+  border: 1px solid #fff;
+  font-weight: 700;
+  padding: 0 6px;
 }
