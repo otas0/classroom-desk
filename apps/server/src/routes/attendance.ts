@@ -1,6 +1,8 @@
 import { Router } from 'express';
 import { openDb } from '../db/client.js';
+import { getSetting } from '../db/migrate.js';
 import { requireAuth, requireRoles, type AuthedRequest } from '../middleware/auth.js';
+import { localMonthRange } from '../utils/csv.js';
 import { newId, nowIso } from '../utils/id.js';
 import { paramId } from '../utils/params.js';
 
@@ -185,8 +187,17 @@ function dayBoundsLocal(): { start: string; end: string; dayKey: string } {
   return { start: start.toISOString(), end: end.toISOString(), dayKey };
 }
 
+function lateThresholdMs(db: ReturnType<typeof openDb>): { lateAfterMinutes: number; classStartMs: number } {
+  const startTime = getSetting(db, 'attendance_class_start_time') ?? '08:00';
+  const lateAfterMinutes = Number(getSetting(db, 'attendance_late_after_minutes') ?? 15);
+  const [hh, mm] = startTime.split(':').map(Number);
+  const start = new Date();
+  start.setHours(hh || 8, mm || 0, 0, 0);
+  return { lateAfterMinutes, classStartMs: start.getTime() };
+}
+
 function ensureTodayOpenSession(db: ReturnType<typeof openDb>, classId: string): string {
-  const { start, end, dayKey } = dayBoundsLocal();
+  const { start, end } = dayBoundsLocal();
   const existing = db
     .prepare(
       `SELECT id FROM attendance_sessions
@@ -199,16 +210,17 @@ function ensureTodayOpenSession(db: ReturnType<typeof openDb>, classId: string):
   const teacher = db
     .prepare(`SELECT id FROM users WHERE role IN ('teacher','admin') ORDER BY created_at LIMIT 1`)
     .get() as { id: string } | undefined;
-  const createdBy = teacher?.id ?? 'system';
+  if (!teacher?.id) {
+    throw new Error('no_teacher_user');
+  }
+  const { lateAfterMinutes } = lateThresholdMs(db);
   const id = newId();
   const createdAt = nowIso();
   db.prepare(
     `INSERT INTO attendance_sessions
       (id, class_id, mode, start_at, end_at, late_after_minutes, created_by, status, created_at)
-     VALUES (?, ?, 'manual', ?, ?, 15, ?, 'open', ?)`,
-  ).run(id, classId, start, end, createdBy, createdAt);
-  // tag remark via unused field not available — dayKey only for logs
-  void dayKey;
+     VALUES (?, ?, 'manual', ?, ?, ?, ?, 'open', ?)`,
+  ).run(id, classId, start, end, lateAfterMinutes, teacher.id, createdAt);
   return id;
 }
 
@@ -266,9 +278,8 @@ attendanceRouter.post('/api/v1/attendance/check-in', requireAuth, requireRoles('
     return;
   }
   const now = Date.now();
-  const start = new Date(session.start_at).getTime();
-  const lateMs = session.late_after_minutes * 60_000;
-  const status = now > start + lateMs ? 'late' : 'present';
+  const { lateAfterMinutes, classStartMs } = lateThresholdMs(db);
+  const status = now > classStartMs + lateAfterMinutes * 60_000 ? 'late' : 'present';
   const checkedAt = nowIso();
   const id = newId();
   try {
@@ -281,7 +292,7 @@ attendanceRouter.post('/api/v1/attendance/check-in', requireAuth, requireRoles('
     res.status(409).json({ error: 'already_checked_in' });
     return;
   }
-  res.status(201).json({ id, status, checkedAt, sessionId: session.id });
+  res.status(201).json({ id, status, checkedAt, sessionId: session.id, lateAfterMinutes });
 });
 
 attendanceRouter.get(
@@ -299,9 +310,14 @@ attendanceRouter.get(
       res.status(403).json({ error: 'forbidden' });
       return;
     }
-    const start = `${month}-01T00:00:00.000Z`;
-    const [y, m] = month.split('-').map(Number);
-    const end = new Date(Date.UTC(y, m, 1)).toISOString();
+    let range: { start: string; end: string };
+    try {
+      range = localMonthRange(month);
+    } catch {
+      res.status(400).json({ error: 'invalid_month' });
+      return;
+    }
+    const { start, end } = range;
     const db = openDb();
     const students = db
       .prepare(

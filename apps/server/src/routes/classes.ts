@@ -250,7 +250,10 @@ classesRouter.post(
     }
     const file = req.file;
     if (!file?.buffer) {
-      res.status(400).json({ error: 'file_required' });
+      res.status(400).json({
+        error: 'file_required',
+        message: '未收到上传文件，请重新选择 Excel/CSV 后再试',
+      });
       return;
     }
     const name = (file.originalname || '').toLowerCase();
@@ -261,17 +264,38 @@ classesRouter.post(
       } else if (name.endsWith('.xlsx') || name.endsWith('.xls')) {
         rows = parseSheetToRows(file.buffer);
       } else {
-        res.status(400).json({ error: 'unsupported_file_type' });
+        res.status(400).json({
+          error: 'unsupported_file_type',
+          message: '仅支持 .xlsx / .xls / .csv，请检查文件后缀',
+        });
         return;
       }
     } catch {
-      res.status(400).json({ error: 'parse_failed' });
+      res.status(400).json({
+        error: 'parse_failed',
+        message: '文件解析失败：可能不是有效表格、文件损坏或列名无法识别（需要「姓名」列）',
+      });
       return;
     }
     if (rows.length === 0) {
-      res.status(400).json({ error: 'empty_sheet' });
+      res.status(400).json({
+        error: 'empty_sheet',
+        message: '表格无有效数据行。请确认有表头「姓名」（学号可选）且至少一行学生',
+      });
       return;
     }
-    res.status(201).json(importStudentRows(classId, rows));
+    const result = importStudentRows(classId, rows);
+    if (result.failures.length > 0 && result.created === 0 && result.skipped === 0) {
+      res.status(400).json({
+        error: 'import_all_failed',
+        message: `全班导入失败（共 ${result.failures.length} 行）。请按行核对：${result.failures
+          .slice(0, 8)
+          .map((f) => `第${f.line}行 ${f.name}→${f.reasonText}`)
+          .join('；')}${result.failures.length > 8 ? '…' : ''}`,
+        ...result,
+      });
+      return;
+    }
+    res.status(201).json(result);
   },
 );

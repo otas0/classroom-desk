@@ -19,7 +19,18 @@ export function monthRange(month: string): { start: string; end: string } {
   return { start, end: endDate.toISOString() };
 }
 
+/** Natural calendar month in the server's local timezone (for classroom attendance). */
+export function localMonthRange(month: string): { start: string; end: string } {
+  if (!/^\d{4}-\d{2}$/.test(month)) {
+    throw new Error('invalid_month');
+  }
+  const [y, m] = month.split('-').map(Number);
+  const start = new Date(y, m - 1, 1, 0, 0, 0, 0);
+  const end = new Date(y, m, 1, 0, 0, 0, 0);
+  return { start: start.toISOString(), end: end.toISOString() };
+}
+
 export function currentMonth(): string {
   const d = new Date();
-  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 }

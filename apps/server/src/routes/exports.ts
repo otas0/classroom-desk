@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { openDb } from '../db/client.js';
 import { requireAuth, requireRoles } from '../middleware/auth.js';
-import { currentMonth, monthRange } from '../utils/csv.js';
+import { currentMonth, localMonthRange, monthRange } from '../utils/csv.js';
 import { parseFormat, sendTableExport } from '../utils/exportFormats.js';
 
 export const exportsRouter = Router();
@@ -16,7 +16,7 @@ exportsRouter.get(
     const classId = String(req.query.classId ?? '');
     let range: { start: string; end: string };
     try {
-      range = monthRange(month);
+      range = localMonthRange(month);
     } catch {
       res.status(400).json({ error: 'invalid_month' });
       return;
@@ -71,7 +71,7 @@ exportsRouter.get(
     }
     let range: { start: string; end: string };
     try {
-      range = monthRange(month);
+      range = localMonthRange(month);
     } catch {
       res.status(400).json({ error: 'invalid_month' });
       return;

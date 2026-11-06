@@ -2,7 +2,8 @@
 
 **拓扑（仅单教室）：** 一台教师机跑中心服务；本教室多台学生机只装客户端，全部连该教师机局域网 IP。不跨教室部署。  
 **不需要：** `CSC_LINK` / 签名证书。未签名安装包按 [SMARTSCREEN.md](./SMARTSCREEN.md) 处理即可。  
-**讲台一页纸：** [PRINT_DESK_CARD.md](./PRINT_DESK_CARD.md)
+**讲台一页纸：** [PRINT_DESK_CARD.md](./PRINT_DESK_CARD.md)  
+**U 盘联调勾选：** [LOCAL_USB_CHECKLIST.md](./LOCAL_USB_CHECKLIST.md)
 
 ```text
         ┌────────────────────────────┐

@@ -43,6 +43,8 @@ export function App() {
   const [toast, setToast] = useState('');
   const [error, setError] = useState('');
   const [ready, setReady] = useState(false);
+  const [healthOk, setHealthOk] = useState<boolean | null>(null);
+  const [healthDetail, setHealthDetail] = useState('');
 
   const showToast = useCallback((msg: string) => {
     setToast(msg);
@@ -85,6 +87,33 @@ export function App() {
     }
   }, []);
 
+  const probeHealth = useCallback(async () => {
+    const base = getApiBase();
+    const t0 = performance.now();
+    try {
+      const res = await fetch(`${base}/health`, { cache: 'no-store' });
+      const ms = Math.round(performance.now() - t0);
+      if (!res.ok) {
+        setHealthOk(false);
+        setHealthDetail(`HTTP ${res.status}（${ms}ms）· ${base}`);
+        return false;
+      }
+      const body = (await res.json()) as { ok?: boolean };
+      if (!body.ok) {
+        setHealthOk(false);
+        setHealthDetail(`服务未就绪（${ms}ms）· ${base}`);
+        return false;
+      }
+      setHealthOk(true);
+      setHealthDetail(`正常 ${ms}ms · ${base}`);
+      return true;
+    } catch (e) {
+      setHealthOk(false);
+      setHealthDetail(`${e instanceof Error ? e.message : '无法连接'} · ${base}`);
+      return false;
+    }
+  }, []);
+
   useEffect(() => {
     void (async () => {
       await initApiBase();
@@ -96,17 +125,20 @@ export function App() {
       } catch {
         /* browser */
       }
-      if (cid) {
-        try {
-          await loadRoster(cid);
-        } catch {
-          /* offline */
+      const ok = await probeHealth();
+      if (ok) {
+        if (cid) {
+          try {
+            await loadRoster(cid);
+          } catch {
+            /* offline */
+          }
         }
+        await refreshMe();
       }
-      await refreshMe();
       setReady(true);
     })();
-  }, [loadRoster, refreshMe]);
+  }, [loadRoster, refreshMe, probeHealth]);
 
   useEffect(() => {
     const t = window.setInterval(() => void refreshMe(), 8000);
@@ -195,6 +227,63 @@ export function App() {
   }
 
   const visibleTabs = TABS.filter((t) => t.id !== 'messages' || messagesEnabled);
+
+  if (ready && healthOk === false) {
+    return (
+      <div className="shell">
+        <header className="titlebar" data-drag>
+          <div className="titlebar-main">
+            <strong className="brand">{APP_NAME}</strong>
+            <span className="meta">上课前须通过 /health</span>
+          </div>
+        </header>
+        <main className="content" data-no-drag>
+          <h1>无法连接教师机</h1>
+          <p className="hint">{healthDetail}</p>
+          <p className="hint">
+            请用浏览器打开「教师机IP:8787/health」确认通；再检查本机 apiBase、同一网段、防火墙与时间同步。
+          </p>
+          <button
+            type="button"
+            onClick={() =>
+              void probeHealth().then(async (ok) => {
+                if (!ok) return;
+                if (classId) {
+                  try {
+                    await loadRoster(classId);
+                  } catch {
+                    /* */
+                  }
+                }
+                await refreshMe();
+              })
+            }
+          >
+            重新检测 /health
+          </button>
+          <label className="field">
+            临时改 apiBase（连通后再用设置页正式保存）
+            <input
+              defaultValue={getApiBase()}
+              id="health-api-base"
+              placeholder="http://192.168.1.50:8787"
+            />
+          </label>
+          <button
+            type="button"
+            onClick={() => {
+              const el = document.getElementById('health-api-base') as HTMLInputElement | null;
+              const next = String(el?.value ?? '').trim().replace(/\/$/, '');
+              if (!next) return;
+              void setApiBase(next).then(() => probeHealth());
+            }}
+          >
+            应用并重测
+          </button>
+        </main>
+      </div>
+    );
+  }
 
   return (
     <div className="shell">

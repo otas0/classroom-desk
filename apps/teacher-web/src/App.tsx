@@ -5,6 +5,17 @@ import { API_BASE, api, getToken, setToken } from './api';
 type ClassItem = { id: string; name: string; classCode: string };
 type Tab = 'roster' | 'questions' | 'requests' | 'attendance' | 'exports' | 'messages' | 'assign' | 'settings';
 
+const IMPORT_ERROR_ZH: Record<string, string> = {
+  file_required: '未收到上传文件，请重新选择 Excel/CSV 后再试',
+  unsupported_file_type: '仅支持 .xlsx / .xls / .csv，请检查文件后缀',
+  parse_failed: '文件解析失败：可能不是有效表格、文件损坏或列名无法识别',
+  empty_sheet: '表格无有效数据行，请确认有「姓名」列且至少一行学生',
+  empty_csv: 'CSV 为空',
+  import_all_failed: '全班导入失败，请按行核对提示',
+  class_not_found: '班级不存在',
+  import_failed: '导入失败',
+};
+
 export function App() {
   const [tokenReady, setTokenReady] = useState(Boolean(getToken()));
   const [username, setUsername] = useState('teacher');
@@ -171,12 +182,15 @@ function RosterPanel({
       skipped?: number;
       failures?: Array<{ line: number; name: string; reasonText?: string; reason: string }>;
       error?: string;
+      message?: string;
     };
-    if (!res.ok) throw new Error(data.error ?? 'import_failed');
+    if (!res.ok) {
+      throw new Error(data.message ?? IMPORT_ERROR_ZH[data.error ?? ''] ?? data.error ?? '导入失败');
+    }
     const fail = (data.failures ?? [])
       .map((f) => `第${f.line}行 ${f.name} → ${f.reasonText ?? f.reason}`)
       .join('；');
-    setImportResult(`新建 ${data.created}，跳过 ${data.skipped}${fail ? `。${fail}` : ''}`);
+    setImportResult(`新建 ${data.created}，跳过 ${data.skipped}${fail ? `。失败行：${fail}` : ''}`);
     await loadStudents();
   }
 
@@ -268,6 +282,7 @@ function QuestionsPanel({ classId }: { classId: string }) {
     rate: number;
     options: Array<{ label: string; content: string; chosenCount: number }>;
   } | null>(null);
+  const [editingQuestion, setEditingQuestion] = useState<Record<string, unknown> | null>(null);
 
   async function load() {
     const r = await api<{ items: Array<Record<string, unknown>> }>(`/api/v1/questions?classId=${classId}`);
@@ -366,47 +381,21 @@ function QuestionsPanel({ classId }: { classId: string }) {
             <button type="button" onClick={() => void showStats(String(q.id), String(q.title))}>
               正确率/错误率
             </button>{' '}
-            <button
-              type="button"
-              onClick={() => {
-                setTitle(String(q.title));
-                setStem(String(q.stem ?? ''));
-                setType(String(q.type) as typeof type);
-                void api(`/api/v1/questions/${String(q.id)}`, {
-                  method: 'PATCH',
-                  body: JSON.stringify({
-                    title: String(q.title),
-                    stem: String(q.stem ?? ''),
-                    type: String(q.type),
-                    published: true,
-                    options:
-                      String(q.type) === 'bool'
-                        ? [
-                            { label: 'A', content: '正确', isCorrect: true },
-                            { label: 'B', content: '错误', isCorrect: false },
-                          ]
-                        : String(q.type) === 'blank'
-                          ? []
-                          : [
-                              { label: 'A', content: '正确选项', isCorrect: true },
-                              { label: 'B', content: '错误选项', isCorrect: false },
-                            ],
-                  }),
-                }).then(() => {
-                  setTitle('');
-                  setStem('');
-                  return load();
-                });
-              }}
-            >
-              重发默认选项
+            <button type="button" onClick={() => setEditingQuestion(q)}>
+              编辑原题
             </button>
           </li>
         ))}
       </ul>
-      <h3>编辑当前表单并覆盖题目</h3>
-      <p className="hint">填写标题/题干后，输入题目 ID 保存（从上方列表复制）。</p>
-      <QuestionEditForm classId={classId} onSaved={load} />
+      <h3>编辑题目（加载原选项）</h3>
+      <QuestionEditForm
+        classId={classId}
+        seed={editingQuestion}
+        onSaved={async () => {
+          setEditingQuestion(null);
+          await load();
+        }}
+      />
       {chart ? (
         <div className="chart">
           <h3>{chart.title}</h3>
@@ -439,38 +428,84 @@ function QuestionsPanel({ classId }: { classId: string }) {
   );
 }
 
-function QuestionEditForm({ classId, onSaved }: { classId: string; onSaved: () => Promise<void> }) {
+function QuestionEditForm({
+  classId,
+  seed,
+  onSaved,
+}: {
+  classId: string;
+  seed: Record<string, unknown> | null;
+  onSaved: () => Promise<void>;
+}) {
   const [qid, setQid] = useState('');
   const [title, setTitle] = useState('');
   const [stem, setStem] = useState('');
-  const [optA, setOptA] = useState('正确选项');
-  const [optB, setOptB] = useState('错误选项');
+  const [qType, setQType] = useState('single');
+  const [options, setOptions] = useState<Array<{ label: string; content: string; isCorrect: boolean }>>([]);
   const [msg, setMsg] = useState('');
+
+  useEffect(() => {
+    if (!seed) return;
+    setQid(String(seed.id ?? ''));
+    setTitle(String(seed.title ?? ''));
+    setStem(String(seed.stem ?? ''));
+    setQType(String(seed.type ?? 'single'));
+    const opts = (seed.options as Array<{ label: string; content: string; isCorrect?: number | boolean }>) ?? [];
+    setOptions(
+      opts.map((o) => ({
+        label: String(o.label),
+        content: String(o.content),
+        isCorrect: Boolean(o.isCorrect),
+      })),
+    );
+    setMsg(`已加载原题 ${String(seed.id ?? '')}`);
+  }, [seed]);
 
   return (
     <div className="card">
-      <input value={qid} onChange={(e) => setQid(e.target.value)} placeholder="题目 ID" />
-      <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="新标题" />
-      <textarea value={stem} onChange={(e) => setStem(e.target.value)} placeholder="新题干" />
-      <input value={optA} onChange={(e) => setOptA(e.target.value)} placeholder="选项 A（正确）" />
-      <input value={optB} onChange={(e) => setOptB(e.target.value)} placeholder="选项 B" />
+      <p className="hint">点列表「编辑原题」加载选项；可改标题/题干/选项后保存。班级 {classId}</p>
+      <input value={qid} onChange={(e) => setQid(e.target.value)} placeholder="题目 ID" readOnly />
+      <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="标题" />
+      <textarea value={stem} onChange={(e) => setStem(e.target.value)} placeholder="题干" />
+      <p className="hint">类型：{qType}</p>
+      {options.map((opt, idx) => (
+        <div key={idx} className="row">
+          <span>{opt.label}</span>
+          <input
+            value={opt.content}
+            onChange={(e) =>
+              setOptions((prev) => prev.map((o, i) => (i === idx ? { ...o, content: e.target.value } : o)))
+            }
+          />
+          <label>
+            <input
+              type="checkbox"
+              checked={opt.isCorrect}
+              onChange={(e) =>
+                setOptions((prev) =>
+                  prev.map((o, i) => (i === idx ? { ...o, isCorrect: e.target.checked } : o)),
+                )
+              }
+            />
+            正确
+          </label>
+        </div>
+      ))}
       <button
         type="button"
+        disabled={!qid}
         onClick={() =>
           void api(`/api/v1/questions/${qid}`, {
             method: 'PATCH',
             body: JSON.stringify({
               title,
               stem,
-              type: 'single',
-              options: [
-                { label: 'A', content: optA, isCorrect: true },
-                { label: 'B', content: optB, isCorrect: false },
-              ],
+              type: qType,
+              options,
             }),
           })
             .then(() => {
-              setMsg('已保存');
+              setMsg('已保存原题修改');
               return onSaved();
             })
             .catch((e) => setMsg(e instanceof Error ? e.message : '失败'))
@@ -479,11 +514,9 @@ function QuestionEditForm({ classId, onSaved }: { classId: string; onSaved: () =
         保存编辑
       </button>
       {msg ? <p className="hint">{msg}</p> : null}
-      <p className="hint">班级 {classId}</p>
     </div>
   );
 }
-
 function AttendancePanel({ classId }: { classId: string }) {
   const [month, setMonth] = useState(
     `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`,
@@ -510,7 +543,9 @@ function AttendancePanel({ classId }: { classId: string }) {
   return (
     <section>
       <h2>签到统计（月）</h2>
-      <p className="hint">学生端点「签到」写入今日场次；此处看班级/个人本月出勤次数与出勤率。</p>
+      <p className="hint">
+        按教师机本地时区自然月统计（非 UTC）。迟到阈值在「设置」按学校作息配置。学生端点「签到」写入今日场次。
+      </p>
       <input value={month} onChange={(e) => setMonth(e.target.value)} placeholder="YYYY-MM" />
       <button type="button" onClick={() => void load()}>
         刷新
@@ -796,11 +831,20 @@ function AssignPanel({ classId, classes }: { classId: string; classes: ClassItem
 function SettingsPanel() {
   const [diag, setDiag] = useState('');
   const [ttl, setTtl] = useState(60);
+  const [classStart, setClassStart] = useState('08:00');
+  const [lateMins, setLateMins] = useState(15);
+  const [saveMsg, setSaveMsg] = useState('');
 
   useEffect(() => {
-    void api<{ pointRequestTtlMinutes: number }>('/api/v1/settings').then((s) =>
-      setTtl(s.pointRequestTtlMinutes),
-    );
+    void api<{
+      pointRequestTtlMinutes: number;
+      attendanceClassStartTime?: string;
+      attendanceLateAfterMinutes?: number;
+    }>('/api/v1/settings').then((s) => {
+      setTtl(s.pointRequestTtlMinutes);
+      setClassStart(s.attendanceClassStartTime ?? '08:00');
+      setLateMins(s.attendanceLateAfterMinutes ?? 15);
+    });
   }, []);
 
   async function runDiag() {
@@ -812,10 +856,11 @@ function SettingsPanel() {
         ok?: boolean;
         backup?: { latestAt?: string | null; lastError?: { message?: string } | null };
       };
+      const err = body.backup?.lastError;
       setDiag(
         body.ok
           ? `正常 ${ms}ms · 备份 ${body.backup?.latestAt ?? '无'}${
-              body.backup?.lastError ? ` · 错：${body.backup.lastError.message}` : ''
+              err ? ` · lastError：${err.message ?? JSON.stringify(err)}` : ' · lastError 无'
             }`
           : `失败 HTTP ${res.status}`,
       );
@@ -831,22 +876,53 @@ function SettingsPanel() {
         一键检测 /health
       </button>
       {diag ? <p className="hint">{diag}</p> : null}
+
+      <h3>加分请求</h3>
       <label>
-        加分请求有效期（分钟）
+        有效期（分钟）
         <input type="number" value={ttl} onChange={(e) => setTtl(Number(e.target.value))} />
+      </label>
+
+      <h3>签到迟到（按学校作息）</h3>
+      <p className="hint">相对「上课开始时刻」超过 N 分钟记为迟到。例：08:00 开始、15 分钟 → 08:15 后迟到。</p>
+      <label>
+        上课开始时刻
+        <input
+          value={classStart}
+          onChange={(e) => setClassStart(e.target.value)}
+          placeholder="08:00"
+          pattern="\d{2}:\d{2}"
+        />
+      </label>
+      <label>
+        迟到阈值（分钟）
+        <input
+          type="number"
+          min={0}
+          max={240}
+          value={lateMins}
+          onChange={(e) => setLateMins(Number(e.target.value))}
+        />
       </label>
       <button
         type="button"
         onClick={() =>
           void api('/api/v1/settings', {
             method: 'PATCH',
-            body: JSON.stringify({ pointRequestTtlMinutes: ttl }),
+            body: JSON.stringify({
+              pointRequestTtlMinutes: ttl,
+              attendanceClassStartTime: classStart,
+              attendanceLateAfterMinutes: lateMins,
+            }),
           })
+            .then(() => setSaveMsg('已保存'))
+            .catch((e) => setSaveMsg(e instanceof Error ? e.message : '保存失败'))
         }
       >
-        保存
+        保存设置
       </button>
-      <p className="hint">本地备份：教师机运行 npm run backup:db（暂不依赖 NAS）。</p>
+      {saveMsg ? <p className="hint">{saveMsg}</p> : null}
+      <p className="hint">本地备份：教师机 `npm run backup:db`；确认 /health 无 lastError。纯本地部署，无需代码签名。</p>
     </section>
   );
 }
