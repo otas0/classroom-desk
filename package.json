@@ -20,7 +20,10 @@
     "test:e2e": "playwright test",
     "dist:win": "npm run dist:win --workspace=@classroom-desk/student-desktop",
     "typecheck:server": "npm run typecheck --workspace=@classroom-desk/server",
-    "backup:db": "bash scripts/backup-db.sh"
+    "backup:db": "bash scripts/backup-db.sh",
+    "prepare:live": "node scripts/prepare-live-classroom.mjs",
+    "verify:1plus1": "node scripts/local-1plus1-verify.mjs",
+    "test:month": "node --import tsx/esm apps/server/src/test/localMonthRange.test.ts"
   },
   "type": "module",
   "engines": {

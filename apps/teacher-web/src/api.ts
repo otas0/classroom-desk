@@ -1,4 +1,19 @@
-const API_BASE = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8787';
+/**
+ * Same-origin by default so /admin opened via 教师机局域网 IP works for student/teacher browsers.
+ * Override only for local Vite: VITE_API_BASE=http://127.0.0.1:8787
+ */
+function resolveApiBase(): string {
+  const fromEnv = import.meta.env.VITE_API_BASE;
+  if (fromEnv != null && String(fromEnv).trim() !== '') {
+    return String(fromEnv).replace(/\/$/, '');
+  }
+  if (typeof window !== 'undefined' && window.location?.origin) {
+    return window.location.origin.replace(/\/$/, '');
+  }
+  return 'http://127.0.0.1:8787';
+}
+
+const API_BASE = resolveApiBase();
 const TOKEN_KEY = 'classroom-desk.teacher-token';
 
 export function getToken() {

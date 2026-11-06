@@ -9,6 +9,7 @@ const IMPORT_ERROR_ZH: Record<string, string> = {
   file_required: '未收到上传文件，请重新选择 Excel/CSV 后再试',
   unsupported_file_type: '仅支持 .xlsx / .xls / .csv，请检查文件后缀',
   parse_failed: '文件解析失败：可能不是有效表格、文件损坏或列名无法识别',
+  corrupt_file: 'Excel 文件损坏或不是有效的 .xlsx/.xls，请用 WPS/Excel 另存后再导入',
   empty_sheet: '表格无有效数据行，请确认有「姓名」列且至少一行学生',
   empty_csv: 'CSV 为空',
   import_all_failed: '全班导入失败，请按行核对提示',
@@ -782,14 +783,52 @@ function MessagesPanel({ classId }: { classId: string }) {
 }
 
 function AssignPanel({ classId, classes }: { classId: string; classes: ClassItem[] }) {
-  const [apiBase, setApiBase] = useState('http://192.168.1.50:8787');
+  const [apiBase, setApiBase] = useState('');
+  const [lanIps, setLanIps] = useState<string[]>([]);
+  const [healthHint, setHealthHint] = useState('');
   const klass = classes.find((c) => c.id === classId);
 
+  useEffect(() => {
+    void (async () => {
+      const [settings, health] = await Promise.all([
+        api<{ classroomApiBase?: string }>('/api/v1/settings'),
+        fetch(`${API_BASE}/health`, { cache: 'no-store' }).then((r) => r.json()) as Promise<{
+          lanIps?: string[];
+          suggestedApiBase?: string;
+          studentHealthUrl?: string;
+        }>,
+      ]);
+      const suggested =
+        settings.classroomApiBase ||
+        health.suggestedApiBase ||
+        (typeof window !== 'undefined' ? window.location.origin : '');
+      setApiBase(String(suggested).replace(/\/$/, ''));
+      setLanIps(health.lanIps ?? []);
+      setHealthHint(health.studentHealthUrl ?? `${String(suggested).replace(/\/$/, '')}/health`);
+    })().catch(() => {
+      if (typeof window !== 'undefined') setApiBase(window.location.origin);
+    });
+  }, []);
+
+  async function saveApiBase() {
+    const base = apiBase.replace(/\/$/, '');
+    await api('/api/v1/settings', {
+      method: 'PATCH',
+      body: JSON.stringify({ classroomApiBase: base }),
+    });
+    setHealthHint(`${base}/health`);
+  }
+
   function downloadConfig() {
+    const base = apiBase.replace(/\/$/, '');
+    if (/127\.0\.0\.1|localhost/i.test(base)) {
+      window.alert('禁止使用 127.0.0.1 / localhost，请填教师机局域网 IP');
+      return;
+    }
     const cfg = {
-      apiBase: apiBase.replace(/\/$/, ''),
+      apiBase: base,
       classId,
-      comment: `Classroom pack for ${klass?.name ?? classId}. Install on student PCs.`,
+      comment: `本教室 ${klass?.name ?? classId}。学生机专用，禁止 127.0.0.1。`,
     };
     const blob = new Blob([JSON.stringify(cfg, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
@@ -804,8 +843,8 @@ function AssignPanel({ classId, classes }: { classId: string; classes: ClassItem
     <section>
       <h2>上课前指派学生机</h2>
       <div className="help-bubble">
-        每台学生机必须配置教师机局域网地址与本班 <code>classId</code>。不要使用 127.0.0.1。
-        可下载配置文件覆盖安装目录 resources/config.json，或在学生端「设置」用管理密码填写。
+        每台学生机必须配置<strong>本教师机局域网地址</strong>与本班 <code>classId</code>。禁止 127.0.0.1。
+        学生浏览器先打开下方 /health；通过后再装客户端或写入 config。
       </div>
       <p>
         当前班级：<strong>{klass?.name ?? '—'}</strong>
@@ -813,16 +852,43 @@ function AssignPanel({ classId, classes }: { classId: string; classes: ClassItem
       <p>
         classId：<code>{classId || '（请先选班）'}</code>
       </p>
+      {lanIps.length ? (
+        <p className="hint">
+          本机检测到局域网 IP：{lanIps.map((ip) => (
+            <button
+              key={ip}
+              type="button"
+              className="linkish"
+              onClick={() => setApiBase(`http://${ip}:8787`)}
+            >
+              {ip}
+            </button>
+          ))}
+          （点击填入）
+        </p>
+      ) : null}
       <label>
-        教师机 apiBase
-        <input value={apiBase} onChange={(e) => setApiBase(e.target.value)} />
+        教师机 apiBase（学生机用）
+        <input value={apiBase} onChange={(e) => setApiBase(e.target.value)} placeholder="http://192.168.x.x:8787" />
       </label>
-      <button type="button" disabled={!classId} onClick={downloadConfig}>
+      <button type="button" onClick={() => void saveApiBase().catch((e) => window.alert(String(e)))}>
+        保存为教室地址
+      </button>{' '}
+      <button type="button" disabled={!classId || !apiBase} onClick={downloadConfig}>
         下载本教室 config.json
       </button>
       <p className="hint">
-        打包专用安装包：把下载的 JSON 写入 apps/student-desktop/resources/config.json 后执行 npm run
-        dist:win。多教室按 IP/班级分目录存放安装包。
+        学生浏览器强制检测：{' '}
+        <a href={healthHint} target="_blank" rel="noreferrer">
+          {healthHint || '—'}
+        </a>
+      </p>
+      <p className="hint">
+        打本教室安装包：
+        <code>
+          node scripts/pack-classroom-config.mjs --apiBase {apiBase || 'http://教师IP:8787'} --classId{' '}
+          {classId || '<id>'}
+        </code>
       </p>
       <pre className="code-block">{`{\n  "apiBase": "${apiBase.replace(/\/$/, '')}",\n  "classId": "${classId}"\n}`}</pre>
     </section>

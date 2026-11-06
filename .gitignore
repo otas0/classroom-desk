@@ -20,3 +20,8 @@ apps/student-desktop/dist/
 apps/student-desktop/dist-electron/
 apps/student-desktop/release/
 artifacts/
+# Built classroom installers / USB drops — never commit binaries
+releases/**
+!releases/README.md
+apps/student-desktop/resources/config.local.json
+docs/CLASSROOM_IDENTITY.md

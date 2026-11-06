@@ -42,6 +42,7 @@ settingsRouter.get('/api/v1/settings', requireAuth, requireRoles('teacher', 'adm
     messagesEnabled: (getSetting(db, 'messages_enabled') ?? '1') !== '0',
     attendanceClassStartTime: getSetting(db, 'attendance_class_start_time') ?? '08:00',
     attendanceLateAfterMinutes: Number(getSetting(db, 'attendance_late_after_minutes') ?? 15),
+    classroomApiBase: getSetting(db, 'classroom_api_base') ?? '',
     noticeText: getSetting(db, 'notice_text') ?? APP_NOTICE,
     attendanceNoticeText: getSetting(db, 'attendance_notice_text') ?? ATTENDANCE_NOTICE,
     note: '未确认加分请求每天凌晨清空；已通过加分永久保留并可按月导出。本地部署无需代码签名。',
@@ -106,6 +107,25 @@ settingsRouter.patch('/api/v1/settings', requireAuth, requireRoles('teacher', 'a
       `INSERT INTO settings (key, value) VALUES ('attendance_late_after_minutes', ?)
        ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
     ).run(String(Math.trunc(mins)));
+  }
+
+  if (req.body?.classroomApiBase != null) {
+    const base = String(req.body.classroomApiBase).trim().replace(/\/$/, '');
+    if (base && !/^https?:\/\/[^/\s]+/i.test(base)) {
+      res.status(400).json({ error: 'invalid_classroom_api_base', message: 'apiBase 须为 http://教师IP:8787' });
+      return;
+    }
+    if (/127\.0\.0\.1|localhost/i.test(base)) {
+      res.status(400).json({
+        error: 'localhost_not_allowed',
+        message: '学生机不可使用 127.0.0.1 / localhost，请填教师机局域网 IP',
+      });
+      return;
+    }
+    db.prepare(
+      `INSERT INTO settings (key, value) VALUES ('classroom_api_base', ?)
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+    ).run(base);
   }
 
   res.json({ ok: true });

@@ -45,7 +45,21 @@ function parseCsvToRows(csvText: string): ImportRow[] {
 }
 
 function parseSheetToRows(buffer: Buffer): ImportRow[] {
-  const wb = XLSX.read(buffer, { type: 'buffer' });
+  // xlsx is a zip; reject obvious corrupt/non-Excel bytes early for readable ZH errors
+  const isZip = buffer.length >= 4 && buffer[0] === 0x50 && buffer[1] === 0x4b;
+  const isOle = buffer.length >= 8 && buffer[0] === 0xd0 && buffer[1] === 0xcf;
+  if (!isZip && !isOle) {
+    throw new Error('corrupt_or_not_excel');
+  }
+  let wb: XLSX.WorkBook;
+  try {
+    wb = XLSX.read(buffer, { type: 'buffer' });
+  } catch {
+    throw new Error('corrupt_or_not_excel');
+  }
+  if (!wb.SheetNames?.length) {
+    throw new Error('corrupt_or_not_excel');
+  }
   const sheet = wb.Sheets[wb.SheetNames[0] ?? ''];
   if (!sheet) return [];
   const json = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: '' });
@@ -270,10 +284,13 @@ classesRouter.post(
         });
         return;
       }
-    } catch {
+    } catch (err) {
+      const corrupt = err instanceof Error && err.message === 'corrupt_or_not_excel';
       res.status(400).json({
-        error: 'parse_failed',
-        message: '文件解析失败：可能不是有效表格、文件损坏或列名无法识别（需要「姓名」列）',
+        error: corrupt ? 'corrupt_file' : 'parse_failed',
+        message: corrupt
+          ? 'Excel 文件损坏或不是有效的 .xlsx/.xls，请用 WPS/Excel 另存后再导入'
+          : '文件解析失败：可能不是有效表格、文件损坏或列名无法识别（需要「姓名」列）',
       });
       return;
     }

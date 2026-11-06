@@ -1,5 +1,5 @@
 {
-  "apiBase": "http://192.168.1.50:8787",
-  "classId": "",
-  "comment": "Teacher assigns classId before class (download from /admin or pack-classroom-config). apiBase = teacher PC LAN IP. Never use 127.0.0.1 on student PCs."
+  "apiBase": "http://192.168.31.179:8787",
+  "classId": "00d6b800-6628-4d20-a49c-9765325d9eef",
+  "comment": "Classroom-specific pack. Do not use 127.0.0.1 on student PCs."
 }

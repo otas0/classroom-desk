@@ -96,7 +96,7 @@ export async function ensureBootstrap(db: DatabaseSync): Promise<void> {
 
     db.prepare(
       `INSERT INTO classes (id, name, class_code, created_at) VALUES (?, ?, ?, ?)`,
-    ).run(classId, '默认班级', classCode, createdAt);
+    ).run(classId, '本教室', classCode, createdAt);
 
     db.prepare(
       `INSERT INTO users (id, role, display_name, username, password_hash, class_id, total_points, created_at)
