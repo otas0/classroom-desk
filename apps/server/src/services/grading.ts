@@ -11,7 +11,11 @@ export function gradeAnswer(input: {
   if (input.type === 'single' || input.type === 'bool') {
     const correct = input.options.find((o) => o.is_correct === 1);
     if (!correct) return false;
-    const chosen = typeof payload === 'string' ? payload : (payload as { optionId?: string })?.optionId;
+    const p = payload as { optionId?: string; optionIds?: string[] } | string | null;
+    const chosen =
+      typeof p === 'string'
+        ? p
+        : p?.optionId ?? (Array.isArray(p?.optionIds) ? p.optionIds[0] : undefined);
     return chosen === correct.id;
   }
 

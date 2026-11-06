@@ -117,6 +117,63 @@ questionsRouter.post(
   },
 );
 
+questionsRouter.patch(
+  '/api/v1/questions/:id',
+  requireAuth,
+  requireRoles('teacher', 'admin'),
+  (req: AuthedRequest, res) => {
+    const id = paramId(req.params.id);
+    const db = openDb();
+    const existing = db.prepare(`SELECT id, class_id FROM questions WHERE id = ?`).get(id) as
+      | { id: string; class_id: string }
+      | undefined;
+    if (!existing) {
+      res.status(404).json({ error: 'not_found' });
+      return;
+    }
+    const title = req.body?.title != null ? String(req.body.title).trim() : null;
+    const stem = req.body?.stem != null ? String(req.body.stem).trim() : null;
+    const type = req.body?.type != null ? String(req.body.type) : null;
+    if (type && !['single', 'multi', 'bool', 'blank'].includes(type)) {
+      res.status(400).json({ error: 'invalid_type' });
+      return;
+    }
+    withTransaction(db, () => {
+      if (title != null || stem != null || type != null || req.body?.answerKey !== undefined || req.body?.points != null || req.body?.published != null) {
+        const row = db.prepare(`SELECT * FROM questions WHERE id = ?`).get(id) as {
+          title: string;
+          stem: string;
+          type: string;
+          answer_key: string | null;
+          points: number;
+          published: number;
+        };
+        db.prepare(
+          `UPDATE questions SET title = ?, stem = ?, type = ?, answer_key = ?, points = ?, published = ? WHERE id = ?`,
+        ).run(
+          title ?? row.title,
+          stem ?? row.stem,
+          type ?? row.type,
+          req.body?.answerKey !== undefined ? (req.body.answerKey as string | null) : row.answer_key,
+          req.body?.points != null ? Number(req.body.points) : row.points,
+          req.body?.published === false ? 0 : req.body?.published === true ? 1 : row.published,
+          id,
+        );
+      }
+      if (Array.isArray(req.body?.options)) {
+        db.prepare(`DELETE FROM question_options WHERE question_id = ?`).run(id);
+        for (const opt of req.body.options) {
+          db.prepare(
+            `INSERT INTO question_options (id, question_id, label, content, is_correct)
+             VALUES (?, ?, ?, ?, ?)`,
+          ).run(newId(), id, String(opt.label ?? ''), String(opt.content ?? ''), opt.isCorrect ? 1 : 0);
+        }
+      }
+    });
+    res.json({ ok: true, id });
+  },
+);
+
 questionsRouter.post('/api/v1/questions/:id/answer', requireAuth, requireRoles('student'), (req: AuthedRequest, res) => {
   const db = openDb();
   const question = db.prepare(`SELECT * FROM questions WHERE id = ? AND published = 1`).get(paramId(req.params.id)) as
@@ -144,11 +201,12 @@ questionsRouter.post('/api/v1/questions/:id/answer', requireAuth, requireRoles('
     .prepare(`SELECT id, is_correct FROM question_options WHERE question_id = ?`)
     .all(question.id) as Array<{ id: string; is_correct: number }>;
 
+  const answerPayload = req.body?.answerPayload ?? req.body?.answer ?? null;
   const isCorrect = gradeAnswer({
     type: question.type,
     answerKey: question.answer_key,
     options,
-    answerPayload: req.body?.answer,
+    answerPayload,
   });
 
   const id = newId();
@@ -157,7 +215,7 @@ questionsRouter.post('/api/v1/questions/:id/answer', requireAuth, requireRoles('
     db.prepare(
       `INSERT INTO student_answers (id, question_id, student_id, answer_payload, is_correct, answered_at)
        VALUES (?, ?, ?, ?, ?, ?)`,
-    ).run(id, question.id, req.user!.id, JSON.stringify(req.body?.answer ?? null), isCorrect ? 1 : 0, answeredAt);
+    ).run(id, question.id, req.user!.id, JSON.stringify(answerPayload), isCorrect ? 1 : 0, answeredAt);
 
     const stats = db
       .prepare(

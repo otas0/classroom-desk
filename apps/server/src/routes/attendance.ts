@@ -176,31 +176,62 @@ attendanceRouter.get('/api/v1/attendance/records', requireAuth, (req: AuthedRequ
   res.json({ items: db.prepare(sql).all(...params) });
 });
 
-attendanceRouter.get('/api/v1/attendance/my-status', requireAuth, requireRoles('student'), (req: AuthedRequest, res) => {
-  const db = openDb();
-  const now = nowIso();
-  const session = db
+function dayBoundsLocal(): { start: string; end: string; dayKey: string } {
+  const start = new Date();
+  start.setHours(0, 0, 0, 0);
+  const end = new Date();
+  end.setHours(23, 59, 59, 999);
+  const dayKey = `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, '0')}-${String(start.getDate()).padStart(2, '0')}`;
+  return { start: start.toISOString(), end: end.toISOString(), dayKey };
+}
+
+function ensureTodayOpenSession(db: ReturnType<typeof openDb>, classId: string): string {
+  const { start, end, dayKey } = dayBoundsLocal();
+  const existing = db
     .prepare(
-      `SELECT id, mode, start_at AS startAt, end_at AS endAt, late_after_minutes AS lateAfterMinutes, status
-       FROM attendance_sessions
+      `SELECT id FROM attendance_sessions
        WHERE class_id = ? AND status = 'open' AND start_at <= ? AND end_at >= ?
        ORDER BY start_at DESC LIMIT 1`,
     )
-    .get(req.user!.classId, now, now) as
-    | {
-        id: string;
-        mode: string;
-        startAt: string;
-        endAt: string;
-        lateAfterMinutes: number;
-        status: string;
-      }
-    | undefined;
+    .get(classId, end, start) as { id: string } | undefined;
+  if (existing) return existing.id;
 
-  if (!session) {
+  const teacher = db
+    .prepare(`SELECT id FROM users WHERE role IN ('teacher','admin') ORDER BY created_at LIMIT 1`)
+    .get() as { id: string } | undefined;
+  const createdBy = teacher?.id ?? 'system';
+  const id = newId();
+  const createdAt = nowIso();
+  db.prepare(
+    `INSERT INTO attendance_sessions
+      (id, class_id, mode, start_at, end_at, late_after_minutes, created_by, status, created_at)
+     VALUES (?, ?, 'manual', ?, ?, 15, ?, 'open', ?)`,
+  ).run(id, classId, start, end, createdBy, createdAt);
+  // tag remark via unused field not available — dayKey only for logs
+  void dayKey;
+  return id;
+}
+
+attendanceRouter.get('/api/v1/attendance/my-status', requireAuth, requireRoles('student'), (req: AuthedRequest, res) => {
+  const db = openDb();
+  if (!req.user?.classId) {
     res.json({ session: null, status: 'none' });
     return;
   }
+  const sessionId = ensureTodayOpenSession(db, req.user.classId);
+  const session = db
+    .prepare(
+      `SELECT id, mode, start_at AS startAt, end_at AS endAt, late_after_minutes AS lateAfterMinutes, status
+       FROM attendance_sessions WHERE id = ?`,
+    )
+    .get(sessionId) as {
+    id: string;
+    mode: string;
+    startAt: string;
+    endAt: string;
+    lateAfterMinutes: number;
+    status: string;
+  };
 
   const record = db
     .prepare(
@@ -213,14 +244,109 @@ attendanceRouter.get('/api/v1/attendance/my-status', requireAuth, requireRoles('
     return;
   }
 
-  if (new Date(session.endAt).getTime() < Date.now()) {
-    res.json({ session, status: 'ended' });
-    return;
-  }
-
   res.json({ session, status: 'absent' });
 });
 
+/** One-tap student check-in for today's class session (auto-opens day session). */
+attendanceRouter.post('/api/v1/attendance/check-in', requireAuth, requireRoles('student'), (req: AuthedRequest, res) => {
+  if (!req.user?.classId) {
+    res.status(400).json({ error: 'no_class' });
+    return;
+  }
+  const db = openDb();
+  const sessionId = ensureTodayOpenSession(db, req.user.classId);
+  const session = db.prepare(`SELECT * FROM attendance_sessions WHERE id = ?`).get(sessionId) as {
+    id: string;
+    start_at: string;
+    late_after_minutes: number;
+    status: string;
+  };
+  if (session.status !== 'open') {
+    res.status(400).json({ error: 'session_closed' });
+    return;
+  }
+  const now = Date.now();
+  const start = new Date(session.start_at).getTime();
+  const lateMs = session.late_after_minutes * 60_000;
+  const status = now > start + lateMs ? 'late' : 'present';
+  const checkedAt = nowIso();
+  const id = newId();
+  try {
+    db.prepare(
+      `INSERT INTO attendance_records
+        (id, session_id, student_id, status, checked_at, source, remark, updated_by, updated_at)
+       VALUES (?, ?, ?, ?, ?, 'manual', '', NULL, NULL)`,
+    ).run(id, session.id, req.user.id, status, checkedAt);
+  } catch {
+    res.status(409).json({ error: 'already_checked_in' });
+    return;
+  }
+  res.status(201).json({ id, status, checkedAt, sessionId: session.id });
+});
+
+attendanceRouter.get(
+  '/api/v1/attendance/stats',
+  requireAuth,
+  requireRoles('teacher', 'admin', 'student'),
+  (req: AuthedRequest, res) => {
+    const classId = String(req.query.classId ?? req.user?.classId ?? '');
+    const month = String(req.query.month ?? `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`);
+    if (!classId || !/^\d{4}-\d{2}$/.test(month)) {
+      res.status(400).json({ error: 'class_id_and_month_required' });
+      return;
+    }
+    if (req.user?.role === 'student' && req.user.classId !== classId) {
+      res.status(403).json({ error: 'forbidden' });
+      return;
+    }
+    const start = `${month}-01T00:00:00.000Z`;
+    const [y, m] = month.split('-').map(Number);
+    const end = new Date(Date.UTC(y, m, 1)).toISOString();
+    const db = openDb();
+    const students = db
+      .prepare(
+        `SELECT id, display_name AS displayName, student_no AS studentNo
+         FROM users WHERE role = 'student' AND class_id = ?`,
+      )
+      .all(classId) as Array<{ id: string; displayName: string; studentNo: string | null }>;
+    const sessionCount = (
+      db
+        .prepare(
+          `SELECT COUNT(*) AS c FROM attendance_sessions
+           WHERE class_id = ? AND start_at >= ? AND start_at < ?`,
+        )
+        .get(classId, start, end) as { c: number }
+    ).c;
+    const byStudent = students.map((s) => {
+      const row = db
+        .prepare(
+          `SELECT COUNT(*) AS c FROM attendance_records r
+           JOIN attendance_sessions sess ON sess.id = r.session_id
+           WHERE r.student_id = ? AND sess.class_id = ? AND sess.start_at >= ? AND sess.start_at < ?
+             AND r.status IN ('present','late')`,
+        )
+        .get(s.id, classId, start, end) as { c: number };
+      const count = Number(row.c);
+      const rate = sessionCount > 0 ? Number((count / sessionCount).toFixed(4)) : 0;
+      return { ...s, presentCount: count, sessionCount, attendanceRate: rate };
+    });
+    if (req.user?.role === 'student') {
+      res.json({ month, classId, sessionCount, items: byStudent.filter((s) => s.id === req.user!.id) });
+      return;
+    }
+    const classPresent = byStudent.reduce((a, s) => a + s.presentCount, 0);
+    const classPossible = sessionCount * students.length;
+    res.json({
+      month,
+      classId,
+      sessionCount,
+      studentCount: students.length,
+      classPresentCount: classPresent,
+      classAttendanceRate: classPossible > 0 ? Number((classPresent / classPossible).toFixed(4)) : 0,
+      items: byStudent.sort((a, b) => String(a.studentNo ?? '').localeCompare(String(b.studentNo ?? ''))),
+    });
+  },
+);
 attendanceRouter.get(
   '/api/v1/attendance/schedules',
   requireAuth,

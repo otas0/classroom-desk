@@ -3,7 +3,7 @@ import { APP_NAME } from '@classroom-desk/shared';
 import { API_BASE, api, getToken, setToken } from './api';
 
 type ClassItem = { id: string; name: string; classCode: string };
-type Tab = 'roster' | 'questions' | 'requests' | 'messages' | 'assign' | 'settings';
+type Tab = 'roster' | 'questions' | 'requests' | 'attendance' | 'exports' | 'messages' | 'assign' | 'settings';
 
 export function App() {
   const [tokenReady, setTokenReady] = useState(Boolean(getToken()));
@@ -78,6 +78,8 @@ export function App() {
             ['roster', '花名册导入'],
             ['questions', '发题/正确率'],
             ['requests', '加分审核'],
+            ['attendance', '签到统计'],
+            ['exports', '导出'],
             ['messages', '留言'],
             ['assign', '指派学生机'],
             ['settings', '设置'],
@@ -107,6 +109,8 @@ export function App() {
         {tab === 'roster' && <RosterPanel classId={classId} classes={classes} onClasses={loadClasses} />}
         {tab === 'questions' && <QuestionsPanel classId={classId} />}
         {tab === 'requests' && <RequestsPanel classId={classId} />}
+        {tab === 'attendance' && <AttendancePanel classId={classId} />}
+        {tab === 'exports' && <ExportsPanel classId={classId} />}
         {tab === 'messages' && <MessagesPanel classId={classId} />}
         {tab === 'assign' && <AssignPanel classId={classId} classes={classes} />}
         {tab === 'settings' && <SettingsPanel />}
@@ -128,12 +132,26 @@ function RosterPanel({
   const [csv, setCsv] = useState('姓名,学号\n张三,2026001\n李四,2026002');
   const [students, setStudents] = useState<Array<Record<string, unknown>>>([]);
   const [importResult, setImportResult] = useState('');
+  const [search, setSearch] = useState('');
 
   async function loadStudents() {
     if (!classId) return;
     const r = await api<{ items: Array<Record<string, unknown>> }>(`/api/v1/classes/${classId}/students`);
     setStudents(r.items);
   }
+
+  const filteredStudents = [...students]
+    .sort((a, b) => String(a.studentNo ?? '').localeCompare(String(b.studentNo ?? ''), 'zh'))
+    .filter((s) => {
+      const key = search.trim().toLowerCase();
+      if (!key) return true;
+      return (
+        String(s.displayName).toLowerCase().includes(key) ||
+        String(s.studentNo ?? '')
+          .toLowerCase()
+          .includes(key)
+      );
+    });
 
   useEffect(() => {
     void loadStudents().catch(() => setStudents([]));
@@ -214,20 +232,21 @@ function RosterPanel({
       </button>
       {importResult ? <p className="hint">{importResult}</p> : null}
 
-      <h3>当前班名单（{classes.find((c) => c.id === classId)?.name ?? ''}）</h3>
+      <h3>当前班名单（{classes.find((c) => c.id === classId)?.name ?? ''}）· 按学号排序</h3>
+      <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="搜索姓名/学号" />
       <table className="data-table">
         <thead>
           <tr>
-            <th>姓名</th>
             <th>学号</th>
+            <th>姓名</th>
             <th>积分</th>
           </tr>
         </thead>
         <tbody>
-          {students.map((s) => (
+          {filteredStudents.map((s) => (
             <tr key={String(s.id)}>
-              <td>{String(s.displayName)}</td>
               <td>{String(s.studentNo ?? '—')}</td>
+              <td>{String(s.displayName)}</td>
               <td>{String(s.totalPoints)}</td>
             </tr>
           ))}
@@ -346,10 +365,48 @@ function QuestionsPanel({ classId }: { classId: string }) {
             [{String(q.type)}] {String(q.title)}{' '}
             <button type="button" onClick={() => void showStats(String(q.id), String(q.title))}>
               正确率/错误率
+            </button>{' '}
+            <button
+              type="button"
+              onClick={() => {
+                setTitle(String(q.title));
+                setStem(String(q.stem ?? ''));
+                setType(String(q.type) as typeof type);
+                void api(`/api/v1/questions/${String(q.id)}`, {
+                  method: 'PATCH',
+                  body: JSON.stringify({
+                    title: String(q.title),
+                    stem: String(q.stem ?? ''),
+                    type: String(q.type),
+                    published: true,
+                    options:
+                      String(q.type) === 'bool'
+                        ? [
+                            { label: 'A', content: '正确', isCorrect: true },
+                            { label: 'B', content: '错误', isCorrect: false },
+                          ]
+                        : String(q.type) === 'blank'
+                          ? []
+                          : [
+                              { label: 'A', content: '正确选项', isCorrect: true },
+                              { label: 'B', content: '错误选项', isCorrect: false },
+                            ],
+                  }),
+                }).then(() => {
+                  setTitle('');
+                  setStem('');
+                  return load();
+                });
+              }}
+            >
+              重发默认选项
             </button>
           </li>
         ))}
       </ul>
+      <h3>编辑当前表单并覆盖题目</h3>
+      <p className="hint">填写标题/题干后，输入题目 ID 保存（从上方列表复制）。</p>
+      <QuestionEditForm classId={classId} onSaved={load} />
       {chart ? (
         <div className="chart">
           <h3>{chart.title}</h3>
@@ -378,6 +435,198 @@ function QuestionsPanel({ classId }: { classId: string }) {
           })}
         </div>
       ) : null}
+    </section>
+  );
+}
+
+function QuestionEditForm({ classId, onSaved }: { classId: string; onSaved: () => Promise<void> }) {
+  const [qid, setQid] = useState('');
+  const [title, setTitle] = useState('');
+  const [stem, setStem] = useState('');
+  const [optA, setOptA] = useState('正确选项');
+  const [optB, setOptB] = useState('错误选项');
+  const [msg, setMsg] = useState('');
+
+  return (
+    <div className="card">
+      <input value={qid} onChange={(e) => setQid(e.target.value)} placeholder="题目 ID" />
+      <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="新标题" />
+      <textarea value={stem} onChange={(e) => setStem(e.target.value)} placeholder="新题干" />
+      <input value={optA} onChange={(e) => setOptA(e.target.value)} placeholder="选项 A（正确）" />
+      <input value={optB} onChange={(e) => setOptB(e.target.value)} placeholder="选项 B" />
+      <button
+        type="button"
+        onClick={() =>
+          void api(`/api/v1/questions/${qid}`, {
+            method: 'PATCH',
+            body: JSON.stringify({
+              title,
+              stem,
+              type: 'single',
+              options: [
+                { label: 'A', content: optA, isCorrect: true },
+                { label: 'B', content: optB, isCorrect: false },
+              ],
+            }),
+          })
+            .then(() => {
+              setMsg('已保存');
+              return onSaved();
+            })
+            .catch((e) => setMsg(e instanceof Error ? e.message : '失败'))
+        }
+      >
+        保存编辑
+      </button>
+      {msg ? <p className="hint">{msg}</p> : null}
+      <p className="hint">班级 {classId}</p>
+    </div>
+  );
+}
+
+function AttendancePanel({ classId }: { classId: string }) {
+  const [month, setMonth] = useState(
+    `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`,
+  );
+  const [stats, setStats] = useState<{
+    sessionCount: number;
+    classAttendanceRate: number;
+    items: Array<{ displayName: string; studentNo: string | null; presentCount: number; attendanceRate: number }>;
+  } | null>(null);
+
+  async function load() {
+    const r = await api<{
+      sessionCount: number;
+      classAttendanceRate: number;
+      items: Array<{ displayName: string; studentNo: string | null; presentCount: number; attendanceRate: number }>;
+    }>(`/api/v1/attendance/stats?classId=${classId}&month=${month}`);
+    setStats(r);
+  }
+
+  useEffect(() => {
+    void load().catch(() => setStats(null));
+  }, [classId, month]);
+
+  return (
+    <section>
+      <h2>签到统计（月）</h2>
+      <p className="hint">学生端点「签到」写入今日场次；此处看班级/个人本月出勤次数与出勤率。</p>
+      <input value={month} onChange={(e) => setMonth(e.target.value)} placeholder="YYYY-MM" />
+      <button type="button" onClick={() => void load()}>
+        刷新
+      </button>
+      {stats ? (
+        <>
+          <p>
+            本月场次 {stats.sessionCount} · 班级出勤率 {(stats.classAttendanceRate * 100).toFixed(1)}%
+          </p>
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>学号</th>
+                <th>姓名</th>
+                <th>出勤次数</th>
+                <th>出勤率</th>
+              </tr>
+            </thead>
+            <tbody>
+              {stats.items.map((s) => (
+                <tr key={s.displayName + String(s.studentNo)}>
+                  <td>{s.studentNo ?? '—'}</td>
+                  <td>{s.displayName}</td>
+                  <td>{s.presentCount}</td>
+                  <td>{(s.attendanceRate * 100).toFixed(1)}%</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </>
+      ) : null}
+    </section>
+  );
+}
+
+function ExportsPanel({ classId }: { classId: string }) {
+  const [month, setMonth] = useState(
+    `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`,
+  );
+  const [format, setFormat] = useState<'csv' | 'xlsx' | 'json' | 'tsv'>('csv');
+
+  async function download(path: string, filename: string) {
+    const token = getToken();
+    const res = await fetch(`${API_BASE}${path}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    });
+    if (!res.ok) throw new Error('export_failed');
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  const ext = format;
+  return (
+    <section>
+      <h2>导出（多格式）</h2>
+      <label>
+        月份
+        <input value={month} onChange={(e) => setMonth(e.target.value)} />
+      </label>
+      <label>
+        格式
+        <select value={format} onChange={(e) => setFormat(e.target.value as typeof format)}>
+          <option value="csv">CSV</option>
+          <option value="xlsx">Excel (.xlsx)</option>
+          <option value="json">JSON</option>
+          <option value="tsv">TSV</option>
+        </select>
+      </label>
+      <div className="row">
+        <button
+          type="button"
+          onClick={() =>
+            void download(
+              `/api/v1/exports/attendance?month=${month}&classId=${classId}&format=${format}`,
+              `attendance-${month}.${ext}`,
+            )
+          }
+        >
+          签到明细
+        </button>
+        <button
+          type="button"
+          onClick={() =>
+            void download(
+              `/api/v1/exports/attendance-summary?month=${month}&classId=${classId}&format=${format}`,
+              `attendance-summary-${month}.${ext}`,
+            )
+          }
+        >
+          月出勤汇总
+        </button>
+        <button
+          type="button"
+          onClick={() =>
+            void download(`/api/v1/exports/points?month=${month}&format=${format}`, `points-${month}.${ext}`)
+          }
+        >
+          加分
+        </button>
+        <button
+          type="button"
+          onClick={() =>
+            void download(
+              `/api/v1/exports/questions?classId=${classId}&format=${format}`,
+              `questions.${ext}`,
+            )
+          }
+        >
+          题目正确率
+        </button>
+      </div>
     </section>
   );
 }
