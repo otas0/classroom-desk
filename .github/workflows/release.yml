@@ -1,0 +1,40 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  windows-setup:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install
+        run: npm install
+      - name: Build Windows NSIS
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+        run: npm run dist:win --workspace=@classroom-desk/student-desktop
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: apps/student-desktop/release/ClassroomDesk-Setup-*.exe
+          generate_release_notes: true
+          body: |
+            ## 安装说明
+            教师机 / 学生机从 GitHub 安装步骤见仓库文档：
+            [docs/SETUP_FROM_GITHUB.md](https://github.com/otas0/classroom-desk/blob/main/docs/SETUP_FROM_GITHUB.md)
+
+            学生机下载本页 `ClassroomDesk-Setup-*.exe`，再按教师下发的 `config.json`（apiBase + classId）配置。
+            未签名包：SmartScreen → 更多信息 → 仍要运行。
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

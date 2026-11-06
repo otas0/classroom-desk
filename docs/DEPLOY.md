@@ -1,5 +1,7 @@
 # Production checklist
 
+**教室从 GitHub 安装（教师机 + 学生机 · 无优盘）：** [SETUP_FROM_GITHUB.md](./SETUP_FROM_GITHUB.md)
+
 ## Secrets & bootstrap
 
 1. Set a strong `JWT_SECRET` (≥32 random bytes); rotate by redeploying with a new value (invalidates all sessions).

@@ -2,9 +2,23 @@
 
 学校课堂答题（正确率/错误率）、花名册积分请求、留言工具。学生端 Electron 小窗；教师端 Web；教师机跑 Express + SQLite。无班级码进入：上课前教师把班级 `classId` 指派到每台学生机，学生在花名册点自己的名字。
 
+## 从 GitHub 安装（推荐 · 无优盘）
+
+仓库即安装源。教师机 `git clone` 后跑服务；学生机下载 **Releases** 里的 `ClassroomDesk-Setup-*.exe`，再写入教师下发的 `config.json`。
+
+**完整步骤（固定 IP / 防火墙 / 自启 / 花名册 / 验收）：**  
+→ **[docs/SETUP_FROM_GITHUB.md](docs/SETUP_FROM_GITHUB.md)**
+
+| 角色 | 怎么装 |
+|---|---|
+| 教师机 | `git clone https://github.com/otas0/classroom-desk.git` → `npm install` → `build:teacher` → Windows 脚本固定 IP → `npm run start:server` → 浏览器 `/admin/` |
+| 学生机 | [Releases](https://github.com/otas0/classroom-desk/releases) 下 exe（或 Actions 产物）→ 配置 `apiBase`+`classId` → 浏览器先开 `/ready` |
+| 发版 | 打标签 `git tag v0.1.0 && git push origin v0.1.0`，Actions `Release` 会把 exe 挂到 Release 页 |
+
 - 需求：[docs/REQUIREMENTS.md](docs/REQUIREMENTS.md)
 - API：[docs/API.md](docs/API.md)
 - 合规：[docs/SECURITY.md](docs/SECURITY.md)
+- 讲台卡：[docs/PRINT_DESK_CARD.md](docs/PRINT_DESK_CARD.md)
 
 ## 当前进度
 
