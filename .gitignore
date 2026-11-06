@@ -25,3 +25,4 @@ releases/**
 !releases/README.md
 apps/student-desktop/resources/config.local.json
 docs/CLASSROOM_IDENTITY.md
+data/
