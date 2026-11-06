@@ -1,0 +1,90 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+jobs:
+  server:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install
+        run: npm install
+      - name: Typecheck server
+        run: npm run typecheck --workspace=@classroom-desk/server
+      - name: Test server
+        run: npm run test:server
+      - name: Health smoke
+        run: |
+          JWT_SECRET=ci-secret-not-for-prod \
+          ADMIN_PASSWORD=AdminPass123 \
+          TEACHER_PASSWORD=TeacherPass123 \
+          DEFAULT_CLASS_CODE=DEMO01 \
+          npm run start --workspace=@classroom-desk/server &
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8787/health | grep -q '"ok":true'; then
+              echo "health ok"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "health check failed"
+          exit 1
+
+  e2e:
+    runs-on: ubuntu-latest
+    needs: server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install
+        run: npm install
+      - name: Install Playwright
+        run: npx playwright install --with-deps chromium
+      - name: Start API + teacher web
+        run: |
+          JWT_SECRET=ci-secret-not-for-prod \
+          ADMIN_PASSWORD=AdminPass123 \
+          TEACHER_PASSWORD=TeacherPass123 \
+          DEFAULT_CLASS_CODE=DEMO01 \
+          npm run start --workspace=@classroom-desk/server &
+          npm run dev:teacher &
+          for i in $(seq 1 40); do
+            curl -fsS http://127.0.0.1:8787/health >/dev/null && \
+            curl -fsS http://127.0.0.1:5174/ >/dev/null && break
+            sleep 1
+          done
+      - name: Playwright e2e
+        run: npx playwright test
+        env:
+          API_BASE: http://127.0.0.1:8787
+          TEACHER_WEB: http://localhost:5174
+
+  windows-pack:
+    runs-on: windows-latest
+    if: github.event_name == 'push'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install
+        run: npm install
+      - name: Build Windows NSIS
+        run: npm run dist:win --workspace=@classroom-desk/student-desktop
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: classroom-desk-windows-setup
+          path: apps/student-desktop/release/*.exe
+          if-no-files-found: warn

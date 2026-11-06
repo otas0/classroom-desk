@@ -1,0 +1,33 @@
+{
+  "name": "classroom-desk",
+  "private": true,
+  "version": "0.1.0",
+  "description": "School classroom homework, attendance, and points toolkit",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "postinstall": "node scripts/fix-electron-macos.js",
+    "dev:student": "npm run dev --workspace=@classroom-desk/student-desktop",
+    "build:student": "npm run build --workspace=@classroom-desk/student-desktop",
+    "build:teacher": "npm run build --workspace=@classroom-desk/teacher-web",
+    "build:web": "npm run build:teacher",
+    "dev:server": "npm run dev --workspace=@classroom-desk/server",
+    "dev:teacher": "npm run dev --workspace=@classroom-desk/teacher-web",
+    "start:server": "npm run start --workspace=@classroom-desk/server",
+    "test:server": "npm run test --workspace=@classroom-desk/server",
+    "test:e2e": "playwright test",
+    "dist:win": "npm run dist:win --workspace=@classroom-desk/student-desktop",
+    "typecheck:server": "npm run typecheck --workspace=@classroom-desk/server",
+    "backup:db": "bash scripts/backup-db.sh"
+  },
+  "type": "module",
+  "engines": {
+    "node": ">=22.5"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.65.0",
+    "playwright": "^1.65.0"
+  }
+}

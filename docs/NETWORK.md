@@ -1,0 +1,56 @@
+# 教室路由器 / 防火墙端口放行说明
+
+Classroom Desk 为校内中心服务部署：教师机或教室服务器跑 API，学生端小窗通过局域网访问。
+
+## 需要放行的端口
+
+| 端口 | 协议 | 方向 | 用途 |
+|---|---|---|---|
+| **8787** | TCP | 学生机 → 服务器 | Express API、`/uploads` 附件、生产态教师后台 `/admin` |
+| 5174 | TCP | 本机 | **仅开发**教师 Vite；生产请用 `npm run build:teacher` 后由 8787 托管 |
+
+Windows 服务器示例（管理员 PowerShell）：
+
+```powershell
+New-NetFirewallRule -DisplayName "Classroom Desk API" -Direction Inbound -Protocol TCP -LocalPort 8787 -Action Allow
+```
+
+## 学生端服务器地址（apiBase）
+
+安装包内嵌 `resources/config.json`：
+
+```json
+{ "apiBase": "http://192.168.1.50:8787" }
+```
+
+首次运行会复制到用户目录。管理员可在学生端「我的」输入管理密码后修改并保存。
+
+## 健康检查
+
+```bash
+curl http://192.168.1.50:8787/health
+# 关注 backup.latestAt / backup.ageHours、db.ok
+```
+
+教师后台（生产）：`http://192.168.1.50:8787/admin/`
+
+## AP 隔离（Client Isolation）排查
+
+症状：学生机能上网，但打不开 `http://教室服务器IP:8787/health`，教师机正常。
+
+| 步骤 | 操作 |
+|---|---|
+| 1 | 在学生机 `ping 教室服务器IP`；若不通，优先怀疑二层隔离 |
+| 2 | 登录 AP / 路由器管理页，关闭 **AP Isolation / Client Isolation / 无线隔离 / 访客网络隔离** |
+| 3 | 确认学生与服务器在同一 VLAN / 同一 SSID（避免「访客 Wi‑Fi」只能出网） |
+| 4 | 若使用多个 AP，检查是否开启了漫游隔离或 ACL 禁止无线→有线 |
+| 5 | Windows 服务器确认防火墙已放行 8787 入站 |
+| 6 | 临时用网线接入学生机再测；有线通、无线不通 → 几乎可断定无线隔离 |
+| 7 | 仍失败时抓学生机 `tracert` / 路由器客户端列表，确认 IP/网关是否被隔离网段改写 |
+
+家用路由器常见菜单位置（名称因品牌而异）：无线设置 → 高级 → **AP 隔离**；或访客网络 → **允许访问局域网**（需开启）。
+
+## 不建议
+
+- 把 8787 映射到公网
+- 依赖开发端口 5174 做教室部署
