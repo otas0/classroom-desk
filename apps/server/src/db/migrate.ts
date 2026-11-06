@@ -7,8 +7,9 @@ import { openDb, withTransaction } from './client.js';
 const DEFAULT_SETTINGS: Record<string, string> = {
   point_request_ttl_minutes: '60',
   point_request_daily_cleanup_time: '02:00',
-  notice_text: '本工具由学校部署，用于作业、留言和错题统计。',
+  notice_text: '本工具由学校部署，用于答题、积分与留言。',
   attendance_notice_text: '签到仅记录本工具内的登录和在线状态。',
+  messages_enabled: '1',
   server_bind: '0.0.0.0',
   schema_version: '1',
 };

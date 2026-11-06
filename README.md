@@ -1,6 +1,6 @@
 # Classroom Desk
 
-学校课堂作业、签到、留言、错题与积分管理工具。学生端为 Electron 右下角小窗；教师端为 Web 管理后台；数据由校内 Express + SQLite 中心服务持久化。
+学校课堂答题（正确率/错误率）、花名册积分请求、留言工具。学生端 Electron 小窗；教师端 Web；教师机跑 Express + SQLite。无班级码进入：上课前教师把班级 `classId` 指派到每台学生机，学生在花名册点自己的名字。
 
 - 需求：[docs/REQUIREMENTS.md](docs/REQUIREMENTS.md)
 - API：[docs/API.md](docs/API.md)
@@ -85,19 +85,15 @@ npm run dist:win
 
 **代码签名**：仓库 Secrets 配置 `CSC_LINK`（.pfx 路径或 base64）与 `CSC_KEY_PASSWORD`；CI 有密钥则签名，无密钥则未签名包。时间戳：DigiCert RFC3161。Artifact：`classroom-desk-windows-setup` → `apps/student-desktop/release/*.exe`。生产清单见 [docs/DEPLOY.md](docs/DEPLOY.md)。
 
-### 未签名包 SmartScreen 教师话术（一页纸）
+### 未签名包 SmartScreen
 
-Windows 可能提示「Windows 已保护你的电脑 / 未知发布者」。教室机可按此处理：
-
-1. 说明：安装包由**本校 IT / 任课教师**从 GitHub Actions 或校内网盘分发，**不是**来自陌生网站。
-2. 若出现蓝屏式 SmartScreen：点 **更多信息** → **仍要运行**（仅对本校提供的 `ClassroomDesk-Setup-*.exe`）。
-3. 若被 Defender 隔离：打开「病毒和威胁防护」→ 保护历史记录 → 还原该安装包，或临时允许路径后再装。
-4. 安装结束后按提示设置 **教室服务器地址（apiBase）**，例如 `http://192.168.1.50:8787`，再验证：登录 → 交作业 → 教师审核加分。
-5. 长期方案：学校申请代码签名证书，把 `CSC_LINK` / `CSC_KEY_PASSWORD` 写入仓库 Secrets，重打签名包后 SmartScreen 会明显减少。
+可打印一页纸（含 SHA256 填写栏）：[docs/SMARTSCREEN.md](docs/SMARTSCREEN.md)。  
+网盘 `unsigned/` 与 `signed/` 并行留档：[docs/NAS_RELEASES.md](docs/NAS_RELEASES.md)。
 
 **卸载（合规）**：学生端无卸载按钮。管理员密码可打开系统「应用和功能」正常卸载；无防卸载。
 
-网络端口与 AP 隔离排查见 [docs/NETWORK.md](docs/NETWORK.md)（含与教师后台「一键检测 /health」的交叉步骤）。
+**无证书教室互联（教师机跑服务 + 学生机连教师机 IP）：** [docs/CLASSROOM_TEACHER_HOST.md](docs/CLASSROOM_TEACHER_HOST.md)。  
+网络 / AP 隔离排查：[docs/NETWORK.md](docs/NETWORK.md)。
 
 ### 教师后台生产托管
 

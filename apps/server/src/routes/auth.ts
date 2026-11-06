@@ -10,7 +10,6 @@ import {
   verifyPassword,
 } from '../services/auth.js';
 import { requireAuth, type AuthedRequest } from '../middleware/auth.js';
-import { newId, nowIso } from '../utils/id.js';
 import { config } from '../config.js';
 
 export const authRouter = Router();
@@ -40,18 +39,20 @@ authRouter.post('/api/v1/auth/login', async (req, res) => {
   res.json({ token, user: authUser });
 });
 
-authRouter.post('/api/v1/auth/student-join', async (req, res) => {
-  const classCode = String(req.body?.classCode ?? '')
-    .trim()
-    .toUpperCase();
-  const displayName = String(req.body?.displayName ?? '').trim();
-  if (!classCode || !displayName) {
-    res.status(400).json({ error: 'class_code_and_name_required' });
+/**
+ * Student identity: pick a roster row for the class assigned to this machine (classId in config).
+ * Does not create users — roster must be imported by teacher first.
+ */
+authRouter.post('/api/v1/auth/student-select', async (req, res) => {
+  const classId = String(req.body?.classId ?? '').trim();
+  const studentId = String(req.body?.studentId ?? '').trim();
+  if (!classId || !studentId) {
+    res.status(400).json({ error: 'class_id_and_student_id_required' });
     return;
   }
 
   const db = openDb();
-  const klass = db.prepare(`SELECT * FROM classes WHERE class_code = ?`).get(classCode) as
+  const klass = db.prepare(`SELECT id, name, class_code FROM classes WHERE id = ?`).get(classId) as
     | { id: string; name: string; class_code: string }
     | undefined;
   if (!klass) {
@@ -59,11 +60,11 @@ authRouter.post('/api/v1/auth/student-join', async (req, res) => {
     return;
   }
 
-  const existing = db
+  const user = db
     .prepare(
-      `SELECT * FROM users WHERE role = 'student' AND class_id = ? AND display_name = ? COLLATE NOCASE`,
+      `SELECT * FROM users WHERE id = ? AND role = 'student' AND class_id = ?`,
     )
-    .get(klass.id, displayName) as
+    .get(studentId, classId) as
     | {
         id: string;
         role: 'student';
@@ -76,19 +77,8 @@ authRouter.post('/api/v1/auth/student-join', async (req, res) => {
       }
     | undefined;
 
-  let user = existing;
   if (!user) {
-    const id = newId();
-    const createdAt = nowIso();
-    db.prepare(
-      `INSERT INTO users (id, role, display_name, username, password_hash, class_id, total_points, created_at)
-       VALUES (?, 'student', ?, NULL, NULL, ?, 0, ?)`,
-    ).run(id, displayName, klass.id, createdAt);
-    user = db.prepare(`SELECT * FROM users WHERE id = ?`).get(id) as typeof user;
-  }
-
-  if (!user) {
-    res.status(500).json({ error: 'join_failed' });
+    res.status(404).json({ error: 'student_not_in_class' });
     return;
   }
 

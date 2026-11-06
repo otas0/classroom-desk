@@ -1,10 +1,15 @@
 import { Router } from 'express';
 import { openDb } from '../db/client.js';
+import { getSetting } from '../db/migrate.js';
 import { requireAuth, requireRoles, type AuthedRequest } from '../middleware/auth.js';
 import { newId, nowIso } from '../utils/id.js';
 import { paramId } from '../utils/params.js';
 
 export const messagesRouter = Router();
+
+function messagesEnabled(): boolean {
+  return (getSetting(openDb(), 'messages_enabled') ?? '1') !== '0';
+}
 
 messagesRouter.get('/api/v1/messages', requireAuth, (req: AuthedRequest, res) => {
   const db = openDb();
@@ -45,6 +50,10 @@ messagesRouter.get('/api/v1/messages', requireAuth, (req: AuthedRequest, res) =>
 });
 
 messagesRouter.post('/api/v1/messages', requireAuth, requireRoles('student'), (req: AuthedRequest, res) => {
+  if (!messagesEnabled()) {
+    res.status(403).json({ error: 'messages_disabled' });
+    return;
+  }
   const body = String(req.body?.body ?? '').trim();
   if (!body || !req.user?.classId) {
     res.status(400).json({ error: 'invalid_message' });

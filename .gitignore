@@ -19,3 +19,4 @@ apps/teacher-web/dist/
 apps/student-desktop/dist/
 apps/student-desktop/dist-electron/
 apps/student-desktop/release/
+artifacts/

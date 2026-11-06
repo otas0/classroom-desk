@@ -4,14 +4,16 @@ import { app } from 'electron';
 
 export type AppConfig = {
   apiBase: string;
+  /** Class assigned to this student machine by teacher before class. */
+  classId: string;
 };
 
 const DEFAULT: AppConfig = {
   apiBase: 'http://127.0.0.1:8787',
+  classId: '',
 };
 
 function resourceConfigPath(): string {
-  // Packaged: <resources>/config.json ; Dev: apps/student-desktop/resources/config.json
   if (app.isPackaged) {
     return path.join(process.resourcesPath, 'config.json');
   }
@@ -32,14 +34,11 @@ function readJson(filePath: string): Partial<AppConfig> | null {
 }
 
 export function loadConfig(): AppConfig {
-  const user = readJson(userConfigPath());
-  if (user?.apiBase) {
-    return { apiBase: String(user.apiBase).replace(/\/$/, '') };
-  }
-
   const bundled = readJson(resourceConfigPath());
+  const user = readJson(userConfigPath());
   const merged: AppConfig = {
-    apiBase: String(bundled?.apiBase ?? DEFAULT.apiBase).replace(/\/$/, ''),
+    apiBase: String(user?.apiBase ?? bundled?.apiBase ?? DEFAULT.apiBase).replace(/\/$/, ''),
+    classId: String(user?.classId ?? bundled?.classId ?? DEFAULT.classId).trim(),
   };
 
   try {
@@ -48,7 +47,7 @@ export function loadConfig(): AppConfig {
       fs.writeFileSync(userConfigPath(), JSON.stringify(merged, null, 2), 'utf8');
     }
   } catch {
-    // ignore write failures in restricted environments
+    // ignore
   }
 
   return merged;
@@ -58,6 +57,7 @@ export function saveConfig(patch: Partial<AppConfig>): AppConfig {
   const current = loadConfig();
   const next: AppConfig = {
     apiBase: String(patch.apiBase ?? current.apiBase).replace(/\/$/, ''),
+    classId: String(patch.classId ?? current.classId).trim(),
   };
   fs.mkdirSync(path.dirname(userConfigPath()), { recursive: true });
   fs.writeFileSync(userConfigPath(), JSON.stringify(next, null, 2), 'utf8');

@@ -148,6 +148,9 @@ ipcMain.handle('admin:open-uninstall-guide', async () => {
 
 ipcMain.handle('config:get', () => loadConfig());
 
-ipcMain.handle('config:set-api-base', (_event, apiBase: string) => {
-  return saveConfig({ apiBase: String(apiBase ?? '') });
+ipcMain.handle('config:set', (_event, patch: { apiBase?: string; classId?: string }) => {
+  return saveConfig({
+    apiBase: patch?.apiBase != null ? String(patch.apiBase) : undefined,
+    classId: patch?.classId != null ? String(patch.classId) : undefined,
+  });
 });

@@ -1,10 +1,156 @@
 import { Router } from 'express';
+import multer from 'multer';
+import * as XLSX from 'xlsx';
 import { openDb } from '../db/client.js';
 import { requireAuth, requireRoles, type AuthedRequest } from '../middleware/auth.js';
 import { newClassCode, newId, nowIso } from '../utils/id.js';
 import { paramId } from '../utils/params.js';
 
 export const classesRouter = Router();
+
+const importUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 },
+});
+
+type ImportFailure = {
+  line: number;
+  name: string;
+  studentNo: string | null;
+  reason: string;
+  reasonText: string;
+};
+
+type ImportRow = { name: string; studentNo: string | null; line: number };
+
+function isHeaderName(name: string): boolean {
+  const n = name.toLowerCase();
+  return ['name', 'display_name', 'display-name', '姓名'].includes(n);
+}
+
+function parseCsvToRows(csvText: string): ImportRow[] {
+  const rows: ImportRow[] = [];
+  const rawLines = csvText.split(/\r?\n/);
+  for (let i = 0; i < rawLines.length; i += 1) {
+    const line = rawLines[i]?.trim() ?? '';
+    if (!line) continue;
+    const parts = line.split(',').map((p) => p.trim());
+    const name = parts[0] ?? '';
+    if (!name || isHeaderName(name)) continue;
+    const hasNoCol = parts.length >= 2;
+    const studentNo = hasNoCol ? parts[1] || null : null;
+    rows.push({ name, studentNo: hasNoCol && !parts[1] ? '' : studentNo, line: i + 1 });
+  }
+  return rows;
+}
+
+function parseSheetToRows(buffer: Buffer): ImportRow[] {
+  const wb = XLSX.read(buffer, { type: 'buffer' });
+  const sheet = wb.Sheets[wb.SheetNames[0] ?? ''];
+  if (!sheet) return [];
+  const json = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: '' });
+  const rows: ImportRow[] = [];
+  json.forEach((row, idx) => {
+    const keys = Object.keys(row);
+    const nameKey =
+      keys.find((k) => /^(姓名|name|display_?name)$/i.test(k.trim())) ?? keys[0];
+    const noKey = keys.find((k) => /^(学号|student_?no|studentno)$/i.test(k.trim())) ?? keys[1];
+    const name = String(row[nameKey ?? ''] ?? '').trim();
+    if (!name || isHeaderName(name)) return;
+    const rawNo = noKey != null ? String(row[noKey] ?? '').trim() : '';
+    const hasNoCol = noKey != null;
+    rows.push({
+      name,
+      studentNo: hasNoCol ? rawNo || '' : null,
+      line: idx + 2, // + header
+    });
+  });
+  return rows;
+}
+
+function importStudentRows(classId: string, rows: ImportRow[]) {
+  const db = openDb();
+  let created = 0;
+  let skipped = 0;
+  const failures: ImportFailure[] = [];
+  const createdAt = nowIso();
+  const insert = db.prepare(
+    `INSERT INTO users (id, role, display_name, username, password_hash, student_no, class_id, total_points, created_at)
+     VALUES (?, 'student', ?, NULL, NULL, ?, ?, 0, ?)`,
+  );
+  const existsByName = db.prepare(
+    `SELECT id FROM users WHERE role = 'student' AND class_id = ? AND display_name = ? COLLATE NOCASE`,
+  );
+  const existsByNo = db.prepare(
+    `SELECT id FROM users WHERE role = 'student' AND class_id = ? AND student_no = ?`,
+  );
+
+  for (const row of rows) {
+    const { name, line } = row;
+    const hasStudentNoColumn = row.studentNo !== null;
+    const studentNo = row.studentNo === '' ? null : row.studentNo;
+    const nameOk = /^[\u4e00-\u9fffA-Za-z0-9·•\s._-]{1,40}$/.test(name);
+    if (!nameOk) {
+      skipped += 1;
+      failures.push({
+        line,
+        name,
+        studentNo,
+        reason: 'invalid_name',
+        reasonText: '姓名含非法字符或过长',
+      });
+      continue;
+    }
+    if (hasStudentNoColumn && !studentNo) {
+      skipped += 1;
+      failures.push({
+        line,
+        name,
+        studentNo: null,
+        reason: 'empty_student_no',
+        reasonText: '学号为空',
+      });
+      continue;
+    }
+    if (studentNo && !/^[A-Za-z0-9_-]{1,32}$/.test(studentNo)) {
+      skipped += 1;
+      failures.push({
+        line,
+        name,
+        studentNo,
+        reason: 'invalid_student_no',
+        reasonText: '学号含非法字符（仅字母数字_-）',
+      });
+      continue;
+    }
+    if (existsByName.get(classId, name)) {
+      skipped += 1;
+      failures.push({
+        line,
+        name,
+        studentNo,
+        reason: 'duplicate_name',
+        reasonText: '同名已存在',
+      });
+      continue;
+    }
+    if (studentNo && existsByNo.get(classId, studentNo)) {
+      skipped += 1;
+      failures.push({
+        line,
+        name,
+        studentNo,
+        reason: 'duplicate_student_no',
+        reasonText: '学号已存在',
+      });
+      continue;
+    }
+    insert.run(newId(), name, studentNo, classId, createdAt);
+    created += 1;
+  }
+
+  return { created, skipped, total: rows.length, failures };
+}
 
 classesRouter.get('/api/v1/classes', requireAuth, requireRoles('teacher', 'admin'), (_req, res) => {
   const rows = openDb()
@@ -35,6 +181,26 @@ classesRouter.post('/api/v1/classes', requireAuth, requireRoles('teacher', 'admi
   res.status(201).json({ id, name, classCode, createdAt });
 });
 
+/** Public roster for student machines assigned to this classId (no class-code join). */
+classesRouter.get('/api/v1/classes/:id/roster', (req, res) => {
+  const classId = paramId(req.params.id);
+  const db = openDb();
+  const klass = db
+    .prepare(`SELECT id, name FROM classes WHERE id = ?`)
+    .get(classId) as { id: string; name: string } | undefined;
+  if (!klass) {
+    res.status(404).json({ error: 'class_not_found' });
+    return;
+  }
+  const items = db
+    .prepare(
+      `SELECT id, display_name AS displayName, student_no AS studentNo, total_points AS totalPoints
+       FROM users WHERE role = 'student' AND class_id = ? ORDER BY display_name COLLATE NOCASE`,
+    )
+    .all(classId);
+  res.json({ class: klass, items });
+});
+
 classesRouter.get(
   '/api/v1/classes/:id/students',
   requireAuth,
@@ -50,13 +216,6 @@ classesRouter.get(
   },
 );
 
-/**
- * Bulk import students from CSV.
- * Formats:
- * - name
- * - name,studentNo
- * Header row optional: name / display_name / 姓名, student_no / 学号
- */
 classesRouter.post(
   '/api/v1/classes/:id/students/import',
   requireAuth,
@@ -64,77 +223,55 @@ classesRouter.post(
   (req: AuthedRequest, res) => {
     const classId = paramId(req.params.id);
     const db = openDb();
-    const klass = db.prepare(`SELECT id FROM classes WHERE id = ?`).get(classId);
-    if (!klass) {
+    if (!db.prepare(`SELECT id FROM classes WHERE id = ?`).get(classId)) {
       res.status(404).json({ error: 'class_not_found' });
       return;
     }
-
-    const csvText = String(req.body?.csv ?? '');
-    let created = 0;
-    let skipped = 0;
-    const failures: Array<{
-      line: number;
-      name: string;
-      studentNo: string | null;
-      reason: string;
-      reasonText: string;
-    }> = [];
-    const createdAt = nowIso();
-    const insert = db.prepare(
-      `INSERT INTO users (id, role, display_name, username, password_hash, student_no, class_id, total_points, created_at)
-       VALUES (?, 'student', ?, NULL, NULL, ?, ?, 0, ?)`,
-    );
-    const existsByName = db.prepare(
-      `SELECT id FROM users WHERE role = 'student' AND class_id = ? AND display_name = ? COLLATE NOCASE`,
-    );
-    const existsByNo = db.prepare(
-      `SELECT id FROM users WHERE role = 'student' AND class_id = ? AND student_no = ?`,
-    );
-
-    const rawLines = csvText.split(/\r?\n/);
-    let dataLine = 0;
-    for (let i = 0; i < rawLines.length; i += 1) {
-      const line = rawLines[i]?.trim() ?? '';
-      if (!line) continue;
-      const parts = line.split(',').map((p) => p.trim());
-      const name = parts[0] ?? '';
-      const studentNo = parts[1] || null;
-      const n = name.toLowerCase();
-      if (!name || ['name', 'display_name', 'display-name', '姓名'].includes(n)) continue;
-      dataLine += 1;
-      const lineNo = i + 1;
-      if (existsByName.get(classId, name)) {
-        skipped += 1;
-        failures.push({
-          line: lineNo,
-          name,
-          studentNo,
-          reason: 'duplicate_name',
-          reasonText: '同名已存在',
-        });
-        continue;
-      }
-      if (studentNo && existsByNo.get(classId, studentNo)) {
-        skipped += 1;
-        failures.push({
-          line: lineNo,
-          name,
-          studentNo,
-          reason: 'duplicate_student_no',
-          reasonText: '学号已存在',
-        });
-        continue;
-      }
-      insert.run(newId(), name, studentNo, classId, createdAt);
-      created += 1;
-    }
-
-    if (dataLine === 0) {
+    const rows = parseCsvToRows(String(req.body?.csv ?? ''));
+    if (rows.length === 0) {
       res.status(400).json({ error: 'empty_csv' });
       return;
     }
+    res.status(201).json(importStudentRows(classId, rows));
+  },
+);
 
-    res.status(201).json({ created, skipped, total: dataLine, failures });
+classesRouter.post(
+  '/api/v1/classes/:id/students/import-file',
+  requireAuth,
+  requireRoles('teacher', 'admin'),
+  importUpload.single('file'),
+  (req: AuthedRequest, res) => {
+    const classId = paramId(req.params.id);
+    const db = openDb();
+    if (!db.prepare(`SELECT id FROM classes WHERE id = ?`).get(classId)) {
+      res.status(404).json({ error: 'class_not_found' });
+      return;
+    }
+    const file = req.file;
+    if (!file?.buffer) {
+      res.status(400).json({ error: 'file_required' });
+      return;
+    }
+    const name = (file.originalname || '').toLowerCase();
+    let rows: ImportRow[] = [];
+    try {
+      if (name.endsWith('.csv') || file.mimetype === 'text/csv') {
+        rows = parseCsvToRows(file.buffer.toString('utf8'));
+      } else if (name.endsWith('.xlsx') || name.endsWith('.xls')) {
+        rows = parseSheetToRows(file.buffer);
+      } else {
+        res.status(400).json({ error: 'unsupported_file_type' });
+        return;
+      }
+    } catch {
+      res.status(400).json({ error: 'parse_failed' });
+      return;
+    }
+    if (rows.length === 0) {
+      res.status(400).json({ error: 'empty_sheet' });
+      return;
+    }
+    res.status(201).json(importStudentRows(classId, rows));
   },
 );

@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron';
 
-export type AppConfig = { apiBase: string };
+export type AppConfig = { apiBase: string; classId: string };
 
 export type StudentDesktopAPI = {
   toggleCollapse: () => Promise<boolean>;
@@ -11,6 +11,7 @@ export type StudentDesktopAPI = {
   getAutostart: () => Promise<boolean>;
   openUninstallGuide: () => Promise<{ ok: boolean; platform: string; hint?: string }>;
   getConfig: () => Promise<AppConfig>;
+  setConfig: (patch: Partial<AppConfig>) => Promise<AppConfig>;
   setApiBase: (apiBase: string) => Promise<AppConfig>;
 };
 
@@ -23,7 +24,8 @@ const api: StudentDesktopAPI = {
   getAutostart: () => ipcRenderer.invoke('admin:get-autostart'),
   openUninstallGuide: () => ipcRenderer.invoke('admin:open-uninstall-guide'),
   getConfig: () => ipcRenderer.invoke('config:get'),
-  setApiBase: (apiBase) => ipcRenderer.invoke('config:set-api-base', apiBase),
+  setConfig: (patch) => ipcRenderer.invoke('config:set', patch),
+  setApiBase: (apiBase) => ipcRenderer.invoke('config:set', { apiBase }),
 };
 
 contextBridge.exposeInMainWorld('classroomDesk', api);

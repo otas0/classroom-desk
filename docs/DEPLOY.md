@@ -58,8 +58,10 @@ Wants=network-online.target
 Type=simple
 User=classroom
 Group=classroom
+# 按学校预发机实际路径修改，例如 /srv/classroom-desk 或 /home/classroom/app
 WorkingDirectory=/opt/classroom-desk
 EnvironmentFile=/etc/classroom-desk.env
+# 若用绝对 node：ExecStart=/usr/bin/node /opt/classroom-desk/apps/server/dist/index.js
 ExecStart=/usr/bin/npm run start --workspace=@classroom-desk/server
 Restart=on-failure
 RestartSec=5
@@ -70,6 +72,14 @@ PrivateTmp=true
 [Install]
 WantedBy=multi-user.target
 ```
+
+预发机清单：
+
+1. 建用户 `classroom`，数据目录 `/var/lib/classroom-desk`（750）。
+2. 克隆仓库到 `WorkingDirectory`（与 unit 一致），`npm ci`，`npm run build:teacher`。
+3. 写 `/etc/classroom-desk.env`，`systemctl enable --now classroom-desk`。
+4. 挂载网盘 → `CLASSROOM_DESK_NAS_DIR`；`bash scripts/install-backup-cron.example.sh`。
+5. 人为断 NAS 跑一次 backup，确认 `curl /health` 含 `backup.lastError`。
 
 ```bash
 sudo systemctl daemon-reload

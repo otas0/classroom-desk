@@ -3,57 +3,16 @@ import { APP_NAME } from '@classroom-desk/shared';
 import { API_BASE, api, getToken, setToken } from './api';
 
 type ClassItem = { id: string; name: string; classCode: string };
-type Tab =
-  | 'classes'
-  | 'assignments'
-  | 'requests'
-  | 'attendance'
-  | 'messages'
-  | 'questions'
-  | 'exports'
-  | 'settings';
-
-const WEEKDAYS = [
-  { v: 1, label: '一' },
-  { v: 2, label: '二' },
-  { v: 3, label: '三' },
-  { v: 4, label: '四' },
-  { v: 5, label: '五' },
-  { v: 6, label: '六' },
-  { v: 7, label: '日' },
-];
-
-const TABS: Tab[] = [
-  'classes',
-  'assignments',
-  'requests',
-  'attendance',
-  'messages',
-  'questions',
-  'exports',
-  'settings',
-];
-const ASSIGNMENTS_BC = 'classroom-desk-assignments-refresh';
-
-function tabFromPath(): Tab {
-  const raw = window.location.pathname.replace(/^\/admin\/?/, '').split('/')[0] ?? '';
-  return (TABS.includes(raw as Tab) ? raw : 'assignments') as Tab;
-}
-
-function pathForTab(tab: Tab): string {
-  const base = window.location.pathname.startsWith('/admin') ? '/admin' : '';
-  return `${base}/${tab}`;
-}
+type Tab = 'roster' | 'questions' | 'requests' | 'messages' | 'assign' | 'settings';
 
 export function App() {
   const [tokenReady, setTokenReady] = useState(Boolean(getToken()));
   const [username, setUsername] = useState('teacher');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
-  const [tab, setTab] = useState<Tab>(() => tabFromPath());
+  const [tab, setTab] = useState<Tab>('roster');
   const [classes, setClasses] = useState<ClassItem[]>([]);
   const [classId, setClassId] = useState('');
-  const [pendingReviewTotal, setPendingReviewTotal] = useState(0);
 
   async function loadClasses() {
     const res = await api<{ items: ClassItem[] }>('/api/v1/classes');
@@ -61,53 +20,11 @@ export function App() {
     if (!classId && res.items[0]) setClassId(res.items[0].id);
   }
 
-  async function refreshPendingBadge(activeClassId = classId) {
-    if (!activeClassId) {
-      setPendingReviewTotal(0);
-      return;
-    }
-    try {
-      const r = await api<{ items: Array<{ pendingReviewCount?: number }> }>(
-        `/api/v1/assignments?classId=${activeClassId}`,
-      );
-      setPendingReviewTotal(r.items.reduce((sum, item) => sum + Number(item.pendingReviewCount ?? 0), 0));
-    } catch {
-      /* ignore */
-    }
-  }
-
   useEffect(() => {
     if (!tokenReady) return;
     void loadClasses().catch((e) => setError(e instanceof Error ? e.message : 'load_failed'));
   }, [tokenReady]);
 
-  useEffect(() => {
-    if (!tokenReady || !classId) return;
-    void refreshPendingBadge(classId);
-    const bc = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel(ASSIGNMENTS_BC) : null;
-    const onMsg = () => void refreshPendingBadge(classId);
-    bc?.addEventListener('message', onMsg);
-    const timer = window.setInterval(() => void refreshPendingBadge(classId), 12_000);
-    return () => {
-      bc?.removeEventListener('message', onMsg);
-      bc?.close();
-      window.clearInterval(timer);
-    };
-  }, [tokenReady, classId]);
-
-  useEffect(() => {
-    const onPop = () => setTab(tabFromPath());
-    window.addEventListener('popstate', onPop);
-    return () => window.removeEventListener('popstate', onPop);
-  }, []);
-
-  function goTab(next: Tab) {
-    setTab(next);
-    const path = pathForTab(next);
-    if (window.location.pathname !== path) {
-      window.history.pushState({}, '', path);
-    }
-  }
   async function login() {
     setError('');
     try {
@@ -138,7 +55,6 @@ export function App() {
         <button type="button" onClick={() => void login()}>
           登录
         </button>
-        <p className="hint">默认演示：teacher / TeacherPass123，班级码 DEMO01</p>
       </div>
     );
   }
@@ -152,20 +68,18 @@ export function App() {
           <select value={classId} onChange={(e) => setClassId(e.target.value)}>
             {classes.map((c) => (
               <option key={c.id} value={c.id}>
-                {c.name} ({c.classCode})
+                {c.name}
               </option>
             ))}
           </select>
         </label>
         {(
           [
-            ['classes', '班级'],
-            ['assignments', '作业'],
-            ['requests', '加分请求'],
-            ['attendance', '签到'],
+            ['roster', '花名册导入'],
+            ['questions', '发题/正确率'],
+            ['requests', '加分审核'],
             ['messages', '留言'],
-            ['questions', '发题'],
-            ['exports', '导出'],
+            ['assign', '指派学生机'],
             ['settings', '设置'],
           ] as const
         ).map(([id, label]) => (
@@ -173,12 +87,9 @@ export function App() {
             key={id}
             type="button"
             className={tab === id ? 'nav active' : 'nav'}
-            onClick={() => goTab(id)}
+            onClick={() => setTab(id)}
           >
             {label}
-            {id === 'assignments' && pendingReviewTotal > 0 ? (
-              <span className="pending-badge">待审 {pendingReviewTotal}</span>
-            ) : null}
           </button>
         ))}
         <button
@@ -193,532 +104,135 @@ export function App() {
         </button>
       </aside>
       <main>
-        {tab === 'classes' && <ClassesPanel onChanged={() => void loadClasses()} />}
-        {tab === 'assignments' && (
-          <AssignmentsPanel classId={classId} onPendingChange={() => void refreshPendingBadge(classId)} />
-        )}
-        {tab === 'requests' && <RequestsPanel classId={classId} />}
-        {tab === 'attendance' && <AttendancePanel classId={classId} />}
-        {tab === 'messages' && <MessagesPanel classId={classId} />}
+        {tab === 'roster' && <RosterPanel classId={classId} classes={classes} onClasses={loadClasses} />}
         {tab === 'questions' && <QuestionsPanel classId={classId} />}
-        {tab === 'exports' && <ExportsPanel />}
+        {tab === 'requests' && <RequestsPanel classId={classId} />}
+        {tab === 'messages' && <MessagesPanel classId={classId} />}
+        {tab === 'assign' && <AssignPanel classId={classId} classes={classes} />}
         {tab === 'settings' && <SettingsPanel />}
       </main>
     </div>
   );
 }
 
-function ClassesPanel({ onChanged }: { onChanged: () => void }) {
+function RosterPanel({
+  classId,
+  classes,
+  onClasses,
+}: {
+  classId: string;
+  classes: ClassItem[];
+  onClasses: () => Promise<void>;
+}) {
   const [name, setName] = useState('');
-  const [classId, setClassId] = useState('');
-  const [csv, setCsv] = useState('张三,2026001\n李四,2026002\n王五,2026003');
+  const [csv, setCsv] = useState('姓名,学号\n张三,2026001\n李四,2026002');
+  const [students, setStudents] = useState<Array<Record<string, unknown>>>([]);
   const [importResult, setImportResult] = useState('');
-  const [classes, setClasses] = useState<ClassItem[]>([]);
+
+  async function loadStudents() {
+    if (!classId) return;
+    const r = await api<{ items: Array<Record<string, unknown>> }>(`/api/v1/classes/${classId}/students`);
+    setStudents(r.items);
+  }
 
   useEffect(() => {
-    void api<{ items: ClassItem[] }>('/api/v1/classes').then((r) => {
-      setClasses(r.items);
-      if (!classId && r.items[0]) setClassId(r.items[0].id);
+    void loadStudents().catch(() => setStudents([]));
+  }, [classId]);
+
+  async function importFile(file: File) {
+    const fd = new FormData();
+    fd.append('file', file);
+    const token = getToken();
+    const res = await fetch(`${API_BASE}/api/v1/classes/${classId}/students/import-file`, {
+      method: 'POST',
+      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      body: fd,
     });
-  }, []);
+    const data = (await res.json()) as {
+      created?: number;
+      skipped?: number;
+      failures?: Array<{ line: number; name: string; reasonText?: string; reason: string }>;
+      error?: string;
+    };
+    if (!res.ok) throw new Error(data.error ?? 'import_failed');
+    const fail = (data.failures ?? [])
+      .map((f) => `第${f.line}行 ${f.name} → ${f.reasonText ?? f.reason}`)
+      .join('；');
+    setImportResult(`新建 ${data.created}，跳过 ${data.skipped}${fail ? `。${fail}` : ''}`);
+    await loadStudents();
+  }
 
   return (
     <section>
-      <h2>创建班级</h2>
-      <input value={name} onChange={(e) => setName(e.target.value)} placeholder="班级名称" />
-      <button
-        type="button"
-        onClick={() =>
-          void api('/api/v1/classes', { method: 'POST', body: JSON.stringify({ name }) }).then(() => {
-            setName('');
-            onChanged();
-            return api<{ items: ClassItem[] }>('/api/v1/classes').then((r) => setClasses(r.items));
-          })
-        }
-      >
-        创建
-      </button>
+      <h2>班级与花名册</h2>
+      <div className="row">
+        <input value={name} onChange={(e) => setName(e.target.value)} placeholder="新班级名称" />
+        <button
+          type="button"
+          onClick={() =>
+            void api('/api/v1/classes', { method: 'POST', body: JSON.stringify({ name }) }).then(() => {
+              setName('');
+              return onClasses();
+            })
+          }
+        >
+          创建班级
+        </button>
+      </div>
 
-      <h3>批量导入学生 CSV</h3>
-      <p className="hint">支持「姓名」或「姓名,学号」；已存在同名/同学号会跳过。</p>
-      <button
-        type="button"
-        className="secondary"
-        onClick={() => {
-          const blob = new Blob(['姓名,学号\n张三,2026001\n李四,2026002\n'], {
-            type: 'text/csv;charset=utf-8',
-          });
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement('a');
-          a.href = url;
-          a.download = 'students-template.csv';
-          a.click();
-          URL.revokeObjectURL(url);
+      <h3>批量导入（Excel / CSV）</h3>
+      <p className="hint">支持 .xlsx / .xls / .csv，列：姓名、学号（学号可选）。导入后学生机花名册即可点名加分。</p>
+      <input
+        type="file"
+        accept=".csv,.xlsx,.xls"
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (file) void importFile(file).catch((err) => setImportResult(String(err.message ?? err)));
         }}
-      >
-        下载模板（姓名,学号）
-      </button>
-      <label>
-        目标班级
-        <select value={classId} onChange={(e) => setClassId(e.target.value)}>
-          {classes.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.name} ({c.classCode})
-            </option>
-          ))}
-        </select>
-      </label>
-      <textarea value={csv} onChange={(e) => setCsv(e.target.value)} rows={6} />
+      />
+      <textarea value={csv} onChange={(e) => setCsv(e.target.value)} rows={5} />
       <button
         type="button"
         onClick={() =>
           void api<{
             created: number;
             skipped: number;
-            failures?: Array<{ line: number; name: string; studentNo: string | null; reason: string }>;
+            failures?: Array<{ line: number; name: string; reasonText?: string; reason: string }>;
           }>(`/api/v1/classes/${classId}/students/import`, {
             method: 'POST',
             body: JSON.stringify({ csv }),
           }).then((r) => {
             const fail = (r.failures ?? [])
-              .map((f) => {
-                const text =
-                  (f as { reasonText?: string }).reasonText ??
-                  (f.reason === 'duplicate_name'
-                    ? '同名已存在'
-                    : f.reason === 'duplicate_student_no'
-                      ? '学号已存在'
-                      : f.reason);
-                return `第${f.line}行 ${f.name}${f.studentNo ? `(${f.studentNo})` : ''} → ${text}`;
-              })
+              .map((f) => `第${f.line}行 ${f.name} → ${f.reasonText ?? f.reason}`)
               .join('；');
-            setImportResult(
-              `新建 ${r.created}，跳过 ${r.skipped}${fail ? `。失败明细：${fail}` : ''}`,
-            );
+            setImportResult(`新建 ${r.created}，跳过 ${r.skipped}${fail ? `。${fail}` : ''}`);
+            return loadStudents();
           })
         }
       >
-        导入
+        从文本导入 CSV
       </button>
       {importResult ? <p className="hint">{importResult}</p> : null}
-    </section>
-  );
-}
 
-function AssignmentsPanel({
-  classId,
-  onPendingChange,
-}: {
-  classId: string;
-  onPendingChange?: () => void;
-}) {
-  const [title, setTitle] = useState('');
-  const [description, setDescription] = useState('');
-  const [attachmentUrl, setAttachmentUrl] = useState('');
-  const [items, setItems] = useState<Array<Record<string, unknown>>>([]);
-  const [selected, setSelected] = useState('');
-  const [subs, setSubs] = useState<Array<Record<string, unknown>>>([]);
-
-  async function load() {
-    if (!classId) return;
-    const r = await api<{ items: Array<Record<string, unknown>> }>(`/api/v1/assignments?classId=${classId}`);
-    setItems(r.items);
-    onPendingChange?.();
-  }
-
-  useEffect(() => {
-    void load().catch(() => setItems([]));
-  }, [classId]);
-
-  async function upload(file: File) {
-    const fd = new FormData();
-    fd.append('file', file);
-    const token = getToken();
-    const res = await fetch(`${API_BASE}/api/v1/uploads`, {
-      method: 'POST',
-      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-      body: fd,
-    });
-    const data = (await res.json()) as { url?: string; error?: string };
-    if (!res.ok) throw new Error(data.error ?? 'upload_failed');
-    setAttachmentUrl(data.url ?? '');
-  }
-
-  async function create() {
-    await api('/api/v1/assignments', {
-      method: 'POST',
-      body: JSON.stringify({ classId, title, description, maxPoints: 5, attachmentUrl: attachmentUrl || null }),
-    });
-    setTitle('');
-    setDescription('');
-    setAttachmentUrl('');
-    await load();
-  }
-
-  async function loadSubs(id: string) {
-    setSelected(id);
-    const r = await api<{ items: Array<Record<string, unknown>> }>(`/api/v1/assignments/${id}/submissions`);
-    setSubs(r.items);
-  }
-
-  async function review(studentId: string, status: 'approved' | 'rejected') {
-    await api(`/api/v1/assignments/${selected}/review`, {
-      method: 'POST',
-      body: JSON.stringify({ studentId, status, pointsDelta: status === 'approved' ? 5 : 0, reason: '作业审核' }),
-    });
-    await loadSubs(selected);
-    await load(); // refresh pendingReviewCount badges
-    try {
-      new BroadcastChannel(ASSIGNMENTS_BC).postMessage({ type: 'reviewed', classId });
-    } catch {
-      /* ignore */
-    }
-  }
-
-  return (
-    <section>
-      <h2>作业</h2>
-      <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="标题" />
-      <textarea value={description} onChange={(e) => setDescription(e.target.value)} placeholder="说明" />
-      <input
-        type="file"
-        onChange={(e) => {
-          const file = e.target.files?.[0];
-          if (file) void upload(file);
-        }}
-      />
-      {attachmentUrl ? <p className="hint">附件：{attachmentUrl}</p> : null}
-      <button type="button" onClick={() => void create()}>
-        发布作业
-      </button>
-      <ul>
-        {items.map((item) => (
-          <li key={String(item.id)}>
-            <button type="button" onClick={() => void loadSubs(String(item.id))}>
-              {String(item.title)}
-              {Number(item.pendingReviewCount) > 0 ? (
-                <span className="pending-badge">待审 {String(item.pendingReviewCount)}</span>
-              ) : null}
-            </button>
-            {item.attachmentUrl ? (
-              <a href={`${API_BASE}${String(item.attachmentUrl)}`} target="_blank" rel="noreferrer">
-                附件
-              </a>
-            ) : null}
-          </li>
-        ))}
-      </ul>
-      {subs.map((s) => (
-        <div key={String(s.id)} className="row">
-          <span>
-            {String(s.studentName)} · {String(s.status)} · {String(s.note ?? '')}
-          </span>
-          <button type="button" onClick={() => void review(String(s.studentId), 'approved')}>
-            通过+5
-          </button>
-          <button type="button" onClick={() => void review(String(s.studentId), 'rejected')}>
-            驳回
-          </button>
-        </div>
-      ))}
-    </section>
-  );
-}
-
-function RequestsPanel({ classId }: { classId: string }) {
-  const [items, setItems] = useState<Array<Record<string, unknown>>>([]);
-
-  async function load() {
-    const r = await api<{ items: Array<Record<string, unknown>> }>(
-      `/api/v1/point-requests/pending?classId=${classId}`,
-    );
-    setItems(r.items);
-  }
-
-  useEffect(() => {
-    void load().catch(() => setItems([]));
-    const t = setInterval(() => void load().catch(() => undefined), 5000);
-    return () => clearInterval(t);
-  }, [classId]);
-
-  return (
-    <section>
-      <h2>待确认加分请求</h2>
-      {items.map((item) => (
-        <div key={String(item.id)} className="row">
-          <span>
-            {String(item.studentName)} · {String(item.reason)} · {String(item.points)} 分 · 倒计时{' '}
-            {String(item.countdownSeconds)}s
-          </span>
-          <button
-            type="button"
-            onClick={() =>
-              void api(`/api/v1/point-requests/${String(item.id)}/confirm`, { method: 'POST', body: '{}' }).then(load)
-            }
-          >
-            确认
-          </button>
-          <button
-            type="button"
-            onClick={() =>
-              void api(`/api/v1/point-requests/${String(item.id)}/reject`, { method: 'POST', body: '{}' }).then(load)
-            }
-          >
-            拒绝
-          </button>
-        </div>
-      ))}
-    </section>
-  );
-}
-
-function AttendancePanel({ classId }: { classId: string }) {
-  const [sessions, setSessions] = useState<Array<Record<string, unknown>>>([]);
-  const [schedules, setSchedules] = useState<Array<Record<string, unknown>>>([]);
-  const [holidays, setHolidays] = useState<Array<Record<string, unknown>>>([]);
-  const [weekdays, setWeekdays] = useState<number[]>([1, 2, 3, 4, 5]);
-  const [startTime, setStartTime] = useState('08:00');
-  const [endTime, setEndTime] = useState('08:15');
-  const [lateAfterMinutes, setLateAfterMinutes] = useState(5);
-  const [holidayDate, setHolidayDate] = useState('');
-  const [holidayName, setHolidayName] = useState('节假日');
-  const [holidayCsv, setHolidayCsv] = useState('2026-10-01,国庆\n2026-10-02,国庆\n2026-10-03,国庆');
-  const [holidayImportMsg, setHolidayImportMsg] = useState('');
-
-  async function load() {
-    const [s, sch, hol] = await Promise.all([
-      api<{ items: Array<Record<string, unknown>> }>(`/api/v1/attendance/sessions?classId=${classId}`),
-      api<{ items: Array<Record<string, unknown>> }>(`/api/v1/attendance/schedules?classId=${classId}`),
-      api<{ items: Array<Record<string, unknown>> }>(`/api/v1/attendance/holidays?classId=${classId}`),
-    ]);
-    setSessions(s.items);
-    setSchedules(sch.items);
-    setHolidays(hol.items);
-  }
-
-  useEffect(() => {
-    void load().catch(() => {
-      setSessions([]);
-      setSchedules([]);
-      setHolidays([]);
-    });
-  }, [classId]);
-
-  async function previewHolidayCsv(csv: string) {
-    const r = await api<{
-      willCreate: number;
-      conflicts: Array<{ message?: string; holidayDate: string; existingName: string; scope?: string }>;
-      notices?: Array<{ message?: string }>;
-      duplicatesInFile: Array<{ holidayDate: string }>;
-    }>('/api/v1/attendance/holidays/import', {
-      method: 'POST',
-      body: JSON.stringify({ classId, csv, dryRun: true }),
-    });
-    const c = (r.conflicts ?? [])
-      .map((x) => x.message ?? `${x.holidayDate} 冲突（${x.scope === 'global' ? '全局' : '本班'}「${x.existingName}」）`)
-      .join('；');
-    const n = (r.notices ?? []).map((x) => x.message).filter(Boolean).join('；');
-    const d = (r.duplicatesInFile ?? []).map((x) => x.holidayDate).join('、');
-    setHolidayImportMsg(
-      `预览：将新建 ${r.willCreate}${c ? `；跳过 ${c}` : ''}${n ? `；注意 ${n}` : ''}${d ? `；文件内重复 ${d}` : ''}`,
-    );
-  }
-
-  async function startManual() {
-    await api('/api/v1/attendance/sessions', {
-      method: 'POST',
-      body: JSON.stringify({ classId, mode: 'manual', lateAfterMinutes: 5 }),
-    });
-    await load();
-  }
-
-  async function saveSchedule() {
-    await api('/api/v1/attendance/schedules', {
-      method: 'POST',
-      body: JSON.stringify({ classId, weekdays, startTime, endTime, lateAfterMinutes }),
-    });
-    await load();
-  }
-
-  return (
-    <section>
-      <h2>签到</h2>
-      <button type="button" onClick={() => void startManual()}>
-        发起手动签到（15 分钟）
-      </button>
-
-      <h3>自动签到周历</h3>
-      <p className="hint">仅依据学生端登录与应用内心跳，不截屏/不键鼠监控。</p>
-      <div className="row">
-        {WEEKDAYS.map((d) => (
-          <label key={d.v} className="check">
-            <input
-              type="checkbox"
-              checked={weekdays.includes(d.v)}
-              onChange={() =>
-                setWeekdays((prev) =>
-                  prev.includes(d.v) ? prev.filter((x) => x !== d.v) : [...prev, d.v].sort(),
-                )
-              }
-            />
-            周{d.label}
-          </label>
-        ))}
-      </div>
-      <label>
-        开始
-        <input value={startTime} onChange={(e) => setStartTime(e.target.value)} placeholder="08:00" />
-      </label>
-      <label>
-        结束
-        <input value={endTime} onChange={(e) => setEndTime(e.target.value)} placeholder="08:15" />
-      </label>
-      <label>
-        迟到阈值（分钟）
-        <input
-          type="number"
-          value={lateAfterMinutes}
-          onChange={(e) => setLateAfterMinutes(Number(e.target.value))}
-        />
-      </label>
-      <button type="button" onClick={() => void saveSchedule()}>
-        保存自动签到规则
-      </button>
-      <ul>
-        {schedules.map((s) => (
-          <li key={String(s.id)}>
-            周{JSON.stringify(s.weekdays)} {String(s.startTime)}-{String(s.endTime)} 迟到
-            {String(s.lateAfterMinutes)}分
-            <button
-              type="button"
-              onClick={() =>
-                void api(`/api/v1/attendance/schedules/${String(s.id)}`, { method: 'DELETE' }).then(load)
-              }
-            >
-              删除
-            </button>
-          </li>
-        ))}
-      </ul>
-
-      <h3>节假日例外</h3>
-      <p className="hint">命中日期不会自动开签到场次。可单条添加，或拖拽/粘贴校历 CSV（YYYY-MM-DD,名称）。</p>
-      <input type="date" value={holidayDate} onChange={(e) => setHolidayDate(e.target.value)} />
-      <input value={holidayName} onChange={(e) => setHolidayName(e.target.value)} placeholder="名称" />
-      <button
-        type="button"
-        onClick={() =>
-          void api('/api/v1/attendance/holidays', {
-            method: 'POST',
-            body: JSON.stringify({ classId, holidayDate, name: holidayName }),
-          }).then(load)
-        }
-      >
-        添加节假日
-      </button>
-      <div
-        className="dropzone"
-        onDragOver={(e) => e.preventDefault()}
-        onDrop={(e) => {
-          e.preventDefault();
-          const file = e.dataTransfer.files?.[0];
-          if (!file) return;
-          void file.text().then((text) => {
-            setHolidayCsv(text);
-            void previewHolidayCsv(text);
-          });
-        }}
-      >
-        拖拽校历 CSV 到此处预览冲突
-      </div>
-      <textarea value={holidayCsv} onChange={(e) => setHolidayCsv(e.target.value)} rows={4} />
-      <button type="button" onClick={() => void previewHolidayCsv(holidayCsv)}>
-        预览冲突
-      </button>
-      <button
-        type="button"
-        onClick={() =>
-          void api<{ created: number; skipped: number; conflicts?: unknown[] }>(
-            '/api/v1/attendance/holidays/import',
-            {
-              method: 'POST',
-              body: JSON.stringify({ classId, csv: holidayCsv }),
-            },
-          ).then((r) => {
-            setHolidayImportMsg(`导入成功 ${r.created}，跳过 ${r.skipped}`);
-            return load();
-          })
-        }
-      >
-        确认导入校历
-      </button>
-      {holidayImportMsg ? <p className="hint">{holidayImportMsg}</p> : null}
-      <ul>
-        {holidays.map((h) => (
-          <li key={String(h.id)}>
-            {String(h.holidayDate)} · {String(h.name)}
-            <button
-              type="button"
-              onClick={() =>
-                void api(`/api/v1/attendance/holidays/${String(h.id)}`, { method: 'DELETE' }).then(load)
-              }
-            >
-              删除
-            </button>
-          </li>
-        ))}
-      </ul>
-
-      <h3>场次</h3>
-      <ul>
-        {sessions.map((s) => (
-          <li key={String(s.id)}>
-            {String(s.mode)} · {String(s.status)} · {String(s.startAt)} → {String(s.endAt)}
-          </li>
-        ))}
-      </ul>
-    </section>
-  );
-}
-
-function MessagesPanel({ classId }: { classId: string }) {
-  const [items, setItems] = useState<Array<Record<string, unknown>>>([]);
-  const [reply, setReply] = useState<Record<string, string>>({});
-
-  async function load() {
-    const r = await api<{ items: Array<Record<string, unknown>> }>(`/api/v1/messages?classId=${classId}`);
-    setItems(r.items);
-  }
-
-  useEffect(() => {
-    void load().catch(() => setItems([]));
-  }, [classId]);
-
-  return (
-    <section>
-      <h2>留言</h2>
-      {items.map((msg) => (
-        <div key={String(msg.id)} className="card">
-          <strong>{String(msg.studentName)}</strong>
-          <p>{String(msg.body)}</p>
-          <input
-            value={reply[String(msg.id)] ?? ''}
-            onChange={(e) => setReply((prev) => ({ ...prev, [String(msg.id)]: e.target.value }))}
-            placeholder="回复"
-          />
-          <button
-            type="button"
-            onClick={() =>
-              void api(`/api/v1/messages/${String(msg.id)}/replies`, {
-                method: 'POST',
-                body: JSON.stringify({ body: reply[String(msg.id)] ?? '' }),
-              }).then(load)
-            }
-          >
-            回复
-          </button>
-        </div>
-      ))}
+      <h3>当前班名单（{classes.find((c) => c.id === classId)?.name ?? ''}）</h3>
+      <table className="data-table">
+        <thead>
+          <tr>
+            <th>姓名</th>
+            <th>学号</th>
+            <th>积分</th>
+          </tr>
+        </thead>
+        <tbody>
+          {students.map((s) => (
+            <tr key={String(s.id)}>
+              <td>{String(s.displayName)}</td>
+              <td>{String(s.studentNo ?? '—')}</td>
+              <td>{String(s.totalPoints)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </section>
   );
 }
@@ -814,7 +328,7 @@ function QuestionsPanel({ classId }: { classId: string }) {
 
   return (
     <section>
-      <h2>发题</h2>
+      <h2>发题 / 正确率 · 错误率</h2>
       <select value={type} onChange={(e) => setType(e.target.value as typeof type)}>
         <option value="single">单选</option>
         <option value="multi">多选</option>
@@ -826,47 +340,12 @@ function QuestionsPanel({ classId }: { classId: string }) {
       <button type="button" onClick={() => void create()}>
         发布题目
       </button>
-      <div className="row">
-        <button
-          type="button"
-          onClick={() =>
-            void api<string>(`/api/v1/questions/export.csv?classId=${classId}&includeOptions=1`).then((csv) => {
-              const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
-              const url = URL.createObjectURL(blob);
-              const a = document.createElement('a');
-              a.href = url;
-              a.download = 'question-stats-with-options.csv';
-              a.click();
-              URL.revokeObjectURL(url);
-            })
-          }
-        >
-          导出 CSV（含选项分布）
-        </button>
-        <button
-          type="button"
-          onClick={() =>
-            void api<string>(`/api/v1/questions/export.csv?classId=${classId}&includeOptions=0`).then((csv) => {
-              const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
-              const url = URL.createObjectURL(blob);
-              const a = document.createElement('a');
-              a.href = url;
-              a.download = 'question-stats.csv';
-              a.click();
-              URL.revokeObjectURL(url);
-            })
-          }
-        >
-          导出 CSV（仅题干统计）
-        </button>
-      </div>
-      <p className="hint">含分布列：optionLabel / optionContent / optionChosenCount（选项被选次数）</p>
       <ul>
         {items.map((q) => (
           <li key={String(q.id)}>
             [{String(q.type)}] {String(q.title)}{' '}
             <button type="button" onClick={() => void showStats(String(q.id), String(q.title))}>
-              错误率
+              正确率/错误率
             </button>
           </li>
         ))}
@@ -875,13 +354,13 @@ function QuestionsPanel({ classId }: { classId: string }) {
         <div className="chart">
           <h3>{chart.title}</h3>
           <p>
-            作答 {chart.answered} · 错误 {chart.wrong} · 错误率 {(chart.rate * 100).toFixed(1)}%
+            作答 {chart.answered} · 错误 {chart.wrong} · 错误率 {(chart.rate * 100).toFixed(1)}% · 正确率{' '}
+            {(100 - chart.rate * 100).toFixed(1)}%
           </p>
           <div className="bar-track">
-            <div className="bar wrong" style={{ width: `${wrongPct}%` }} title="错误" />
-            <div className="bar correct" style={{ width: `${correctPct}%` }} title="正确" />
+            <div className="bar wrong" style={{ width: `${wrongPct}%` }} />
+            <div className="bar correct" style={{ width: `${correctPct}%` }} />
           </div>
-          <p className="hint">红：错误占比；绿：正确占比</p>
           <h4>选项分布</h4>
           {chart.options.map((opt) => {
             const max = Math.max(1, ...chart.options.map((o) => o.chosenCount));
@@ -903,136 +382,208 @@ function QuestionsPanel({ classId }: { classId: string }) {
   );
 }
 
-function ExportsPanel() {
-  const [month, setMonth] = useState(new Date().toISOString().slice(0, 7));
-  const [mode, setMode] = useState('');
-  const [source, setSource] = useState('');
+function RequestsPanel({ classId }: { classId: string }) {
+  const [items, setItems] = useState<Array<Record<string, unknown>>>([]);
 
-  async function download(path: string, filename: string) {
-    const csv = await api<string>(path);
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+  async function load() {
+    const r = await api<{ items: Array<Record<string, unknown>> }>(
+      `/api/v1/point-requests/pending?classId=${classId}`,
+    );
+    setItems(r.items);
+  }
+
+  useEffect(() => {
+    void load().catch(() => setItems([]));
+    const t = window.setInterval(() => void load().catch(() => undefined), 5000);
+    return () => window.clearInterval(t);
+  }, [classId]);
+
+  return (
+    <section>
+      <h2>加分请求审核</h2>
+      <p className="hint">学生在花名册点选姓名后提交请求；通过后写入积分。</p>
+      {items.length === 0 ? <p>暂无待审请求</p> : null}
+      {items.map((item) => (
+        <div key={String(item.id)} className="row">
+          <span>
+            {String(item.studentName)} · {String(item.reason)} · {String(item.points)} 分
+          </span>
+          <button
+            type="button"
+            onClick={() =>
+              void api(`/api/v1/point-requests/${String(item.id)}/confirm`, {
+                method: 'POST',
+                body: '{}',
+              }).then(load)
+            }
+          >
+            通过
+          </button>
+          <button
+            type="button"
+            onClick={() =>
+              void api(`/api/v1/point-requests/${String(item.id)}/reject`, {
+                method: 'POST',
+                body: '{}',
+              }).then(load)
+            }
+          >
+            拒绝
+          </button>
+        </div>
+      ))}
+    </section>
+  );
+}
+
+function MessagesPanel({ classId }: { classId: string }) {
+  const [items, setItems] = useState<Array<Record<string, unknown>>>([]);
+  const [reply, setReply] = useState<Record<string, string>>({});
+  const [enabled, setEnabled] = useState(true);
+
+  async function load() {
+    const [msgs, settings] = await Promise.all([
+      api<{ items: Array<Record<string, unknown>> }>(`/api/v1/messages?classId=${classId}`),
+      api<{ messagesEnabled: boolean }>('/api/v1/settings'),
+    ]);
+    setItems(msgs.items);
+    setEnabled(settings.messagesEnabled !== false);
+  }
+
+  useEffect(() => {
+    void load().catch(() => setItems([]));
+  }, [classId]);
+
+  return (
+    <section>
+      <h2>留言</h2>
+      <label className="row">
+        <input
+          type="checkbox"
+          checked={enabled}
+          onChange={(e) =>
+            void api('/api/v1/settings', {
+              method: 'PATCH',
+              body: JSON.stringify({ messagesEnabled: e.target.checked }),
+            }).then(() => setEnabled(e.target.checked))
+          }
+        />
+        允许学生留言（关闭后学生端隐藏留言并禁止发送）
+      </label>
+      {items.map((msg) => (
+        <div key={String(msg.id)} className="card">
+          <strong>{String(msg.studentName)}</strong>
+          <p>{String(msg.body)}</p>
+          <input
+            value={reply[String(msg.id)] ?? ''}
+            onChange={(e) => setReply((prev) => ({ ...prev, [String(msg.id)]: e.target.value }))}
+            placeholder="回复"
+          />
+          <button
+            type="button"
+            onClick={() =>
+              void api(`/api/v1/messages/${String(msg.id)}/replies`, {
+                method: 'POST',
+                body: JSON.stringify({ body: reply[String(msg.id)] ?? '' }),
+              }).then(load)
+            }
+          >
+            回复
+          </button>
+        </div>
+      ))}
+    </section>
+  );
+}
+
+function AssignPanel({ classId, classes }: { classId: string; classes: ClassItem[] }) {
+  const [apiBase, setApiBase] = useState('http://192.168.1.50:8787');
+  const klass = classes.find((c) => c.id === classId);
+
+  function downloadConfig() {
+    const cfg = {
+      apiBase: apiBase.replace(/\/$/, ''),
+      classId,
+      comment: `Classroom pack for ${klass?.name ?? classId}. Install on student PCs.`,
+    };
+    const blob = new Blob([JSON.stringify(cfg, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = filename;
+    a.download = `classroom-${klass?.name ?? 'class'}-config.json`;
     a.click();
     URL.revokeObjectURL(url);
   }
 
-  const pointsQuery = new URLSearchParams({ month });
-  if (mode) pointsQuery.set('mode', mode);
-  if (source) pointsQuery.set('source', source);
-
   return (
     <section>
-      <h2>按月导出</h2>
+      <h2>上课前指派学生机</h2>
+      <div className="help-bubble">
+        每台学生机必须配置教师机局域网地址与本班 <code>classId</code>。不要使用 127.0.0.1。
+        可下载配置文件覆盖安装目录 resources/config.json，或在学生端「设置」用管理密码填写。
+      </div>
+      <p>
+        当前班级：<strong>{klass?.name ?? '—'}</strong>
+      </p>
+      <p>
+        classId：<code>{classId || '（请先选班）'}</code>
+      </p>
       <label>
-        月份
-        <input value={month} onChange={(e) => setMonth(e.target.value)} placeholder="YYYY-MM" />
+        教师机 apiBase
+        <input value={apiBase} onChange={(e) => setApiBase(e.target.value)} />
       </label>
-      <label>
-        加分模式
-        <select value={mode} onChange={(e) => setMode(e.target.value)}>
-          <option value="">全部</option>
-          <option value="manual">manual</option>
-          <option value="auto">auto</option>
-        </select>
-      </label>
-      <label>
-        加分来源
-        <select value={source} onChange={(e) => setSource(e.target.value)}>
-          <option value="">全部</option>
-          <option value="request">request</option>
-          <option value="manual">manual</option>
-          <option value="auto_rule">auto_rule</option>
-        </select>
-      </label>
-      <button
-        type="button"
-        onClick={() => void download(`/api/v1/exports/attendance?month=${month}`, `attendance-${month}.csv`)}
-      >
-        导出签到 CSV
+      <button type="button" disabled={!classId} onClick={downloadConfig}>
+        下载本教室 config.json
       </button>
-      <button
-        type="button"
-        onClick={() =>
-          void download(`/api/v1/exports/points?${pointsQuery.toString()}`, `points-${month}.csv`)
-        }
-      >
-        导出加分 CSV
-      </button>
+      <p className="hint">
+        打包专用安装包：把下载的 JSON 写入 apps/student-desktop/resources/config.json 后执行 npm run
+        dist:win。多教室按 IP/班级分目录存放安装包。
+      </p>
+      <pre className="code-block">{`{\n  "apiBase": "${apiBase.replace(/\/$/, '')}",\n  "classId": "${classId}"\n}`}</pre>
     </section>
   );
 }
 
 function SettingsPanel() {
-  const [ttl, setTtl] = useState(60);
-  const [cleanupTime, setCleanupTime] = useState('02:00');
-  const [note, setNote] = useState('');
-  const [cleanupStats, setCleanupStats] = useState<Array<Record<string, unknown>>>([]);
-  const [lastCleanupAt, setLastCleanupAt] = useState<string | null>(null);
-  const [lastCleanupKind, setLastCleanupKind] = useState<string | null>(null);
   const [diag, setDiag] = useState('');
+  const [ttl, setTtl] = useState(60);
 
   useEffect(() => {
-    void api<{
-      pointRequestTtlMinutes: number;
-      pointRequestDailyCleanupTime: string;
-      note: string;
-      cleanupStats: Array<Record<string, unknown>>;
-      lastCleanupAt: string | null;
-      lastCleanupKind: string | null;
-    }>('/api/v1/settings').then((s) => {
-      setTtl(s.pointRequestTtlMinutes);
-      setCleanupTime(s.pointRequestDailyCleanupTime);
-      setNote(s.note);
-      setCleanupStats(s.cleanupStats ?? []);
-      setLastCleanupAt(s.lastCleanupAt);
-      setLastCleanupKind(s.lastCleanupKind);
-    });
+    void api<{ pointRequestTtlMinutes: number }>('/api/v1/settings').then((s) =>
+      setTtl(s.pointRequestTtlMinutes),
+    );
   }, []);
 
-  async function runNetworkDiag() {
-    setDiag('检测中…');
+  async function runDiag() {
     const t0 = performance.now();
     try {
       const res = await fetch(`${API_BASE}/health`, { cache: 'no-store' });
       const ms = Math.round(performance.now() - t0);
       const body = (await res.json()) as {
         ok?: boolean;
-        backup?: {
-          latestAt?: string | null;
-          ageHours?: number | null;
-          lastError?: { at?: string; message?: string } | null;
-        };
+        backup?: { latestAt?: string | null; lastError?: { message?: string } | null };
       };
-      if (!res.ok || !body.ok) {
-        setDiag(`失败 HTTP ${res.status} · ${ms}ms · ${API_BASE}/health`);
-        return;
-      }
-      const bak = body.backup?.latestAt
-        ? `备份 ${body.backup.latestAt}（${body.backup.ageHours ?? '?'}h 前）`
-        : '尚无备份记录';
-      const err = body.backup?.lastError?.message;
       setDiag(
-        `正常 · 延迟 ${ms}ms · ${bak}${err ? ` · 备份错误：${err}` : ''} · ${API_BASE}（AP 隔离见 docs/NETWORK.md）`,
+        body.ok
+          ? `正常 ${ms}ms · 备份 ${body.backup?.latestAt ?? '无'}${
+              body.backup?.lastError ? ` · 错：${body.backup.lastError.message}` : ''
+            }`
+          : `失败 HTTP ${res.status}`,
       );
     } catch (e) {
-      const ms = Math.round(performance.now() - t0);
-      setDiag(`无法连接（${ms}ms）：${e instanceof Error ? e.message : 'network_error'} · ${API_BASE}`);
+      setDiag(e instanceof Error ? e.message : 'network_error');
     }
   }
 
   return (
     <section>
       <h2>设置</h2>
-      <h3>网络诊断</h3>
-      <button type="button" onClick={() => void runNetworkDiag()}>
+      <button type="button" onClick={() => void runDiag()}>
         一键检测 /health
       </button>
       {diag ? <p className="hint">{diag}</p> : null}
       <label>
-        加分请求有效期（分钟，1–10080）
+        加分请求有效期（分钟）
         <input type="number" value={ttl} onChange={(e) => setTtl(Number(e.target.value))} />
       </label>
       <button
@@ -1044,24 +595,9 @@ function SettingsPanel() {
           })
         }
       >
-        保存 TTL
+        保存
       </button>
-      <p>每日清空时间（只读，不可关闭）：{cleanupTime}</p>
-      <p>
-        最近清理执行时间：{lastCleanupAt ?? '尚未执行'}
-        {lastCleanupKind ? `（${lastCleanupKind}）` : ''}
-      </p>
-      <p className="hint">{note}</p>
-      <h3>清理任务结果（只读）</h3>
-      <ul>
-        {cleanupStats.length === 0 ? <li>暂无记录</li> : null}
-        {cleanupStats.map((row) => (
-          <li key={String(row.id)}>
-            {String(row.createdAt ?? row.cleanupDate)} · {String(row.kind)} · 清理{' '}
-            {String(row.removedCount)} 条
-          </li>
-        ))}
-      </ul>
+      <p className="hint">本地备份：教师机运行 npm run backup:db（暂不依赖 NAS）。</p>
     </section>
   );
 }

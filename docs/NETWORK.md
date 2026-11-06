@@ -2,6 +2,8 @@
 
 Classroom Desk 为校内中心服务部署：教师机或教室服务器跑 API，学生端小窗通过局域网访问。
 
+**无证书、教师机当服务器、多学生机互联：** 见 [CLASSROOM_TEACHER_HOST.md](./CLASSROOM_TEACHER_HOST.md)（含 `scripts/windows-teacher-host.ps1`）。
+
 ## 需要放行的端口
 
 | 端口 | 协议 | 方向 | 用途 |

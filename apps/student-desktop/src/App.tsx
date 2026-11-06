@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { APP_NAME, APP_NOTICE, ATTENDANCE_NOTICE } from '@classroom-desk/shared';
+import { APP_NAME } from '@classroom-desk/shared';
 import {
   ApiOfflineError,
   api,
@@ -10,7 +10,7 @@ import {
   setToken,
 } from './api';
 
-type TabId = 'homework' | 'messages' | 'quiz' | 'me';
+type TabId = 'points' | 'quiz' | 'messages' | 'admin';
 
 type User = {
   id: string;
@@ -20,131 +20,153 @@ type User = {
   totalPoints: number;
 };
 
-type PublicSettings = {
-  noticeText: string;
-  attendanceNoticeText: string;
-  pointRequestTtlMinutes: number;
-  pointRequestDailyCleanupTime: string;
-};
+type RosterRow = { id: string; displayName: string; studentNo: string | null; totalPoints: number };
 
 const TABS: { id: TabId; label: string }[] = [
-  { id: 'homework', label: '积分' },
-  { id: 'messages', label: '留言' },
+  { id: 'points', label: '积分' },
   { id: 'quiz', label: '答题' },
-  { id: 'me', label: '我的' },
+  { id: 'messages', label: '留言' },
+  { id: 'admin', label: '设置' },
 ];
 
-const NOTICE_KEY = 'classroom-desk.notice-accepted';
-
 export function App() {
-  const [tab, setTab] = useState<TabId>('homework');
+  const [tab, setTab] = useState<TabId>('points');
   const [collapsed, setCollapsed] = useState(false);
-  const [showNotice, setShowNotice] = useState(false);
-  const [settings, setSettings] = useState<PublicSettings | null>(null);
   const [user, setUser] = useState<User | null>(null);
   const [className, setClassName] = useState('');
+  const [classId, setClassId] = useState('');
+  const [roster, setRoster] = useState<RosterRow[]>([]);
+  const [messagesEnabled, setMessagesEnabled] = useState(true);
   const [unread, setUnread] = useState(0);
-  const [error, setError] = useState('');
-  const [classCode, setClassCode] = useState('');
-  const [displayName, setDisplayName] = useState('');
-  const [toast, setToast] = useState('');
-  const [lastPoints, setLastPoints] = useState<number | null>(null);
-  const [pointsDelta, setPointsDelta] = useState(0);
   const [offline, setOffline] = useState(false);
+  const [toast, setToast] = useState('');
+  const [error, setError] = useState('');
+  const [ready, setReady] = useState(false);
 
   const showToast = useCallback((msg: string) => {
     setToast(msg);
-    window.setTimeout(() => setToast(''), 2800);
+    window.setTimeout(() => setToast(''), 2200);
+  }, []);
+
+  const loadRoster = useCallback(async (cid: string) => {
+    if (!cid) {
+      setRoster([]);
+      return;
+    }
+    const r = await api<{ class: { name: string }; items: RosterRow[] }>(
+      `/api/v1/classes/${cid}/roster`,
+    );
+    setClassName(r.class.name);
+    setRoster(r.items);
   }, []);
 
   const refreshMe = useCallback(async () => {
-    if (!getToken()) {
-      setUser(null);
-      return;
-    }
     try {
-      const me = await api<{ user: User; class: { name: string } | null }>('/api/v1/auth/me');
-      if (lastPoints != null && me.user.totalPoints !== lastPoints) {
-        const delta = me.user.totalPoints - lastPoints;
-        setPointsDelta(delta);
-        showToast(delta > 0 ? `积分 +${delta}` : `积分 ${delta}`);
-      }
-      setLastPoints(me.user.totalPoints);
-      setUser(me.user);
-      setClassName(me.class?.name ?? '');
-      const unreadRes = await api<{ count: number }>('/api/v1/messages/unread-count');
-      setUnread(unreadRes.count);
-      await api('/api/v1/presence/heartbeat', { method: 'POST', body: '{}' });
-      if (offline) {
+      const pub = await api<{ messagesEnabled?: boolean }>('/api/v1/settings/public');
+      setMessagesEnabled(pub.messagesEnabled !== false);
+      if (!getToken()) {
+        setUser(null);
         setOffline(false);
-        showToast('已重新连接服务器');
-      }
-    } catch (e) {
-      if (e instanceof ApiOfflineError) {
-        setOffline(true);
         return;
       }
-      throw e;
+      const me = await api<{ user: User; class: { name: string; id: string } | null }>('/api/v1/auth/me');
+      setUser(me.user);
+      if (me.class) {
+        setClassName(me.class.name);
+        setClassId(me.class.id);
+      }
+      const unreadRes = await api<{ count: number }>('/api/v1/messages/unread-count');
+      setUnread(unreadRes.count);
+      setOffline(false);
+    } catch (e) {
+      if (e instanceof ApiOfflineError) setOffline(true);
+      else setUser(null);
     }
-  }, [lastPoints, offline, showToast]);
-
-  useEffect(() => {
-    const accepted = localStorage.getItem(NOTICE_KEY) === '1';
-    setShowNotice(!accepted);
-    void initApiBase()
-      .then(() => api<PublicSettings>('/api/v1/settings/public'))
-      .then((s) => {
-        setSettings(s);
-        setOffline(false);
-      })
-      .catch((e) => {
-        if (e instanceof ApiOfflineError) setOffline(true);
-        setSettings(null);
-      });
-    void refreshMe().catch(() => {
-      setToken(null);
-      setUser(null);
-    });
   }, []);
 
   useEffect(() => {
-    const timer = setInterval(() => {
-      void refreshMe().catch(() => undefined);
-    }, offline ? 5000 : 12000);
-    return () => clearInterval(timer);
-  }, [user, refreshMe, offline]);
+    void (async () => {
+      await initApiBase();
+      let cid = '';
+      try {
+        const cfg = await window.classroomDesk?.getConfig?.();
+        cid = String(cfg?.classId ?? '').trim();
+        setClassId(cid);
+      } catch {
+        /* browser */
+      }
+      if (cid) {
+        try {
+          await loadRoster(cid);
+        } catch {
+          /* offline */
+        }
+      }
+      await refreshMe();
+      setReady(true);
+    })();
+  }, [loadRoster, refreshMe]);
 
-  async function onToggleCollapse() {
-    if (!window.classroomDesk) return;
-    const next = await window.classroomDesk.toggleCollapse();
-    setCollapsed(next);
-  }
+  useEffect(() => {
+    const t = window.setInterval(() => void refreshMe(), 8000);
+    return () => window.clearInterval(t);
+  }, [refreshMe]);
 
-  async function joinClass() {
+  async function selectStudent(row: RosterRow) {
     setError('');
+    if (!classId) {
+      setError('本机未指派班级，请教师在设置中写入 classId');
+      return;
+    }
     try {
       const res = await api<{ token: string; user: User; class: { name: string } }>(
-        '/api/v1/auth/student-join',
-        {
-          method: 'POST',
-          body: JSON.stringify({ classCode, displayName }),
-        },
+        '/api/v1/auth/student-select',
+        { method: 'POST', body: JSON.stringify({ classId, studentId: row.id }) },
       );
       setToken(res.token);
-      setLastPoints(res.user.totalPoints);
       setUser(res.user);
       setClassName(res.class.name);
-      showToast('已进入班级');
+      showToast(`已选择 ${res.user.displayName}`);
+      setTab('points');
+      await loadRoster(classId);
       await refreshMe();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'join_failed');
+      setError(e instanceof Error ? e.message : 'select_failed');
+    }
+  }
+
+  async function requestPoints() {
+    if (!user) return;
+    try {
+      await api('/api/v1/point-requests', {
+        method: 'POST',
+        body: JSON.stringify({ reason: '课堂加分', category: 'student_request', points: 1 }),
+      });
+      showToast('已提交加分请求，等待老师确认');
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : '请求失败');
     }
   }
 
   const meta = useMemo(() => {
-    if (!user) return '未登录 · 积分 --';
-    return `${className || '班级'} · ${user.displayName} · 积分 ${user.totalPoints}`;
+    if (!user) return className ? `${className} · 请点选自己的姓名` : '请教师指派班级';
+    return `${className || '班级'} · ${user.displayName} · ${user.totalPoints} 分`;
   }, [user, className]);
+
+  async function onToggleCollapse() {
+    if (window.classroomDesk) {
+      const next = await window.classroomDesk.toggleCollapse();
+      setCollapsed(next);
+    } else setCollapsed((c) => !c);
+  }
+
+  if (!ready) {
+    return (
+      <div className="shell">
+        <p className="hint">加载中…</p>
+      </div>
+    );
+  }
 
   if (collapsed) {
     return (
@@ -154,16 +176,12 @@ export function App() {
             <span className="brand">{APP_NAME}</span>
             <span className="collapsed-stats">
               {offline ? '离线' : `积分 ${user?.totalPoints ?? '--'}`}
-              {pointsDelta !== 0 ? (
-                <span className="delta">{pointsDelta > 0 ? `+${pointsDelta}` : pointsDelta}</span>
-              ) : null}
-              {unread > 0 ? (
+              {unread > 0 && messagesEnabled ? (
                 <button
                   type="button"
                   className="badge clickable"
                   data-no-drag
-                  title="查看未读留言"
-                  aria-label={`有 ${unread} 条未读留言，按 Enter 打开留言`}
+                  aria-label={`未读留言 ${unread}`}
                   onClick={() => {
                     void (async () => {
                       if (window.classroomDesk) {
@@ -174,20 +192,13 @@ export function App() {
                       setTab('messages');
                     })();
                   }}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' || e.key === ' ') {
-                      e.preventDefault();
-                      (e.currentTarget as HTMLButtonElement).click();
-                    }
-                  }}
                 >
                   {unread}
-                  <span className="sr-only">未读留言</span>
                 </button>
               ) : null}
             </span>
           </div>
-          <button type="button" className="icon-btn" onClick={onToggleCollapse}>
+          <button type="button" className="icon-btn" onClick={() => void onToggleCollapse()}>
             展开
           </button>
         </header>
@@ -195,11 +206,13 @@ export function App() {
     );
   }
 
+  const visibleTabs = TABS.filter((t) => t.id !== 'messages' || messagesEnabled);
+
   return (
     <div className="shell">
       {offline ? (
         <div className="offline-banner" data-no-drag>
-          无法连接服务器（{getApiBase()}），正在重试…
+          无法连接服务器（{getApiBase()}）
           <button type="button" className="icon-btn" onClick={() => void refreshMe()}>
             重试
           </button>
@@ -211,14 +224,14 @@ export function App() {
           <span className="meta">{meta}</span>
         </div>
         <div className="titlebar-actions" data-no-drag>
-          <button type="button" className="icon-btn" onClick={onToggleCollapse}>
+          <button type="button" className="icon-btn" onClick={() => void onToggleCollapse()}>
             折叠
           </button>
         </div>
       </header>
 
       <nav className="tabs" aria-label="主导航">
-        {TABS.map((item) => (
+        {visibleTabs.map((item) => (
           <button
             key={item.id}
             type="button"
@@ -232,210 +245,155 @@ export function App() {
       </nav>
 
       <main className="content">
-        {!user ? (
-          <section className="panel">
-            <h1>班级码进入</h1>
-            <p className="hint">由教师提供班级码，填写姓名后进入课堂。</p>
-            <label className="field">
-              班级码
-              <input value={classCode} onChange={(e) => setClassCode(e.target.value)} />
-            </label>
-            <label className="field">
-              姓名
-              <input value={displayName} onChange={(e) => setDisplayName(e.target.value)} />
-            </label>
-            {error ? <p className="error">{error}</p> : null}
-            <button type="button" className="primary" onClick={() => void joinClass()}>
-              进入
-            </button>
-          </section>
-        ) : (
-          <>
-            {tab === 'homework' && <HomeworkTab />}
-            {tab === 'messages' && <MessagesTab onRead={() => void refreshMe()} />}
-            {tab === 'quiz' && <QuizTab onAnswered={showToast} />}
-            {tab === 'me' && (
-              <MeTab user={user} onPointsChange={() => void refreshMe()} showToast={showToast} />
-            )}
-          </>
+        {tab === 'points' && (
+          <PointsPanel
+            roster={roster}
+            user={user}
+            error={error}
+            onSelect={(row) => void selectStudent(row)}
+            onRequestPoints={() => void requestPoints()}
+            onRefresh={() => void loadRoster(classId)}
+          />
+        )}
+        {tab === 'quiz' && user && <QuizTab onAnswered={showToast} />}
+        {tab === 'quiz' && !user && <p className="hint">请先在「积分」页点选自己的姓名</p>}
+        {tab === 'messages' && messagesEnabled && user && (
+          <MessagesTab onRead={() => void refreshMe()} />
+        )}
+        {tab === 'admin' && (
+          <AdminTab
+            classId={classId}
+            onSaved={async (next) => {
+              setClassId(next.classId);
+              await loadRoster(next.classId);
+              showToast('本机配置已保存');
+            }}
+          />
         )}
       </main>
 
       {toast ? <div className="toast">{toast}</div> : null}
-
-      {showNotice && (
-        <div className="modal-backdrop" role="dialog" aria-modal="true">
-          <div className="modal">
-            <h2>使用说明</h2>
-            <p>{settings?.noticeText ?? APP_NOTICE}</p>
-            <p className="hint">{settings?.attendanceNoticeText ?? ATTENDANCE_NOTICE}</p>
-            <button
-              type="button"
-              className="primary"
-              onClick={() => {
-                localStorage.setItem(NOTICE_KEY, '1');
-                setShowNotice(false);
-              }}
-            >
-              我已知晓
-            </button>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
 
-function AttachmentPreview({ url }: { url: string }) {
-  const lower = url.toLowerCase();
-  const isImage = /\.(png|jpe?g|webp|gif)(\?|$)/.test(lower);
-  const isPdf = /\.pdf(\?|$)/.test(lower);
-  const [zoom, setZoom] = useState(1);
-  const [pdfPage, setPdfPage] = useState(1);
-  const [pdfPageCount, setPdfPageCount] = useState<number | null>(null);
-  const [pdfError, setPdfError] = useState('');
-
-  useEffect(() => {
-    if (!isPdf) return;
-    let cancelled = false;
-    void (async () => {
-      try {
-        const pdfjs = await import('pdfjs-dist');
-        pdfjs.GlobalWorkerOptions.workerSrc = new URL(
-          'pdfjs-dist/build/pdf.worker.min.mjs',
-          import.meta.url,
-        ).toString();
-        const doc = await pdfjs.getDocument(url).promise;
-        if (!cancelled) {
-          setPdfPageCount(doc.numPages);
-          setPdfPage((p) => Math.min(Math.max(1, p), doc.numPages));
-          setPdfError('');
-        }
-        await doc.destroy();
-      } catch (e) {
-        if (!cancelled) setPdfError(e instanceof Error ? e.message : 'pdf_load_failed');
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [url, isPdf]);
-
-  if (!isImage && !isPdf) {
-    return (
-      <div className="preview">
-        <a className="link" href={url} target="_blank" rel="noreferrer">
-          下载附件
-        </a>
-      </div>
-    );
-  }
-
-  const maxPage = pdfPageCount ?? 1;
-
+function PointsPanel({
+  roster,
+  user,
+  error,
+  onSelect,
+  onRequestPoints,
+  onRefresh,
+}: {
+  roster: RosterRow[];
+  user: User | null;
+  error: string;
+  onSelect: (row: RosterRow) => void;
+  onRequestPoints: () => void;
+  onRefresh: () => void;
+}) {
   return (
-    <div className="preview">
-      <a className="link" href={url} target="_blank" rel="noreferrer">
-        打开附件
-      </a>
-      {isImage ? (
-        <div className="preview-controls">
-          <button type="button" className="secondary" onClick={() => setZoom((z) => Math.max(0.5, z - 0.25))}>
-            缩小
-          </button>
-          <span className="hint">{Math.round(zoom * 100)}%</span>
-          <button type="button" className="secondary" onClick={() => setZoom((z) => Math.min(3, z + 0.25))}>
-            放大
-          </button>
-          <div className="preview-scroll">
-            <img
-              src={url}
-              alt="作业附件预览"
-              className="preview-media"
-              style={{ transform: `scale(${zoom})`, transformOrigin: 'top left' }}
-            />
-          </div>
-        </div>
+    <section className="panel">
+      <h1>积分花名册</h1>
+      <p className="hint">在表格中找到自己的名字并点击；再点「请求加分」等待老师通过。</p>
+      {error ? <p className="error">{error}</p> : null}
+      {user ? (
+        <button type="button" className="primary" onClick={onRequestPoints}>
+          为 {user.displayName} 请求 +1 分
+        </button>
       ) : null}
-      {isPdf ? (
-        <div className="preview-controls">
-          <button
-            type="button"
-            className="secondary"
-            disabled={pdfPage <= 1}
-            onClick={() => setPdfPage((p) => Math.max(1, p - 1))}
-            aria-label="上一页"
-          >
-            上一页
-          </button>
-          <span className="hint">
-            第 {pdfPage} / {pdfPageCount ?? '…'} 页
-          </span>
-          <button
-            type="button"
-            className="secondary"
-            disabled={pdfPageCount != null && pdfPage >= maxPage}
-            onClick={() => setPdfPage((p) => Math.min(maxPage, p + 1))}
-            aria-label="下一页"
-          >
-            下一页
-          </button>
-          {pdfError ? <p className="error">PDF 预览失败，请点「打开附件」</p> : null}
-          <iframe
-            title={`pdf-preview-page-${pdfPage}`}
-            src={`${url}#page=${pdfPage}`}
-            className="preview-media pdf"
-          />
-        </div>
-      ) : null}
-    </div>
+      <button type="button" className="secondary" onClick={onRefresh}>
+        刷新名单
+      </button>
+      {roster.length === 0 ? <p>暂无名单，请老师导入 Excel/CSV</p> : null}
+      <table className="roster-table">
+        <thead>
+          <tr>
+            <th>姓名</th>
+            <th>学号</th>
+            <th>积分</th>
+          </tr>
+        </thead>
+        <tbody>
+          {roster.map((row) => {
+            const mine = user?.id === row.id;
+            return (
+              <tr
+                key={row.id}
+                className={mine ? 'roster-row mine' : 'roster-row'}
+                onClick={() => onSelect(row)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    onSelect(row);
+                  }
+                }}
+                tabIndex={0}
+                role="button"
+                aria-label={`选择 ${row.displayName}`}
+              >
+                <td>{row.displayName}{mine ? '（我）' : ''}</td>
+                <td>{row.studentNo || '—'}</td>
+                <td>{row.totalPoints}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </section>
   );
 }
 
-function HomeworkTab() {
-  const [items, setItems] = useState<Array<Record<string, unknown>>>([]);
-  const [note, setNote] = useState<Record<string, string>>({});
+function AdminTab({
+  classId,
+  onSaved,
+}: {
+  classId: string;
+  onSaved: (cfg: { apiBase: string; classId: string }) => Promise<void>;
+}) {
+  const [apiBase, setApiBaseLocal] = useState(getApiBase());
+  const [cid, setCid] = useState(classId);
+  const [adminPassword, setAdminPassword] = useState('');
+  const [msg, setMsg] = useState('');
 
-  useEffect(() => {
-    void api<{ items: Array<Record<string, unknown>> }>('/api/v1/assignments')
-      .then((r) => setItems(r.items))
-      .catch(() => setItems([]));
-  }, []);
-
-  async function submit(id: string) {
-    await api(`/api/v1/assignments/${id}/submit`, {
-      method: 'POST',
-      body: JSON.stringify({ note: note[id] ?? '' }),
-    });
-    const r = await api<{ items: Array<Record<string, unknown>> }>('/api/v1/assignments');
-    setItems(r.items);
+  async function save() {
+    setMsg('');
+    try {
+      await api('/api/v1/auth/admin-unlock', {
+        method: 'POST',
+        body: JSON.stringify({ password: adminPassword }),
+      });
+      await setApiBase(apiBase);
+      if (window.classroomDesk?.setConfig) {
+        await window.classroomDesk.setConfig({ apiBase, classId: cid });
+      }
+      await onSaved({ apiBase, classId: cid.trim() });
+      setMsg('已保存');
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : '保存失败');
+    }
   }
 
   return (
     <section className="panel">
-      <h1>积分</h1>
-      {items.length === 0 ? <p>暂无作业（审核通过后加分）</p> : null}
-      {items.map((item) => {
-        const id = String(item.id);
-        const submission = item.mySubmission as { status?: string } | null;
-        const attachmentUrl = item.attachmentUrl ? String(item.attachmentUrl) : '';
-        return (
-          <article key={id} className="card-block">
-            <strong>{String(item.title)}</strong>
-            <p>{String(item.description ?? '')}</p>
-            {attachmentUrl ? <AttachmentPreview url={`${getApiBase()}${attachmentUrl}`} /> : null}
-            <p className="hint">状态：{submission?.status ?? '未提交'}</p>
-            <input
-              placeholder="提交说明"
-              value={note[id] ?? ''}
-              onChange={(e) => setNote((prev) => ({ ...prev, [id]: e.target.value }))}
-            />
-            <button type="button" className="secondary" onClick={() => void submit(id)}>
-              提交
-            </button>
-          </article>
-        );
-      })}
+      <h1>本机指派（教师）</h1>
+      <p className="hint">上课前由教师填写教室服务器地址与班级 ID（从教师后台复制）。</p>
+      <label className="field">
+        服务器 apiBase
+        <input value={apiBase} onChange={(e) => setApiBaseLocal(e.target.value)} placeholder="http://192.168.1.50:8787" />
+      </label>
+      <label className="field">
+        班级 classId
+        <input value={cid} onChange={(e) => setCid(e.target.value)} placeholder="从教师后台复制" />
+      </label>
+      <label className="field">
+        管理密码
+        <input type="password" value={adminPassword} onChange={(e) => setAdminPassword(e.target.value)} />
+      </label>
+      <button type="button" className="primary" onClick={() => void save()}>
+        保存本机配置
+      </button>
+      {msg ? <p className="hint">{msg}</p> : null}
     </section>
   );
 }
@@ -462,26 +420,30 @@ function MessagesTab({ onRead }: { onRead: () => void }) {
     void load().catch(() => setItems([]));
   }, []);
 
-  async function send() {
-    await api('/api/v1/messages', { method: 'POST', body: JSON.stringify({ body }) });
-    setBody('');
-    await load();
-  }
-
   return (
     <section className="panel">
       <h1>留言</h1>
-      <textarea value={body} onChange={(e) => setBody(e.target.value)} placeholder="向教师提问…" />
-      <button type="button" className="primary" onClick={() => void send()}>
+      <textarea value={body} onChange={(e) => setBody(e.target.value)} rows={3} placeholder="给老师留言" />
+      <button
+        type="button"
+        className="primary"
+        onClick={() =>
+          void api('/api/v1/messages', { method: 'POST', body: JSON.stringify({ body }) })
+            .then(() => {
+              setBody('');
+              return load();
+            })
+            .catch(() => undefined)
+        }
+      >
         发送
       </button>
       {items.map((msg) => (
         <article key={String(msg.id)} className="card-block">
           <p>{String(msg.body)}</p>
-          <p className="hint">{String(msg.createdAt)}</p>
-          {((msg.replies as Array<{ id: string; body: string }>) ?? []).map((r) => (
-            <p key={r.id} className="reply">
-              教师回复：{r.body}
+          {((msg.replies as Array<{ body: string }>) ?? []).map((r, i) => (
+            <p key={i} className="hint">
+              老师：{r.body}
             </p>
           ))}
         </article>
@@ -504,245 +466,87 @@ function QuizTab({ onAnswered }: { onAnswered: (msg: string) => void }) {
   async function answer(id: string, payload: unknown) {
     const res = await api<{ isCorrect: boolean }>(`/api/v1/questions/${id}/answer`, {
       method: 'POST',
-      body: JSON.stringify({ answer: payload }),
+      body: JSON.stringify({ answerPayload: payload }),
     });
     onAnswered(res.isCorrect ? '回答正确' : '回答错误');
-    const r = await api<{ items: Array<Record<string, unknown>> }>('/api/v1/questions');
-    setItems(r.items);
   }
 
   return (
     <section className="panel">
       <h1>答题</h1>
+      {items.length === 0 ? <p>暂无题目</p> : null}
       {items.map((q) => {
         const id = String(q.id);
         const type = String(q.type);
-        const options = (q.options as Array<{ id: string; label: string; content: string }>) ?? [];
-        const mine = q.myAnswer as { isCorrect?: number } | null;
+        const opts = (q.options as Array<{ id: string; label: string; content: string }>) ?? [];
         return (
           <article key={id} className="card-block">
             <strong>
               [{type}] {String(q.title)}
             </strong>
             <p>{String(q.stem)}</p>
-            {mine ? (
-              <p className="hint">{mine.isCorrect ? '回答正确' : '回答错误'}</p>
-            ) : (
+            {type === 'single' || type === 'bool'
+              ? opts.map((opt) => (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    className="secondary"
+                    onClick={() => void answer(id, { optionIds: [opt.id] })}
+                  >
+                    {opt.label}. {opt.content}
+                  </button>
+                ))
+              : null}
+            {type === 'multi' ? (
               <>
-                {(type === 'single' || type === 'bool') &&
-                  options.map((opt) => (
-                    <button
-                      key={opt.id}
-                      type="button"
-                      className="secondary"
-                      onClick={() => void answer(id, { optionId: opt.id })}
-                    >
+                {opts.map((opt) => {
+                  const selected = (multi[id] ?? []).includes(opt.id);
+                  return (
+                    <label key={opt.id} className="check">
+                      <input
+                        type="checkbox"
+                        checked={selected}
+                        onChange={() =>
+                          setMulti((prev) => {
+                            const cur = new Set(prev[id] ?? []);
+                            if (cur.has(opt.id)) cur.delete(opt.id);
+                            else cur.add(opt.id);
+                            return { ...prev, [id]: [...cur] };
+                          })
+                        }
+                      />
                       {opt.label}. {opt.content}
-                    </button>
-                  ))}
-                {type === 'multi' && (
-                  <>
-                    {options.map((opt) => {
-                      const selected = (multi[id] ?? []).includes(opt.id);
-                      return (
-                        <label key={opt.id} className="check">
-                          <input
-                            type="checkbox"
-                            checked={selected}
-                            onChange={() =>
-                              setMulti((prev) => {
-                                const cur = new Set(prev[id] ?? []);
-                                if (cur.has(opt.id)) cur.delete(opt.id);
-                                else cur.add(opt.id);
-                                return { ...prev, [id]: [...cur] };
-                              })
-                            }
-                          />
-                          {opt.label}. {opt.content}
-                        </label>
-                      );
-                    })}
-                    <button
-                      type="button"
-                      className="primary"
-                      onClick={() => void answer(id, { optionIds: multi[id] ?? [] })}
-                    >
-                      提交多选
-                    </button>
-                  </>
-                )}
-                {type === 'blank' && (
-                  <>
-                    <input
-                      value={blank[id] ?? ''}
-                      onChange={(e) => setBlank((prev) => ({ ...prev, [id]: e.target.value }))}
-                      placeholder="填空答案"
-                    />
-                    <button
-                      type="button"
-                      className="primary"
-                      onClick={() => void answer(id, { text: blank[id] ?? '' })}
-                    >
-                      提交填空
-                    </button>
-                  </>
-                )}
+                    </label>
+                  );
+                })}
+                <button
+                  type="button"
+                  className="primary"
+                  onClick={() => void answer(id, { optionIds: multi[id] ?? [] })}
+                >
+                  提交多选
+                </button>
               </>
-            )}
+            ) : null}
+            {type === 'blank' ? (
+              <>
+                <input
+                  value={blank[id] ?? ''}
+                  onChange={(e) => setBlank((prev) => ({ ...prev, [id]: e.target.value }))}
+                  placeholder="填空答案"
+                />
+                <button
+                  type="button"
+                  className="primary"
+                  onClick={() => void answer(id, { text: blank[id] ?? '' })}
+                >
+                  提交填空
+                </button>
+              </>
+            ) : null}
           </article>
         );
       })}
-    </section>
-  );
-}
-
-function MeTab({
-  user,
-  onPointsChange,
-  showToast,
-}: {
-  user: User;
-  onPointsChange: () => void;
-  showToast: (msg: string) => void;
-}) {
-  const [reason, setReason] = useState('');
-  const [points, setPoints] = useState(1);
-  const [pending, setPending] = useState<Array<Record<string, unknown>>>([]);
-  const [attendance, setAttendance] = useState<Record<string, unknown> | null>(null);
-  const [adminPassword, setAdminPassword] = useState('');
-  const [adminMsg, setAdminMsg] = useState('');
-  const [serverUrl, setServerUrl] = useState(getApiBase());
-
-  async function load() {
-    const [req, att] = await Promise.all([
-      api<{ items: Array<Record<string, unknown>> }>('/api/v1/point-requests/pending'),
-      api<Record<string, unknown>>('/api/v1/attendance/my-status'),
-    ]);
-    setPending(req.items);
-    setAttendance(att);
-  }
-
-  useEffect(() => {
-    void load().catch(() => undefined);
-    const t = setInterval(() => void load().catch(() => undefined), 5000);
-    return () => clearInterval(t);
-  }, []);
-
-  async function requestPoints() {
-    await api('/api/v1/point-requests', {
-      method: 'POST',
-      body: JSON.stringify({ reason, category: 'student_request', points }),
-    });
-    setReason('');
-    showToast('已提交加分请求');
-    await load();
-    onPointsChange();
-  }
-
-  async function checkIn() {
-    const session = attendance?.session as { id?: string } | null;
-    if (!session?.id) return;
-    await api(`/api/v1/attendance/sessions/${session.id}/check-in`, { method: 'POST', body: '{}' });
-    showToast('签到成功');
-    await load();
-  }
-
-  async function adminAction(action: 'quit' | 'disable-autostart' | 'uninstall') {
-    setAdminMsg('');
-    try {
-      await api('/api/v1/auth/admin-unlock', {
-        method: 'POST',
-        body: JSON.stringify({ password: adminPassword }),
-      });
-      if (!window.classroomDesk) {
-        setAdminMsg('仅桌面端可用');
-        return;
-      }
-      if (action === 'quit') await window.classroomDesk.adminQuit();
-      if (action === 'disable-autostart') {
-        await window.classroomDesk.setAutostart(false);
-        setAdminMsg('已关闭开机自启');
-      }
-      if (action === 'uninstall') {
-        const result = await window.classroomDesk.openUninstallGuide();
-        setAdminMsg(
-          result.platform === 'win32'
-            ? '已打开 Windows「应用和功能」，请搜索 Classroom Desk 正常卸载（无防卸载）。'
-            : '请在系统应用目录中卸载本程序。',
-        );
-      }
-    } catch (e) {
-      setAdminMsg(e instanceof Error ? e.message : 'admin_failed');
-    }
-  }
-
-  return (
-    <section className="panel">
-      <h1>我的</h1>
-      <p>积分：{user.totalPoints}</p>
-      <p className="hint">签到状态：{String(attendance?.status ?? 'none')}</p>
-      {attendance?.session ? (
-        <button type="button" className="secondary" onClick={() => void checkIn()}>
-          签到
-        </button>
-      ) : null}
-
-      <h2>请求加分</h2>
-      <input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="理由" />
-      <input
-        type="number"
-        value={points}
-        onChange={(e) => setPoints(Number(e.target.value))}
-        placeholder="分值"
-      />
-      <button type="button" className="primary" onClick={() => void requestPoints()}>
-        提交请求
-      </button>
-      {pending.map((p) => (
-        <p key={String(p.id)} className="hint">
-          待确认：{String(p.reason)} · 倒计时 {String(p.countdownSeconds)}s
-        </p>
-      ))}
-
-      <h2>管理员</h2>
-      <p className="hint">学生界面无退出按钮；仅管理员密码可退出、关自启、改服务器地址或打开系统卸载页。</p>
-      <input
-        type="password"
-        value={adminPassword}
-        onChange={(e) => setAdminPassword(e.target.value)}
-        placeholder="管理员密码"
-      />
-      <input
-        value={serverUrl}
-        onChange={(e) => setServerUrl(e.target.value)}
-        placeholder="服务器地址 http://10.0.0.5:8787"
-      />
-      <button
-        type="button"
-        className="secondary"
-        onClick={() =>
-          void (async () => {
-            await api('/api/v1/auth/admin-unlock', {
-              method: 'POST',
-              body: JSON.stringify({ password: adminPassword }),
-            });
-            await setApiBase(serverUrl);
-            setAdminMsg(`服务器地址已保存：${getApiBase()}`);
-          })().catch((e) => setAdminMsg(e instanceof Error ? e.message : 'failed'))
-        }
-      >
-        管理员保存服务器地址
-      </button>
-      <button type="button" className="secondary" onClick={() => void adminAction('quit')}>
-        管理员退出程序
-      </button>
-      <button type="button" className="secondary" onClick={() => void adminAction('disable-autostart')}>
-        管理员关闭开机自启
-      </button>
-      <button type="button" className="secondary" onClick={() => void adminAction('uninstall')}>
-        管理员打开卸载引导
-      </button>
-      {adminMsg ? <p className="hint">{adminMsg}</p> : null}
     </section>
   );
 }

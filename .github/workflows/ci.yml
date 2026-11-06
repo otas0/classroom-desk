@@ -82,6 +82,7 @@ jobs:
           node-version: '22'
           cache: npm
       - name: Cache Electron & electron-builder
+        id: electron-cache
         uses: actions/cache@v4
         with:
           path: |
@@ -90,13 +91,32 @@ jobs:
           key: electron-win-${{ hashFiles('package-lock.json', 'apps/student-desktop/package.json') }}
           restore-keys: |
             electron-win-
+      - name: Report electron cache hit
+        shell: pwsh
+        run: |
+          $hit = '${{ steps.electron-cache.outputs.cache-hit }}'
+          Write-Host "electron_cache_hit=$hit"
+          if ($hit -eq 'true') { Write-Host '::notice::Electron cache HIT — expect faster windows-pack' }
+          else { Write-Host '::notice::Electron cache MISS — cold download; next push on same lockfile should HIT' }
       - name: Install
         run: npm install
       - name: Build Windows NSIS
         env:
           CSC_LINK: ${{ secrets.CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
-        run: npm run dist:win --workspace=@classroom-desk/student-desktop
+        shell: pwsh
+        run: |
+          $sw = [System.Diagnostics.Stopwatch]::StartNew()
+          npm run dist:win --workspace=@classroom-desk/student-desktop
+          $sw.Stop()
+          Write-Host ("dist_win_seconds={0:N1}" -f $sw.Elapsed.TotalSeconds)
+          Write-Host ("electron_cache_hit={0}" -f '${{ steps.electron-cache.outputs.cache-hit }}')
+          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value @"
+          ### windows-pack timing
+          - electron_cache_hit: `${{ steps.electron-cache.outputs.cache-hit }}`
+          - dist_win_seconds: $([math]::Round($sw.Elapsed.TotalSeconds,1))
+          Compare a MISS run vs next HIT run on the same lockfile to judge cache value.
+          "@
       - name: Assert installer artifact path
         shell: pwsh
         run: |
@@ -111,9 +131,16 @@ jobs:
             exit 1
           }
           Write-Host "Found installer(s): $($exe.FullName -join ', ')"
+          foreach ($f in $exe) {
+            $hash = (Get-FileHash -Algorithm SHA256 $f.FullName).Hash.ToLower()
+            Write-Host ("sha256 {0} {1}" -f $hash, $f.Name)
+            Set-Content -Path ("{0}.sha256" -f $f.FullName) -Value ("{0}  {1}" -f $hash, $f.Name)
+          }
       - name: Upload installer
         uses: actions/upload-artifact@v4
         with:
           name: classroom-desk-windows-setup
-          path: apps/student-desktop/release/*.exe
+          path: |
+            apps/student-desktop/release/*.exe
+            apps/student-desktop/release/*.sha256
           if-no-files-found: error

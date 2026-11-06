@@ -12,6 +12,7 @@ settingsRouter.get('/api/v1/settings/public', (_req, res) => {
   res.json({
     noticeText: getSetting(db, 'notice_text') ?? APP_NOTICE,
     attendanceNoticeText: getSetting(db, 'attendance_notice_text') ?? ATTENDANCE_NOTICE,
+    messagesEnabled: (getSetting(db, 'messages_enabled') ?? '1') !== '0',
     pointRequestTtlMinutes: Number(
       getSetting(db, 'point_request_ttl_minutes') ?? config.defaultPointRequestTtlMinutes,
     ),
@@ -38,6 +39,7 @@ settingsRouter.get('/api/v1/settings', requireAuth, requireRoles('teacher', 'adm
     ),
     pointRequestDailyCleanupTime: getSetting(db, 'point_request_daily_cleanup_time') ?? '02:00',
     pointRequestDailyCleanupEditable: false,
+    messagesEnabled: (getSetting(db, 'messages_enabled') ?? '1') !== '0',
     noticeText: getSetting(db, 'notice_text') ?? APP_NOTICE,
     attendanceNoticeText: getSetting(db, 'attendance_notice_text') ?? ATTENDANCE_NOTICE,
     note: '未确认加分请求每天凌晨清空；已通过加分永久保留并可按月导出。',
@@ -70,6 +72,14 @@ settingsRouter.patch('/api/v1/settings', requireAuth, requireRoles('teacher', 'a
   if (req.body?.pointRequestDailyCleanupTime != null) {
     res.status(400).json({ error: 'daily_cleanup_time_readonly' });
     return;
+  }
+
+  if (req.body?.messagesEnabled != null) {
+    const enabled = Boolean(req.body.messagesEnabled);
+    db.prepare(
+      `INSERT INTO settings (key, value) VALUES ('messages_enabled', ?)
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+    ).run(enabled ? '1' : '0');
   }
 
   res.json({ ok: true });
