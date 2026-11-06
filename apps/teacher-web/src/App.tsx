@@ -19,7 +19,7 @@ const IMPORT_ERROR_ZH: Record<string, string> = {
 
 export function App() {
   const [tokenReady, setTokenReady] = useState(Boolean(getToken()));
-  const [username, setUsername] = useState('teacher');
+  const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [tab, setTab] = useState<Tab>('roster');
@@ -55,7 +55,7 @@ export function App() {
     return (
       <div className="login">
         <h1>{APP_NAME} 教师后台</h1>
-        <p className="hint">账号 teacher；登录后请到「设置」修改密码。</p>
+        <p className="hint">使用教师账号登录；首次登录后请到「设置」修改密码。</p>
         <label>
           用户名
           <input value={username} onChange={(e) => setUsername(e.target.value)} />
@@ -142,10 +142,11 @@ function RosterPanel({
   onClasses: () => Promise<void>;
 }) {
   const [name, setName] = useState('');
-  const [csv, setCsv] = useState('姓名,学号\n张三,2026001\n李四,2026002');
+  const [csv, setCsv] = useState('');
   const [students, setStudents] = useState<Array<Record<string, unknown>>>([]);
   const [importResult, setImportResult] = useState('');
   const [search, setSearch] = useState('');
+  const [replaceRoster, setReplaceRoster] = useState(false);
 
   async function loadStudents() {
     if (!classId) return;
@@ -173,8 +174,10 @@ function RosterPanel({
   async function importFile(file: File) {
     const fd = new FormData();
     fd.append('file', file);
+    if (replaceRoster) fd.append('replace', '1');
     const token = getToken();
-    const res = await fetch(`${API_BASE}/api/v1/classes/${classId}/students/import-file`, {
+    const q = replaceRoster ? '?replace=1' : '';
+    const res = await fetch(`${API_BASE}/api/v1/classes/${classId}/students/import-file${q}`, {
       method: 'POST',
       headers: token ? { Authorization: `Bearer ${token}` } : undefined,
       body: fd,
@@ -182,6 +185,7 @@ function RosterPanel({
     const data = (await res.json()) as {
       created?: number;
       skipped?: number;
+      replaced?: number;
       failures?: Array<{ line: number; name: string; reasonText?: string; reason: string }>;
       error?: string;
       message?: string;
@@ -192,7 +196,11 @@ function RosterPanel({
     const fail = (data.failures ?? [])
       .map((f) => `第${f.line}行 ${f.name} → ${f.reasonText ?? f.reason}`)
       .join('；');
-    setImportResult(`新建 ${data.created}，跳过 ${data.skipped}${fail ? `。失败行：${fail}` : ''}`);
+    setImportResult(
+      `${replaceRoster ? `覆盖清除 ${data.replaced ?? 0} 人后，` : ''}新建 ${data.created}，跳过 ${data.skipped}${
+        fail ? `。失败行：${fail}` : ''
+      }`,
+    );
     await loadStudents();
   }
 
@@ -216,6 +224,10 @@ function RosterPanel({
 
       <h3>批量导入（Excel / CSV）</h3>
       <p className="hint">支持 .xlsx / .xls / .csv，列：姓名、学号（学号可选）。导入后学生机花名册即可点名加分。</p>
+      <label className="row">
+        <input type="checkbox" checked={replaceRoster} onChange={(e) => setReplaceRoster(e.target.checked)} />
+        覆盖导入（先清空本班现有学生，再写入表格；请先 backup:db）
+      </label>
       <label className="dropzone dropzone-wrap">
         <strong>点击选择文件</strong>
         <p className="hint">或拖入 Excel / CSV（真实上传到本班花名册）</p>
@@ -229,27 +241,41 @@ function RosterPanel({
           }}
         />
       </label>
-      <textarea value={csv} onChange={(e) => setCsv(e.target.value)} rows={5} />
+      <textarea
+        value={csv}
+        onChange={(e) => setCsv(e.target.value)}
+        rows={5}
+        placeholder={'姓名,学号\n（粘贴真实花名册）'}
+      />
       <button
         type="button"
-        onClick={() =>
+        onClick={() => {
+          if (!csv.trim()) {
+            setImportResult('请粘贴真实花名册 CSV，或使用上方文件上传');
+            return;
+          }
           void api<{
             created: number;
             skipped: number;
+            replaced?: number;
             failures?: Array<{ line: number; name: string; reasonText?: string; reason: string }>;
           }>(`/api/v1/classes/${classId}/students/import`, {
             method: 'POST',
-            body: JSON.stringify({ csv }),
+            body: JSON.stringify({ csv, replace: replaceRoster }),
           })
             .then((r) => {
               const fail = (r.failures ?? [])
                 .map((f) => `第${f.line}行 ${f.name} → ${f.reasonText ?? f.reason}`)
                 .join('；');
-              setImportResult(`新建 ${r.created}，跳过 ${r.skipped}${fail ? `。${fail}` : ''}`);
+              setImportResult(
+                `${replaceRoster ? `覆盖清除 ${r.replaced ?? 0} 人后，` : ''}新建 ${r.created}，跳过 ${r.skipped}${
+                  fail ? `。${fail}` : ''
+                }`,
+              );
               return loadStudents();
             })
-            .catch((err) => setImportResult(String(err instanceof Error ? err.message : err)))
-        }
+            .catch((err) => setImportResult(String(err instanceof Error ? err.message : err)));
+        }}
       >
         从文本导入 CSV
       </button>
@@ -881,8 +907,10 @@ function MessagesPanel({ classId }: { classId: string }) {
   const [items, setItems] = useState<Array<Record<string, unknown>>>([]);
   const [reply, setReply] = useState<Record<string, string>>({});
   const [enabled, setEnabled] = useState(true);
+  const [err, setErr] = useState('');
 
   async function load() {
+    setErr('');
     const [msgs, settings] = await Promise.all([
       api<{ items: Array<Record<string, unknown>> }>(`/api/v1/messages?classId=${classId}`),
       api<{ messagesEnabled: boolean }>('/api/v1/settings'),
@@ -892,12 +920,14 @@ function MessagesPanel({ classId }: { classId: string }) {
   }
 
   useEffect(() => {
-    void load().catch(() => setItems([]));
+    void load().catch((e) => setErr(e instanceof Error ? e.message : '加载失败'));
   }, [classId]);
 
   return (
     <section>
       <h2>留言</h2>
+      <p className="hint">含学生→老师、学生↔学生；可回复任意一条。</p>
+      {err ? <p className="error">{err}</p> : null}
       <label className="row">
         <input
           type="checkbox"
@@ -906,33 +936,61 @@ function MessagesPanel({ classId }: { classId: string }) {
             void api('/api/v1/settings', {
               method: 'PATCH',
               body: JSON.stringify({ messagesEnabled: e.target.checked }),
-            }).then(() => setEnabled(e.target.checked))
+            })
+              .then(() => setEnabled(e.target.checked))
+              .catch((ex) => setErr(ex instanceof Error ? ex.message : '保存失败'))
           }
         />
         允许学生留言（关闭后学生端隐藏留言并禁止发送）
       </label>
-      {items.map((msg) => (
-        <div key={String(msg.id)} className="card">
-          <strong>{String(msg.studentName)}</strong>
-          <p>{String(msg.body)}</p>
-          <input
-            value={reply[String(msg.id)] ?? ''}
-            onChange={(e) => setReply((prev) => ({ ...prev, [String(msg.id)]: e.target.value }))}
-            placeholder="回复"
-          />
-          <button
-            type="button"
-            onClick={() =>
-              void api(`/api/v1/messages/${String(msg.id)}/replies`, {
-                method: 'POST',
-                body: JSON.stringify({ body: reply[String(msg.id)] ?? '' }),
-              }).then(load)
-            }
-          >
-            回复
-          </button>
-        </div>
-      ))}
+      <button type="button" className="secondary" onClick={() => void load().catch((e) => setErr(String(e)))}>
+        刷新
+      </button>
+      {items.length === 0 ? <p className="hint">暂无留言</p> : null}
+      {items.map((msg) => {
+        const peer = Boolean(msg.toStudentId);
+        const heading = peer
+          ? `${String(msg.studentName)} → ${String(msg.toStudentName ?? '同学')}`
+          : `${String(msg.studentName)} → 老师`;
+        return (
+          <div key={String(msg.id)} className="card">
+            <strong>{heading}</strong>
+            <p>{String(msg.body)}</p>
+            <p className="hint">{msg.createdAt ? new Date(String(msg.createdAt)).toLocaleString() : ''}</p>
+            {((msg.replies as Array<{ id?: string; authorName?: string; body: string }>) ?? []).map((r, i) => (
+              <p key={r.id ?? i} className="hint">
+                {r.authorName ?? '回复'}：{r.body}
+              </p>
+            ))}
+            <input
+              value={reply[String(msg.id)] ?? ''}
+              onChange={(e) => setReply((prev) => ({ ...prev, [String(msg.id)]: e.target.value }))}
+              placeholder="回复内容"
+            />
+            <button
+              type="button"
+              onClick={() => {
+                const text = (reply[String(msg.id)] ?? '').trim();
+                if (!text) {
+                  setErr('回复不能为空');
+                  return;
+                }
+                void api(`/api/v1/messages/${String(msg.id)}/replies`, {
+                  method: 'POST',
+                  body: JSON.stringify({ body: text }),
+                })
+                  .then(() => {
+                    setReply((prev) => ({ ...prev, [String(msg.id)]: '' }));
+                    return load();
+                  })
+                  .catch((ex) => setErr(ex instanceof Error ? ex.message : '回复失败'));
+              }}
+            >
+              回复
+            </button>
+          </div>
+        );
+      })}
     </section>
   );
 }

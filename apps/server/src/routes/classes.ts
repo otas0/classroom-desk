@@ -82,8 +82,18 @@ function parseSheetToRows(buffer: Buffer): ImportRow[] {
   return rows;
 }
 
-function importStudentRows(classId: string, rows: ImportRow[]) {
+function clearClassStudents(classId: string): number {
   const db = openDb();
+  const info = db.prepare(`DELETE FROM users WHERE role = 'student' AND class_id = ?`).run(classId);
+  return Number(info.changes ?? 0);
+}
+
+function importStudentRows(classId: string, rows: ImportRow[], opts?: { replace?: boolean }) {
+  const db = openDb();
+  let replaced = 0;
+  if (opts?.replace) {
+    replaced = clearClassStudents(classId);
+  }
   let created = 0;
   let skipped = 0;
   const failures: ImportFailure[] = [];
@@ -163,7 +173,7 @@ function importStudentRows(classId: string, rows: ImportRow[]) {
     created += 1;
   }
 
-  return { created, skipped, total: rows.length, failures };
+  return { created, skipped, replaced, total: rows.length, failures };
 }
 
 classesRouter.get('/api/v1/classes', requireAuth, requireRoles('teacher', 'admin'), (_req, res) => {
@@ -246,7 +256,8 @@ classesRouter.post(
       res.status(400).json({ error: 'empty_csv' });
       return;
     }
-    res.status(201).json(importStudentRows(classId, rows));
+    const replace = Boolean(req.body?.replace);
+    res.status(201).json(importStudentRows(classId, rows, { replace }));
   },
 );
 
@@ -301,7 +312,11 @@ classesRouter.post(
       });
       return;
     }
-    const result = importStudentRows(classId, rows);
+    const replace =
+      String(req.query.replace ?? '') === '1' ||
+      String(req.body?.replace ?? '') === '1' ||
+      String(req.body?.replace ?? '') === 'true';
+    const result = importStudentRows(classId, rows, { replace });
     if (result.failures.length > 0 && result.created === 0 && result.skipped === 0) {
       res.status(400).json({
         error: 'import_all_failed',

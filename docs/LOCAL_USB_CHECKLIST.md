@@ -7,7 +7,7 @@ U 盘目录示例：`releases/192.168.31.179/`（exe 已 gitignore，本机生�
 
 - 班级：**本教室** · `classId=00d6b800-6628-4d20-a49c-9765325d9eef`
 - `apiBase=http://192.168.31.179:8787`（已写入 settings + student `config.json`）
-- 花名册：张三/李四/王五（学号 2026001–003）；假数据已清空；题目无占位 mock
+- 花名册/题目/留言：禁止预填假名；空库显示空状态；仅真实导入与真实发题
 - 留言默认关；签到记为到课（无学校作息迟到配置）
 - 教师请在设置里改成个人密码
 - `releases/**` 二进制不入库；只提交 `releases/README.md`
@@ -21,7 +21,7 @@ U 盘目录示例：`releases/192.168.31.179/`（exe 已 gitignore，本机生�
 
 ## B. 教师机 Windows
 
-- [ ] 固定 IP（与 apiBase 一致）
+- [ ] 固定 IP：`windows-set-fixed-ip.ps1`（默认 192.168.31.179）
 - [ ] `windows-teacher-host.ps1` + `windows-autostart-server.ps1`
 - [ ] 重启服务加载最新 API 后：`/health` 含 `suggestedApiBase` / `lanIps`
 - [ ] `npm run backup:db` → `lastError` 空
@@ -36,7 +36,7 @@ U 盘目录示例：`releases/192.168.31.179/`（exe 已 gitignore，本机生�
 ## D. 课堂核对
 
 - [ ] 导出四格式人工对列
-- [ ] 正式班 Excel 覆盖导入（模板 `docs/templates/roster-import-template.csv`）
+- [ ] 正式班 Excel 覆盖导入（教师端勾选「覆盖导入」；先 `backup:db`；模板见 `releases/.../ops-verify/正式班-花名册.xlsx`）
 - [ ] 损坏 `.xlsx` → 中文「文件损坏…」（需新版 server）
 - [ ] 月末/月初出勤边界
 - [ ] 打印讲台卡并手写 IP/classId
