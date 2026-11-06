@@ -339,7 +339,11 @@ export function App() {
         {tab === 'quiz' && user && <QuizTab onAnswered={showToast} />}
         {tab === 'quiz' && !user && <p className="hint">请先在「积分」页点选自己的姓名</p>}
         {tab === 'messages' && messagesEnabled && user && (
-          <MessagesTab onRead={() => void refreshMe()} />
+          <MessagesTab
+            userId={user.id}
+            roster={roster}
+            onRead={() => void refreshMe()}
+          />
         )}
         {tab === 'messages' && messagesEnabled && !user && (
           <p className="hint">请先在「积分」页点选自己的姓名</p>
@@ -638,21 +642,36 @@ function AdminTab({
   );
 }
 
-function MessagesTab({ onRead }: { onRead: () => void }) {
+function MessagesTab({
+  userId,
+  roster,
+  onRead,
+}: {
+  userId: string;
+  roster: RosterRow[];
+  onRead: () => void;
+}) {
   const [items, setItems] = useState<Array<Record<string, unknown>>>([]);
   const [body, setBody] = useState('');
+  const [toId, setToId] = useState('teacher');
+  const [replyDraft, setReplyDraft] = useState<Record<string, string>>({});
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
+
+  const peers = useMemo(() => roster.filter((r) => r.id !== userId), [roster, userId]);
 
   async function load() {
     setErr('');
     const r = await api<{ items: Array<Record<string, unknown>> }>('/api/v1/messages');
     setItems(r.items);
     for (const msg of r.items) {
-      const replies = (msg.replies as Array<{ id: string; readAt?: string | null }>) ?? [];
+      if (String(msg.toStudentId ?? '') === userId && !msg.readAt) {
+        await api(`/api/v1/messages/${String(msg.id)}/read`, { method: 'POST', body: '{}' }).catch(() => undefined);
+      }
+      const replies = (msg.replies as Array<{ id: string; readAt?: string | null; authorId?: string }>) ?? [];
       for (const reply of replies) {
-        if (!reply.readAt) {
-          await api(`/api/v1/messages/replies/${reply.id}/read`, { method: 'POST', body: '{}' });
+        if (!reply.readAt && reply.authorId !== userId) {
+          await api(`/api/v1/messages/replies/${reply.id}/read`, { method: 'POST', body: '{}' }).catch(() => undefined);
         }
       }
     }
@@ -671,7 +690,13 @@ function MessagesTab({ onRead }: { onRead: () => void }) {
     }
     setBusy(true);
     try {
-      await api('/api/v1/messages', { method: 'POST', body: JSON.stringify({ body: text }) });
+      await api('/api/v1/messages', {
+        method: 'POST',
+        body: JSON.stringify({
+          body: text,
+          toStudentId: toId === 'teacher' ? null : toId,
+        }),
+      });
       setBody('');
       await load();
     } catch (e) {
@@ -681,29 +706,87 @@ function MessagesTab({ onRead }: { onRead: () => void }) {
     }
   }
 
+  async function sendReply(messageId: string) {
+    const text = (replyDraft[messageId] ?? '').trim();
+    if (!text) {
+      setErr('回复不能为空');
+      return;
+    }
+    setBusy(true);
+    try {
+      await api(`/api/v1/messages/${messageId}/replies`, {
+        method: 'POST',
+        body: JSON.stringify({ body: text }),
+      });
+      setReplyDraft((prev) => ({ ...prev, [messageId]: '' }));
+      await load();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : '回复失败');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <section className="panel">
       <h1>留言</h1>
+      <p className="hint">可发给老师，或发给本班同学。</p>
       {err ? <p className="error">{err}</p> : null}
-      <textarea value={body} onChange={(e) => setBody(e.target.value)} rows={3} placeholder="给老师留言" />
+      <label className="field">
+        发给
+        <select value={toId} onChange={(e) => setToId(e.target.value)}>
+          <option value="teacher">老师</option>
+          {peers.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.displayName}
+              {p.studentNo ? `（${p.studentNo}）` : ''}
+            </option>
+          ))}
+        </select>
+      </label>
+      <textarea value={body} onChange={(e) => setBody(e.target.value)} rows={3} placeholder="留言内容" />
       <button type="button" className="primary" disabled={busy} onClick={() => void send()}>
         {busy ? '发送中…' : '发送'}
       </button>
       <button type="button" className="secondary" onClick={() => void load().catch((e) => setErr(String(e)))}>
         刷新
       </button>
+      {peers.length === 0 ? <p className="hint">本班暂无其他同学可私信（需老师先导入花名册）。</p> : null}
       {items.length === 0 ? <p className="hint">暂无留言</p> : null}
-      {items.map((msg) => (
-        <article key={String(msg.id)} className="card-block">
-          <p>{String(msg.body)}</p>
-          <p className="hint">{msg.createdAt ? new Date(String(msg.createdAt)).toLocaleString() : ''}</p>
-          {((msg.replies as Array<{ id?: string; body: string }>) ?? []).map((r, i) => (
-            <p key={r.id ?? i} className="reply">
-              老师：{r.body}
-            </p>
-          ))}
-        </article>
-      ))}
+      {items.map((msg) => {
+        const fromMe = String(msg.studentId) === userId;
+        const toPeer = Boolean(msg.toStudentId);
+        const title = toPeer
+          ? fromMe
+            ? `我 → ${String(msg.toStudentName ?? '同学')}`
+            : `${String(msg.studentName)} → 我`
+          : fromMe
+            ? '我 → 老师'
+            : `${String(msg.studentName)} → 老师`;
+        const mid = String(msg.id);
+        return (
+          <article key={mid} className="card-block">
+            <strong>{title}</strong>
+            <p>{String(msg.body)}</p>
+            <p className="hint">{msg.createdAt ? new Date(String(msg.createdAt)).toLocaleString() : ''}</p>
+            {((msg.replies as Array<{ id?: string; authorName?: string; authorRole?: string; body: string }>) ?? []).map(
+              (r, i) => (
+                <p key={r.id ?? i} className="reply">
+                  {r.authorName ?? (r.authorRole === 'student' ? '同学' : '老师')}：{r.body}
+                </p>
+              ),
+            )}
+            <input
+              value={replyDraft[mid] ?? ''}
+              onChange={(e) => setReplyDraft((prev) => ({ ...prev, [mid]: e.target.value }))}
+              placeholder="回复"
+            />
+            <button type="button" className="secondary" disabled={busy} onClick={() => void sendReply(mid)}>
+              回复
+            </button>
+          </article>
+        );
+      })}
     </section>
   );
 }

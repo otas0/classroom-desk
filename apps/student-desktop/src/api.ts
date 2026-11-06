@@ -82,9 +82,10 @@ function zhError(code?: string): string | undefined {
     not_found: '未找到',
     invalid_credentials: '账号或密码错误',
     invalid_admin_password: '管理密码错误',
-    messages_disabled: '留言已关闭',
     invalid_message: '留言内容不能为空',
     already_answered: '本题已作答',
+    cannot_message_self: '不能给自己留言',
+    peer_not_in_class: '只能发给本班同学',
   };
   return map[code] ?? code;
 }

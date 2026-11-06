@@ -69,7 +69,7 @@ npm run dev:teacher
 npm run dev:student
 ```
 
-演示账号：`teacher` / `TeacherPass123`，班级码 `DEMO01`，管理员 `AdminPass123`。
+首次启动用环境变量设置教师/管理员密码（见上）；正式课堂 UI **不预填**演示账号。联调口令仅用于本机/e2e。
 
 ## Windows 安装包
 

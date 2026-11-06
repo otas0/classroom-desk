@@ -1,5 +1,5 @@
 {
-  "apiBase": "http://192.168.31.179:8787",
-  "classId": "00d6b800-6628-4d20-a49c-9765325d9eef",
-  "comment": "Classroom-specific pack. Do not use 127.0.0.1 on student PCs."
+  "apiBase": "http://127.0.0.1:8787",
+  "classId": "",
+  "comment": "Local empty config. Teacher assigns classId before class."
 }
