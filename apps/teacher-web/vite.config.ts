@@ -8,6 +8,13 @@ export default defineConfig(({ mode }) => ({
   server: {
     port: 5174,
     strictPort: true,
+    // Dev same-origin: browser calls /api on :5174 → Express :8787
+    proxy: {
+      '/api': { target: 'http://127.0.0.1:8787', changeOrigin: true },
+      '/health': { target: 'http://127.0.0.1:8787', changeOrigin: true },
+      '/ready': { target: 'http://127.0.0.1:8787', changeOrigin: true },
+      '/uploads': { target: 'http://127.0.0.1:8787', changeOrigin: true },
+    },
   },
   build: {
     outDir: 'dist',
