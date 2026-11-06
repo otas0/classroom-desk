@@ -983,22 +983,14 @@ function AssignPanel({ classId, classes }: { classId: string; classes: ClassItem
 function SettingsPanel() {
   const [diag, setDiag] = useState('');
   const [ttl, setTtl] = useState(60);
-  const [classStart, setClassStart] = useState('08:00');
-  const [lateMins, setLateMins] = useState(15);
   const [saveMsg, setSaveMsg] = useState('');
   const [curPwd, setCurPwd] = useState('');
   const [newPwd, setNewPwd] = useState('');
   const [pwdMsg, setPwdMsg] = useState('');
 
   useEffect(() => {
-    void api<{
-      pointRequestTtlMinutes: number;
-      attendanceClassStartTime?: string;
-      attendanceLateAfterMinutes?: number;
-    }>('/api/v1/settings').then((s) => {
+    void api<{ pointRequestTtlMinutes: number }>('/api/v1/settings').then((s) => {
       setTtl(s.pointRequestTtlMinutes);
-      setClassStart(s.attendanceClassStartTime ?? '08:00');
-      setLateMins(Number(s.attendanceLateAfterMinutes ?? 15));
     });
   }, []);
 
@@ -1068,35 +1060,14 @@ function SettingsPanel() {
         有效期（分钟）
         <input type="number" value={ttl} onChange={(e) => setTtl(Number(e.target.value))} />
       </label>
-
-      <h3>签到迟到（按学校作息）</h3>
-      <p className="hint">上课开始时刻 + 迟到阈值分钟；写入今日场次的 late_after_minutes。</p>
-      <label>
-        上课开始时间
-        <input type="time" value={classStart} onChange={(e) => setClassStart(e.target.value)} />
-      </label>
-      <label>
-        迟到阈值（分钟）
-        <input
-          type="number"
-          min={0}
-          max={240}
-          value={lateMins}
-          onChange={(e) => setLateMins(Number(e.target.value))}
-        />
-      </label>
       <button
         type="button"
         onClick={() =>
           void api('/api/v1/settings', {
             method: 'PATCH',
-            body: JSON.stringify({
-              pointRequestTtlMinutes: ttl,
-              attendanceClassStartTime: classStart,
-              attendanceLateAfterMinutes: lateMins,
-            }),
+            body: JSON.stringify({ pointRequestTtlMinutes: ttl }),
           })
-            .then(() => setSaveMsg('已保存设置'))
+            .then(() => setSaveMsg('已保存'))
             .catch((e) => setSaveMsg(e instanceof Error ? e.message : '保存失败'))
         }
       >
