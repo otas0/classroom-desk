@@ -8,6 +8,30 @@ import { paramId } from '../utils/params.js';
 
 export const questionsRouter = Router();
 
+type QuestionAttachment = { url: string; originalName: string; size?: number; mime?: string };
+
+function parseAttachments(raw: unknown): QuestionAttachment[] {
+  if (raw == null || raw === '') return [];
+  if (Array.isArray(raw)) {
+    return raw
+      .map((a) => ({
+        url: String((a as QuestionAttachment).url ?? ''),
+        originalName: String((a as QuestionAttachment).originalName ?? '附件'),
+        size: (a as QuestionAttachment).size,
+        mime: (a as QuestionAttachment).mime,
+      }))
+      .filter((a) => a.url.startsWith('/uploads/'));
+  }
+  if (typeof raw === 'string') {
+    try {
+      return parseAttachments(JSON.parse(raw));
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
 questionsRouter.get('/api/v1/questions', requireAuth, (req: AuthedRequest, res) => {
   const classId = String(req.query.classId ?? req.user?.classId ?? '');
   if (!classId) {
@@ -19,7 +43,7 @@ questionsRouter.get('/api/v1/questions', requireAuth, (req: AuthedRequest, res) 
   const rows = db
     .prepare(
       `SELECT id, class_id AS classId, title, stem, type, answer_key AS answerKey, points,
-              created_by AS createdBy, created_at AS createdAt, published
+              attachments, created_by AS createdBy, created_at AS createdAt, published
        FROM questions
        WHERE class_id = ? ${teacher ? '' : 'AND published = 1'}
        ORDER BY created_at DESC`,
@@ -32,6 +56,7 @@ questionsRouter.get('/api/v1/questions', requireAuth, (req: AuthedRequest, res) 
       title: string;
       stem: string;
       points: number;
+      attachments: string | null;
       createdBy: string;
       createdAt: string;
       published: number;
@@ -58,9 +83,11 @@ questionsRouter.get('/api/v1/questions', requireAuth, (req: AuthedRequest, res) 
             )
             .get(q.id, req.user.id)
         : null;
+    const { attachments: rawAtt, ...rest } = q;
     return {
-      ...q,
+      ...rest,
       answerKey: teacher ? q.answerKey : undefined,
+      attachments: parseAttachments(rawAtt),
       options,
       myAnswer: mine,
     };
@@ -83,14 +110,15 @@ questionsRouter.post(
       return;
     }
 
+    const attachmentsJson = JSON.stringify(parseAttachments(req.body?.attachments));
     const id = newId();
     const createdAt = nowIso();
     const db = openDb();
     withTransaction(db, () => {
       db.prepare(
         `INSERT INTO questions
-          (id, class_id, title, stem, type, answer_key, points, created_by, created_at, published)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          (id, class_id, title, stem, type, answer_key, points, attachments, created_by, created_at, published)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).run(
         id,
         classId,
@@ -99,6 +127,7 @@ questionsRouter.post(
         type,
         req.body?.answerKey ?? null,
         Number(req.body?.points ?? 1),
+        attachmentsJson,
         req.user!.id,
         createdAt,
         req.body?.published === false ? 0 : 1,
@@ -139,7 +168,15 @@ questionsRouter.patch(
       return;
     }
     withTransaction(db, () => {
-      if (title != null || stem != null || type != null || req.body?.answerKey !== undefined || req.body?.points != null || req.body?.published != null) {
+      if (
+        title != null ||
+        stem != null ||
+        type != null ||
+        req.body?.answerKey !== undefined ||
+        req.body?.points != null ||
+        req.body?.published != null ||
+        req.body?.attachments !== undefined
+      ) {
         const row = db.prepare(`SELECT * FROM questions WHERE id = ?`).get(id) as {
           title: string;
           stem: string;
@@ -147,15 +184,21 @@ questionsRouter.patch(
           answer_key: string | null;
           points: number;
           published: number;
+          attachments: string | null;
         };
+        const nextAtt =
+          req.body?.attachments !== undefined
+            ? JSON.stringify(parseAttachments(req.body.attachments))
+            : row.attachments;
         db.prepare(
-          `UPDATE questions SET title = ?, stem = ?, type = ?, answer_key = ?, points = ?, published = ? WHERE id = ?`,
+          `UPDATE questions SET title = ?, stem = ?, type = ?, answer_key = ?, points = ?, attachments = ?, published = ? WHERE id = ?`,
         ).run(
           title ?? row.title,
           stem ?? row.stem,
           type ?? row.type,
           req.body?.answerKey !== undefined ? (req.body.answerKey as string | null) : row.answer_key,
           req.body?.points != null ? Number(req.body.points) : row.points,
+          nextAtt,
           req.body?.published === false ? 0 : req.body?.published === true ? 1 : row.published,
           id,
         );

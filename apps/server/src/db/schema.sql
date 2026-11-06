@@ -98,6 +98,7 @@ CREATE TABLE IF NOT EXISTS questions (
   type TEXT NOT NULL CHECK (type IN ('single', 'multi', 'bool', 'blank')),
   answer_key TEXT,
   points INTEGER NOT NULL DEFAULT 1,
+  attachments TEXT,
   created_by TEXT NOT NULL REFERENCES users(id),
   created_at TEXT NOT NULL,
   published INTEGER NOT NULL DEFAULT 0

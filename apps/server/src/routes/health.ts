@@ -14,7 +14,7 @@ function lanIpv4List(): string[] {
     const out: string[] = [];
     for (const list of Object.values(networkInterfaces())) {
       for (const n of list ?? []) {
-        if ((n.family === 'IPv4' || n.family === 4) && !n.internal) out.push(n.address);
+        if (String(n.family) === 'IPv4' && !n.internal) out.push(n.address);
       }
     }
     return out;

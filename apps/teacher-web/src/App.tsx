@@ -279,6 +279,11 @@ function RosterPanel({
   );
 }
 
+type QAttachment = { url: string; originalName: string; size?: number; mime?: string };
+
+const QUESTION_FILE_ACCEPT =
+  '.pdf,.png,.jpg,.jpeg,.webp,.gif,.txt,.md,.csv,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.zip,.mp3,.m4a,.wav,.mp4,.webm';
+
 function QuestionsPanel({ classId }: { classId: string }) {
   const [title, setTitle] = useState('');
   const [stem, setStem] = useState('');
@@ -287,6 +292,8 @@ function QuestionsPanel({ classId }: { classId: string }) {
   const [optB, setOptB] = useState('');
   const [optC, setOptC] = useState('');
   const [blankKey, setBlankKey] = useState('');
+  const [attachments, setAttachments] = useState<QAttachment[]>([]);
+  const [uploading, setUploading] = useState(false);
   const [createMsg, setCreateMsg] = useState('');
   const [items, setItems] = useState<Array<Record<string, unknown>>>([]);
   const [chart, setChart] = useState<{
@@ -307,6 +314,26 @@ function QuestionsPanel({ classId }: { classId: string }) {
     void load().catch(() => setItems([]));
   }, [classId]);
 
+  async function uploadFiles(fileList: FileList | null) {
+    if (!fileList?.length) return;
+    setUploading(true);
+    setCreateMsg('');
+    try {
+      const fd = new FormData();
+      Array.from(fileList).forEach((f) => fd.append('files', f));
+      const res = await api<{ items: QAttachment[] }>('/api/v1/uploads/batch', {
+        method: 'POST',
+        body: fd,
+      });
+      setAttachments((prev) => [...prev, ...res.items]);
+      setCreateMsg(`已上传 ${res.items.length} 个附件`);
+    } catch (e) {
+      setCreateMsg(e instanceof Error ? e.message : '上传失败');
+    } finally {
+      setUploading(false);
+    }
+  }
+
   async function create() {
     setCreateMsg('');
     if (!title.trim() || !stem.trim()) {
@@ -319,13 +346,22 @@ function QuestionsPanel({ classId }: { classId: string }) {
         setCreateMsg('请填写填空参考答案');
         return;
       }
-      body = { classId, title: title.trim(), stem: stem.trim(), type, answerKey: blankKey.trim(), options: [] };
+      body = {
+        classId,
+        title: title.trim(),
+        stem: stem.trim(),
+        type,
+        answerKey: blankKey.trim(),
+        options: [],
+        attachments,
+      };
     } else if (type === 'bool') {
       body = {
         classId,
         title: title.trim(),
         stem: stem.trim(),
         type,
+        attachments,
         options: [
           { label: 'A', content: '正确', isCorrect: true },
           { label: 'B', content: '错误', isCorrect: false },
@@ -341,6 +377,7 @@ function QuestionsPanel({ classId }: { classId: string }) {
         title: title.trim(),
         stem: stem.trim(),
         type,
+        attachments,
         options: [
           { label: 'A', content: optA.trim(), isCorrect: true },
           { label: 'B', content: optB.trim(), isCorrect: true },
@@ -357,6 +394,7 @@ function QuestionsPanel({ classId }: { classId: string }) {
         title: title.trim(),
         stem: stem.trim(),
         type,
+        attachments,
         options: [
           { label: 'A', content: optA.trim(), isCorrect: true },
           { label: 'B', content: optB.trim(), isCorrect: false },
@@ -370,6 +408,7 @@ function QuestionsPanel({ classId }: { classId: string }) {
     setOptB('');
     setOptC('');
     setBlankKey('');
+    setAttachments([]);
     setCreateMsg('已发布');
     await load();
   }
@@ -422,7 +461,35 @@ function QuestionsPanel({ classId }: { classId: string }) {
           ) : null}
         </>
       )}
-      <button type="button" onClick={() => void create()}>
+      <label className="dropzone dropzone-wrap">
+        <strong>{uploading ? '上传中…' : '题目附件（可多选）'}</strong>
+        <p className="hint">pdf / 图片 / Word / Excel / PPT / 音视频 / zip / txt / md / csv，单文件 ≤10MB</p>
+        <input
+          type="file"
+          multiple
+          accept={QUESTION_FILE_ACCEPT}
+          disabled={uploading}
+          onChange={(e) => {
+            void uploadFiles(e.target.files);
+            e.target.value = '';
+          }}
+        />
+      </label>
+      {attachments.length ? (
+        <ul className="attach-list">
+          {attachments.map((a) => (
+            <li key={a.url}>
+              <a href={`${API_BASE}${a.url}`} target="_blank" rel="noreferrer">
+                {a.originalName}
+              </a>{' '}
+              <button type="button" className="secondary" onClick={() => setAttachments((prev) => prev.filter((x) => x.url !== a.url))}>
+                移除
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      <button type="button" onClick={() => void create()} disabled={uploading}>
         发布题目
       </button>
       {createMsg ? <p className="hint">{createMsg}</p> : null}
@@ -449,6 +516,9 @@ function QuestionsPanel({ classId }: { classId: string }) {
             >
               <span className="title">
                 [{String(q.type)}] {String(q.title)}
+                {Array.isArray(q.attachments) && (q.attachments as unknown[]).length
+                  ? ` · 附件${(q.attachments as unknown[]).length}`
+                  : ''}
               </span>
               <button
                 type="button"

@@ -20,6 +20,7 @@ export function migrate(database?: DatabaseSync): DatabaseSync {
   const sql = fs.readFileSync(schemaPath, 'utf8');
   conn.exec(sql);
   ensureColumn(conn, 'users', 'student_no', 'TEXT');
+  ensureColumn(conn, 'questions', 'attachments', 'TEXT');
   conn.exec(`CREATE INDEX IF NOT EXISTS idx_users_student_no ON users(class_id, student_no)`);
   seedSettings(conn);
   return conn;

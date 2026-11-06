@@ -358,6 +358,17 @@ export function App() {
   );
 }
 
+function statusZh(status: string): string {
+  const map: Record<string, string> = {
+    none: '无场次',
+    absent: '未签到',
+    present: '已到',
+    late: '迟到',
+    excused: '请假',
+  };
+  return map[status] ?? status;
+}
+
 function PointsPanel({
   roster,
   user,
@@ -374,8 +385,9 @@ function PointsPanel({
   onRefresh: () => void;
 }) {
   const [q, setQ] = useState('');
-  const [reason, setReason] = useState('课堂积极');
+  const [reason, setReason] = useState('');
   const [points, setPoints] = useState(1);
+  const [busy, setBusy] = useState(false);
 
   const filtered = useMemo(() => {
     const key = q.trim().toLowerCase();
@@ -394,25 +406,40 @@ function PointsPanel({
 
   async function requestPoints() {
     if (!user) return;
+    const why = reason.trim();
+    if (!why) {
+      showToast('请填写加分理由');
+      return;
+    }
+    const pts = Math.trunc(Number(points));
+    if (!Number.isFinite(pts) || pts < 1) {
+      showToast('分值至少为 1');
+      return;
+    }
+    setBusy(true);
     try {
       await api('/api/v1/point-requests', {
         method: 'POST',
         body: JSON.stringify({
-          reason: reason.trim() || '课堂加分',
+          reason: why,
           category: 'student_request',
-          points: Number(points) || 1,
+          points: pts,
         }),
       });
-      showToast('已提交加分请求，等待老师确认');
+      setReason('');
+      setPoints(1);
+      showToast('已提交，等待老师确认');
     } catch (e) {
       showToast(e instanceof Error ? e.message : '请求失败');
+    } finally {
+      setBusy(false);
     }
   }
 
   return (
     <section className="panel">
       <h1>积分花名册</h1>
-      <p className="hint">按学号排序；搜索姓名/学号后点选自己，再填写分值与理由请求加分。</p>
+      <p className="hint">点选自己的姓名登录；填写真实理由与分值后提交，由教师审核入账。</p>
       {error ? <p className="error">{error}</p> : null}
       <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="搜索姓名或学号" />
       {user ? (
@@ -420,7 +447,7 @@ function PointsPanel({
           <p>
             当前：{user.displayName} · {user.totalPoints} 分
           </p>
-          <input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="加分理由" />
+          <input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="加分理由（必填）" />
           <input
             type="number"
             min={1}
@@ -428,11 +455,13 @@ function PointsPanel({
             onChange={(e) => setPoints(Number(e.target.value))}
             placeholder="分值"
           />
-          <button type="button" className="primary" onClick={() => void requestPoints()}>
-            请求加分
+          <button type="button" className="primary" disabled={busy} onClick={() => void requestPoints()}>
+            {busy ? '提交中…' : '请求加分'}
           </button>
         </div>
-      ) : null}
+      ) : (
+        <p className="hint">尚未选择身份：在下方名单中点击自己的名字。</p>
+      )}
       <button type="button" className="secondary" onClick={onRefresh}>
         刷新名单
       </button>
@@ -486,47 +515,69 @@ function AttendanceTab({
   classId: string;
 }) {
   const [status, setStatus] = useState('none');
-  const [monthStats, setMonthStats] = useState<{ presentCount: number; sessionCount: number; attendanceRate: number } | null>(
-    null,
-  );
+  const [checkedAt, setCheckedAt] = useState<string | null>(null);
+  const [err, setErr] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [monthStats, setMonthStats] = useState<{
+    presentCount: number;
+    sessionCount: number;
+    attendanceRate: number;
+  } | null>(null);
   const month = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`;
 
   async function load() {
-    const st = await api<{ status: string }>('/api/v1/attendance/my-status');
+    setErr('');
+    const st = await api<{
+      status: string;
+      record?: { checkedAt?: string } | null;
+    }>('/api/v1/attendance/my-status');
     setStatus(st.status);
-    const stats = await api<{ items: Array<{ presentCount: number; sessionCount: number; attendanceRate: number }> }>(
-      `/api/v1/attendance/stats?classId=${classId}&month=${month}`,
-    );
-    setMonthStats(stats.items[0] ?? null);
+    setCheckedAt(st.record?.checkedAt ?? null);
+    const stats = await api<{
+      items: Array<{ id: string; presentCount: number; sessionCount: number; attendanceRate: number }>;
+    }>(`/api/v1/attendance/stats?classId=${encodeURIComponent(classId)}&month=${month}`);
+    setMonthStats(stats.items[0] ?? { presentCount: 0, sessionCount: 0, attendanceRate: 0 });
   }
 
   useEffect(() => {
-    void load().catch(() => undefined);
+    void load().catch((e) => setErr(e instanceof Error ? e.message : '加载失败'));
   }, [classId]);
 
   async function checkIn() {
+    setBusy(true);
     try {
-      const r = await api<{ status: string }>('/api/v1/attendance/check-in', {
+      const r = await api<{ status: string; checkedAt: string }>('/api/v1/attendance/check-in', {
         method: 'POST',
         body: '{}',
       });
-      showToast('签到成功');
+      showToast(r.status === 'late' ? '签到成功（迟到）' : '签到成功');
       await load();
     } catch (e) {
       showToast(e instanceof Error ? e.message : '签到失败');
+    } finally {
+      setBusy(false);
     }
   }
+
+  const done = status === 'present' || status === 'late';
 
   return (
     <section className="panel">
       <h1>签到</h1>
-      <p className="hint">今日状态：{status === 'absent' ? '未签到' : status}</p>
-      <button type="button" className="primary" disabled={status === 'present' || status === 'late'} onClick={() => void checkIn()}>
-        点击签到
+      {err ? <p className="error">{err}</p> : null}
+      <p>
+        今日状态：<strong>{statusZh(status)}</strong>
+        {checkedAt ? ` · ${new Date(checkedAt).toLocaleString()}` : ''}
+      </p>
+      <button type="button" className="primary" disabled={done || busy} onClick={() => void checkIn()}>
+        {done ? '今日已签到' : busy ? '签到中…' : '点击签到'}
+      </button>
+      <button type="button" className="secondary" onClick={() => void load().catch((e) => setErr(String(e)))}>
+        刷新
       </button>
       {monthStats ? (
         <p className="hint">
-          本月出勤 {monthStats.presentCount} / {monthStats.sessionCount} 次 · 出勤率{' '}
+          {month} 出勤 {monthStats.presentCount} / {monthStats.sessionCount} 次 · 出勤率{' '}
           {(monthStats.attendanceRate * 100).toFixed(1)}%
         </p>
       ) : null}
@@ -674,6 +725,23 @@ function QuizTab({ onAnswered }: { onAnswered: (msg: string) => void }) {
               [{type}] {String(q.title)}
             </strong>
             <p>{String(q.stem)}</p>
+            {((q.attachments as Array<{ url: string; originalName: string; mime?: string }>) ?? []).map((a) => {
+              const href = `${getApiBase()}${a.url}`;
+              const isImg = (a.mime ?? '').startsWith('image/') || /\.(png|jpe?g|gif|webp)$/i.test(a.originalName);
+              return (
+                <div key={a.url} className="attach">
+                  {isImg ? (
+                    <a href={href} target="_blank" rel="noreferrer">
+                      <img src={href} alt={a.originalName} className="attach-img" />
+                    </a>
+                  ) : (
+                    <a href={href} target="_blank" rel="noreferrer">
+                      附件：{a.originalName}
+                    </a>
+                  )}
+                </div>
+              );
+            })}
             {type === 'single' || type === 'bool'
               ? opts.map((opt) => (
                   <button
