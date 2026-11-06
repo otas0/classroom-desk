@@ -7,6 +7,15 @@ let db: DatabaseSync | null = null;
 export function getDataDir(): string {
   const configured = process.env.CLASSROOM_DESK_DATA_DIR;
   if (configured) return path.resolve(configured);
+  // Monorepo root (`npm run start:server` / node from repo root) → apps/server/data
+  const fromRepoRoot = path.resolve(process.cwd(), 'apps/server/data');
+  if (
+    fs.existsSync(path.join(fromRepoRoot, 'classroom.db')) ||
+    fs.existsSync(path.resolve(process.cwd(), 'apps/server/package.json'))
+  ) {
+    return fromRepoRoot;
+  }
+  // Started inside apps/server
   return path.resolve(process.cwd(), 'data');
 }
 

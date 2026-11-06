@@ -82,10 +82,17 @@ function buildHealthPayload() {
   }
 
   const backup = latestBackupInfo();
-  const lanIps = lanIpv4List();
-  const storedBase = getSetting(db, 'classroom_api_base');
+  const detected = lanIpv4List();
+  const storedBase = getSetting(db, 'classroom_api_base')?.replace(/\/$/, '') ?? '';
+  let fromStored = '';
+  try {
+    if (storedBase) fromStored = new URL(storedBase).hostname;
+  } catch {
+    fromStored = '';
+  }
+  const lanIps = detected.length ? detected : fromStored && fromStored !== '127.0.0.1' ? [fromStored] : [];
   const suggestedApiBase =
-    storedBase?.replace(/\/$/, '') ||
+    storedBase ||
     (lanIps[0] ? `http://${lanIps[0]}:${config.port}` : `http://127.0.0.1:${config.port}`);
   return {
     ok: dbOk,
