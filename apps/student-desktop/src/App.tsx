@@ -679,7 +679,7 @@ function QuizTab({ onAnswered }: { onAnswered: (msg: string) => void }) {
                   <button
                     key={opt.id}
                     type="button"
-                    className="secondary"
+                    className="option-btn"
                     onClick={() => void answer(id, { optionIds: [opt.id] })}
                   >
                     {opt.label}. {opt.content}

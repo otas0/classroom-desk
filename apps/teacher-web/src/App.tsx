@@ -216,14 +216,19 @@ function RosterPanel({
 
       <h3>批量导入（Excel / CSV）</h3>
       <p className="hint">支持 .xlsx / .xls / .csv，列：姓名、学号（学号可选）。导入后学生机花名册即可点名加分。</p>
-      <input
-        type="file"
-        accept=".csv,.xlsx,.xls"
-        onChange={(e) => {
-          const file = e.target.files?.[0];
-          if (file) void importFile(file).catch((err) => setImportResult(String(err.message ?? err)));
-        }}
-      />
+      <label className="dropzone dropzone-wrap">
+        <strong>点击选择文件</strong>
+        <p className="hint">或拖入 Excel / CSV（真实上传到本班花名册）</p>
+        <input
+          type="file"
+          accept=".csv,.xlsx,.xls"
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            if (file) void importFile(file).catch((err) => setImportResult(String(err.message ?? err)));
+            e.target.value = '';
+          }}
+        />
+      </label>
       <textarea value={csv} onChange={(e) => setCsv(e.target.value)} rows={5} />
       <button
         type="button"
@@ -235,18 +240,20 @@ function RosterPanel({
           }>(`/api/v1/classes/${classId}/students/import`, {
             method: 'POST',
             body: JSON.stringify({ csv }),
-          }).then((r) => {
-            const fail = (r.failures ?? [])
-              .map((f) => `第${f.line}行 ${f.name} → ${f.reasonText ?? f.reason}`)
-              .join('；');
-            setImportResult(`新建 ${r.created}，跳过 ${r.skipped}${fail ? `。${fail}` : ''}`);
-            return loadStudents();
           })
+            .then((r) => {
+              const fail = (r.failures ?? [])
+                .map((f) => `第${f.line}行 ${f.name} → ${f.reasonText ?? f.reason}`)
+                .join('；');
+              setImportResult(`新建 ${r.created}，跳过 ${r.skipped}${fail ? `。${fail}` : ''}`);
+              return loadStudents();
+            })
+            .catch((err) => setImportResult(String(err instanceof Error ? err.message : err)))
         }
       >
         从文本导入 CSV
       </button>
-      {importResult ? <p className="hint">{importResult}</p> : null}
+      {importResult ? <p className={/失败|错误|无效|损坏/.test(importResult) ? 'error' : 'hint'}>{importResult}</p> : null}
 
       <h3>当前班名单（{classes.find((c) => c.id === classId)?.name ?? ''}）· 按学号排序</h3>
       <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="搜索姓名/学号" />
@@ -419,18 +426,52 @@ function QuestionsPanel({ classId }: { classId: string }) {
         发布题目
       </button>
       {createMsg ? <p className="hint">{createMsg}</p> : null}
-      <ul>
-        {items.map((q) => (
-          <li key={String(q.id)}>
-            [{String(q.type)}] {String(q.title)}{' '}
-            <button type="button" onClick={() => void showStats(String(q.id), String(q.title))}>
-              正确率/错误率
-            </button>{' '}
-            <button type="button" onClick={() => setEditingQuestion(q)}>
-              编辑原题
-            </button>
-          </li>
-        ))}
+      <ul className="question-list">
+        {items.map((q) => {
+          const active = editingQuestion && String(editingQuestion.id) === String(q.id);
+          return (
+            <li
+              key={String(q.id)}
+              className={`question-item${active ? ' active' : ''}`}
+              tabIndex={0}
+              role="button"
+              onClick={() => {
+                setEditingQuestion(q);
+                void showStats(String(q.id), String(q.title));
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  setEditingQuestion(q);
+                  void showStats(String(q.id), String(q.title));
+                }
+              }}
+            >
+              <span className="title">
+                [{String(q.type)}] {String(q.title)}
+              </span>
+              <button
+                type="button"
+                className="secondary"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  void showStats(String(q.id), String(q.title));
+                }}
+              >
+                正确率/错误率
+              </button>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setEditingQuestion(q);
+                }}
+              >
+                编辑原题
+              </button>
+            </li>
+          );
+        })}
       </ul>
       <h3>编辑题目（加载原选项）</h3>
       <QuestionEditForm
@@ -733,7 +774,7 @@ function RequestsPanel({ classId }: { classId: string }) {
       <p className="hint">学生在花名册点选姓名后提交请求；通过后写入积分。</p>
       {items.length === 0 ? <p>暂无待审请求</p> : null}
       {items.map((item) => (
-        <div key={String(item.id)} className="row">
+        <div key={String(item.id)} className="row request-row">
           <span>
             {String(item.studentName)} · {String(item.reason)} · {String(item.points)} 分
           </span>
@@ -750,6 +791,7 @@ function RequestsPanel({ classId }: { classId: string }) {
           </button>
           <button
             type="button"
+            className="secondary"
             onClick={() =>
               void api(`/api/v1/point-requests/${String(item.id)}/reject`, {
                 method: 'POST',
@@ -941,14 +983,22 @@ function AssignPanel({ classId, classes }: { classId: string; classes: ClassItem
 function SettingsPanel() {
   const [diag, setDiag] = useState('');
   const [ttl, setTtl] = useState(60);
+  const [classStart, setClassStart] = useState('08:00');
+  const [lateMins, setLateMins] = useState(15);
   const [saveMsg, setSaveMsg] = useState('');
   const [curPwd, setCurPwd] = useState('');
   const [newPwd, setNewPwd] = useState('');
   const [pwdMsg, setPwdMsg] = useState('');
 
   useEffect(() => {
-    void api<{ pointRequestTtlMinutes: number }>('/api/v1/settings').then((s) => {
+    void api<{
+      pointRequestTtlMinutes: number;
+      attendanceClassStartTime?: string;
+      attendanceLateAfterMinutes?: number;
+    }>('/api/v1/settings').then((s) => {
       setTtl(s.pointRequestTtlMinutes);
+      setClassStart(s.attendanceClassStartTime ?? '08:00');
+      setLateMins(Number(s.attendanceLateAfterMinutes ?? 15));
     });
   }, []);
 
@@ -1018,14 +1068,35 @@ function SettingsPanel() {
         有效期（分钟）
         <input type="number" value={ttl} onChange={(e) => setTtl(Number(e.target.value))} />
       </label>
+
+      <h3>签到迟到（按学校作息）</h3>
+      <p className="hint">上课开始时刻 + 迟到阈值分钟；写入今日场次的 late_after_minutes。</p>
+      <label>
+        上课开始时间
+        <input type="time" value={classStart} onChange={(e) => setClassStart(e.target.value)} />
+      </label>
+      <label>
+        迟到阈值（分钟）
+        <input
+          type="number"
+          min={0}
+          max={240}
+          value={lateMins}
+          onChange={(e) => setLateMins(Number(e.target.value))}
+        />
+      </label>
       <button
         type="button"
         onClick={() =>
           void api('/api/v1/settings', {
             method: 'PATCH',
-            body: JSON.stringify({ pointRequestTtlMinutes: ttl }),
+            body: JSON.stringify({
+              pointRequestTtlMinutes: ttl,
+              attendanceClassStartTime: classStart,
+              attendanceLateAfterMinutes: lateMins,
+            }),
           })
-            .then(() => setSaveMsg('已保存'))
+            .then(() => setSaveMsg('已保存设置'))
             .catch((e) => setSaveMsg(e instanceof Error ? e.message : '保存失败'))
         }
       >
