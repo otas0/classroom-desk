@@ -93,7 +93,7 @@ attendanceRouter.post('/api/v1/attendance/sessions/:id/check-in', requireAuth, r
        VALUES (?, ?, ?, ?, ?, 'manual', '', NULL, NULL)`,
     ).run(id, session.id, req.user.id, status, checkedAt);
   } catch {
-    res.status(409).json({ error: 'already_checked_in' });
+    res.status(409).json({ error: 'already_checked_in', message: '今日已签到' });
     return;
   }
 
@@ -186,6 +186,7 @@ function dayBoundsLocal(): { start: string; end: string; dayKey: string } {
   return { start: start.toISOString(), end: end.toISOString(), dayKey };
 }
 
+
 function ensureTodayOpenSession(db: ReturnType<typeof openDb>, classId: string): string {
   const { start, end } = dayBoundsLocal();
   const existing = db
@@ -263,7 +264,7 @@ attendanceRouter.post('/api/v1/attendance/check-in', requireAuth, requireRoles('
     status: string;
   };
   if (session.status !== 'open') {
-    res.status(400).json({ error: 'session_closed' });
+    res.status(400).json({ error: 'session_closed', message: '今日签到场次已关闭' });
     return;
   }
   const status = 'present';
@@ -276,7 +277,7 @@ attendanceRouter.post('/api/v1/attendance/check-in', requireAuth, requireRoles('
        VALUES (?, ?, ?, ?, ?, 'manual', '', NULL, NULL)`,
     ).run(id, session.id, req.user.id, status, checkedAt);
   } catch {
-    res.status(409).json({ error: 'already_checked_in' });
+    res.status(409).json({ error: 'already_checked_in', message: '今日已签到' });
     return;
   }
   res.status(201).json({ id, status, checkedAt, sessionId: session.id });

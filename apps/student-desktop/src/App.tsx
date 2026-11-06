@@ -341,6 +341,9 @@ export function App() {
         {tab === 'messages' && messagesEnabled && user && (
           <MessagesTab onRead={() => void refreshMe()} />
         )}
+        {tab === 'messages' && messagesEnabled && !user && (
+          <p className="hint">请先在「积分」页点选自己的姓名</p>
+        )}
         {tab === 'admin' && (
           <AdminTab
             classId={classId}
@@ -348,6 +351,8 @@ export function App() {
               setClassId(next.classId);
               await loadRoster(next.classId);
               showToast('本机配置已保存');
+              await probeHealth();
+              await refreshMe();
             }}
           />
         )}
@@ -641,8 +646,11 @@ function AdminTab({
 function MessagesTab({ onRead }: { onRead: () => void }) {
   const [items, setItems] = useState<Array<Record<string, unknown>>>([]);
   const [body, setBody] = useState('');
+  const [err, setErr] = useState('');
+  const [busy, setBusy] = useState(false);
 
   async function load() {
+    setErr('');
     const r = await api<{ items: Array<Record<string, unknown>> }>('/api/v1/messages');
     setItems(r.items);
     for (const msg of r.items) {
@@ -657,32 +665,45 @@ function MessagesTab({ onRead }: { onRead: () => void }) {
   }
 
   useEffect(() => {
-    void load().catch(() => setItems([]));
+    void load().catch((e) => setErr(e instanceof Error ? e.message : '加载失败'));
   }, []);
+
+  async function send() {
+    const text = body.trim();
+    if (!text) {
+      setErr('请输入留言内容');
+      return;
+    }
+    setBusy(true);
+    try {
+      await api('/api/v1/messages', { method: 'POST', body: JSON.stringify({ body: text }) });
+      setBody('');
+      await load();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : '发送失败');
+    } finally {
+      setBusy(false);
+    }
+  }
 
   return (
     <section className="panel">
       <h1>留言</h1>
+      {err ? <p className="error">{err}</p> : null}
       <textarea value={body} onChange={(e) => setBody(e.target.value)} rows={3} placeholder="给老师留言" />
-      <button
-        type="button"
-        className="primary"
-        onClick={() =>
-          void api('/api/v1/messages', { method: 'POST', body: JSON.stringify({ body }) })
-            .then(() => {
-              setBody('');
-              return load();
-            })
-            .catch(() => undefined)
-        }
-      >
-        发送
+      <button type="button" className="primary" disabled={busy} onClick={() => void send()}>
+        {busy ? '发送中…' : '发送'}
       </button>
+      <button type="button" className="secondary" onClick={() => void load().catch((e) => setErr(String(e)))}>
+        刷新
+      </button>
+      {items.length === 0 ? <p className="hint">暂无留言</p> : null}
       {items.map((msg) => (
         <article key={String(msg.id)} className="card-block">
           <p>{String(msg.body)}</p>
-          {((msg.replies as Array<{ body: string }>) ?? []).map((r, i) => (
-            <p key={i} className="hint">
+          <p className="hint">{msg.createdAt ? new Date(String(msg.createdAt)).toLocaleString() : ''}</p>
+          {((msg.replies as Array<{ id?: string; body: string }>) ?? []).map((r, i) => (
+            <p key={r.id ?? i} className="reply">
               老师：{r.body}
             </p>
           ))}
@@ -696,29 +717,50 @@ function QuizTab({ onAnswered }: { onAnswered: (msg: string) => void }) {
   const [items, setItems] = useState<Array<Record<string, unknown>>>([]);
   const [multi, setMulti] = useState<Record<string, string[]>>({});
   const [blank, setBlank] = useState<Record<string, string>>({});
+  const [err, setErr] = useState('');
+  const [busyId, setBusyId] = useState<string | null>(null);
+
+  async function load() {
+    setErr('');
+    const r = await api<{ items: Array<Record<string, unknown>> }>('/api/v1/questions');
+    setItems(r.items);
+  }
 
   useEffect(() => {
-    void api<{ items: Array<Record<string, unknown>> }>('/api/v1/questions')
-      .then((r) => setItems(r.items))
-      .catch(() => setItems([]));
+    void load().catch((e) => setErr(e instanceof Error ? e.message : '加载失败'));
   }, []);
 
   async function answer(id: string, payload: unknown) {
-    const res = await api<{ isCorrect: boolean }>(`/api/v1/questions/${id}/answer`, {
-      method: 'POST',
-      body: JSON.stringify({ answerPayload: payload }),
-    });
-    onAnswered(res.isCorrect ? '回答正确' : '回答错误');
+    setBusyId(id);
+    try {
+      const res = await api<{ isCorrect: boolean }>(`/api/v1/questions/${id}/answer`, {
+        method: 'POST',
+        body: JSON.stringify({ answerPayload: payload }),
+      });
+      onAnswered(res.isCorrect ? '回答正确' : '回答错误');
+      await load();
+    } catch (e) {
+      onAnswered(e instanceof Error ? e.message : '提交失败');
+    } finally {
+      setBusyId(null);
+    }
   }
 
   return (
     <section className="panel">
       <h1>答题</h1>
-      {items.length === 0 ? <p>暂无题目</p> : null}
+      {err ? <p className="error">{err}</p> : null}
+      <button type="button" className="secondary" onClick={() => void load().catch((e) => setErr(String(e)))}>
+        刷新题目
+      </button>
+      {items.length === 0 ? <p className="hint">暂无已发布题目</p> : null}
       {items.map((q) => {
         const id = String(q.id);
         const type = String(q.type);
         const opts = (q.options as Array<{ id: string; label: string; content: string }>) ?? [];
+        const mine = q.myAnswer as { isCorrect?: boolean | number; answeredAt?: string } | null;
+        const answered = Boolean(mine?.answeredAt || mine?.isCorrect != null);
+        const busy = busyId === id;
         return (
           <article key={id} className="card-block">
             <strong>
@@ -742,19 +784,26 @@ function QuizTab({ onAnswered }: { onAnswered: (msg: string) => void }) {
                 </div>
               );
             })}
-            {type === 'single' || type === 'bool'
+            {answered ? (
+              <p className="hint">
+                已作答 · {mine?.isCorrect ? '正确' : '错误'}
+                {mine?.answeredAt ? ` · ${new Date(String(mine.answeredAt)).toLocaleString()}` : ''}
+              </p>
+            ) : null}
+            {(type === 'single' || type === 'bool') && !answered
               ? opts.map((opt) => (
                   <button
                     key={opt.id}
                     type="button"
                     className="option-btn"
+                    disabled={busy}
                     onClick={() => void answer(id, { optionIds: [opt.id] })}
                   >
                     {opt.label}. {opt.content}
                   </button>
                 ))
               : null}
-            {type === 'multi' ? (
+            {type === 'multi' && !answered ? (
               <>
                 {opts.map((opt) => {
                   const selected = (multi[id] ?? []).includes(opt.id);
@@ -779,13 +828,14 @@ function QuizTab({ onAnswered }: { onAnswered: (msg: string) => void }) {
                 <button
                   type="button"
                   className="primary"
+                  disabled={busy || (multi[id] ?? []).length === 0}
                   onClick={() => void answer(id, { optionIds: multi[id] ?? [] })}
                 >
-                  提交多选
+                  {busy ? '提交中…' : '提交多选'}
                 </button>
               </>
             ) : null}
-            {type === 'blank' ? (
+            {type === 'blank' && !answered ? (
               <>
                 <input
                   value={blank[id] ?? ''}
@@ -795,9 +845,10 @@ function QuizTab({ onAnswered }: { onAnswered: (msg: string) => void }) {
                 <button
                   type="button"
                   className="primary"
-                  onClick={() => void answer(id, { text: blank[id] ?? '' })}
+                  disabled={busy || !(blank[id] ?? '').trim()}
+                  onClick={() => void answer(id, { text: (blank[id] ?? '').trim() })}
                 >
-                  提交填空
+                  {busy ? '提交中…' : '提交填空'}
                 </button>
               </>
             ) : null}

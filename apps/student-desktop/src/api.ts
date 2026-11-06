@@ -62,9 +62,31 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
 
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    throw new Error((data as { error?: string }).error ?? `http_${res.status}`);
+    const body = data as { error?: string; message?: string };
+    throw new Error(body.message || zhError(body.error) || `请求失败（${res.status}）`);
   }
   return data as T;
+}
+
+function zhError(code?: string): string | undefined {
+  if (!code) return undefined;
+  const map: Record<string, string> = {
+    offline: '无法连接教师机',
+    unauthorized: '请先点选自己的姓名',
+    forbidden: '无权限',
+    no_class: '本机未指派班级',
+    session_closed: '今日签到场次已关闭',
+    already_checked_in: '今日已签到',
+    invalid_request: '请求无效',
+    messages_disabled: '留言已关闭',
+    not_found: '未找到',
+    invalid_credentials: '账号或密码错误',
+    invalid_admin_password: '管理密码错误',
+    messages_disabled: '留言已关闭',
+    invalid_message: '留言内容不能为空',
+    already_answered: '本题已作答',
+  };
+  return map[code] ?? code;
 }
 
 export { getApiBase as API_BASE_FN };
