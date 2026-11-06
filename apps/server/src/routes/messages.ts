@@ -162,11 +162,13 @@ messagesRouter.post('/api/v1/messages/:id/replies', requireAuth, (req: AuthedReq
 
   const role = req.user?.role;
   const uid = req.user?.id;
+  if (!uid) {
+    res.status(401).json({ error: 'unauthorized', message: '未登录' });
+    return;
+  }
   const isTeacher = role === 'teacher' || role === 'admin';
   const isParticipant =
-    role === 'student' &&
-    uid != null &&
-    (message.studentId === uid || message.toStudentId === uid);
+    role === 'student' && (message.studentId === uid || message.toStudentId === uid);
 
   if (!isTeacher && !isParticipant) {
     res.status(403).json({ error: 'forbidden', message: '无权回复该留言' });

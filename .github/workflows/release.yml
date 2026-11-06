@@ -24,10 +24,23 @@ jobs:
           CSC_LINK: ${{ secrets.CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
         run: npm run dist:win --workspace=@classroom-desk/student-desktop
+      - name: Assert installer exists
+        shell: pwsh
+        run: |
+          $exe = Get-ChildItem -Path 'apps/student-desktop/release' -Filter 'ClassroomDesk-Setup-*.exe' -ErrorAction SilentlyContinue
+          if (-not $exe) { Write-Error 'No ClassroomDesk-Setup-*.exe under apps/student-desktop/release/'; exit 1 }
+          $exe | ForEach-Object {
+            $hash = (Get-FileHash -Algorithm SHA256 $_.FullName).Hash.ToLower()
+            Write-Host ("sha256 {0} {1}" -f $hash, $_.Name)
+            Set-Content -Path ("{0}.sha256" -f $_.FullName) -Value ("{0}  {1}" -f $hash, $_.Name)
+          }
       - name: Upload to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: apps/student-desktop/release/ClassroomDesk-Setup-*.exe
+          files: |
+            apps/student-desktop/release/ClassroomDesk-Setup-*.exe
+            apps/student-desktop/release/ClassroomDesk-Setup-*.exe.sha256
+          fail_on_unmatched_files: true
           generate_release_notes: true
           body: |
             ## 安装说明
