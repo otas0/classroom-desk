@@ -55,7 +55,7 @@ export function App() {
     return (
       <div className="login">
         <h1>{APP_NAME} 教师后台</h1>
-        <p className="hint">初始账号 teacher；登录后请到「设置」修改为自己的密码。</p>
+        <p className="hint">账号 teacher；登录后请到「设置」修改密码。</p>
         <label>
           用户名
           <input value={username} onChange={(e) => setUsername(e.target.value)} />
@@ -276,6 +276,11 @@ function QuestionsPanel({ classId }: { classId: string }) {
   const [title, setTitle] = useState('');
   const [stem, setStem] = useState('');
   const [type, setType] = useState<'single' | 'multi' | 'bool' | 'blank'>('single');
+  const [optA, setOptA] = useState('');
+  const [optB, setOptB] = useState('');
+  const [optC, setOptC] = useState('');
+  const [blankKey, setBlankKey] = useState('');
+  const [createMsg, setCreateMsg] = useState('');
   const [items, setItems] = useState<Array<Record<string, unknown>>>([]);
   const [chart, setChart] = useState<{
     title: string;
@@ -296,45 +301,69 @@ function QuestionsPanel({ classId }: { classId: string }) {
   }, [classId]);
 
   async function create() {
-    const body =
-      type === 'blank'
-        ? { classId, title, stem, type, answerKey: '答案', options: [] }
-        : type === 'bool'
-          ? {
-              classId,
-              title,
-              stem,
-              type,
-              options: [
-                { label: 'A', content: '正确', isCorrect: true },
-                { label: 'B', content: '错误', isCorrect: false },
-              ],
-            }
-          : type === 'multi'
-            ? {
-                classId,
-                title,
-                stem,
-                type,
-                options: [
-                  { label: 'A', content: '正确1', isCorrect: true },
-                  { label: 'B', content: '正确2', isCorrect: true },
-                  { label: 'C', content: '错误', isCorrect: false },
-                ],
-              }
-            : {
-                classId,
-                title,
-                stem,
-                type,
-                options: [
-                  { label: 'A', content: '正确选项', isCorrect: true },
-                  { label: 'B', content: '错误选项', isCorrect: false },
-                ],
-              };
+    setCreateMsg('');
+    if (!title.trim() || !stem.trim()) {
+      setCreateMsg('请填写真实题目标题与题干');
+      return;
+    }
+    let body: Record<string, unknown>;
+    if (type === 'blank') {
+      if (!blankKey.trim()) {
+        setCreateMsg('请填写填空参考答案');
+        return;
+      }
+      body = { classId, title: title.trim(), stem: stem.trim(), type, answerKey: blankKey.trim(), options: [] };
+    } else if (type === 'bool') {
+      body = {
+        classId,
+        title: title.trim(),
+        stem: stem.trim(),
+        type,
+        options: [
+          { label: 'A', content: '正确', isCorrect: true },
+          { label: 'B', content: '错误', isCorrect: false },
+        ],
+      };
+    } else if (type === 'multi') {
+      if (!optA.trim() || !optB.trim() || !optC.trim()) {
+        setCreateMsg('多选题请填写选项 A/B/C 真实内容（默认 A、B 为正确）');
+        return;
+      }
+      body = {
+        classId,
+        title: title.trim(),
+        stem: stem.trim(),
+        type,
+        options: [
+          { label: 'A', content: optA.trim(), isCorrect: true },
+          { label: 'B', content: optB.trim(), isCorrect: true },
+          { label: 'C', content: optC.trim(), isCorrect: false },
+        ],
+      };
+    } else {
+      if (!optA.trim() || !optB.trim()) {
+        setCreateMsg('单选题请填写选项 A/B 真实内容（默认 A 为正确）');
+        return;
+      }
+      body = {
+        classId,
+        title: title.trim(),
+        stem: stem.trim(),
+        type,
+        options: [
+          { label: 'A', content: optA.trim(), isCorrect: true },
+          { label: 'B', content: optB.trim(), isCorrect: false },
+        ],
+      };
+    }
     await api('/api/v1/questions', { method: 'POST', body: JSON.stringify(body) });
     setTitle('');
     setStem('');
+    setOptA('');
+    setOptB('');
+    setOptC('');
+    setBlankKey('');
+    setCreateMsg('已发布');
     await load();
   }
 
@@ -371,11 +400,25 @@ function QuestionsPanel({ classId }: { classId: string }) {
         <option value="bool">判断</option>
         <option value="blank">填空</option>
       </select>
-      <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="题目标题" />
-      <textarea value={stem} onChange={(e) => setStem(e.target.value)} placeholder="题干" />
+      <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="题目标题（必填）" />
+      <textarea value={stem} onChange={(e) => setStem(e.target.value)} placeholder="题干（必填）" />
+      {type === 'blank' ? (
+        <input value={blankKey} onChange={(e) => setBlankKey(e.target.value)} placeholder="参考答案（必填）" />
+      ) : type === 'bool' ? (
+        <p className="hint">判断题选项固定为「正确 / 错误」</p>
+      ) : (
+        <>
+          <input value={optA} onChange={(e) => setOptA(e.target.value)} placeholder="选项 A（正确，必填）" />
+          <input value={optB} onChange={(e) => setOptB(e.target.value)} placeholder="选项 B（必填）" />
+          {type === 'multi' ? (
+            <input value={optC} onChange={(e) => setOptC(e.target.value)} placeholder="选项 C（必填）" />
+          ) : null}
+        </>
+      )}
       <button type="button" onClick={() => void create()}>
         发布题目
       </button>
+      {createMsg ? <p className="hint">{createMsg}</p> : null}
       <ul>
         {items.map((q) => (
           <li key={String(q.id)}>
@@ -546,7 +589,7 @@ function AttendancePanel({ classId }: { classId: string }) {
     <section>
       <h2>签到统计（月）</h2>
       <p className="hint">
-        按教师机本地时区自然月统计（非 UTC）。迟到阈值在「设置」按学校作息配置。学生端点「签到」写入今日场次。
+        按教师机本地时区自然月统计（非 UTC）。学生端点「签到」写入今日场次。
       </p>
       <input value={month} onChange={(e) => setMonth(e.target.value)} placeholder="YYYY-MM" />
       <button type="button" onClick={() => void load()}>
@@ -898,22 +941,14 @@ function AssignPanel({ classId, classes }: { classId: string; classes: ClassItem
 function SettingsPanel() {
   const [diag, setDiag] = useState('');
   const [ttl, setTtl] = useState(60);
-  const [classStart, setClassStart] = useState('08:00');
-  const [lateMins, setLateMins] = useState(15);
   const [saveMsg, setSaveMsg] = useState('');
   const [curPwd, setCurPwd] = useState('');
   const [newPwd, setNewPwd] = useState('');
   const [pwdMsg, setPwdMsg] = useState('');
 
   useEffect(() => {
-    void api<{
-      pointRequestTtlMinutes: number;
-      attendanceClassStartTime?: string;
-      attendanceLateAfterMinutes?: number;
-    }>('/api/v1/settings').then((s) => {
+    void api<{ pointRequestTtlMinutes: number }>('/api/v1/settings').then((s) => {
       setTtl(s.pointRequestTtlMinutes);
-      setClassStart(s.attendanceClassStartTime ?? '08:00');
-      setLateMins(s.attendanceLateAfterMinutes ?? 15);
     });
   }, []);
 
@@ -924,12 +959,14 @@ function SettingsPanel() {
       const ms = Math.round(performance.now() - t0);
       const body = (await res.json()) as {
         ok?: boolean;
+        lanIps?: string[];
+        suggestedApiBase?: string;
         backup?: { latestAt?: string | null; lastError?: { message?: string } | null };
       };
       const err = body.backup?.lastError;
       setDiag(
         body.ok
-          ? `正常 ${ms}ms · 备份 ${body.backup?.latestAt ?? '无'}${
+          ? `正常 ${ms}ms · LAN ${body.lanIps?.join(', ') || '—'} · ${body.suggestedApiBase ?? ''}${
               err ? ` · lastError：${err.message ?? JSON.stringify(err)}` : ' · lastError 无'
             }`
           : `失败 HTTP ${res.status}`,
@@ -948,7 +985,7 @@ function SettingsPanel() {
       {diag ? <p className="hint">{diag}</p> : null}
 
       <h3>教师登录密码</h3>
-      <p className="hint">初次由管理员下发临时密码；请在此改成自己的密码（至少 6 位）。</p>
+      <p className="hint">请改成自己的密码（至少 6 位），勿使用联调口令。</p>
       <label>
         当前密码
         <input type="password" value={curPwd} onChange={(e) => setCurPwd(e.target.value)} autoComplete="current-password" />
@@ -981,38 +1018,12 @@ function SettingsPanel() {
         有效期（分钟）
         <input type="number" value={ttl} onChange={(e) => setTtl(Number(e.target.value))} />
       </label>
-
-      <h3>签到迟到（按学校作息）</h3>
-      <p className="hint">相对「上课开始时刻」超过 N 分钟记为迟到。例：08:00 开始、15 分钟 → 08:15 后迟到。</p>
-      <label>
-        上课开始时刻
-        <input
-          value={classStart}
-          onChange={(e) => setClassStart(e.target.value)}
-          placeholder="08:00"
-          pattern="\d{2}:\d{2}"
-        />
-      </label>
-      <label>
-        迟到阈值（分钟）
-        <input
-          type="number"
-          min={0}
-          max={240}
-          value={lateMins}
-          onChange={(e) => setLateMins(Number(e.target.value))}
-        />
-      </label>
       <button
         type="button"
         onClick={() =>
           void api('/api/v1/settings', {
             method: 'PATCH',
-            body: JSON.stringify({
-              pointRequestTtlMinutes: ttl,
-              attendanceClassStartTime: classStart,
-              attendanceLateAfterMinutes: lateMins,
-            }),
+            body: JSON.stringify({ pointRequestTtlMinutes: ttl }),
           })
             .then(() => setSaveMsg('已保存'))
             .catch((e) => setSaveMsg(e instanceof Error ? e.message : '保存失败'))
@@ -1021,7 +1032,7 @@ function SettingsPanel() {
         保存设置
       </button>
       {saveMsg ? <p className="hint">{saveMsg}</p> : null}
-      <p className="hint">本地备份：教师机 `npm run backup:db`；确认 /health 无 lastError。纯本地部署，无需代码签名。</p>
+      <p className="hint">本地备份：教师机 `npm run backup:db`；确认 /health 无 lastError。</p>
     </section>
   );
 }

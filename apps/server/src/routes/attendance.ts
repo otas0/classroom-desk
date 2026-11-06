@@ -1,6 +1,5 @@
 import { Router } from 'express';
 import { openDb } from '../db/client.js';
-import { getSetting } from '../db/migrate.js';
 import { requireAuth, requireRoles, type AuthedRequest } from '../middleware/auth.js';
 import { localMonthRange } from '../utils/csv.js';
 import { newId, nowIso } from '../utils/id.js';
@@ -187,15 +186,6 @@ function dayBoundsLocal(): { start: string; end: string; dayKey: string } {
   return { start: start.toISOString(), end: end.toISOString(), dayKey };
 }
 
-function lateThresholdMs(db: ReturnType<typeof openDb>): { lateAfterMinutes: number; classStartMs: number } {
-  const startTime = getSetting(db, 'attendance_class_start_time') ?? '08:00';
-  const lateAfterMinutes = Number(getSetting(db, 'attendance_late_after_minutes') ?? 15);
-  const [hh, mm] = startTime.split(':').map(Number);
-  const start = new Date();
-  start.setHours(hh || 8, mm || 0, 0, 0);
-  return { lateAfterMinutes, classStartMs: start.getTime() };
-}
-
 function ensureTodayOpenSession(db: ReturnType<typeof openDb>, classId: string): string {
   const { start, end } = dayBoundsLocal();
   const existing = db
@@ -213,14 +203,13 @@ function ensureTodayOpenSession(db: ReturnType<typeof openDb>, classId: string):
   if (!teacher?.id) {
     throw new Error('no_teacher_user');
   }
-  const { lateAfterMinutes } = lateThresholdMs(db);
   const id = newId();
   const createdAt = nowIso();
   db.prepare(
     `INSERT INTO attendance_sessions
       (id, class_id, mode, start_at, end_at, late_after_minutes, created_by, status, created_at)
      VALUES (?, ?, 'manual', ?, ?, ?, ?, 'open', ?)`,
-  ).run(id, classId, start, end, lateAfterMinutes, teacher.id, createdAt);
+  ).run(id, classId, start, end, 0, teacher.id, createdAt);
   return id;
 }
 
@@ -277,9 +266,7 @@ attendanceRouter.post('/api/v1/attendance/check-in', requireAuth, requireRoles('
     res.status(400).json({ error: 'session_closed' });
     return;
   }
-  const now = Date.now();
-  const { lateAfterMinutes, classStartMs } = lateThresholdMs(db);
-  const status = now > classStartMs + lateAfterMinutes * 60_000 ? 'late' : 'present';
+  const status = 'present';
   const checkedAt = nowIso();
   const id = newId();
   try {
@@ -292,7 +279,7 @@ attendanceRouter.post('/api/v1/attendance/check-in', requireAuth, requireRoles('
     res.status(409).json({ error: 'already_checked_in' });
     return;
   }
-  res.status(201).json({ id, status, checkedAt, sessionId: session.id, lateAfterMinutes });
+  res.status(201).json({ id, status, checkedAt, sessionId: session.id });
 });
 
 attendanceRouter.get(

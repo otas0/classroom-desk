@@ -7,9 +7,9 @@ U 盘目录示例：`releases/192.168.31.179/`（exe 已 gitignore，本机生�
 
 - 班级：**本教室** · `classId=00d6b800-6628-4d20-a49c-9765325d9eef`
 - `apiBase=http://192.168.31.179:8787`（已写入 settings + student `config.json`）
-- 花名册：张三/李四/王五（学号 2026001–003）；假数据/E2E/联调 L001 已清空
-- 留言默认关；迟到 08:00+15 分
-- 教师密码已改（勿再用 TeacherPass123）；设置里可再改
+- 花名册：张三/李四/王五（学号 2026001–003）；假数据已清空；题目无占位 mock
+- 留言默认关；签到记为到课（无学校作息迟到配置）
+- 教师请在设置里改成个人密码
 - `releases/**` 二进制不入库；只提交 `releases/README.md`
 
 清库重生：`npm run prepare:live -- --apiBase http://192.168.31.179:8787 --className 本教室`
@@ -35,7 +35,6 @@ U 盘目录示例：`releases/192.168.31.179/`（exe 已 gitignore，本机生�
 
 ## D. 课堂核对
 
-- [ ] 点名加分 / 签到迟到·准时 / 发题正确率
 - [ ] 导出四格式人工对列
 - [ ] 正式班 Excel 覆盖导入（模板 `docs/templates/roster-import-template.csv`）
 - [ ] 损坏 `.xlsx` → 中文「文件损坏…」（需新版 server）

@@ -510,7 +510,7 @@ function AttendanceTab({
         method: 'POST',
         body: '{}',
       });
-      showToast(r.status === 'late' ? '签到成功（迟到）' : '签到成功');
+      showToast('签到成功');
       await load();
     } catch (e) {
       showToast(e instanceof Error ? e.message : '签到失败');

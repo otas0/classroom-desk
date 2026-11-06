@@ -121,10 +121,8 @@ try {
   // Live settings for student connect
   const settings = {
     messages_enabled: '0', // off until teacher opens
-    attendance_class_start_time: '08:00',
-    attendance_late_after_minutes: '15',
     notice_text: '请在花名册点选自己的姓名后签到、答题、申请加分。',
-    attendance_notice_text: '签到按本教室上课开始时刻判定迟到。',
+    attendance_notice_text: '签到记录本工具内的到课状态。',
     classroom_api_base: apiBase,
   };
   for (const [key, value] of Object.entries(settings)) {

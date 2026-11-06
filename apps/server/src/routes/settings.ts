@@ -40,8 +40,6 @@ settingsRouter.get('/api/v1/settings', requireAuth, requireRoles('teacher', 'adm
     pointRequestDailyCleanupTime: getSetting(db, 'point_request_daily_cleanup_time') ?? '02:00',
     pointRequestDailyCleanupEditable: false,
     messagesEnabled: (getSetting(db, 'messages_enabled') ?? '1') !== '0',
-    attendanceClassStartTime: getSetting(db, 'attendance_class_start_time') ?? '08:00',
-    attendanceLateAfterMinutes: Number(getSetting(db, 'attendance_late_after_minutes') ?? 15),
     classroomApiBase: getSetting(db, 'classroom_api_base') ?? '',
     noticeText: getSetting(db, 'notice_text') ?? APP_NOTICE,
     attendanceNoticeText: getSetting(db, 'attendance_notice_text') ?? ATTENDANCE_NOTICE,
@@ -83,30 +81,6 @@ settingsRouter.patch('/api/v1/settings', requireAuth, requireRoles('teacher', 'a
       `INSERT INTO settings (key, value) VALUES ('messages_enabled', ?)
        ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
     ).run(enabled ? '1' : '0');
-  }
-
-  if (req.body?.attendanceClassStartTime != null) {
-    const t = String(req.body.attendanceClassStartTime).trim();
-    if (!/^\d{2}:\d{2}$/.test(t)) {
-      res.status(400).json({ error: 'invalid_class_start_time' });
-      return;
-    }
-    db.prepare(
-      `INSERT INTO settings (key, value) VALUES ('attendance_class_start_time', ?)
-       ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
-    ).run(t);
-  }
-
-  if (req.body?.attendanceLateAfterMinutes != null) {
-    const mins = Number(req.body.attendanceLateAfterMinutes);
-    if (!Number.isFinite(mins) || mins < 0 || mins > 240) {
-      res.status(400).json({ error: 'invalid_late_after_minutes' });
-      return;
-    }
-    db.prepare(
-      `INSERT INTO settings (key, value) VALUES ('attendance_late_after_minutes', ?)
-       ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
-    ).run(String(Math.trunc(mins)));
   }
 
   if (req.body?.classroomApiBase != null) {

@@ -11,16 +11,16 @@
 1. 教师机已开机，API 自启（或 `npm run start:server`），`HOST=0.0.0.0`。  
 2. 固定教师机 IP；防火墙已跑过 `windows-teacher-host.ps1`。  
 3. **每台学生机浏览器**打开 `http://教师IP:8787/ready`（或 `/health`）见「可以上课」；不通先关 AP/访客隔离。  
-4. 学生机时间与教师机一致（自动对时；迟到按本地时刻）。  
+4. 学生机时间与教师机一致（自动对时）。  
 5. 教师机 `npm run backup:db` 后 `/health` 无 `lastError`。  
-6. `/admin`：选班 → 花名册已导入 → 按需关留言 → 设置迟到阈值（上课开始时刻 + 分钟）。
+6. `/admin`：选班 → 花名册已导入 → 按需关留言。  
 
 ## 学生机
 
 - `apiBase = http://教师IP:8787`（**禁止** `127.0.0.1` / localhost）  
 - `classId` = 本班（「指派学生机」或 `pack-classroom-config`）— 写进身份表  
 - 客户端启动会强制 `/health`；未签名包：SmartScreen → 更多信息 → 仍要运行  
-- 时间与教师机一致（迟到按本地作息时刻）  
+
 
 ## 本教室填写（部署时手写）
 
