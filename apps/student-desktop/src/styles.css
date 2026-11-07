@@ -917,3 +917,23 @@ textarea {
   font-weight: 700;
   padding: 0 6px;
 }
+
+.input-lock-banner {
+  position: relative;
+  z-index: 40;
+  margin: 0;
+  padding: 8px 12px;
+  background: #111;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  border-bottom: 2px solid #000;
+}
+.input-lock-banner p { margin: 0; }
+.input-lock-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 35;
+  background: rgba(0, 0, 0, 0.35);
+  pointer-events: none;
+}

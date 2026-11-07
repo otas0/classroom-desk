@@ -17,6 +17,14 @@ import {
   readExitLockCache,
   writeExitLockCache,
 } from './exitLockCache';
+import {
+  EMPTY_INPUT_LOCK,
+  anyInputLocked,
+  installInputLockGuards,
+  inputLockSummary,
+  normalizeInputLock,
+  type InputLockFlags,
+} from './inputLock';
 declare const __APP_VERSION__: string;
 const CLIENT_VERSION = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.0.0';
 
@@ -105,6 +113,8 @@ export function App() {
   const [quizConfirmSubmit, setQuizConfirmSubmit] = useState(true);
   const [nowTick, setNowTick] = useState(() => Date.now());
   const [hardeningTip, setHardeningTip] = useState(false);
+  const [inputLock, setInputLock] = useState<InputLockFlags>(EMPTY_INPUT_LOCK);
+  const inputLockToastAtRef = useRef(0);
   const knownQuestionIdsRef = useRef(new Set<string>());
 
   const showToast = useCallback((msg: string) => {
@@ -190,6 +200,25 @@ export function App() {
   }, []);
 
   useEffect(() => {
+    if (!anyInputLocked(inputLock)) return;
+    const notify = (kind: 'keyboard' | 'mouse' | 'voice' | 'camera') => {
+      const now = Date.now();
+      if (now - inputLockToastAtRef.current < 2500) return;
+      inputLockToastAtRef.current = now;
+      const label =
+        kind === 'keyboard'
+          ? '键盘'
+          : kind === 'mouse'
+            ? '鼠标'
+            : kind === 'voice'
+              ? '语音'
+              : '相机';
+      showToast(`教师已锁定${label}输入，请向教师申请解除`);
+    };
+    return installInputLockGuards(inputLock, notify);
+  }, [inputLock, showToast]);
+
+  useEffect(() => {
     const dismissed = localStorage.getItem('cd_hardening_tip_dismissed') === '1';
     if (dismissed) return;
     let cancelled = false;
@@ -255,6 +284,9 @@ export function App() {
       try {
         const data = typeof raw === 'string' ? JSON.parse(raw) : raw;
         if (!data || data.type !== 'exit_lock') return;
+        if (data.inputLock != null) {
+          setInputLock(normalizeInputLock(data.inputLock));
+        }
         void applyServerExitLock(
           data.clientExitAllowed === true,
           data.clientExitUnlockUntil ?? null,
@@ -365,9 +397,11 @@ export function App() {
         quizConfirmSubmit?: boolean;
         clientExitAllowed?: boolean;
         clientExitUnlockUntil?: string | null;
+        inputLock?: InputLockFlags;
       }>('/api/v1/settings/public');
       setMessagesEnabled(pub.messagesEnabled !== false);
       setQuizConfirmSubmit(pub.quizConfirmSubmit !== false);
+      if (pub.inputLock != null) setInputLock(normalizeInputLock(pub.inputLock));
       await applyServerExitLock(
         pub.clientExitAllowed === true,
         pub.clientExitUnlockUntil ?? null,
@@ -987,6 +1021,27 @@ export function App() {
           </main>
         </>
       )}
+
+      {anyInputLocked(inputLock) ? (
+        <div
+          className={`input-lock-banner${inputLock.mouse ? ' input-lock-banner-block' : ''}`}
+          role="status"
+          data-testid="input-lock-banner"
+          aria-live="polite"
+        >
+          <p>
+            教师已启用物理输入锁：{inputLockSummary(inputLock) || '—'}。本应用内对应输入已禁用，请向教师申请解除。
+          </p>
+        </div>
+      ) : null}
+
+      {inputLock.mouse ? (
+        <div
+          className="input-lock-overlay"
+          data-testid="input-lock-mouse-overlay"
+          aria-hidden="true"
+        />
+      ) : null}
 
       {hardeningTip ? (
         <div className="banner-alert" role="status" data-testid="hardening-tip">

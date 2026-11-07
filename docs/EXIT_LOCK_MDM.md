@@ -112,6 +112,21 @@ JSON 片段（Intune「展台」或多应用 Assigned Access）：
 4. 验证：开始菜单无「任务管理器」或打开后策略阻止；事件查看器 / `rsop` 可选。
 5. 未生效：核对 CSP 在该版本是否支持，改用「开始」策略或 kiosk 配置，勿直接推全校。
 
+### 物理输入锁（教师可控 · 学生可见）
+
+教师后台「学生端退出锁定 → 物理输入锁」可分别关闭学生端应用内的：
+
+| 开关 | 学生端行为 |
+|------|------------|
+| 键盘 | 捕获阶段拦截 keydown/keyup（本窗口） |
+| 鼠标/点击 | 拦截 pointer/click + 半透明遮罩 |
+| 语音 | 拒绝 `getUserMedia(audio)` / SpeechRecognition |
+| 相机 | 拒绝 `getUserMedia(video)` |
+
+- 实时推送走现有 `/exit-lock/ws` + SSE；审计 kind=`input_lock`。  
+- **不做** OS 级键鼠钩子、隐蔽监控或对抗杀软；系统热键/其它进程仍依赖 Assigned Access。  
+- e2e：`e2e/input-lock.spec.ts`。
+
 ### 验证打包安装态退出锁定（C2 · 须在 Windows 真机）
 
 本仓库 CI/代理机多为 macOS，**无法代替**教室 Windows 手测。打印下表到样机旁勾选；**证据**栏拍屏/录屏归档到教师机 `证据/C2-YYYYMMDD/`。

@@ -3,6 +3,7 @@ import { getSetting } from '../db/migrate.js';
 import { newId, nowIso } from '../utils/id.js';
 import { hashPassword, verifyAdminPassword, verifyPassword } from './auth.js';
 import { broadcastExitLockPayload } from './exitLockHub.js';
+import { getInputLockFlags, inputLockActive } from './inputLock.js';
 
 const KEY_LOCKED = 'client_exit_locked';
 const KEY_UNTIL = 'client_exit_unlock_until';
@@ -130,6 +131,7 @@ export function getClientExitLockState(db: DatabaseSync) {
     Boolean(getSetting(db, KEY_CODE_HASH)) &&
     ageDays != null &&
     ageDays >= rate.exitUnlockCodeRotateDays;
+  const inputLock = getInputLockFlags(db);
   return {
     clientExitLocked: locked,
     clientExitAllowed: isClientExitAllowed(db),
@@ -138,6 +140,8 @@ export function getClientExitLockState(db: DatabaseSync) {
     exitUnlockCodeSetAt: setAt && Number.isFinite(setAtMs) ? new Date(setAtMs).toISOString() : null,
     exitUnlockCodeAgeDays: ageDays,
     exitUnlockCodeRotationDue: rotationDue,
+    inputLock,
+    inputLockActive: inputLockActive(inputLock),
     ...rate,
   };
 }

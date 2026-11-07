@@ -56,8 +56,15 @@ jobs:
           npm run verify:1plus1
           npm run verify:exit-lock-packaged
           npm run verify:exit-lock-audit
+      - name: Upload teacher dist for e2e gates
+        uses: actions/upload-artifact@v4
+        with:
+          name: teacher-dist-ci
+          path: apps/teacher-web/dist
+          if-no-files-found: error
+          retention-days: 1
 
-  # Shared setup pattern for Playwright gates (parallel matrix shortens wall clock).
+  # Shared setup: reuse server teacher dist (skip rebuild) to cut e2e wall clock.
   e2e-bulk:
     runs-on: ubuntu-latest
     needs: server
@@ -83,8 +90,11 @@ jobs:
         run: npm install
       - name: Install Playwright
         run: npx playwright install --with-deps chromium
-      - name: Build teacher SPA for /admin deep-link e2e
-        run: npm run build:teacher
+      - name: Download teacher dist from server job
+        uses: actions/download-artifact@v4
+        with:
+          name: teacher-dist-ci
+          path: apps/teacher-web/dist
       - name: Start API + teacher web + student vite
         run: |
           JWT_SECRET=ci-secret-not-for-prod \
@@ -130,6 +140,28 @@ jobs:
             fi
           } >> "$GITHUB_STEP_SUMMARY"
           exit $code
+      - name: Summarize settings-save-msg DOM on failure
+        if: failure() && steps.bulk_gate.outcome == 'failure'
+        run: |
+          {
+            echo "### settings-save-msg / recycle-urgent DOM"
+            if compgen -G 'test-results/**/error-context.md' >/dev/null; then
+              rg -n -i 'settings-save-msg|recycle-urgent-save-msg|即将到期阈值|health-poll' test-results || true
+              echo ""
+              echo "<details><summary>error-context snippets</summary>"
+              echo ""
+              for f in test-results/**/error-context.md; do
+                [ -f "$f" ] || continue
+                echo "#### \`$f\`"
+                echo '```'
+                rg -n -i 'settings-save-msg|recycle-urgent|即将到期|save-msg|hint' "$f" || head -n 40 "$f"
+                echo '```'
+              done
+              echo "</details>"
+            else
+              echo "- (no error-context.md; check playwright-traces-bulk-gate artifact)"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
       - name: Upload Playwright traces (bulk gate failure)
         if: failure() && steps.bulk_gate.outcome == 'failure'
         uses: actions/upload-artifact@v4
@@ -166,8 +198,11 @@ jobs:
         run: npm install
       - name: Install Playwright
         run: npx playwright install --with-deps chromium
-      - name: Build teacher SPA for /admin deep-link e2e
-        run: npm run build:teacher
+      - name: Download teacher dist from server job
+        uses: actions/download-artifact@v4
+        with:
+          name: teacher-dist-ci
+          path: apps/teacher-web/dist
       - name: Start API + teacher web + student vite
         run: |
           JWT_SECRET=ci-secret-not-for-prod \
@@ -201,7 +236,8 @@ jobs:
             e2e/permissions-doc.spec.ts \
             e2e/exit-lock-reconcile.spec.ts \
             e2e/exit-lock-toast.spec.ts \
-            e2e/exit-lock-blocked-close.spec.ts
+            e2e/exit-lock-blocked-close.spec.ts \
+            e2e/input-lock.spec.ts
           code=$?
           {
             echo "### e2e suite: rbac"
@@ -212,6 +248,17 @@ jobs:
             fi
           } >> "$GITHUB_STEP_SUMMARY"
           exit $code
+      - name: Summarize settings-save-msg DOM on failure
+        if: failure() && steps.rbac_gate.outcome == 'failure'
+        run: |
+          {
+            echo "### settings-save-msg DOM"
+            if compgen -G 'test-results/**/error-context.md' >/dev/null; then
+              rg -n -i 'settings-save-msg|recycle-urgent-save-msg|即将到期阈值' test-results || true
+            else
+              echo "- (no error-context.md)"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
       - name: Upload session-kick-ui select-identity screenshot
         if: always()
         uses: actions/upload-artifact@v4

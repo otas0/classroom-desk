@@ -22,7 +22,9 @@ import {
   setExitUnlockCode,
   setExitUnlockRateConfig,
 } from '../services/exitLock.js';
+import { setInputLockFlags, type InputLockFlags } from '../services/inputLock.js';
 import { addExitLockSseClient } from '../services/exitLockHub.js';
+import { broadcastExitLockPayload } from '../services/exitLockHub.js';
 import { previewPurgeExpiredSoftDeletes, purgeExpiredSoftDeletes, writeAudit } from '../services/audit.js';
 import { toCsv } from '../utils/csv.js';
 import {
@@ -60,6 +62,8 @@ settingsRouter.get('/api/v1/settings/public', (_req, res) => {
     exitUnlockCodeRotationDue: exit.exitUnlockCodeRotationDue,
     exitUnlockCodeAgeDays: exit.exitUnlockCodeAgeDays,
     exitUnlockCodeRotateDays: exit.exitUnlockCodeRotateDays,
+    inputLock: exit.inputLock,
+    inputLockActive: exit.inputLockActive,
   });
 });
 
@@ -319,6 +323,25 @@ settingsRouter.patch('/api/v1/settings', requireAuth, requireRoles('teacher', 'a
   if (req.body?.clientExitRelock === true) {
     relockClientExit(db, actor);
     res.json({ ok: true, ...getClientExitLockState(db) });
+    return;
+  }
+
+  /** Physical input lock on student desktop (visible kiosk control, not OS malware). */
+  if (req.body?.inputLock != null && typeof req.body.inputLock === 'object') {
+    const raw = req.body.inputLock as Partial<InputLockFlags>;
+    setInputLockFlags(
+      db,
+      {
+        keyboard: raw.keyboard,
+        mouse: raw.mouse,
+        voice: raw.voice,
+        camera: raw.camera,
+      },
+      actor,
+    );
+    const state = getClientExitLockState(db);
+    broadcastExitLockPayload(state);
+    res.json({ ok: true, ...state });
     return;
   }
 

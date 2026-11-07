@@ -1,6 +1,7 @@
 import {
   useEffect,
   useMemo,
+  useRef,
   useState,
   type CSSProperties,
   type UIEvent,
@@ -2842,6 +2843,14 @@ export function SettingsPanel({
   const [exitMinutes, setExitMinutes] = useState(15);
   const [exitCodeDraft, setExitCodeDraft] = useState('');
   const [exitMsg, setExitMsg] = useState('');
+  const [csvExportBusy, setCsvExportBusy] = useState(false);
+  const csvExportAbortRef = useRef<AbortController | null>(null);
+  const [healthPollMsDraft, setHealthPollMsDraft] = useState(() => {
+    const fromLs = Number(localStorage.getItem('cd_health_poll_ms') || '');
+    if (Number.isFinite(fromLs) && fromLs > 0) return String(Math.round(fromLs));
+    return import.meta.env.PROD ? '30000' : '8000';
+  });
+  const [healthPollMsg, setHealthPollMsg] = useState('');
   const [bulkUnlockOpen, setBulkUnlockOpen] = useState(false);
   const [bulkUnlockBusy, setBulkUnlockBusy] = useState(false);
   const [bulkUnlockMeta, setBulkUnlockMeta] = useState<{
@@ -2849,6 +2858,13 @@ export function SettingsPanel({
     className: string;
     onlineCount: number;
   } | null>(null);
+  const [inputLock, setInputLock] = useState({
+    keyboard: false,
+    mouse: false,
+    voice: false,
+    camera: false,
+  });
+  const [inputLockBusy, setInputLockBusy] = useState(false);
   const [exitEvents, setExitEvents] = useState<
     Array<{ id: string; kind: string; detail: string; createdAt: string; actorRole?: string | null }>
   >([]);
@@ -2970,6 +2986,12 @@ export function SettingsPanel({
       exitUnlockCodeRotateDays?: number;
       exitUnlockCodeAgeDays?: number | null;
       exitUnlockCodeRotationDue?: boolean;
+      inputLock?: {
+        keyboard?: boolean;
+        mouse?: boolean;
+        voice?: boolean;
+        camera?: boolean;
+      };
       backup?: {
         dir?: string;
         keep?: number;
@@ -3015,6 +3037,14 @@ export function SettingsPanel({
     setRotateDays(s.exitUnlockCodeRotateDays ?? 90);
     setCodeAgeDays(s.exitUnlockCodeAgeDays ?? null);
     setCodeRotationDue(s.exitUnlockCodeRotationDue === true);
+    if (s.inputLock) {
+      setInputLock({
+        keyboard: Boolean(s.inputLock.keyboard),
+        mouse: Boolean(s.inputLock.mouse),
+        voice: Boolean(s.inputLock.voice),
+        camera: Boolean(s.inputLock.camera),
+      });
+    }
     const q = new URLSearchParams({
       limit: String(EXIT_PAGE_SIZE),
       offset: String(exitEventsPage * EXIT_PAGE_SIZE),
@@ -3067,6 +3097,10 @@ export function SettingsPanel({
 
   /** Page through JSON API and build full CSV (no 500 hard cap). */
   async function exportExitLockCsvAll(filename: string) {
+    csvExportAbortRef.current?.abort();
+    const ac = new AbortController();
+    csvExportAbortRef.current = ac;
+    setCsvExportBusy(true);
     const token = getToken() || '';
     const pageSize = 200;
     const rows: Array<{
@@ -3080,46 +3114,70 @@ export function SettingsPanel({
     let offset = 0;
     let total = Infinity;
     setExitMsg('正在分页拉取全部 CSV…');
-    while (offset < total) {
-      const q = new URLSearchParams({
-        limit: String(pageSize),
-        offset: String(offset),
-      });
-      if (exitKindFilter) q.set('kind', exitKindFilter);
-      const res = await fetch(`${API_BASE}/api/v1/settings/exit-lock-events?${q}`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      });
-      if (!res.ok) {
-        setExitMsg(`导出失败 HTTP ${res.status}`);
+    try {
+      while (offset < total) {
+        if (ac.signal.aborted) {
+          setExitMsg(`已取消导出（已取 ${rows.length} 条）`);
+          return;
+        }
+        const q = new URLSearchParams({
+          limit: String(pageSize),
+          offset: String(offset),
+        });
+        if (exitKindFilter) q.set('kind', exitKindFilter);
+        const res = await fetch(`${API_BASE}/api/v1/settings/exit-lock-events?${q}`, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+          signal: ac.signal,
+        });
+        if (!res.ok) {
+          setExitMsg(`导出失败 HTTP ${res.status}`);
+          return;
+        }
+        const body = (await res.json()) as { items?: typeof rows; total?: number };
+        const items = body.items ?? [];
+        total = Number(body.total ?? items.length);
+        rows.push(...items);
+        const denom = Number.isFinite(total) && total > 0 ? total : Math.max(rows.length, 1);
+        setExitMsg(`导出进度 ${Math.min(rows.length, denom)} / ${denom}…`);
+        if (!items.length) break;
+        offset += items.length;
+        if (offset > 50_000) {
+          setExitMsg(`导出中止：超过 50000 条安全上限（已取 ${rows.length}）`);
+          break;
+        }
+      }
+      if (ac.signal.aborted) {
+        setExitMsg(`已取消导出（已取 ${rows.length} 条）`);
         return;
       }
-      const body = (await res.json()) as { items?: typeof rows; total?: number };
-      const items = body.items ?? [];
-      total = Number(body.total ?? items.length);
-      rows.push(...items);
-      const denom = Number.isFinite(total) && total > 0 ? total : Math.max(rows.length, 1);
-      setExitMsg(`导出进度 ${Math.min(rows.length, denom)} / ${denom}…`);
-      if (!items.length) break;
-      offset += items.length;
-      if (offset > 50_000) {
-        setExitMsg(`导出中止：超过 50000 条安全上限（已取 ${rows.length}）`);
-        break;
+      const esc = (v: string) => (/[",\n\r]/.test(v) ? `"${v.replaceAll('"', '""')}"` : v);
+      const lines = [
+        ['时间', '类型', '角色', '详情', 'IP', 'ID'].join(','),
+        ...rows.map((e) =>
+          [e.createdAt, e.kind, e.actorRole ?? '', e.detail, e.clientIp ?? '', e.id].map(esc).join(','),
+        ),
+      ];
+      const blob = new Blob(['\uFEFF' + lines.join('\n')], { type: 'text/csv;charset=utf-8' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(a.href);
+      setExitMsg(`已导出全部 CSV（${rows.length} 条）`);
+    } catch (err) {
+      if (ac.signal.aborted || (err instanceof DOMException && err.name === 'AbortError')) {
+        setExitMsg(`已取消导出（已取 ${rows.length} 条）`);
+        return;
       }
+      setExitMsg(err instanceof Error ? err.message : '导出失败');
+    } finally {
+      if (csvExportAbortRef.current === ac) csvExportAbortRef.current = null;
+      setCsvExportBusy(false);
     }
-    const esc = (v: string) => (/[",\n\r]/.test(v) ? `"${v.replaceAll('"', '""')}"` : v);
-    const lines = [
-      ['时间', '类型', '角色', '详情', 'IP', 'ID'].join(','),
-      ...rows.map((e) =>
-        [e.createdAt, e.kind, e.actorRole ?? '', e.detail, e.clientIp ?? '', e.id].map(esc).join(','),
-      ),
-    ];
-    const blob = new Blob(['\uFEFF' + lines.join('\n')], { type: 'text/csv;charset=utf-8' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = filename;
-    a.click();
-    URL.revokeObjectURL(a.href);
-    setExitMsg(`已导出全部 CSV（${rows.length} 条）`);
+  }
+
+  function cancelExitLockCsvExport() {
+    csvExportAbortRef.current?.abort();
   }
 
   useEffect(() => {
@@ -3509,10 +3567,46 @@ export function SettingsPanel({
             一键检测 /health
           </button>
           <p className="hint">
-            顶栏 /health 轮询：生产默认 30s，开发默认 8s。可在本机覆盖：
-            <code>localStorage.cd_health_poll_ms</code>（毫秒，3s–120s）或构建时{' '}
+            顶栏 /health 轮询：生产默认 30s，开发默认 8s。也可构建时设{' '}
             <code>VITE_HEALTH_POLL_MS</code>。
           </p>
+          <label>
+            /health 轮询间隔（毫秒，3000–120000）
+            <input
+              type="number"
+              min={3000}
+              max={120000}
+              step={1000}
+              data-testid="health-poll-ms"
+              value={healthPollMsDraft}
+              onChange={(e) => setHealthPollMsDraft(e.target.value)}
+              onBlur={(e) => {
+                const raw = Math.trunc(Number(e.currentTarget.value));
+                const ms = Math.min(120_000, Math.max(3_000, Number.isFinite(raw) && raw > 0 ? raw : 30_000));
+                setHealthPollMsDraft(String(ms));
+                localStorage.setItem('cd_health_poll_ms', String(ms));
+                setHealthPollMsg(`已写入 localStorage.cd_health_poll_ms=${ms}（立即重载轮询）`);
+                window.dispatchEvent(new Event('cd-health-poll-changed'));
+              }}
+            />
+          </label>
+          <div className="row">
+            <button
+              type="button"
+              className="secondary"
+              data-testid="health-poll-reset"
+              onClick={() => {
+                localStorage.removeItem('cd_health_poll_ms');
+                const fallback = import.meta.env.PROD ? 30_000 : 8_000;
+                setHealthPollMsDraft(String(fallback));
+                setHealthPollMsg(`已恢复默认 ${fallback}ms`);
+                window.dispatchEvent(new Event('cd-health-poll-changed'));
+              }}
+            >
+              恢复默认间隔
+            </button>
+            {healthPollMsg ? <p className="hint">{healthPollMsg}</p> : null}
+          </div>
           {diag ? <p className="hint">{diag}</p> : null}
           {healthAlert && (healthAlert.exportTmpLeaked ?? 0) > 0 ? (
             <div className="error" data-testid="export-tmp-leak-alert" role="alert">
@@ -3818,10 +3912,10 @@ export function SettingsPanel({
               data-testid="recycle-retention-days"
               value={recycleDays}
               onChange={(e) => setRecycleDays(Number(e.target.value) || 1)}
-              onBlur={() => {
+              onBlur={(e) => {
                 const days = Math.max(
                   1,
-                  Math.min(365, Math.trunc(recycleDays) || RECYCLE_RETENTION_DAYS),
+                  Math.min(365, Math.trunc(Number(e.currentTarget.value)) || RECYCLE_RETENTION_DAYS),
                 );
                 setRecycleDays(days);
                 void api('/api/v1/settings', {
@@ -4185,15 +4279,15 @@ export function SettingsPanel({
               max={1440}
               value={driftMins}
               onChange={(e) => setDriftMins(Number(e.target.value) || 0)}
-              onBlur={() => {
-                const mins = Math.max(0, Math.min(1440, Math.trunc(driftMins) || 0));
+              onBlur={(e) => {
+                const mins = Math.max(0, Math.min(1440, Math.trunc(Number(e.currentTarget.value)) || 0));
                 setDriftMins(mins);
                 void api('/api/v1/settings', {
                   method: 'PATCH',
                   body: JSON.stringify({ fleetDriftSnapshotMinutes: mins }),
                 })
                   .then(() => setSaveMsg(`漂移快照间隔 ${mins} 分钟`))
-                  .catch((e) => setSaveMsg(e instanceof Error ? e.message : '保存失败'));
+                  .catch((err) => setSaveMsg(err instanceof Error ? err.message : '保存失败'));
               }}
             />
           </label>
@@ -4233,8 +4327,8 @@ export function SettingsPanel({
               max={20}
               value={upgradesKeep}
               onChange={(e) => setUpgradesKeep(Number(e.target.value) || 1)}
-              onBlur={() => {
-                const n = Math.max(1, Math.min(20, Math.trunc(upgradesKeep) || 3));
+              onBlur={(e) => {
+                const n = Math.max(1, Math.min(20, Math.trunc(Number(e.currentTarget.value)) || 3));
                 setUpgradesKeep(n);
                 void api<{ pruned?: string[] }>('/api/v1/settings', {
                   method: 'PATCH',
@@ -4249,7 +4343,7 @@ export function SettingsPanel({
                       }`,
                     );
                   })
-                  .catch((e) => setSaveMsg(e instanceof Error ? e.message : '保存失败'));
+                  .catch((err) => setSaveMsg(err instanceof Error ? err.message : '保存失败'));
               }}
             />
           </label>
@@ -4377,24 +4471,22 @@ export function SettingsPanel({
               type="number"
               min={0}
               max={240}
+              data-testid="liveboard-readonly-mins"
               value={readonlyAfterMins}
-              onChange={(e) => setReadonlyAfterMins(Number(e.target.value))}
+              onChange={(e) => setReadonlyAfterMins(Number(e.target.value) || 0)}
+              onBlur={(e) => {
+                const mins = Math.max(0, Math.min(240, Math.trunc(Number(e.currentTarget.value)) || 0));
+                setReadonlyAfterMins(mins);
+                void api('/api/v1/settings', {
+                  method: 'PATCH',
+                  body: JSON.stringify({ liveboardReadonlyAfterMinutes: mins }),
+                })
+                  .then(() => setSaveMsg(`投影只读自动开启已设为 ${mins} 分钟`))
+                  .catch((err) => setSaveMsg(err instanceof Error ? err.message : '保存失败'));
+              }}
             />
           </label>
-          <button
-            type="button"
-            className="secondary"
-            onClick={() =>
-              void api('/api/v1/settings', {
-                method: 'PATCH',
-                body: JSON.stringify({ liveboardReadonlyAfterMinutes: readonlyAfterMins }),
-              })
-                .then(() => setSaveMsg(`投影只读自动开启已设为 ${readonlyAfterMins} 分钟`))
-                .catch((e) => setSaveMsg(e instanceof Error ? e.message : '保存失败'))
-            }
-          >
-            保存投影只读时长
-          </button>
+          <p className="hint">失焦即保存（与回收站天数等数字框一致）。</p>
           <h3>留言</h3>
           <label className="row">
             <input
@@ -4720,10 +4812,133 @@ export function SettingsPanel({
           {codeRotationDue ? (
             <p className="error">解除码已超过轮换周期（{rotateDays} 天），请尽快更换。</p>
           ) : null}
+          <h4 id="input-lock-settings">物理输入锁</h4>
+          <p className="hint">
+            上课时可由教师关闭学生端键鼠点击、语音与摄像头采集。学生端会显示醒目提示；仅限制本应用内输入，不能代替 Assigned Access。
+          </p>
+          {isAssistant() ? (
+            <p className="hint" data-testid="input-lock-readonly">
+              当前：键盘 {inputLock.keyboard ? '锁' : '开'} · 鼠标{' '}
+              {inputLock.mouse ? '锁' : '开'} · 语音 {inputLock.voice ? '锁' : '开'} · 相机{' '}
+              {inputLock.camera ? '锁' : '开'}（助教只读）
+            </p>
+          ) : (
+            <div className="card" data-testid="input-lock-controls">
+              {(
+                [
+                  ['keyboard', '禁止键盘输入'],
+                  ['mouse', '禁止鼠标/点击'],
+                  ['voice', '禁止语音/麦克风'],
+                  ['camera', '禁止相机'],
+                ] as const
+              ).map(([key, label]) => (
+                <label key={key} className="row">
+                  <input
+                    type="checkbox"
+                    checked={inputLock[key]}
+                    disabled={inputLockBusy}
+                    data-testid={`input-lock-${key}`}
+                    onChange={(e) => {
+                      const next = { ...inputLock, [key]: e.target.checked };
+                      setInputLock(next);
+                      setInputLockBusy(true);
+                      void api<{ inputLock?: typeof inputLock }>('/api/v1/settings', {
+                        method: 'PATCH',
+                        body: JSON.stringify({ inputLock: next }),
+                      })
+                        .then((r) => {
+                          if (r.inputLock) {
+                            setInputLock({
+                              keyboard: Boolean(r.inputLock.keyboard),
+                              mouse: Boolean(r.inputLock.mouse),
+                              voice: Boolean(r.inputLock.voice),
+                              camera: Boolean(r.inputLock.camera),
+                            });
+                          }
+                          setExitMsg('物理输入锁已更新（已推送到学生端）');
+                        })
+                        .catch((err) =>
+                          setExitMsg(err instanceof Error ? err.message : '输入锁保存失败'),
+                        )
+                        .finally(() => setInputLockBusy(false));
+                    }}
+                  />
+                  {label}
+                </label>
+              ))}
+              <div className="row">
+                <button
+                  type="button"
+                  className="secondary"
+                  disabled={inputLockBusy}
+                  data-testid="input-lock-all"
+                  onClick={() => {
+                    const next = {
+                      keyboard: true,
+                      mouse: true,
+                      voice: true,
+                      camera: true,
+                    };
+                    setInputLockBusy(true);
+                    void api<{ inputLock?: typeof inputLock }>('/api/v1/settings', {
+                      method: 'PATCH',
+                      body: JSON.stringify({ inputLock: next }),
+                    })
+                      .then((r) => {
+                        setInputLock({
+                          keyboard: Boolean(r.inputLock?.keyboard),
+                          mouse: Boolean(r.inputLock?.mouse),
+                          voice: Boolean(r.inputLock?.voice),
+                          camera: Boolean(r.inputLock?.camera),
+                        });
+                        setExitMsg('已锁定全部物理输入');
+                      })
+                      .catch((e) => setExitMsg(e instanceof Error ? e.message : '失败'))
+                      .finally(() => setInputLockBusy(false));
+                  }}
+                >
+                  全部锁定
+                </button>
+                <button
+                  type="button"
+                  className="secondary"
+                  disabled={inputLockBusy}
+                  data-testid="input-lock-none"
+                  onClick={() => {
+                    const next = {
+                      keyboard: false,
+                      mouse: false,
+                      voice: false,
+                      camera: false,
+                    };
+                    setInputLockBusy(true);
+                    void api<{ inputLock?: typeof inputLock }>('/api/v1/settings', {
+                      method: 'PATCH',
+                      body: JSON.stringify({ inputLock: next }),
+                    })
+                      .then((r) => {
+                        setInputLock({
+                          keyboard: Boolean(r.inputLock?.keyboard),
+                          mouse: Boolean(r.inputLock?.mouse),
+                          voice: Boolean(r.inputLock?.voice),
+                          camera: Boolean(r.inputLock?.camera),
+                        });
+                        setExitMsg('已解除全部物理输入锁');
+                      })
+                      .catch((e) => setExitMsg(e instanceof Error ? e.message : '失败'))
+                      .finally(() => setInputLockBusy(false));
+                  }}
+                >
+                  全部解除
+                </button>
+              </div>
+            </div>
+          )}
+
           {isAssistant() ? (
             <div data-testid="exit-lock-readonly">
               <p className="hint">
-                助教 / 投影只读：不可改解除码与轮换天数；批量解除 / 解除码轮换由教师操作。
+                助教 / 投影只读：不可改解除码与轮换天数；批量解除 / 解除码轮换 / 物理输入锁由教师操作。
               </p>
               <p className="hint" data-testid="exit-lock-readonly-rotate">
                 当前轮换提醒：{rotateDays} 天
@@ -4922,6 +5137,7 @@ export function SettingsPanel({
                 <option value="code_rotated">轮换解除码</option>
                 <option value="rate_config">限流/轮换配置</option>
                 <option value="client_reconcile">断线对账冲突</option>
+                <option value="input_lock">物理输入锁</option>
               </select>
             </label>
             <div className="row">
@@ -4965,6 +5181,8 @@ export function SettingsPanel({
               <button
                 type="button"
                 className="secondary"
+                disabled={csvExportBusy}
+                data-testid="exit-lock-csv-export-all"
                 onClick={(e) => {
                   e.preventDefault();
                   if (exitEventsTotal > 2000) {
@@ -4976,8 +5194,21 @@ export function SettingsPanel({
                   void exportExitLockCsvAll('exit-lock-events-all.csv');
                 }}
               >
-                导出全部 CSV
+                {csvExportBusy ? '导出中…' : '导出全部 CSV'}
               </button>
+              {csvExportBusy ? (
+                <button
+                  type="button"
+                  className="secondary"
+                  data-testid="exit-lock-csv-export-cancel"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    cancelExitLockCsvExport();
+                  }}
+                >
+                  取消导出
+                </button>
+              ) : null}
             </div>
             <ul>
               {exitEvents.map((e) => (
