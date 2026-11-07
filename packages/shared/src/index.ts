@@ -64,8 +64,15 @@ export function formatRecycleDaysLeft(daysLeft: number | null | undefined): stri
   return n === 0 ? '剩余不足 1 天' : `剩余 ${n} 天`;
 }
 
+/** Default days-left threshold for “即将 purge” highlight (inclusive). */
+export const RECYCLE_URGENT_DAYS = 1;
+
 /** True when UI should warn that purge is imminent. */
-export function isRecycleUrgent(daysLeft: number | null | undefined): boolean {
+export function isRecycleUrgent(
+  daysLeft: number | null | undefined,
+  urgentWithinDays: number = RECYCLE_URGENT_DAYS,
+): boolean {
   if (daysLeft == null || !Number.isFinite(Number(daysLeft))) return false;
-  return Math.max(0, Math.floor(Number(daysLeft))) <= 1;
+  const thr = Math.max(0, Math.floor(Number(urgentWithinDays) || RECYCLE_URGENT_DAYS));
+  return Math.max(0, Math.floor(Number(daysLeft))) <= thr;
 }

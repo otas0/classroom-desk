@@ -42,7 +42,13 @@ test.describe('assistant RBAC', () => {
     await page.locator('aside').getByRole('button', { name: '设置', exact: true }).click();
     await expect(page.getByRole('heading', { name: '创建助教账号' })).toHaveCount(0);
     await expect(page.getByRole('heading', { name: '数据库备份' })).toHaveCount(0);
-    await expect(page.getByText(/退出锁|解除码/)).toHaveCount(0);
+    // Exit-lock: audit read-only; no rotate / batch unlock controls
+    await expect(page.getByRole('heading', { name: '学生端退出锁定' })).toBeVisible();
+    await expect(page.getByText(/助教可查看锁定状态与审计/)).toBeVisible();
+    await expect(page.getByRole('button', { name: '保存解除码' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: '保存限流与轮换' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: '批量允许关闭学生端' })).toHaveCount(0);
+    await expect(page.getByText(/助教只读/)).toBeVisible();
     await expect(page.getByTestId('permissions-doc-link')).toBeVisible();
 
     const list = await request.get(`${API}/api/v1/auth/assistants`, { headers: auth });

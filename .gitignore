@@ -21,6 +21,8 @@ apps/student-desktop/dist/
 apps/student-desktop/dist-electron/
 apps/student-desktop/release/
 artifacts/
+# C2 样机证据（音视频/截图）— 只留本地
+证据/
 # Built classroom installers / USB drops — never commit binaries
 releases/**
 !releases/README.md

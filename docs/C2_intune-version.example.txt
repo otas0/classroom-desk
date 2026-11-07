@@ -1,0 +1,7 @@
+Windows 版本/内部版本: 例如 24H2 (26100.xxxx)
+HideTaskManager: 是 / 否
+Intune 配置文件名: intune-student-kiosk.example.xml（或租户内实际名）
+试验组名:
+同步时间 (本地): YYYY-MM-DD HH:mm
+样机主机名:
+备注:

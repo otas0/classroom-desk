@@ -5,6 +5,7 @@
  *
  * Usage: npm run verify:exit-lock-packaged
  */
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -101,6 +102,25 @@ for (const dir of exeDirs) {
 }
 if (exes.length) {
   ok('release.exe', `${exes.length} found; e.g. ${path.relative(root, exes[0])}`);
+  let shaChecked = 0;
+  let shaBad = 0;
+  for (const exe of exes) {
+    const side = `${exe}.sha256`;
+    if (!fs.existsSync(side)) continue;
+    shaChecked += 1;
+    const expected = fs.readFileSync(side, 'utf8').trim().split(/\s+/)[0]?.toLowerCase();
+    const actual = createHash('sha256').update(fs.readFileSync(exe)).digest('hex');
+    if (!expected || expected !== actual) {
+      shaBad += 1;
+      fail('release.sha256', `${path.relative(root, exe)} expected=${expected} actual=${actual}`);
+    }
+  }
+  if (shaChecked && !shaBad) ok('release.sha256', `${shaChecked} sidecar(s) match`);
+  else if (!shaChecked && process.env.REQUIRE_WIN_EXE === '1') {
+    fail('release.sha256', 'REQUIRE_WIN_EXE=1 but no .exe.sha256 sidecars beside installers');
+  } else if (!shaChecked) {
+    ok('release.sha256', 'skipped (no .sha256 sidecars)');
+  }
 } else if (process.env.REQUIRE_WIN_EXE === '1') {
   fail('release.exe', 'REQUIRE_WIN_EXE=1 but no ClassroomDesk*.exe under release/artifacts/releases');
 } else {

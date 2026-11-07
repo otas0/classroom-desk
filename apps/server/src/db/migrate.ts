@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { DatabaseSync } from 'node:sqlite';
+import { RECYCLE_RETENTION_DAYS, RECYCLE_URGENT_DAYS } from '@classroom-desk/shared';
 import { openDb, withTransaction } from './client.js';
 
 const DEFAULT_SETTINGS: Record<string, string> = {
@@ -20,8 +21,10 @@ const DEFAULT_SETTINGS: Record<string, string> = {
   last_auto_backup_at: '',
   server_bind: '0.0.0.0',
   schema_version: '1',
-  /** Recycle retention days for soft-deleted students/questions. */
-  recycle_retention_days: '30',
+  /** Recycle retention days for soft-deleted students/questions (aligned with shared default). */
+  recycle_retention_days: String(RECYCLE_RETENTION_DAYS),
+  /** Highlight recycle rows when daysLeft ≤ this (inclusive). */
+  recycle_urgent_days: String(RECYCLE_URGENT_DAYS),
   /** Optional AES passphrase for encrypted backup copies (empty = plain copy only). */
   backup_encrypt_passphrase: '',
   /** Public base for LAN upgrade cache (empty = derive from request host). */
@@ -135,6 +138,7 @@ export function migrate(database?: DatabaseSync): DatabaseSync {
   )`);
   ensureAssistantRoleAllowed(conn);
   seedSettings(conn);
+  backfillAssistantPasswordOk(conn);
   return conn;
 }
 
@@ -204,6 +208,23 @@ function seedSettings(conn: DatabaseSync): void {
     for (const [key, value] of Object.entries(DEFAULT_SETTINGS)) {
       insert.run({ key, value });
     }
+  });
+}
+
+/**
+ * One-shot: existing assistants are treated as already past first-login gate.
+ * New assistants still INSERT with password_ok=0 after this flag is set.
+ */
+function backfillAssistantPasswordOk(conn: DatabaseSync): void {
+  if (getSetting(conn, 'assistant_password_ok_backfill_v1') === '1') return;
+  withTransaction(conn, () => {
+    conn.prepare(`UPDATE users SET password_ok = 1 WHERE role = 'assistant'`).run();
+    conn
+      .prepare(
+        `INSERT INTO settings (key, value) VALUES ('assistant_password_ok_backfill_v1', '1')
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+      )
+      .run();
   });
 }
 

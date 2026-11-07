@@ -13,4 +13,4 @@
   ClassroomDesk-Setup-*.exe.sha256
 ```
 
-核对步骤见 [EXIT_LOCK_MDM.md](./EXIT_LOCK_MDM.md)。Intune XML 示例：[intune-student-kiosk.example.xml](./intune-student-kiosk.example.xml)。
+核对步骤见 [EXIT_LOCK_MDM.md](./EXIT_LOCK_MDM.md)。Intune XML 示例：[intune-student-kiosk.example.xml](./intune-student-kiosk.example.xml)。版本表模板：[C2_intune-version.example.txt](./C2_intune-version.example.txt)。安装包命名：[ARTIFACTS.md](./ARTIFACTS.md)。

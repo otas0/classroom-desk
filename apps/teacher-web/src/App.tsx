@@ -271,12 +271,20 @@ export function App() {
       }
     }
     void pollHealth();
-    /** Override: localStorage `cd_health_poll_ms` or Vite `VITE_HEALTH_POLL_MS` (ms, 3s–120s). */
+    /** Override: localStorage `cd_health_poll_ms` or Vite `VITE_HEALTH_POLL_MS` (ms, 3s–120s). Prod default 30s; dev 8s. */
     const fromLs = Number(localStorage.getItem('cd_health_poll_ms') || '');
     const fromEnv = Number(import.meta.env.VITE_HEALTH_POLL_MS || '');
+    const fallback = import.meta.env.PROD ? 30_000 : 8_000;
     const pollMs = Math.min(
       120_000,
-      Math.max(3_000, Number.isFinite(fromLs) && fromLs > 0 ? fromLs : Number.isFinite(fromEnv) && fromEnv > 0 ? fromEnv : 8_000),
+      Math.max(
+        3_000,
+        Number.isFinite(fromLs) && fromLs > 0
+          ? fromLs
+          : Number.isFinite(fromEnv) && fromEnv > 0
+            ? fromEnv
+            : fallback,
+      ),
     );
     const tipMsRaw = Number(localStorage.getItem('cd_api_restart_tip_ms') || import.meta.env.VITE_API_RESTART_TIP_MS || 12_000);
     const tipMs = Math.min(60_000, Math.max(3_000, Number.isFinite(tipMsRaw) && tipMsRaw > 0 ? tipMsRaw : 12_000));

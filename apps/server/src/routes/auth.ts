@@ -9,8 +9,14 @@ import {
   signToken,
   verifyAdminPassword,
   verifyPassword,
+  verifyToken,
 } from '../services/auth.js';
 import { writeAudit } from '../services/audit.js';
+import {
+  addAssistantsSseClient,
+  broadcastAssistantsUpdated,
+  listAssistants,
+} from '../services/assistantsHub.js';
 import { allWeakPasswords, isWeakTeacherPassword } from '../services/weakPasswords.js';
 import { requireAuth, requireRoles, type AuthedRequest } from '../middleware/auth.js';
 import { config } from '../config.js';
@@ -309,6 +315,7 @@ authRouter.post(
       detail: { id, username, displayName },
       clientIp: req.ip,
     });
+    broadcastAssistantsUpdated();
     res.status(201).json({
       ok: true,
       id,
@@ -325,17 +332,34 @@ authRouter.get(
   requireAuth,
   requireRoles('teacher', 'admin'),
   (_req, res) => {
-    const items = openDb()
-      .prepare(
-        `SELECT id, username, display_name AS displayName, created_at AS createdAt,
-                disabled_at AS disabledAt
-         FROM users WHERE role = 'assistant'
-         ORDER BY created_at DESC`,
-      )
-      .all();
-    res.json({ items });
+    res.json({ items: listAssistants() });
   },
 );
+
+/** SSE: assistants.updated. EventSource uses ?token=. */
+authRouter.get('/api/v1/auth/assistants/stream', async (req, res) => {
+  const token = String(req.query.token ?? '').trim();
+  if (!token) {
+    res.status(400).json({ error: 'token_required' });
+    return;
+  }
+  const payload = await verifyToken(token);
+  if (!payload) {
+    res.status(401).json({ error: 'unauthorized' });
+    return;
+  }
+  const dbUser = findUserById(openDb(), payload.id);
+  if (!dbUser) {
+    res.status(401).json({ error: 'unauthorized' });
+    return;
+  }
+  const user = mapUser(dbUser);
+  if (user.role !== 'teacher' && user.role !== 'admin') {
+    res.status(403).json({ error: 'forbidden' });
+    return;
+  }
+  addAssistantsSseClient(res);
+});
 
 authRouter.post(
   '/api/v1/auth/assistants/:id/disable',
@@ -363,6 +387,7 @@ authRouter.post(
       detail: { id },
       clientIp: req.ip,
     });
+    broadcastAssistantsUpdated();
     res.json({ ok: true, id, disabledAt: at, message: '已停用助教' });
   },
 );
@@ -392,6 +417,7 @@ authRouter.post(
       detail: { id },
       clientIp: req.ip,
     });
+    broadcastAssistantsUpdated();
     res.json({ ok: true, id, message: '已启用助教' });
   },
 );
@@ -419,7 +445,7 @@ authRouter.post(
       return;
     }
     const hash = await hashPassword(password);
-    db.prepare(`UPDATE users SET password_hash = ? WHERE id = ?`).run(hash, id);
+    db.prepare(`UPDATE users SET password_hash = ?, password_ok = 0 WHERE id = ?`).run(hash, id);
     writeAudit({
       actorUserId: req.user?.id,
       actorRole: req.user?.role,
@@ -427,6 +453,7 @@ authRouter.post(
       detail: { id, username: row.username },
       clientIp: req.ip,
     });
+    broadcastAssistantsUpdated();
     res.json({ ok: true, id, message: `已重置「${row.username}」口令` });
   },
 );

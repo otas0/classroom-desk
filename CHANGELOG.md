@@ -27,7 +27,7 @@
 
 ### 安装包
 
-- 待 `git tag v0.1.7 && git push origin v0.1.7` → Actions Release / windows-pack Artifact `classroom-desk-windows-setup`
+- 包版本已 bump 至 `0.1.7`；发版：`git tag v0.1.7 && git push origin v0.1.7` → Release / Artifact `classroom-desk-windows-setup`（见 [ARTIFACTS.md](./docs/ARTIFACTS.md)）
 
 ## v0.1.6 — 2026-11-07
 

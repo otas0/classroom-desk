@@ -1,6 +1,11 @@
 import { createHash } from 'node:crypto';
 import { Router } from 'express';
-import { APP_NOTICE, ATTENDANCE_NOTICE } from '@classroom-desk/shared';
+import {
+  APP_NOTICE,
+  ATTENDANCE_NOTICE,
+  RECYCLE_RETENTION_DAYS,
+  RECYCLE_URGENT_DAYS,
+} from '@classroom-desk/shared';
 import fs from 'node:fs';
 import path from 'node:path';
 import { getDataDir, getDbPath, openDb } from '../db/client.js';
@@ -78,7 +83,10 @@ settingsRouter.get('/api/v1/settings', requireAuth, requireRoles('teacher', 'adm
     quizConfirmSubmit: (getSetting(db, 'quiz_confirm_submit') ?? '1') !== '0',
     liveboardReadonlyAfterMinutes: Number(getSetting(db, 'liveboard_readonly_after_minutes') ?? 5),
     weakTeacherPasswordsExtra: getExtraWeakPasswords(db),
-    recycleRetentionDays: Number(getSetting(db, 'recycle_retention_days') ?? 30),
+    recycleRetentionDays: Number(
+      getSetting(db, 'recycle_retention_days') ?? RECYCLE_RETENTION_DAYS,
+    ),
+    recycleUrgentDays: Number(getSetting(db, 'recycle_urgent_days') ?? RECYCLE_URGENT_DAYS),
     hasBackupEncryptPassphrase: Boolean((getSetting(db, 'backup_encrypt_passphrase') ?? '').trim()),
     projectionHighContrast: (getSetting(db, 'projection_high_contrast') ?? '0') === '1',
     classroomApiBase: getSetting(db, 'classroom_api_base') ?? '',
@@ -168,6 +176,21 @@ settingsRouter.patch('/api/v1/settings', requireAuth, requireRoles('teacher', 'a
     }
     db.prepare(
       `INSERT INTO settings (key, value) VALUES ('recycle_retention_days', ?)
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+    ).run(String(Math.trunc(days)));
+  }
+
+  if (req.body?.recycleUrgentDays != null) {
+    const days = Number(req.body.recycleUrgentDays);
+    if (!Number.isFinite(days) || days < 0 || days > 30) {
+      res.status(400).json({
+        error: 'invalid_urgent_days',
+        message: '即将到期高亮阈值须为 0–30 天（剩余天数 ≤ 该值时醒目）',
+      });
+      return;
+    }
+    db.prepare(
+      `INSERT INTO settings (key, value) VALUES ('recycle_urgent_days', ?)
        ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
     ).run(String(Math.trunc(days)));
   }

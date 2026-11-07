@@ -150,7 +150,7 @@ JSON 片段（Intune「展台」或多应用 Assigned Access）：
 | `C2-narrator.mp4` | Win+Ctrl+Enter 讲述人 · 聚焦学生窗 · ≥10s · 须听清「已锁定」 |
 | `C2-taskmgr-deny.mp4` | Assigned Access 展台账户 · 任务管理器结束失败/被拒 |
 | `C2-titlebar.png` | 标题栏「已锁定」截图 |
-| `C2-intune-version.txt` | 一行：`Windows <版本/内部版本> · HideTaskManager=<是/否> · 同步时间` |
+| `C2-intune-version.txt` | 按 [`C2_intune-version.example.txt`](./C2_intune-version.example.txt) 填写 |
 | `C2-intune-policy.png` | 试验组策略同步 / 开始菜单无任务管理器截图 |
 
 - **Intune 试验组**：上传 [`intune-student-kiosk.example.xml`](./intune-student-kiosk.example.xml) → **仅**试验组 → 设备同步 → 填 `C2-intune-version.txt`。
@@ -178,5 +178,12 @@ npm run smoke:dev-stack-api-restart
 ### CI windows-pack Artifact
 
 - Push `main` 时 job `windows-pack`：`REQUIRE_WIN_EXE=1` + `if-no-files-found: error`。
-- Artifact 名：`classroom-desk-windows-setup`（含 `.exe` + `.sha256`，保留 30 天）。
-- 最近一次成功示例可在 Actions 该 run 的 Artifacts 下载核对。
+- Artifact 上传名：`classroom-desk-windows-setup`（含 `.exe` + `.sha256`，保留 30 天）— **不是** git 里的 `artifacts/` 目录。
+- 命名对照见 [ARTIFACTS.md](./ARTIFACTS.md)。
+
+### Electron DevTools · 关 WS 对照 toast
+
+1. `FORCE_ELECTRON=1` 或安装态打开学生端，连上 API。
+2. DevTools → Network → WS → `/api/v1/exit-lock/ws` → Close frame。
+3. 期望 toast：`实时通道已切到备用（WebSocket 关闭）`（或「断开」）；随后 EventSource `/exit-lock/stream`。
+4. 自动化：`e2e/exit-lock-toast.spec.ts`（`ELECTRON_OFF=1` Vite）。

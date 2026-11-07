@@ -2870,6 +2870,60 @@ export function SettingsPanel({
     URL.revokeObjectURL(a.href);
   }
 
+  /** Page through JSON API and build full CSV (no 500 hard cap). */
+  async function exportExitLockCsvAll(filename: string) {
+    const token = getToken() || '';
+    const pageSize = 200;
+    const rows: Array<{
+      createdAt: string;
+      kind: string;
+      actorRole?: string | null;
+      detail: string;
+      clientIp?: string | null;
+      id: string;
+    }> = [];
+    let offset = 0;
+    let total = Infinity;
+    while (offset < total) {
+      const q = new URLSearchParams({
+        limit: String(pageSize),
+        offset: String(offset),
+      });
+      if (exitKindFilter) q.set('kind', exitKindFilter);
+      const res = await fetch(`${API_BASE}/api/v1/settings/exit-lock-events?${q}`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!res.ok) {
+        setExitMsg(`导出失败 HTTP ${res.status}`);
+        return;
+      }
+      const body = (await res.json()) as { items?: typeof rows; total?: number };
+      const items = body.items ?? [];
+      total = Number(body.total ?? items.length);
+      rows.push(...items);
+      if (!items.length) break;
+      offset += items.length;
+      if (offset > 50_000) {
+        setExitMsg(`导出中止：超过 50000 条安全上限（已取 ${rows.length}）`);
+        break;
+      }
+    }
+    const esc = (v: string) => (/[",\n\r]/.test(v) ? `"${v.replaceAll('"', '""')}"` : v);
+    const lines = [
+      ['时间', '类型', '角色', '详情', 'IP', 'ID'].join(','),
+      ...rows.map((e) =>
+        [e.createdAt, e.kind, e.actorRole ?? '', e.detail, e.clientIp ?? '', e.id].map(esc).join(','),
+      ),
+    ];
+    const blob = new Blob(['\uFEFF' + lines.join('\n')], { type: 'text/csv;charset=utf-8' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(a.href);
+    setExitMsg(`已导出全部 CSV（${rows.length} 条）`);
+  }
+
   useEffect(() => {
     void refreshExitLock().catch(() => undefined);
     void loadAudit().catch(() => setAuditItems([]));
@@ -3600,6 +3654,240 @@ export function SettingsPanel({
           </button>
           {saveMsg ? <p className="hint">{saveMsg}</p> : null}
 
+          <div className="card">
+            <h3>创建助教账号</h3>
+            <p className="hint">助教可登录后台只读导出/出勤，不可批量删除。详见 docs/PERMISSIONS.md。</p>
+            <label>
+              用户名
+              <input
+                value={asstUser}
+                onChange={(e) => setAsstUser(e.target.value)}
+                placeholder="如 assistant1"
+                autoComplete="off"
+              />
+            </label>
+            <label>
+              显示名
+              <input value={asstName} onChange={(e) => setAsstName(e.target.value)} placeholder="助教" />
+            </label>
+            <label>
+              初始口令
+              <input
+                type="password"
+                value={asstPass}
+                onChange={(e) => setAsstPass(e.target.value)}
+                placeholder="至少 8 位，含字母数字"
+                autoComplete="new-password"
+              />
+            </label>
+            <button
+              type="button"
+              onClick={() =>
+                void (async () => {
+                  setAsstMsg('');
+                  try {
+                    const r = await api<{ message?: string }>('/api/v1/auth/assistants', {
+                      method: 'POST',
+                      body: JSON.stringify({
+                        username: asstUser.trim(),
+                        password: asstPass,
+                        displayName: asstName.trim() || '助教',
+                      }),
+                    });
+                    setAsstMsg(r.message ?? '已创建');
+                    setAsstUser('');
+                    setAsstPass('');
+                    await loadAssistants();
+                  } catch (e) {
+                    setAsstMsg(e instanceof Error ? e.message : '创建失败');
+                  }
+                })()
+              }
+            >
+              创建助教
+            </button>
+            {asstMsg ? <p className={/失败|错误|已存在/.test(asstMsg) ? 'error' : 'hint'}>{asstMsg}</p> : null}
+            {assistants.length ? (
+              <ul>
+                {assistants.map((a) => (
+                  <li key={a.id}>
+                    {a.username} · {a.displayName}
+                    {a.disabledAt ? ' · 已停用' : ''} · {new Date(a.createdAt).toLocaleString()}
+                    <div className="row" style={{ marginTop: 4 }}>
+                      {a.disabledAt ? (
+                        <button
+                          type="button"
+                          className="secondary"
+                          onClick={() =>
+                            void api(`/api/v1/auth/assistants/${a.id}/enable`, {
+                              method: 'POST',
+                              body: '{}',
+                            })
+                              .then(async () => {
+                                setAsstMsg(`已启用 ${a.username}`);
+                                await loadAssistants();
+                              })
+                              .catch((e) => setAsstMsg(e instanceof Error ? e.message : '启用失败'))
+                          }
+                        >
+                          启用
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          className="secondary"
+                          onClick={() =>
+                            void api(`/api/v1/auth/assistants/${a.id}/disable`, {
+                              method: 'POST',
+                              body: '{}',
+                            })
+                              .then(async () => {
+                                setAsstMsg(`已停用 ${a.username}`);
+                                await loadAssistants();
+                              })
+                              .catch((e) => setAsstMsg(e instanceof Error ? e.message : '停用失败'))
+                          }
+                        >
+                          停用
+                        </button>
+                      )}
+                      <input
+                        type="password"
+                        placeholder="新口令"
+                        value={resetPwdDraft[a.id] ?? ''}
+                        onChange={(e) =>
+                          setResetPwdDraft((prev) => ({ ...prev, [a.id]: e.target.value }))
+                        }
+                        style={{ width: '8rem' }}
+                        autoComplete="new-password"
+                      />
+                      <button
+                        type="button"
+                        onClick={() =>
+                          void (async () => {
+                            const password = (resetPwdDraft[a.id] ?? '').trim();
+                            try {
+                              const r = await api<{ message?: string }>(
+                                `/api/v1/auth/assistants/${a.id}/reset-password`,
+                                { method: 'POST', body: JSON.stringify({ password }) },
+                              );
+                              setAsstMsg(r.message ?? '已重置口令');
+                              setResetPwdDraft((prev) => ({ ...prev, [a.id]: '' }));
+                            } catch (e) {
+                              setAsstMsg(e instanceof Error ? e.message : '重置失败');
+                            }
+                          })()
+                        }
+                      >
+                        重置口令
+                      </button>
+                      <button
+                        type="button"
+                        className="secondary"
+                        onClick={() =>
+                          void openAssistantGrants(a.id).catch((e) =>
+                            setAsstMsg(e instanceof Error ? e.message : '加载授权失败'),
+                          )
+                        }
+                      >
+                        按班授权
+                      </button>
+                    </div>
+                    {grantEditId === a.id ? (
+                      <div style={{ marginTop: 8 }}>
+                        <p className="hint">勾选「可导出 / 可加分」；全不勾 = 清空授权（全局只读导出）。</p>
+                        {grantRows.length === 0 ? (
+                          <p className="hint">尚无班级</p>
+                        ) : (
+                          <ul>
+                            {grantRows.map((row) => (
+                              <li key={row.classId} className="row">
+                                <span style={{ minWidth: '8rem' }}>{row.name}</span>
+                                <label className="row">
+                                  <input
+                                    type="checkbox"
+                                    checked={row.canExport}
+                                    onChange={(e) =>
+                                      setGrantRows((prev) =>
+                                        prev.map((x) =>
+                                          x.classId === row.classId
+                                            ? { ...x, canExport: e.target.checked }
+                                            : x,
+                                        ),
+                                      )
+                                    }
+                                  />
+                                  可导出
+                                </label>
+                                <label className="row">
+                                  <input
+                                    type="checkbox"
+                                    checked={row.canAwardPoints}
+                                    onChange={(e) =>
+                                      setGrantRows((prev) =>
+                                        prev.map((x) =>
+                                          x.classId === row.classId
+                                            ? { ...x, canAwardPoints: e.target.checked }
+                                            : x,
+                                        ),
+                                      )
+                                    }
+                                  />
+                                  可加分
+                                </label>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                        <div className="row">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              void saveAssistantGrants().catch((e) =>
+                                setGrantMsg(e instanceof Error ? e.message : '保存失败'),
+                              )
+                            }
+                          >
+                            保存授权
+                          </button>
+                          <button
+                            type="button"
+                            className="secondary"
+                            onClick={() => {
+                              setGrantEditId(null);
+                              setGrantRows([]);
+                              setGrantMsg('');
+                            }}
+                          >
+                            关闭
+                          </button>
+                        </div>
+                        {grantMsg ? <p className="hint">{grantMsg}</p> : null}
+                      </div>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="hint">尚无助教账号</p>
+            )}
+            <p className="hint">
+              <a href={permissionsDocHref()} target="_blank" rel="noreferrer">
+                权限说明（PERMISSIONS.md）
+              </a>
+            </p>
+          </div>
+          </>
+          ) : (
+            <p className="hint">
+              助教可改本人密码、查看退出锁定审计（只读）与导出；无批量解除/轮换码。完整权限见{' '}
+              <a href={permissionsDocHref()} target="_blank" rel="noreferrer" data-testid="permissions-doc-link">
+                权限说明
+              </a>
+              。
+            </p>
+          )}
+
           <h3 id="exit-lock-settings">学生端退出锁定</h3>
           <p className="hint">
             默认禁止学生关闭客户端。批量解除后，全班可在时限内退出；或本机输入解除码退出。
@@ -3852,22 +4140,13 @@ export function SettingsPanel({
                 className="secondary"
                 onClick={(e) => {
                   e.preventDefault();
-                  const cap = 500;
-                  if (exitEventsTotal > cap) {
+                  if (exitEventsTotal > 2000) {
                     const ok = window.confirm(
-                      `当前筛选共 ${exitEventsTotal} 条，导出上限 ${cap} 条（按时间倒序最新）。\n是否继续导出截断结果？`,
+                      `当前筛选约 ${exitEventsTotal} 条，将分页拉取后合并导出（可能较慢）。继续？`,
                     );
                     if (!ok) return;
                   }
-                  void exportExitLockCsv({
-                    limit: Math.min(cap, Math.max(exitEventsTotal, 1)),
-                    offset: 0,
-                    filename: 'exit-lock-events-all.csv',
-                  }).then(() => {
-                    if (exitEventsTotal > cap) {
-                      setExitMsg(`已导出全部 CSV（截断至 ${cap} / ${exitEventsTotal} 条）`);
-                    }
-                  });
+                  void exportExitLockCsvAll('exit-lock-events-all.csv');
                 }}
               >
                 导出全部 CSV
@@ -3925,240 +4204,6 @@ stateDiagram-v2
               </div>
             ) : null}
           </div>
-
-          <div className="card">
-            <h3>创建助教账号</h3>
-            <p className="hint">助教可登录后台只读导出/出勤，不可批量删除。详见 docs/PERMISSIONS.md。</p>
-            <label>
-              用户名
-              <input
-                value={asstUser}
-                onChange={(e) => setAsstUser(e.target.value)}
-                placeholder="如 assistant1"
-                autoComplete="off"
-              />
-            </label>
-            <label>
-              显示名
-              <input value={asstName} onChange={(e) => setAsstName(e.target.value)} placeholder="助教" />
-            </label>
-            <label>
-              初始口令
-              <input
-                type="password"
-                value={asstPass}
-                onChange={(e) => setAsstPass(e.target.value)}
-                placeholder="至少 8 位，含字母数字"
-                autoComplete="new-password"
-              />
-            </label>
-            <button
-              type="button"
-              onClick={() =>
-                void (async () => {
-                  setAsstMsg('');
-                  try {
-                    const r = await api<{ message?: string }>('/api/v1/auth/assistants', {
-                      method: 'POST',
-                      body: JSON.stringify({
-                        username: asstUser.trim(),
-                        password: asstPass,
-                        displayName: asstName.trim() || '助教',
-                      }),
-                    });
-                    setAsstMsg(r.message ?? '已创建');
-                    setAsstUser('');
-                    setAsstPass('');
-                    await loadAssistants();
-                  } catch (e) {
-                    setAsstMsg(e instanceof Error ? e.message : '创建失败');
-                  }
-                })()
-              }
-            >
-              创建助教
-            </button>
-            {asstMsg ? <p className={/失败|错误|已存在/.test(asstMsg) ? 'error' : 'hint'}>{asstMsg}</p> : null}
-            {assistants.length ? (
-              <ul>
-                {assistants.map((a) => (
-                  <li key={a.id}>
-                    {a.username} · {a.displayName}
-                    {a.disabledAt ? ' · 已停用' : ''} · {new Date(a.createdAt).toLocaleString()}
-                    <div className="row" style={{ marginTop: 4 }}>
-                      {a.disabledAt ? (
-                        <button
-                          type="button"
-                          className="secondary"
-                          onClick={() =>
-                            void api(`/api/v1/auth/assistants/${a.id}/enable`, {
-                              method: 'POST',
-                              body: '{}',
-                            })
-                              .then(async () => {
-                                setAsstMsg(`已启用 ${a.username}`);
-                                await loadAssistants();
-                              })
-                              .catch((e) => setAsstMsg(e instanceof Error ? e.message : '启用失败'))
-                          }
-                        >
-                          启用
-                        </button>
-                      ) : (
-                        <button
-                          type="button"
-                          className="secondary"
-                          onClick={() =>
-                            void api(`/api/v1/auth/assistants/${a.id}/disable`, {
-                              method: 'POST',
-                              body: '{}',
-                            })
-                              .then(async () => {
-                                setAsstMsg(`已停用 ${a.username}`);
-                                await loadAssistants();
-                              })
-                              .catch((e) => setAsstMsg(e instanceof Error ? e.message : '停用失败'))
-                          }
-                        >
-                          停用
-                        </button>
-                      )}
-                      <input
-                        type="password"
-                        placeholder="新口令"
-                        value={resetPwdDraft[a.id] ?? ''}
-                        onChange={(e) =>
-                          setResetPwdDraft((prev) => ({ ...prev, [a.id]: e.target.value }))
-                        }
-                        style={{ width: '8rem' }}
-                        autoComplete="new-password"
-                      />
-                      <button
-                        type="button"
-                        onClick={() =>
-                          void (async () => {
-                            const password = (resetPwdDraft[a.id] ?? '').trim();
-                            try {
-                              const r = await api<{ message?: string }>(
-                                `/api/v1/auth/assistants/${a.id}/reset-password`,
-                                { method: 'POST', body: JSON.stringify({ password }) },
-                              );
-                              setAsstMsg(r.message ?? '已重置口令');
-                              setResetPwdDraft((prev) => ({ ...prev, [a.id]: '' }));
-                            } catch (e) {
-                              setAsstMsg(e instanceof Error ? e.message : '重置失败');
-                            }
-                          })()
-                        }
-                      >
-                        重置口令
-                      </button>
-                      <button
-                        type="button"
-                        className="secondary"
-                        onClick={() =>
-                          void openAssistantGrants(a.id).catch((e) =>
-                            setAsstMsg(e instanceof Error ? e.message : '加载授权失败'),
-                          )
-                        }
-                      >
-                        按班授权
-                      </button>
-                    </div>
-                    {grantEditId === a.id ? (
-                      <div style={{ marginTop: 8 }}>
-                        <p className="hint">勾选「可导出 / 可加分」；全不勾 = 清空授权（全局只读导出）。</p>
-                        {grantRows.length === 0 ? (
-                          <p className="hint">尚无班级</p>
-                        ) : (
-                          <ul>
-                            {grantRows.map((row) => (
-                              <li key={row.classId} className="row">
-                                <span style={{ minWidth: '8rem' }}>{row.name}</span>
-                                <label className="row">
-                                  <input
-                                    type="checkbox"
-                                    checked={row.canExport}
-                                    onChange={(e) =>
-                                      setGrantRows((prev) =>
-                                        prev.map((x) =>
-                                          x.classId === row.classId
-                                            ? { ...x, canExport: e.target.checked }
-                                            : x,
-                                        ),
-                                      )
-                                    }
-                                  />
-                                  可导出
-                                </label>
-                                <label className="row">
-                                  <input
-                                    type="checkbox"
-                                    checked={row.canAwardPoints}
-                                    onChange={(e) =>
-                                      setGrantRows((prev) =>
-                                        prev.map((x) =>
-                                          x.classId === row.classId
-                                            ? { ...x, canAwardPoints: e.target.checked }
-                                            : x,
-                                        ),
-                                      )
-                                    }
-                                  />
-                                  可加分
-                                </label>
-                              </li>
-                            ))}
-                          </ul>
-                        )}
-                        <div className="row">
-                          <button
-                            type="button"
-                            onClick={() =>
-                              void saveAssistantGrants().catch((e) =>
-                                setGrantMsg(e instanceof Error ? e.message : '保存失败'),
-                              )
-                            }
-                          >
-                            保存授权
-                          </button>
-                          <button
-                            type="button"
-                            className="secondary"
-                            onClick={() => {
-                              setGrantEditId(null);
-                              setGrantRows([]);
-                              setGrantMsg('');
-                            }}
-                          >
-                            关闭
-                          </button>
-                        </div>
-                        {grantMsg ? <p className="hint">{grantMsg}</p> : null}
-                      </div>
-                    ) : null}
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="hint">尚无助教账号</p>
-            )}
-            <p className="hint">
-              <a href={permissionsDocHref()} target="_blank" rel="noreferrer">
-                权限说明（PERMISSIONS.md）
-              </a>
-            </p>
-          </div>
-          </>
-          ) : (
-            <p className="hint">
-              助教可改本人密码、查看审计与导出；完整权限见{' '}
-              <a href={permissionsDocHref()} target="_blank" rel="noreferrer" data-testid="permissions-doc-link">
-                权限说明
-              </a>
-              。
-            </p>
-          )}
 
           <div className="card">
             <h3>操作审计（批量删除等）</h3>
