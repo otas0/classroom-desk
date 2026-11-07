@@ -56,6 +56,53 @@ test.describe('assistant RBAC', () => {
     }
   });
 
+  test('assistant first-login mustChangePassword is per-user (not teacher_password_ok)', async ({
+    request,
+  }) => {
+    const auth = await teacherAuth(request);
+    // Ensure teacher bootstrap gate is already cleared
+    const teacherLogin = await request.post(`${API}/api/v1/auth/login`, {
+      data: { username: 'teacher', password: await ensureTeacherPasswordReady(request) },
+    });
+    expect(teacherLogin.ok()).toBeTruthy();
+    const tBody = (await teacherLogin.json()) as { mustChangePassword?: boolean };
+    expect(tBody.mustChangePassword).toBeFalsy();
+
+    const stamp = Date.now();
+    const user = `asst_first_${stamp}`;
+    const pass = `AsstPass${stamp % 100000}f9`;
+    const created = await request.post(`${API}/api/v1/auth/assistants`, {
+      headers: auth,
+      data: { username: user, password: pass, displayName: '首次改密' },
+    });
+    expect(created.ok()).toBeTruthy();
+    const { id, token: _ignore } = (await created.json()) as { id: string; token?: string };
+
+    const asstLogin = await request.post(`${API}/api/v1/auth/login`, {
+      data: { username: user, password: pass },
+    });
+    expect(asstLogin.ok()).toBeTruthy();
+    const asstBody = (await asstLogin.json()) as {
+      token: string;
+      mustChangePassword?: boolean;
+    };
+    expect(asstBody.mustChangePassword).toBeTruthy();
+
+    const changed = await request.post(`${API}/api/v1/auth/change-password`, {
+      headers: { Authorization: `Bearer ${asstBody.token}` },
+      data: { currentPassword: pass, newPassword: `${pass}Ok1` },
+    });
+    expect(changed.ok()).toBeTruthy();
+
+    const again = await request.post(`${API}/api/v1/auth/login`, {
+      data: { username: user, password: `${pass}Ok1` },
+    });
+    expect(again.ok()).toBeTruthy();
+    expect(((await again.json()) as { mustChangePassword?: boolean }).mustChangePassword).toBeFalsy();
+
+    await request.post(`${API}/api/v1/auth/assistants/${id}/disable`, { headers: auth, data: {} });
+  });
+
   test('disabled assistant JWT → 401 account_disabled', async ({ request }) => {
     const auth = await teacherAuth(request);
     const stamp = Date.now();

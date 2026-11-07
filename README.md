@@ -141,9 +141,9 @@ npm run verify:exit-lock-packaged
 npm run verify:exit-lock-audit   # 需 API；审计分页 / CSV / 解除码超期
 # 需 API + 教师端已启动：
 npm run test:e2e
-# 口令已在后台改过导致 e2e 401 时：
+# 口令已在后台改过导致 e2e 401 时（发版联调）：
 TEACHER_PASSWORD=TeacherPass123 node scripts/ensure-teacher.mjs
-npx playwright test e2e/exit-lock-ws.spec.ts
+npx playwright test e2e/exit-lock-ws.spec.ts e2e/exit-lock-toast.spec.ts
 # API 被杀后教师 Vite 保活（另开终端先 npm run dev:stack -- --no-student）：
 npm run smoke:dev-stack-api-restart
 ```

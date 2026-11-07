@@ -376,6 +376,14 @@ textarea {
   animation: toast-in 180ms ease-out;
 }
 
+.toast-session-ended {
+  background: #7f1d1d;
+  border-color: #450a0a;
+  font-weight: 700;
+  font-size: 14px;
+  padding: 12px 14px;
+}
+
 @keyframes toast-in {
   from {
     transform: translateY(8px);

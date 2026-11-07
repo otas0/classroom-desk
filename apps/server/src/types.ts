@@ -20,4 +20,6 @@ export type DbUser = {
   created_at: string;
   deleted_at?: string | null;
   disabled_at?: string | null;
+  /** 1 = user completed first-login / personal password change. */
+  password_ok?: number | null;
 };

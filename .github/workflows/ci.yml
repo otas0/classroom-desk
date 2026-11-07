@@ -32,12 +32,30 @@ jobs:
               echo "health ok"
               npm run verify:1plus1
               npm run verify:exit-lock-packaged
+              npm run verify:exit-lock-audit
               exit $?
             fi
             sleep 1
           done
           echo "health check failed"
           exit 1
+      - name: Build teacher SPA + /admin/PERMISSIONS.md smoke
+        run: |
+          npm run build:teacher
+          test -f apps/teacher-web/dist/PERMISSIONS.md
+          JWT_SECRET=ci-secret-not-for-prod \
+          ADMIN_PASSWORD=AdminPass123 \
+          TEACHER_PASSWORD=TeacherPass123 \
+          DEFAULT_CLASS_CODE=DEMO01 \
+          npm run start --workspace=@classroom-desk/server &
+          for i in $(seq 1 30); do
+            curl -fsS http://127.0.0.1:8787/health >/dev/null && break
+            sleep 1
+          done
+          code=$(curl -fsS -o /tmp/permissions.md -w '%{http_code}' http://127.0.0.1:8787/admin/PERMISSIONS.md)
+          test "$code" = "200"
+          grep -q '角色权限矩阵' /tmp/permissions.md
+          curl -fsS http://127.0.0.1:8787/health | grep -q '"permissionsMd":true'
 
   e2e:
     runs-on: ubuntu-latest
@@ -64,7 +82,7 @@ jobs:
         run: npx playwright install --with-deps chromium
       - name: Build teacher SPA for /admin deep-link e2e
         run: npm run build:teacher
-      - name: Start API + teacher web
+      - name: Start API + teacher web + student vite
         run: |
           JWT_SECRET=ci-secret-not-for-prod \
           ADMIN_PASSWORD=AdminPass123 \
@@ -72,31 +90,83 @@ jobs:
           DEFAULT_CLASS_CODE=DEMO01 \
           npm run start --workspace=@classroom-desk/server &
           npm run dev:teacher &
+          ELECTRON_OFF=1 npm run dev --workspace=@classroom-desk/student-desktop &
           for i in $(seq 1 40); do
             curl -fsS http://127.0.0.1:8787/health >/dev/null && \
             curl -fsS http://127.0.0.1:5174/ >/dev/null && \
+            curl -fsS http://127.0.0.1:5173/ >/dev/null && \
             curl -fsS -o /dev/null -w '%{http_code}' http://127.0.0.1:8787/admin/assignments | grep -q 200 && break
             sleep 1
           done
-      - name: Playwright bulk gate (bulk-ui + bulk-ops + q-recycle + ops-polish)
+      - name: Playwright bulk gate
         id: bulk_gate
         run: |
           set +e
-          npx playwright test e2e/bulk-ui.spec.ts e2e/bulk-ops.spec.ts e2e/q-recycle-purge.spec.ts e2e/ops-polish.spec.ts e2e/ops-v015.spec.ts e2e/ops-v016.spec.ts
+          npx playwright test \
+            e2e/bulk-ui.spec.ts \
+            e2e/bulk-ops.spec.ts \
+            e2e/q-recycle-purge.spec.ts \
+            e2e/ops-polish.spec.ts \
+            e2e/ops-v015.spec.ts \
+            e2e/ops-v016.spec.ts
           code=$?
           {
             echo "### e2e suite: bulk gate"
             if [ "$code" -eq 0 ]; then
               echo "- result: **passed** (bulk + ops-polish + ops-v015 + ops-v016)"
             else
-              echo "- result: **failed** — suite=**bulk gate** (not full suite)"
-              echo "- specs: \`e2e/bulk-ui.spec.ts\` \`e2e/bulk-ops.spec.ts\` \`e2e/q-recycle-purge.spec.ts\` \`e2e/ops-polish.spec.ts\` \`e2e/ops-v015.spec.ts\` \`e2e/ops-v016.spec.ts\`"
+              echo "- result: **failed** — suite=**bulk gate** (not full suite / not rbac)"
             fi
           } >> "$GITHUB_STEP_SUMMARY"
           exit $code
         env:
           API_BASE: http://127.0.0.1:8787
           TEACHER_WEB: http://localhost:5174
+          STUDENT_WEB: http://127.0.0.1:5173
+      - name: Upload Playwright traces (bulk gate failure)
+        if: failure() && steps.bulk_gate.outcome == 'failure'
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-traces-bulk-gate
+          path: |
+            test-results/**
+            playwright-report/**
+          if-no-files-found: ignore
+          retention-days: 14
+      - name: Playwright e2e:rbac gate
+        id: rbac_gate
+        run: |
+          set +e
+          npx playwright test \
+            e2e/assistant-rbac.spec.ts \
+            e2e/session-kick.spec.ts \
+            e2e/session-kick-ui.spec.ts \
+            e2e/audit-detail.spec.ts \
+            e2e/permissions-doc.spec.ts
+          code=$?
+          {
+            echo "### e2e suite: rbac"
+            if [ "$code" -eq 0 ]; then
+              echo "- result: **passed** (assistant-rbac + session-kick + audit-detail + permissions-doc)"
+            else
+              echo "- result: **failed** — suite=**e2e:rbac**"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit $code
+        env:
+          API_BASE: http://127.0.0.1:8787
+          TEACHER_WEB: http://localhost:5174
+          STUDENT_WEB: http://127.0.0.1:5173
+      - name: Upload Playwright traces (rbac gate failure)
+        if: failure() && steps.rbac_gate.outcome == 'failure'
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-traces-rbac-gate
+          path: |
+            test-results/**
+            playwright-report/**
+          if-no-files-found: ignore
+          retention-days: 14
       - name: Playwright e2e (full suite)
         id: full_suite
         run: |
@@ -108,13 +178,24 @@ jobs:
             if [ "$code" -eq 0 ]; then
               echo "- result: **passed** (full Playwright suite)"
             else
-              echo "- result: **failed** — suite=**full suite** (bulk gate already passed)"
+              echo "- result: **failed** — suite=**full suite** (prior gates may have passed)"
             fi
           } >> "$GITHUB_STEP_SUMMARY"
           exit $code
         env:
           API_BASE: http://127.0.0.1:8787
           TEACHER_WEB: http://localhost:5174
+          STUDENT_WEB: http://127.0.0.1:5173
+      - name: Upload Playwright traces (full suite failure)
+        if: failure() && steps.full_suite.outcome == 'failure'
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-traces-full-suite
+          path: |
+            test-results/**
+            playwright-report/**
+          if-no-files-found: ignore
+          retention-days: 14
 
   windows-pack:
     runs-on: windows-latest

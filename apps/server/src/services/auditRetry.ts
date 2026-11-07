@@ -19,6 +19,10 @@ type QueuedAudit = {
 
 const QUEUE_FILE = () => path.join(getDataDir(), 'audit-retry-queue.jsonl');
 const MAX_ATTEMPTS = 8;
+/** Soft cap — enqueue still works but /health becomes degraded. */
+export const AUDIT_RETRY_QUEUE_SOFT_MAX = 200;
+/** Entries older than this mark health degraded. */
+export const AUDIT_RETRY_STALE_MS = 6 * 60 * 60 * 1000;
 
 function readQueue(): QueuedAudit[] {
   try {
@@ -95,4 +99,42 @@ export function flushAuditRetryQueue(): { flushed: number; remaining: number; fa
 
 export function auditRetryQueueSize(): number {
   return readQueue().length;
+}
+
+export type AuditRetryHealth = {
+  retryQueueSize: number;
+  softMax: number;
+  staleMs: number;
+  oldestEnqueuedAt: string | null;
+  oldestAgeMs: number | null;
+  overCapacity: boolean;
+  stale: boolean;
+  degraded: boolean;
+};
+
+export function auditRetryHealth(nowMs = Date.now()): AuditRetryHealth {
+  const items = readQueue();
+  let oldestEnqueuedAt: string | null = null;
+  let oldestAgeMs: number | null = null;
+  for (const item of items) {
+    const t = Date.parse(item.enqueuedAt);
+    if (!Number.isFinite(t)) continue;
+    const age = nowMs - t;
+    if (oldestAgeMs == null || age > oldestAgeMs) {
+      oldestAgeMs = age;
+      oldestEnqueuedAt = item.enqueuedAt;
+    }
+  }
+  const overCapacity = items.length >= AUDIT_RETRY_QUEUE_SOFT_MAX;
+  const stale = oldestAgeMs != null && oldestAgeMs >= AUDIT_RETRY_STALE_MS;
+  return {
+    retryQueueSize: items.length,
+    softMax: AUDIT_RETRY_QUEUE_SOFT_MAX,
+    staleMs: AUDIT_RETRY_STALE_MS,
+    oldestEnqueuedAt,
+    oldestAgeMs,
+    overCapacity,
+    stale,
+    degraded: overCapacity || stale,
+  };
 }

@@ -37,11 +37,11 @@ npm run prepare:live -- --apiBase http://192.168.x.x:8787 --className 高一(3)�
 详见 [EXIT_LOCK_MDM.md](./EXIT_LOCK_MDM.md)（C2 证据表 + Assigned Access 真实 NSIS 路径 + Intune XML [`intune-student-kiosk.example.xml`](./intune-student-kiosk.example.xml)）。  
 静态检查（CI / `dist:win`）：`npm run verify:exit-lock-packaged`（`REQUIRE_WIN_EXE=1` 无 exe 硬失败；Artifact 保留 30 天）。
 
-- [ ] 标题栏「已锁定」（讲述人录音）；关窗 / Alt+F4 无效 — 证据归档  
+- [ ] 标题栏「已锁定」+ 讲述人 10s（`C2-narrator.mp4`）；关窗 / Alt+F4 无效  
 - [ ] 教师批量解除二次确认后，学生秒级「可退出 m:ss」并可关  
 - [ ] 重新锁定后无法关闭  
-- [ ] 解除码可退；错码限流；审计含 `code_rotated`；CSV 与当前页一致；超期横幅  
-- [ ] Assigned Access 路径 `C:\Program Files\Classroom Desk\Classroom Desk.exe` + 任务管理器负向手测  
-- [ ] （可选）试验组 Intune HideTaskManager 生效 
+- [ ] 解除码可退；错码限流；审计中文标签含「轮换解除码」；CSV 当前页/全部；超期横幅可点「去设置」  
+- [ ] Assigned Access 路径 `C:\Program Files\Classroom Desk\Classroom Desk.exe` + 任务管理器负向（`C2-taskmgr-deny.mp4`）  
+- [ ] （可选）试验组 Intune HideTaskManager；DevTools 关 WS 见 toast「实时通道已切到备用」  
 
 网络不通先查 [NETWORK.md](./NETWORK.md)。

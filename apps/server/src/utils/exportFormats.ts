@@ -5,6 +5,7 @@ import { pipeline } from 'node:stream/promises';
 import * as XLSX from 'xlsx';
 import type { Response } from 'express';
 import { toCsv } from './csv.js';
+import { trackExportTemp, untrackExportTemp } from './exportTempTracker.js';
 import { newId } from './id.js';
 
 export type ExportFormat = 'csv' | 'xlsx' | 'json' | 'tsv';
@@ -99,6 +100,7 @@ export async function streamXlsxExport(
     XLSX.utils.book_append_sheet(wb, sheet, safeName);
   }
   const tmp = path.join(os.tmpdir(), `cd-export-${newId()}.xlsx`);
+  trackExportTemp(tmp);
   try {
     XLSX.writeFile(wb, tmp);
     res.setHeader(
@@ -113,6 +115,7 @@ export async function streamXlsxExport(
     } catch {
       /* ignore */
     }
+    untrackExportTemp(tmp);
   }
 }
 

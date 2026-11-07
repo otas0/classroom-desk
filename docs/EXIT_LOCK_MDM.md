@@ -134,10 +134,28 @@ JSON 片段（Intune「展台」或多应用 Assigned Access）：
 
 ### 学生端 WS → SSE 降级手测（DevTools）
 
-1. 开发：学生端连上后，Chrome/Electron DevTools → Network → WS → 选中 `/exit-lock/ws` → 右键关闭帧（或 Offline **仅**在确认会触发 `onclose` 后立刻恢复网络，避免整页离线）。
-2. 期望：出现 toast「实时通道已切到备用（WebSocket …）」；Network 出现 EventSource `/exit-lock/stream`。
+1. 开发：学生端连上后，Chrome/Electron DevTools → Network → WS → 选中 `/exit-lock/ws` → 右键 **Close**（关掉该帧；勿长期 Offline，否则整页离线）。
+2. 期望 toast：`实时通道已切到备用（WebSocket 关闭）`（或「断开」）；Network 出现 EventSource `/api/v1/exit-lock/stream`。
 3. 教师批量解除 → 学生标题栏仍秒级变为「可退出」。
-4. 自动化：`npx playwright test e2e/exit-lock-ws.spec.ts`（含「WS 断 → SSE 仍收到 batch_unlock」）。
+4. 自动化：
+   - `npx playwright test e2e/exit-lock-ws.spec.ts`（WS/SSE 推送）
+   - `STUDENT_WEB=http://127.0.0.1:5173 npx playwright test e2e/exit-lock-toast.spec.ts`（断言 toast 文案；需 `ELECTRON_OFF=1` 学生 Vite）
+
+### C2 / Intune / Assigned Access 证据（样机操作员）
+
+归档目录（教师机，勿提交 git）：`证据/C2-YYYYMMDD/`  
+
+| 文件 | 内容 |
+|---|---|
+| `C2-narrator.mp4` | Win+Ctrl+Enter 讲述人 · 聚焦学生窗 · ≥10s · 须听清「已锁定」 |
+| `C2-taskmgr-deny.mp4` | Assigned Access 展台账户 · 任务管理器结束失败/被拒 |
+| `C2-titlebar.png` | 标题栏「已锁定」截图 |
+| `C2-intune-version.txt` | 一行：`Windows <版本/内部版本> · HideTaskManager=<是/否> · 同步时间` |
+| `C2-intune-policy.png` | 试验组策略同步 / 开始菜单无任务管理器截图 |
+
+- **Intune 试验组**：上传 [`intune-student-kiosk.example.xml`](./intune-student-kiosk.example.xml) → **仅**试验组 → 设备同步 → 填 `C2-intune-version.txt`。
+- **Assigned Access 负向**：`C:\Program Files\Classroom Desk\Classroom Desk.exe`（或开始菜单「打开文件位置」）→ 录 `C2-taskmgr-deny.mp4`。
+- **Artifact SHA256**：从 Actions 下载 `classroom-desk-windows-setup`，与同目录 `.sha256` 核对：`Get-FileHash -Algorithm SHA256 .\ClassroomDesk-Setup-*.exe`。
 
 ### 审计分页 / 超期横幅 / 口令
 
@@ -145,14 +163,20 @@ JSON 片段（Intune「展台」或多应用 Assigned Access）：
 # 审计 offset/limit + CSV 与当前页一致 + rotateDays 真超期
 npm run verify:exit-lock-audit
 
-# 口令已在后台改过、e2e 401 时先重置再测：
+# 口令已在后台改过、e2e/verify 401 时（发版联调必读）：
 TEACHER_PASSWORD=TeacherPass123 node scripts/ensure-teacher.mjs
-npx playwright test e2e/exit-lock-ws.spec.ts
+npx playwright test e2e/exit-lock-ws.spec.ts e2e/exit-lock-toast.spec.ts
 ```
 
-`dev:stack` API 被 SIGKILL（类似 exit 137）后教师 Vite 应仍存活、API 经监督重启恢复：
+`dev:stack` API 被 SIGKILL（类似 exit 137）后教师 Vite 应仍存活、API 经监督重启恢复；教师侧栏会出现「API 刚恢复」轻提示：
 
 ```bash
 npm run dev:stack -- --no-student   # 另开终端
 npm run smoke:dev-stack-api-restart
 ```
+
+### CI windows-pack Artifact
+
+- Push `main` 时 job `windows-pack`：`REQUIRE_WIN_EXE=1` + `if-no-files-found: error`。
+- Artifact 名：`classroom-desk-windows-setup`（含 `.exe` + `.sha256`，保留 30 天）。
+- 最近一次成功示例可在 Actions 该 run 的 Artifacts 下载核对。

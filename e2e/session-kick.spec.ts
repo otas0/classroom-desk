@@ -50,7 +50,7 @@ test.describe('soft-delete session kick', () => {
     });
     expect(hb2.status()).toBe(401);
     const body = (await hb2.json()) as { error?: string };
-    expect(['session_kicked', 'account_deleted']).toContain(body.error);
+    expect(body.error).toBe('session_kicked');
 
     const me = await request.get(`${API}/api/v1/auth/me`, { headers: studentAuth });
     expect(me.status()).toBe(401);

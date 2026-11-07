@@ -24,6 +24,11 @@ export async function requireAuth(req: AuthedRequest, res: Response, next: NextF
     res.status(401).json({ error: 'unauthorized' });
     return;
   }
+  // Prefer explicit kick (soft-delete also writes session_kicks) so UI shows「账号已下线」.
+  if (dbUser.role === 'student' && hasSessionKick(dbUser.id, db)) {
+    res.status(401).json({ error: 'session_kicked', message: '账号已下线，请重新选择身份' });
+    return;
+  }
   // Soft-deleted students must not keep using unexpired JWTs.
   if (
     dbUser.role === 'student' &&
@@ -31,10 +36,6 @@ export async function requireAuth(req: AuthedRequest, res: Response, next: NextF
     String(dbUser.deleted_at).trim() !== ''
   ) {
     res.status(401).json({ error: 'account_deleted', message: '账号已删除，请重新选择身份' });
-    return;
-  }
-  if (dbUser.role === 'student' && hasSessionKick(dbUser.id, db)) {
-    res.status(401).json({ error: 'session_kicked', message: '账号已下线，请重新选择身份' });
     return;
   }
   if (

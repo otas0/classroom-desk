@@ -38,3 +38,34 @@ export type UserRole = 'student' | 'teacher' | 'admin' | 'assistant';
 export type AttendanceStatus = 'present' | 'late' | 'absent' | 'leave';
 export type PointRequestStatus = 'pending' | 'confirmed' | 'rejected' | 'expired';
 export type PointsSource = 'request' | 'manual' | 'auto_rule';
+
+/** Default soft-delete recycle retention (days). Overridable via settings.recycle_retention_days. */
+export const RECYCLE_RETENTION_DAYS = 7;
+
+export const RECYCLE_DAYS_LEFT_TESTID = 'recycle-days-left';
+
+const MS_PER_DAY = 86_400_000;
+
+export function recycleDaysLeft(
+  deletedAt: unknown,
+  retentionDays = RECYCLE_RETENTION_DAYS,
+  nowMs = Date.now(),
+): number | null {
+  const deletedMs = Date.parse(String(deletedAt ?? ''));
+  if (!Number.isFinite(deletedMs)) return null;
+  const expiresAtMs = deletedMs + retentionDays * MS_PER_DAY;
+  return Math.max(0, Math.ceil((expiresAtMs - nowMs) / MS_PER_DAY));
+}
+
+/** Unified copy for student & question recycle rows. */
+export function formatRecycleDaysLeft(daysLeft: number | null | undefined): string | null {
+  if (daysLeft == null || !Number.isFinite(Number(daysLeft))) return null;
+  const n = Math.max(0, Math.floor(Number(daysLeft)));
+  return n === 0 ? '剩余不足 1 天' : `剩余 ${n} 天`;
+}
+
+/** True when UI should warn that purge is imminent. */
+export function isRecycleUrgent(daysLeft: number | null | undefined): boolean {
+  if (daysLeft == null || !Number.isFinite(Number(daysLeft))) return false;
+  return Math.max(0, Math.floor(Number(daysLeft))) <= 1;
+}

@@ -48,8 +48,16 @@ authRouter.post('/api/v1/auth/login', async (req, res) => {
 
   const authUser = mapUser(user);
   const token = await signToken(authUser);
-  const passwordMarkedOk = getSetting(db, 'teacher_password_ok') === '1';
-  const mustChangePassword = !passwordMarkedOk || isWeakTeacherPassword(password);
+  let mustChangePassword = false;
+  if (user.role === 'assistant') {
+    // Assistants: only force on first login (password_ok) or when the password itself is weak.
+    const userOk = Number(user.password_ok ?? 0) === 1;
+    mustChangePassword = !userOk || isWeakTeacherPassword(password);
+  } else {
+    // Teachers/admins: keep global bootstrap gate + weak-password check.
+    const passwordMarkedOk = getSetting(db, 'teacher_password_ok') === '1';
+    mustChangePassword = !passwordMarkedOk || isWeakTeacherPassword(password);
+  }
   res.json({ token, user: authUser, mustChangePassword });
 });
 
@@ -217,11 +225,13 @@ authRouter.post('/api/v1/auth/change-password', requireAuth, async (req: AuthedR
     return;
   }
   const hash = await hashPassword(newPassword);
-  db.prepare(`UPDATE users SET password_hash = ? WHERE id = ?`).run(hash, user.id);
-  db.prepare(
-    `INSERT INTO settings (key, value) VALUES ('teacher_password_ok', '1')
-     ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
-  ).run();
+  db.prepare(`UPDATE users SET password_hash = ?, password_ok = 1 WHERE id = ?`).run(hash, user.id);
+  if (user.role === 'teacher' || user.role === 'admin') {
+    db.prepare(
+      `INSERT INTO settings (key, value) VALUES ('teacher_password_ok', '1')
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+    ).run();
+  }
   res.json({ ok: true, message: '登录密码已更新，请下次用新密码登录' });
 });
 
@@ -289,8 +299,8 @@ authRouter.post(
     const hash = await hashPassword(password);
     const createdAt = nowIso();
     db.prepare(
-      `INSERT INTO users (id, role, display_name, username, password_hash, class_id, total_points, created_at)
-       VALUES (?, 'assistant', ?, ?, ?, NULL, 0, ?)`,
+      `INSERT INTO users (id, role, display_name, username, password_hash, class_id, total_points, created_at, password_ok)
+       VALUES (?, 'assistant', ?, ?, ?, NULL, 0, ?, 0)`,
     ).run(id, displayName, username, hash, createdAt);
     writeAudit({
       actorUserId: req.user?.id,

@@ -38,6 +38,8 @@ export function migrate(database?: DatabaseSync): DatabaseSync {
   ensureColumn(conn, 'users', 'student_no', 'TEXT');
   ensureColumn(conn, 'users', 'deleted_at', 'TEXT');
   ensureColumn(conn, 'users', 'disabled_at', 'TEXT');
+  /** Per-user password-ok flag (assistants: first-login change); teachers also use settings.teacher_password_ok. */
+  ensureColumn(conn, 'users', 'password_ok', 'INTEGER DEFAULT 0');
   ensureColumn(conn, 'questions', 'attachments', 'TEXT');
   ensureColumn(conn, 'questions', 'closed_at', 'TEXT');
   ensureColumn(conn, 'questions', 'closes_at', 'TEXT');
@@ -93,7 +95,6 @@ export function migrate(database?: DatabaseSync): DatabaseSync {
     hit_at TEXT NOT NULL,
     UNIQUE(round_id, student_id)
   )`);
-  conn.exec(`CREATE INDEX IF NOT EXISTS idx_teacher_audit_action ON teacher_audit_log(action, created_at DESC)`);
   conn.exec(`CREATE INDEX IF NOT EXISTS idx_users_student_no ON users(class_id, student_no)`);
   conn.exec(`CREATE INDEX IF NOT EXISTS idx_users_deleted ON users(class_id, deleted_at)`);
   conn.exec(`CREATE INDEX IF NOT EXISTS idx_messages_to_student ON messages(to_student_id, created_at)`);
@@ -121,6 +122,7 @@ export function migrate(database?: DatabaseSync): DatabaseSync {
   )`);
   conn.exec(`CREATE INDEX IF NOT EXISTS idx_teacher_audit_created ON teacher_audit_log(created_at DESC)`);
   conn.exec(`CREATE INDEX IF NOT EXISTS idx_teacher_audit_class ON teacher_audit_log(class_id, created_at DESC)`);
+  conn.exec(`CREATE INDEX IF NOT EXISTS idx_teacher_audit_action ON teacher_audit_log(action, created_at DESC)`);
   conn.exec(`CREATE TABLE IF NOT EXISTS session_kicks (
     student_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
     reason TEXT NOT NULL DEFAULT 'soft_deleted',

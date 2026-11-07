@@ -11,6 +11,8 @@ const pkgVersion = String(
     .version ?? '0.0.0',
 );
 
+const viteOnly = process.env.ELECTRON_OFF === '1' && process.env.FORCE_ELECTRON !== '1';
+
 export default defineConfig(({ mode }) => ({
   define: {
     __APP_VERSION__: JSON.stringify(pkgVersion),
@@ -31,31 +33,35 @@ export default defineConfig(({ mode }) => ({
         return html.replace(/\s*<meta\s+http-equiv="Content-Security-Policy"[^>]*>\s*/i, '\n');
       },
     },
-    electron({
-      main: {
-        entry: 'electron/main.ts',
-        vite: {
-          build: {
-            outDir: 'dist-electron',
-            rollupOptions: {
-              external: ['electron'],
+    ...(viteOnly
+      ? []
+      : [
+          electron({
+            main: {
+              entry: 'electron/main.ts',
+              vite: {
+                build: {
+                  outDir: 'dist-electron',
+                  rollupOptions: {
+                    external: ['electron'],
+                  },
+                },
+              },
             },
-          },
-        },
-      },
-      preload: {
-        input: path.join(__dirname, 'electron/preload.ts'),
-        vite: {
-          build: {
-            outDir: 'dist-electron',
-            rollupOptions: {
-              external: ['electron'],
+            preload: {
+              input: path.join(__dirname, 'electron/preload.ts'),
+              vite: {
+                build: {
+                  outDir: 'dist-electron',
+                  rollupOptions: {
+                    external: ['electron'],
+                  },
+                },
+              },
             },
-          },
-        },
-      },
-      renderer: {},
-    }),
+            renderer: {},
+          }),
+        ]),
   ],
   resolve: {
     alias: {

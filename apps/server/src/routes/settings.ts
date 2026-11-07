@@ -273,7 +273,7 @@ settingsRouter.get('/api/v1/exit-lock/stream', (_req, res) => {
 settingsRouter.get(
   '/api/v1/settings/exit-lock-events',
   requireAuth,
-  requireRoles('teacher', 'admin'),
+  requireRoles('teacher', 'admin', 'assistant'),
   (req: AuthedRequest, res) => {
     const limit = Number(req.query.limit ?? 20);
     const offset = Number(req.query.offset ?? 0);
@@ -449,7 +449,7 @@ settingsRouter.post(
 settingsRouter.get(
   '/api/v1/settings/exit-lock-events.csv',
   requireAuth,
-  requireRoles('teacher', 'admin'),
+  requireRoles('teacher', 'admin', 'assistant'),
   (req: AuthedRequest, res) => {
     const limit = Number(req.query.limit ?? 200);
     const offset = Number(req.query.offset ?? 0);

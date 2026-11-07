@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type CSSProperties, type UIEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type UIEvent } from 'react';
 import { API_BASE, api, getToken } from './api';
 import { AuditDetail } from './AuditDetail';
 import { canBulkDelete, canWriteClass, isAssistant } from './authRole';
@@ -7,6 +7,7 @@ import { downloadPost } from './download';
 import { hardReloadTeacherNav } from './navStorage';
 import {
   formatRecycleDaysLeft,
+  isRecycleUrgent,
   RECYCLE_DAYS_LEFT_TESTID,
   RECYCLE_RETENTION_DAYS,
   recycleDaysLeft,
@@ -64,6 +65,7 @@ export function RosterPanel({
   const toast = useToast();
   const allowDelete = canBulkDelete();
   const allowWrite = canWriteClass();
+  const rosterAnchorId = useRef<string | null>(null);
   const ROSTER_ROW_H = 44;
   const ROSTER_VIEW_H = 420;
 
@@ -520,6 +522,11 @@ export function RosterPanel({
         </button>
         {!allowDelete ? <span className="hint">助教不可批量删除/改学号</span> : null}
       </div>
+      {selectedIds.size > 0 ? (
+        <div className="selection-sticky" data-testid="roster-selection-sticky">
+          已选 {selectedIds.size} 人 · Shift+点击可连选
+        </div>
+      ) : null}
       <div className="row" style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 4 }}>
         <span style={{ width: '2.5rem' }}>选</span>
         <span style={{ flex: 1 }}>学号</span>
@@ -544,7 +551,26 @@ export function RosterPanel({
                 student={s}
                 style={{ top: idx * ROSTER_ROW_H, height: ROSTER_ROW_H } as CSSProperties}
                 selected={selectedIds.has(String(s.id))}
-                onSelectChange={(id, on) => {
+                onSelectChange={(id, on, opts) => {
+                  const ordered = filteredStudents.map((row) => String(row.id));
+                  if (opts?.shift && rosterAnchorId.current) {
+                    const a = ordered.indexOf(rosterAnchorId.current);
+                    const b = ordered.indexOf(id);
+                    if (a >= 0 && b >= 0) {
+                      const [lo, hi] = a < b ? [a, b] : [b, a];
+                      setSelectedIds((prev) => {
+                        const next = new Set(prev);
+                        for (let k = lo; k <= hi; k++) {
+                          const rid = ordered[k]!;
+                          if (on) next.add(rid);
+                          else next.delete(rid);
+                        }
+                        return next;
+                      });
+                      return;
+                    }
+                  }
+                  rosterAnchorId.current = id;
                   setSelectedIds((prev) => {
                     const next = new Set(prev);
                     if (on) next.add(id);
@@ -696,11 +722,14 @@ export function RosterPanel({
                     {s.studentNo ? ` · ${String(s.studentNo)}` : ''}
                     {s.deletedAt ? ` · 删除于 ${String(s.deletedAt).slice(0, 19)}` : ''}
                     {(() => {
-                      const label = formatRecycleDaysLeft(
-                        s.daysLeft != null ? Number(s.daysLeft) : recycleDaysLeft(s.deletedAt),
-                      );
+                      const days =
+                        s.daysLeft != null ? Number(s.daysLeft) : recycleDaysLeft(s.deletedAt);
+                      const label = formatRecycleDaysLeft(days);
                       return label ? (
-                        <span className="days-left" data-testid={RECYCLE_DAYS_LEFT_TESTID}>
+                        <span
+                          className={`days-left${isRecycleUrgent(days) ? ' days-left-urgent' : ''}`}
+                          data-testid={RECYCLE_DAYS_LEFT_TESTID}
+                        >
                           {' '}
                           · {label}
                         </span>
@@ -778,7 +807,7 @@ export function StudentRow({
   classId: string;
   student: Record<string, unknown>;
   selected?: boolean;
-  onSelectChange?: (id: string, selected: boolean) => void;
+  onSelectChange?: (id: string, selected: boolean, opts?: { shift?: boolean }) => void;
   onChanged: () => void;
   onRemoved?: () => void;
   onError: (msg: string) => void;
@@ -864,6 +893,12 @@ export function StudentRow({
         disabled={busy}
         aria-label={`选择 ${name || id}`}
         data-testid={`student-check-${id}`}
+        onClick={(e) => {
+          if (e.shiftKey) {
+            e.preventDefault();
+            onSelectChange?.(id, !selected, { shift: true });
+          }
+        }}
         onChange={(e) => onSelectChange?.(id, e.target.checked)}
       />
       <input
@@ -1671,6 +1706,7 @@ export function QuestionRecyclePanel({ classId }: { classId: string }) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
   const [scrollTop, setScrollTop] = useState(0);
+  const qAnchorId = useRef<string | null>(null);
   const toast = useToast();
   const allowDelete = canBulkDelete();
   const ROW_H = 44;
@@ -1798,6 +1834,11 @@ export function QuestionRecyclePanel({ classId }: { classId: string }) {
           一键清空全部
         </button>
       </div>
+      {selected.size > 0 ? (
+        <div className="selection-sticky" data-testid="q-recycle-selection-sticky">
+          已选 {selected.size} 题 · Shift+点击可连选
+        </div>
+      ) : null}
       {items.length === 0 ? <p className="hint">回收站为空</p> : null}
       <div
         className="q-virtual"
@@ -1823,7 +1864,38 @@ export function QuestionRecyclePanel({ classId }: { classId: string }) {
                   <input
                     type="checkbox"
                     checked={selected.has(qid)}
+                    onClick={(e) => {
+                      if (!e.shiftKey) return;
+                      e.preventDefault();
+                      const ordered = items.map((row) => String(row.id));
+                      const on = !selected.has(qid);
+                      if (qAnchorId.current) {
+                        const a = ordered.indexOf(qAnchorId.current);
+                        const b = ordered.indexOf(qid);
+                        if (a >= 0 && b >= 0) {
+                          const [lo, hi] = a < b ? [a, b] : [b, a];
+                          setSelected((prev) => {
+                            const next = new Set(prev);
+                            for (let k = lo; k <= hi; k++) {
+                              const rid = ordered[k]!;
+                              if (on) next.add(rid);
+                              else next.delete(rid);
+                            }
+                            return next;
+                          });
+                          return;
+                        }
+                      }
+                      qAnchorId.current = qid;
+                      setSelected((prev) => {
+                        const next = new Set(prev);
+                        if (on) next.add(qid);
+                        else next.delete(qid);
+                        return next;
+                      });
+                    }}
                     onChange={(e) => {
+                      qAnchorId.current = qid;
                       setSelected((prev) => {
                         const next = new Set(prev);
                         if (e.target.checked) next.add(qid);
@@ -1837,7 +1909,10 @@ export function QuestionRecyclePanel({ classId }: { classId: string }) {
                   [{String(q.type)}] {String(q.title)}
                   {q.deletedAt ? ` · ${String(q.deletedAt).slice(0, 19)}` : ''}
                   {daysLabel ? (
-                    <span className="days-left" data-testid={RECYCLE_DAYS_LEFT_TESTID}>
+                    <span
+                      className={`days-left${isRecycleUrgent(days) ? ' days-left-urgent' : ''}`}
+                      data-testid={RECYCLE_DAYS_LEFT_TESTID}
+                    >
                       {' '}
                       · {daysLabel}
                     </span>
@@ -2756,6 +2831,43 @@ export function SettingsPanel({
     setExitEventsTotal(Number(ev.total ?? ev.items?.length ?? 0));
   }
 
+  function exitLockKindLabel(kind: string): string {
+    const map: Record<string, string> = {
+      batch_unlock: '批量解除',
+      relock: '重新锁定',
+      unlock_flag_off: '关闭锁定标志',
+      code_ok: '解除码成功',
+      code_fail: '解除码失败',
+      code_rate_limited: '解除码限流',
+      code_set: '首次设置解除码',
+      code_rotated: '轮换解除码',
+      rate_config: '限流/轮换配置',
+    };
+    return map[kind] ? `${map[kind]}（${kind}）` : kind;
+  }
+
+  async function exportExitLockCsv(opts: { limit: number; offset: number; filename: string }) {
+    const token = getToken() || '';
+    const q = new URLSearchParams({
+      limit: String(opts.limit),
+      offset: String(opts.offset),
+    });
+    if (exitKindFilter) q.set('kind', exitKindFilter);
+    const res = await fetch(`${API_BASE}/api/v1/settings/exit-lock-events.csv?${q}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) {
+      setExitMsg(`导出失败 HTTP ${res.status}`);
+      return;
+    }
+    const blob = await res.blob();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = opts.filename;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }
+
   useEffect(() => {
     void refreshExitLock().catch(() => undefined);
     void loadAudit().catch(() => setAuditItems([]));
@@ -2773,6 +2885,10 @@ export function SettingsPanel({
         ),
       )
       .catch(() => setUpgradeFiles([]));
+    const poll = window.setInterval(() => {
+      void loadAssistants().catch(() => undefined);
+    }, 5_000);
+    return () => window.clearInterval(poll);
   }, [exitKindFilter, exitEventsPage]);
 
   async function openAssistantGrants(assistantId: string) {
@@ -3383,7 +3499,7 @@ export function SettingsPanel({
           </button>
           {saveMsg ? <p className="hint">{saveMsg}</p> : null}
 
-          <h3>学生端退出锁定</h3>
+          <h3 id="exit-lock-settings">学生端退出锁定</h3>
           <p className="hint">
             默认禁止学生关闭客户端。批量解除后，全班可在时限内退出；或本机输入解除码退出。
             {(() => {
@@ -3402,143 +3518,176 @@ export function SettingsPanel({
           {codeRotationDue ? (
             <p className="error">解除码已超过轮换周期（{rotateDays} 天），请尽快更换。</p>
           ) : null}
-          <label>
-            批量解除时长（分钟）
-            <input
-              type="number"
-              min={1}
-              max={240}
-              value={exitMinutes}
-              onChange={(e) => setExitMinutes(Number(e.target.value))}
-            />
-          </label>
-          <div className="row">
-            <button
-              type="button"
-              onClick={() => {
-                if (
-                  !window.confirm(
-                    `确认批量允许全班关闭学生端 ${exitMinutes} 分钟？\n时限结束后将自动恢复锁定。`,
-                  )
-                ) {
-                  return;
+          {isAssistant() ? (
+            <p className="hint">助教可查看锁定状态与审计（只读）；批量解除 / 解除码轮换由教师操作。</p>
+          ) : (
+            <>
+              <label>
+                批量解除时长（分钟）
+                <input
+                  type="number"
+                  min={1}
+                  max={240}
+                  value={exitMinutes}
+                  onChange={(e) => setExitMinutes(Number(e.target.value))}
+                />
+              </label>
+              <div className="row">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (
+                      !window.confirm(
+                        `确认批量允许全班关闭学生端 ${exitMinutes} 分钟？\n时限结束后将自动恢复锁定。`,
+                      )
+                    ) {
+                      return;
+                    }
+                    void api<{
+                      clientExitAllowed?: boolean;
+                      clientExitUnlockUntil?: string | null;
+                    }>('/api/v1/settings', {
+                      method: 'PATCH',
+                      body: JSON.stringify({ clientExitUnlockMinutes: exitMinutes }),
+                    })
+                      .then(async (r) => {
+                        setExitAllowed(r.clientExitAllowed === true);
+                        setExitUnlockUntil(r.clientExitUnlockUntil ?? null);
+                        setExitMsg(`已批量允许关闭 ${exitMinutes} 分钟`);
+                        await refreshExitLock().catch(() => undefined);
+                      })
+                      .catch((e) => setExitMsg(e instanceof Error ? e.message : '解除失败'));
+                  }}
+                >
+                  批量允许关闭学生端
+                </button>
+                <button
+                  type="button"
+                  className="secondary"
+                  onClick={() => {
+                    if (!window.confirm('确认重新锁定？学生端将无法退出。')) return;
+                    void api<{
+                      clientExitAllowed?: boolean;
+                      clientExitUnlockUntil?: string | null;
+                    }>('/api/v1/settings', {
+                      method: 'PATCH',
+                      body: JSON.stringify({ clientExitRelock: true }),
+                    })
+                      .then(async (r) => {
+                        setExitAllowed(r.clientExitAllowed === true);
+                        setExitUnlockUntil(r.clientExitUnlockUntil ?? null);
+                        setExitMsg('已重新锁定：学生端无法退出');
+                        await refreshExitLock().catch(() => undefined);
+                      })
+                      .catch((e) => setExitMsg(e instanceof Error ? e.message : '锁定失败'));
+                  }}
+                >
+                  重新锁定
+                </button>
+              </div>
+              <label>
+                设置/更换解除码（至少 6 位，不预填）
+                <input
+                  type="password"
+                  value={exitCodeDraft}
+                  onChange={(e) => setExitCodeDraft(e.target.value)}
+                  autoComplete="new-password"
+                  placeholder="输入新解除码后点保存"
+                />
+              </label>
+              <button
+                type="button"
+                onClick={() =>
+                  void api<{ hasExitUnlockCode?: boolean }>('/api/v1/settings', {
+                    method: 'PATCH',
+                    body: JSON.stringify({ exitUnlockCode: exitCodeDraft }),
+                  })
+                    .then(async (r) => {
+                      setHasExitCode(r.hasExitUnlockCode === true);
+                      setExitCodeDraft('');
+                      setExitMsg('解除码已更新');
+                      await refreshExitLock().catch(() => undefined);
+                    })
+                    .catch((e) => setExitMsg(e instanceof Error ? e.message : '保存解除码失败'))
                 }
-                void api<{
-                  clientExitAllowed?: boolean;
-                  clientExitUnlockUntil?: string | null;
-                }>('/api/v1/settings', {
-                  method: 'PATCH',
-                  body: JSON.stringify({ clientExitUnlockMinutes: exitMinutes }),
-                })
-                  .then(async (r) => {
-                    setExitAllowed(r.clientExitAllowed === true);
-                    setExitUnlockUntil(r.clientExitUnlockUntil ?? null);
-                    setExitMsg(`已批量允许关闭 ${exitMinutes} 分钟`);
-                    await refreshExitLock().catch(() => undefined);
-                  })
-                  .catch((e) => setExitMsg(e instanceof Error ? e.message : '解除失败'));
-              }}
-            >
-              批量允许关闭学生端
-            </button>
-            <button
-              type="button"
-              className="secondary"
-              onClick={() => {
-                if (!window.confirm('确认重新锁定？学生端将无法退出。')) return;
-                void api<{
-                  clientExitAllowed?: boolean;
-                  clientExitUnlockUntil?: string | null;
-                }>('/api/v1/settings', {
-                  method: 'PATCH',
-                  body: JSON.stringify({ clientExitRelock: true }),
-                })
-                  .then(async (r) => {
-                    setExitAllowed(r.clientExitAllowed === true);
-                    setExitUnlockUntil(r.clientExitUnlockUntil ?? null);
-                    setExitMsg('已重新锁定：学生端无法退出');
-                    await refreshExitLock().catch(() => undefined);
-                  })
-                  .catch((e) => setExitMsg(e instanceof Error ? e.message : '锁定失败'));
-              }}
-            >
-              重新锁定
-            </button>
-          </div>
-          <label>
-            设置/更换解除码（至少 6 位，不预填）
-            <input
-              type="password"
-              value={exitCodeDraft}
-              onChange={(e) => setExitCodeDraft(e.target.value)}
-              autoComplete="new-password"
-              placeholder="输入新解除码后点保存"
-            />
-          </label>
-          <button
-            type="button"
-            onClick={() =>
-              void api<{ hasExitUnlockCode?: boolean }>('/api/v1/settings', {
-                method: 'PATCH',
-                body: JSON.stringify({ exitUnlockCode: exitCodeDraft }),
-              })
-                .then(async (r) => {
-                  setHasExitCode(r.hasExitUnlockCode === true);
-                  setExitCodeDraft('');
-                  setExitMsg('解除码已更新');
-                  await refreshExitLock().catch(() => undefined);
-                })
-                .catch((e) => setExitMsg(e instanceof Error ? e.message : '保存解除码失败'))
-            }
-          >
-            保存解除码
-          </button>
-          {exitMsg ? <p className="hint">{exitMsg}</p> : null}
+              >
+                保存解除码
+              </button>
+              {exitMsg ? <p className="hint">{exitMsg}</p> : null}
 
-          <h4>解除码限流 / 轮换</h4>
-          <div className="row">
-            <label>
-              失败次数上限
-              <input type="number" min={3} max={30} value={maxFails} onChange={(e) => setMaxFails(Number(e.target.value))} />
-            </label>
-            <label>
-              统计窗口（分钟）
-              <input type="number" min={1} max={1440} value={windowMin} onChange={(e) => setWindowMin(Number(e.target.value))} />
-            </label>
-            <label>
-              锁定时长（分钟）
-              <input type="number" min={1} max={1440} value={lockoutMin} onChange={(e) => setLockoutMin(Number(e.target.value))} />
-            </label>
-            <label>
-              轮换提醒（天）
-              <input type="number" min={7} max={365} value={rotateDays} onChange={(e) => setRotateDays(Number(e.target.value))} />
-            </label>
-          </div>
-          <button
-            type="button"
-            className="secondary"
-            onClick={() =>
-              void api('/api/v1/settings', {
-                method: 'PATCH',
-                body: JSON.stringify({
-                  exitUnlockMaxFails: maxFails,
-                  exitUnlockWindowMinutes: windowMin,
-                  exitUnlockLockoutMinutes: lockoutMin,
-                  exitUnlockCodeRotateDays: rotateDays,
-                }),
-              })
-                .then(async () => {
-                  setExitMsg('限流/轮换设置已保存');
-                  await refreshExitLock().catch(() => undefined);
-                })
-                .catch((e) => setExitMsg(e instanceof Error ? e.message : '保存失败'))
-            }
-          >
-            保存限流与轮换
-          </button>
+              <h4>解除码限流 / 轮换</h4>
+              <div className="row">
+                <label>
+                  失败次数上限
+                  <input
+                    type="number"
+                    min={3}
+                    max={30}
+                    value={maxFails}
+                    onChange={(e) => setMaxFails(Number(e.target.value))}
+                  />
+                </label>
+                <label>
+                  统计窗口（分钟）
+                  <input
+                    type="number"
+                    min={1}
+                    max={1440}
+                    value={windowMin}
+                    onChange={(e) => setWindowMin(Number(e.target.value))}
+                  />
+                </label>
+                <label>
+                  锁定时长（分钟）
+                  <input
+                    type="number"
+                    min={1}
+                    max={1440}
+                    value={lockoutMin}
+                    onChange={(e) => setLockoutMin(Number(e.target.value))}
+                  />
+                </label>
+                <label>
+                  轮换提醒（天）
+                  <input
+                    type="number"
+                    min={7}
+                    max={365}
+                    value={rotateDays}
+                    onChange={(e) => setRotateDays(Number(e.target.value))}
+                  />
+                </label>
+              </div>
+              <button
+                type="button"
+                className="secondary"
+                onClick={() =>
+                  void api('/api/v1/settings', {
+                    method: 'PATCH',
+                    body: JSON.stringify({
+                      exitUnlockMaxFails: maxFails,
+                      exitUnlockWindowMinutes: windowMin,
+                      exitUnlockLockoutMinutes: lockoutMin,
+                      exitUnlockCodeRotateDays: rotateDays,
+                    }),
+                  })
+                    .then(async () => {
+                      setExitMsg('限流/轮换设置已保存');
+                      await refreshExitLock().catch(() => undefined);
+                    })
+                    .catch((e) => setExitMsg(e instanceof Error ? e.message : '保存失败'))
+                }
+              >
+                保存限流与轮换
+              </button>
+            </>
+          )}
 
           <div className="card">
-            <p className="hint">退出锁定审计（每页 {EXIT_PAGE_SIZE} 条）</p>
+            <p className="hint">
+              退出锁定审计（每页 {EXIT_PAGE_SIZE} 条）
+              {isAssistant() ? ' · 助教只读' : ''}
+            </p>
             <label>
               按类型筛选
               <select
@@ -3549,14 +3698,14 @@ export function SettingsPanel({
                 }}
               >
                 <option value="">全部</option>
-                <option value="batch_unlock">batch_unlock</option>
-                <option value="relock">relock</option>
-                <option value="code_ok">code_ok</option>
-                <option value="code_fail">code_fail</option>
-                <option value="code_rate_limited">code_rate_limited</option>
-                <option value="code_set">code_set</option>
-                <option value="code_rotated">code_rotated</option>
-                <option value="rate_config">rate_config</option>
+                <option value="batch_unlock">批量解除</option>
+                <option value="relock">重新锁定</option>
+                <option value="code_ok">解除码成功</option>
+                <option value="code_fail">解除码失败</option>
+                <option value="code_rate_limited">解除码限流</option>
+                <option value="code_set">首次设置解除码</option>
+                <option value="code_rotated">轮换解除码</option>
+                <option value="rate_config">限流/轮换配置</option>
               </select>
             </label>
             <div className="row">
@@ -3588,32 +3737,45 @@ export function SettingsPanel({
                 className="secondary"
                 onClick={(e) => {
                   e.preventDefault();
-                  void (async () => {
-                    const token = getToken() || '';
-                    const url = `${API_BASE}/api/v1/settings/exit-lock-events.csv?limit=${EXIT_PAGE_SIZE}&offset=${
-                      exitEventsPage * EXIT_PAGE_SIZE
-                    }${exitKindFilter ? `&kind=${encodeURIComponent(exitKindFilter)}` : ''}`;
-                    const res = await fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
-                    if (!res.ok) {
-                      setExitMsg(`导出失败 HTTP ${res.status}`);
-                      return;
-                    }
-                    const blob = await res.blob();
-                    const a = document.createElement('a');
-                    a.href = URL.createObjectURL(blob);
-                    a.download = 'exit-lock-events.csv';
-                    a.click();
-                    URL.revokeObjectURL(a.href);
-                  })();
+                  void exportExitLockCsv({
+                    limit: EXIT_PAGE_SIZE,
+                    offset: exitEventsPage * EXIT_PAGE_SIZE,
+                    filename: 'exit-lock-events-page.csv',
+                  });
                 }}
               >
-                导出 CSV
+                导出当前页 CSV
+              </button>
+              <button
+                type="button"
+                className="secondary"
+                onClick={(e) => {
+                  e.preventDefault();
+                  const cap = 500;
+                  if (exitEventsTotal > cap) {
+                    const ok = window.confirm(
+                      `当前筛选共 ${exitEventsTotal} 条，导出上限 ${cap} 条（按时间倒序最新）。\n是否继续导出截断结果？`,
+                    );
+                    if (!ok) return;
+                  }
+                  void exportExitLockCsv({
+                    limit: Math.min(cap, Math.max(exitEventsTotal, 1)),
+                    offset: 0,
+                    filename: 'exit-lock-events-all.csv',
+                  }).then(() => {
+                    if (exitEventsTotal > cap) {
+                      setExitMsg(`已导出全部 CSV（截断至 ${cap} / ${exitEventsTotal} 条）`);
+                    }
+                  });
+                }}
+              >
+                导出全部 CSV
               </button>
             </div>
             <ul>
               {exitEvents.map((e) => (
                 <li key={e.id}>
-                  {new Date(e.createdAt).toLocaleString()} · {e.kind}
+                  {new Date(e.createdAt).toLocaleString()} · {exitLockKindLabel(e.kind)}
                   {e.actorRole ? ` · ${e.actorRole}` : ''} · {e.detail}
                 </li>
               ))}
@@ -3961,7 +4123,15 @@ stateDiagram-v2
                   {a.detail ? (
                     <>
                       {' · '}
-                      <AuditDetail detail={a.detail} />
+                      <AuditDetail
+                        detail={a.detail}
+                        action={a.action}
+                        onJumpIds={({ target, ids }) => {
+                          if (a.classId) localStorage.setItem('cd_teacher_class_id', String(a.classId));
+                          sessionStorage.setItem('cd_audit_jump_ids', JSON.stringify(ids));
+                          hardReloadTeacherNav({ tab: 'prep', prepTab: target });
+                        }}
+                      />
                     </>
                   ) : null}
                 </li>

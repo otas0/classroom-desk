@@ -41,9 +41,12 @@ test.describe('audit detail JSON fold', () => {
     const expand = page.getByRole('button', { name: /展开 ids（12）/ }).first();
     await expect(expand).toBeVisible({ timeout: 15_000 });
     await expand.click();
-    await expect(page.locator('pre.audit-ids').first()).toContainText(ids[0]!);
+    await expect(page.getByTestId('audit-ids-list').first()).toContainText(ids[0]!);
+    await expect(page.getByTestId('audit-jump-ids').first()).toBeVisible();
     await page.getByRole('button', { name: '收起 ids' }).first().click();
     await expect(page.getByRole('button', { name: /展开 ids（12）/ }).first()).toBeVisible();
+    await page.getByTestId('audit-jump-ids').first().click();
+    await expect(page.getByRole('heading', { name: /班级与名单/ })).toBeVisible({ timeout: 20_000 });
 
     await request.post(`${API}/api/v1/classes/${classId}/students/bulk-purge`, {
       headers: auth,

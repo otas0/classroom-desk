@@ -8,12 +8,12 @@ const off = path.join(root, '.electron-off');
 const port = Number(process.env.VITE_PORT || 5173);
 
 /**
- * Electron is ON by default.
- * Opt-out only via ELECTRON_OFF=1 (CI / headless).
+ * Electron is ON by default (FORCE_ELECTRON=1 passed to vite).
+ * ELECTRON_OFF=1 → Vite-only (no Electron window); used by CI / Playwright toast e2e.
  */
-if (process.env.ELECTRON_OFF === '1' && process.env.FORCE_ELECTRON !== '1') {
-  console.log('[student-desktop] Electron skipped (ELECTRON_OFF=1). Set FORCE_ELECTRON=1 to override.');
-  process.exit(0);
+const viteOnly = process.env.ELECTRON_OFF === '1' && process.env.FORCE_ELECTRON !== '1';
+if (viteOnly) {
+  console.log('[student-desktop] Vite-only (ELECTRON_OFF=1). Set FORCE_ELECTRON=1 for Electron.');
 }
 
 if (fs.existsSync(off)) {
@@ -69,7 +69,10 @@ const child = spawn('npx', ['vite', '--port', String(port), '--strictPort'], {
   cwd: root,
   stdio: 'inherit',
   shell: process.platform === 'win32',
-  env: { ...process.env, FORCE_ELECTRON: process.env.FORCE_ELECTRON || '1' },
+  env: {
+    ...process.env,
+    ...(viteOnly ? { ELECTRON_OFF: '1' } : { FORCE_ELECTRON: process.env.FORCE_ELECTRON || '1' }),
+  },
 });
 child.on('exit', (code, signal) => {
   if (signal) process.kill(process.pid, signal);

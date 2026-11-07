@@ -7,7 +7,8 @@ import { networkInterfaces } from 'node:os';
 import { getDataDir, getDbPath, openDb } from '../db/client.js';
 import { getSetting } from '../db/migrate.js';
 import { readAuditWriteFailure } from '../services/auditFail.js';
-import { auditRetryQueueSize } from '../services/auditRetry.js';
+import { auditRetryHealth } from '../services/auditRetry.js';
+import { exportTempStats } from '../utils/exportTempTracker.js';
 import { config } from '../config.js';
 
 export const healthRouter = Router();
@@ -99,6 +100,8 @@ function buildHealthPayload() {
 
   const backup = latestBackupInfo();
   const auditLastError = readAuditWriteFailure();
+  const auditRetry = auditRetryHealth();
+  const exportTmp = exportTempStats();
   const detected = lanIpv4List();
   const storedBase = getSetting(db, 'classroom_api_base')?.replace(/\/$/, '') ?? '';
   let fromStored = '';
@@ -111,9 +114,21 @@ function buildHealthPayload() {
   const suggestedApiBase =
     storedBase ||
     (lanIps[0] ? `http://${lanIps[0]}:${config.port}` : `http://127.0.0.1:${config.port}`);
+  const teacherDistCandidates = [
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../teacher-web/dist'),
+    path.resolve(getDataDir(), '../teacher-web/dist'),
+  ];
+  let permissionsMd = false;
+  for (const dist of teacherDistCandidates) {
+    if (fs.existsSync(path.join(dist, 'PERMISSIONS.md'))) {
+      permissionsMd = true;
+      break;
+    }
+  }
+  const degraded = Boolean(auditLastError) || auditRetry.degraded || exportTmp.tmpLeaked > 0;
   return {
     ok: dbOk,
-    degraded: Boolean(auditLastError),
+    degraded,
     service: 'classroom-desk-server',
     version: packageVersion(),
     studentDesktopVersion: packageVersion(),
@@ -140,7 +155,12 @@ function buildHealthPayload() {
     },
     audit: {
       lastError: auditLastError,
-      retryQueueSize: auditRetryQueueSize(),
+      ...auditRetry,
+    },
+    exportTmp,
+    admin: {
+      permissionsMd,
+      permissionsUrl: '/admin/PERMISSIONS.md',
     },
     lastCleanupAt: getSetting(db, 'last_cleanup_at'),
   };

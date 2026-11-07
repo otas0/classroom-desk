@@ -1,9 +1,6 @@
 import assert from 'node:assert/strict';
-import {
-  RECYCLE_RETENTION_DAYS,
-  recyclePurgeCutoffIso,
-  recycleTiming,
-} from '../utils/recycleRetention.js';
+import { RECYCLE_RETENTION_DAYS } from '@classroom-desk/shared';
+import { recyclePurgeCutoffIso, recycleTiming } from '../utils/recycleRetention.js';
 
 const DAY = 86_400_000;
 

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { APP_NAME, GITHUB_RELEASES_BASE } from '@classroom-desk/shared';
 import { API_BASE, api, getToken, setToken } from './api';
 import { ClassroomConnect } from './components/ClassroomConnect';
@@ -72,9 +72,10 @@ export function App() {
   const [setupTick, setSetupTick] = useState(0);
   const [pendingCount, setPendingCount] = useState(0);
   const [codeRotationBanner, setCodeRotationBanner] = useState('');
+  const [apiRestartTip, setApiRestartTip] = useState('');
+  const healthWasDownRef = useRef(false);
 
   useEffect(() => {
-    if (tokenReady) return;
     let cancelled = false;
     void fetch(`${API_BASE}/api/v1/settings/public`)
       .then((r) => r.json())
@@ -87,7 +88,9 @@ export function App() {
           if (cancelled) return;
           if (s.exitUnlockCodeRotationDue) {
             setCodeRotationBanner(
-              `解除码已使用 ${s.exitUnlockCodeAgeDays ?? '?'} 天（阈值 ${s.exitUnlockCodeRotateDays ?? 90} 天），登录后请在「设置」更换。`,
+              tokenReady
+                ? `解除码已使用 ${s.exitUnlockCodeAgeDays ?? '?'} 天（阈值 ${s.exitUnlockCodeRotateDays ?? 90} 天），请尽快更换。`
+                : `解除码已使用 ${s.exitUnlockCodeAgeDays ?? '?'} 天（阈值 ${s.exitUnlockCodeRotateDays ?? 90} 天），登录后请在「设置」更换。`,
             );
           } else {
             setCodeRotationBanner('');
@@ -100,6 +103,14 @@ export function App() {
     return () => {
       cancelled = true;
     };
+  }, [tokenReady]);
+
+  useEffect(() => {
+    if (!tokenReady) return;
+    if (sessionStorage.getItem('cd_goto_exit_lock') === '1') {
+      sessionStorage.removeItem('cd_goto_exit_lock');
+      setTab('settings');
+    }
   }, [tokenReady]);
 
   async function loadClasses() {
@@ -230,8 +241,20 @@ export function App() {
           }
         }
         setDriftExpectedVersion(drift ? expectedVer : '');
+        const down = !body.ok;
+        if (down) {
+          healthWasDownRef.current = true;
+        } else if (healthWasDownRef.current) {
+          healthWasDownRef.current = false;
+          setApiRestartTip('API 刚恢复（看门狗/重启），实时通道已可用');
+          const tipMs =
+            (window as unknown as { __cdApiRestartTipMs?: number }).__cdApiRestartTipMs ?? 12_000;
+          window.setTimeout(() => {
+            if (!cancelled) setApiRestartTip('');
+          }, tipMs);
+        }
         setHealthAlert(
-          !body.ok
+          down
             ? '服务异常：/health 未就绪'
             : auditErr
               ? `审计写入异常：${auditErr.message}`
@@ -241,13 +264,25 @@ export function App() {
         );
       } catch {
         if (!cancelled) {
+          healthWasDownRef.current = true;
           setHealthAlert('无法读取 /health');
           setHealthLanIps([]);
         }
       }
     }
     void pollHealth();
-    const t = window.setInterval(() => void pollHealth(), 30_000);
+    /** Override: localStorage `cd_health_poll_ms` or Vite `VITE_HEALTH_POLL_MS` (ms, 3s–120s). */
+    const fromLs = Number(localStorage.getItem('cd_health_poll_ms') || '');
+    const fromEnv = Number(import.meta.env.VITE_HEALTH_POLL_MS || '');
+    const pollMs = Math.min(
+      120_000,
+      Math.max(3_000, Number.isFinite(fromLs) && fromLs > 0 ? fromLs : Number.isFinite(fromEnv) && fromEnv > 0 ? fromEnv : 8_000),
+    );
+    const tipMsRaw = Number(localStorage.getItem('cd_api_restart_tip_ms') || import.meta.env.VITE_API_RESTART_TIP_MS || 12_000);
+    const tipMs = Math.min(60_000, Math.max(3_000, Number.isFinite(tipMsRaw) && tipMsRaw > 0 ? tipMsRaw : 12_000));
+    // Keep tip duration readable by restart handler via closure refresh each effect run
+    (window as unknown as { __cdApiRestartTipMs?: number }).__cdApiRestartTipMs = tipMs;
+    const t = window.setInterval(() => void pollHealth(), pollMs);
     return () => {
       cancelled = true;
       window.clearInterval(t);
@@ -362,6 +397,18 @@ export function App() {
         {codeRotationBanner ? (
           <div className="banner-alert" role="status" aria-live="polite">
             <p>{codeRotationBanner}</p>
+            <p className="hint">
+              <button
+                type="button"
+                className="linkish"
+                onClick={() => {
+                  sessionStorage.setItem('cd_goto_exit_lock', '1');
+                  setError('请先登录，登录后将打开「设置」更换解除码。');
+                }}
+              >
+                登录后去设置更换
+              </button>
+            </p>
           </div>
         ) : null}
         <label>
@@ -398,6 +445,31 @@ export function App() {
       {projectionMode ? null : (
         <aside>
           <h1>{APP_NAME}</h1>
+          {apiRestartTip ? (
+            <div className="banner-alert" role="status" aria-live="polite">
+              <p>{apiRestartTip}</p>
+            </div>
+          ) : null}
+          {codeRotationBanner && tokenReady ? (
+            <div className="banner-alert" role="status">
+              <p>{codeRotationBanner}</p>
+              <button
+                type="button"
+                className="linkish"
+                onClick={() => {
+                  setTab('settings');
+                  window.requestAnimationFrame(() => {
+                    document.getElementById('exit-lock-settings')?.scrollIntoView({
+                      behavior: 'smooth',
+                      block: 'start',
+                    });
+                  });
+                }}
+              >
+                去设置更换解除码
+              </button>
+            </div>
+          ) : null}
           {healthAlert ? (
             <div className="banner-alert">
               <p>{healthAlert}</p>

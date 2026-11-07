@@ -695,6 +695,25 @@ button.linkish {
   color: var(--muted);
 }
 
+.days-left-urgent {
+  color: #9a3412;
+  font-weight: 700;
+  background: #ffedd5;
+  padding: 0 0.35rem;
+  border-radius: 3px;
+}
+
+.selection-sticky {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  margin: 0.35rem 0;
+  padding: 0.4rem 0.65rem;
+  background: color-mix(in srgb, var(--accent, #1d4ed8) 12%, #fff);
+  border: 1px solid color-mix(in srgb, var(--accent, #1d4ed8) 35%, #ccc);
+  font-size: 13px;
+}
+
 .question-item .choice {
   flex: 0 0 auto;
   margin-right: 0.25rem;

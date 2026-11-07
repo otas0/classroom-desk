@@ -1,5 +1,24 @@
 # Classroom Desk 更新日志
 
+## Unreleased
+
+（下一 tag 前把条目收到正式版本节。）
+
+## v0.1.7 — 2026-11-07
+
+退出锁定运维与验收 hardening：
+
+- 教师审计：`code_rotated` 中文标签；CSV「导出当前页 / 导出全部」（>500 条截断确认）
+- 登录/侧栏解除码超期横幅「去设置更换」深链；助教只读审计、隐藏轮换操作
+- API `/health` 恢复轻提示；轮询间隔 `VITE_HEALTH_POLL_MS` / `localStorage.cd_health_poll_ms`
+- Playwright：`exit-lock-toast` / `exit-lock-ws` / `exit-lock-rotation-banner`
+- CI：`verify:exit-lock-audit`；e2e 拉起 `ELECTRON_OFF=1` 学生 Vite；修 `auditRetry` 空库 migrate
+- 联调口令漂移：`TEACHER_PASSWORD=… node scripts/ensure-teacher.mjs`
+
+### 安装包
+
+- 待 `git tag v0.1.7 && git push origin v0.1.7` → Actions Release / windows-pack Artifact `classroom-desk-windows-setup`
+
 ## v0.1.6 — 2026-11-07
 
 助教按班授权、座位蛇形/拖拽、LAN 升级上传、抢答实时榜、家长 PDF、OCR 草稿、运维图表与恢复向导。

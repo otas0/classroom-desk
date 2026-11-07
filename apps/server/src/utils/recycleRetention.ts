@@ -1,5 +1,6 @@
-/** Soft-delete recycle retention (days). Keep in sync with UI copy. */
-export const RECYCLE_RETENTION_DAYS = 7;
+import { RECYCLE_RETENTION_DAYS } from '@classroom-desk/shared';
+
+export { RECYCLE_RETENTION_DAYS };
 
 const MS_PER_DAY = 86_400_000;
 
@@ -13,8 +14,6 @@ export type RecycleTiming = {
 /**
  * Align list “剩余 N 天” with purgeExpiredSoftDeletes cutoff.
  * Purge uses: deleted_at < now - retentionDays (strict).
- * daysLeft uses ceil of remaining ms; 0 means expired or within the last day
- * before the strict cutoff (still restorable until purge runs).
  */
 export function recycleTiming(
   deletedAt: string | null | undefined,

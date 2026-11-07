@@ -70,6 +70,12 @@ PORT=8787
 
 首启用环境变量写入教师/管理员哈希；正式课堂 **UI 不预填**演示口令。登录后请在「设置」再改一次个人密码。
 
+本地联调 / Playwright 若因「口令已在后台改过」出现 401，可重置哈希后再测（勿用于生产教室）：
+
+```bash
+TEACHER_PASSWORD=TeacherPass123 node scripts/ensure-teacher.mjs
+```
+
 ### 3. 固定 IP · 防火墙 · 开机自启（Windows）
 
 按本教室网段改脚本参数（不要照抄别人教室的 IP）：

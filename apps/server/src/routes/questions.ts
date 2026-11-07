@@ -644,19 +644,29 @@ questionsRouter.post(
       return;
     }
     const db = openDb();
-    const info = db
-      .prepare(
-        `DELETE FROM questions
-         WHERE class_id = ? AND deleted_at IS NOT NULL AND deleted_at != ''`,
-      )
-      .run(classId);
-    const purged = Number(info.changes ?? 0);
+    const ids = (
+      db
+        .prepare(
+          `SELECT id FROM questions
+           WHERE class_id = ? AND deleted_at IS NOT NULL AND deleted_at != ''`,
+        )
+        .all(classId) as Array<{ id: string }>
+    ).map((r) => r.id);
+    let purged = 0;
+    const CHUNK = 100;
+    for (const chunk of chunkIds(ids, CHUNK)) {
+      withTransaction(db, () => {
+        const ph = sqlInPlaceholders(chunk.length);
+        const info = db.prepare(`DELETE FROM questions WHERE id IN (${ph})`).run(...chunk);
+        purged += Number(info.changes ?? 0);
+      });
+    }
     writeAudit({
       actorUserId: req.user?.id,
       actorRole: req.user?.role,
       action: 'questions.recycle_purge_all',
       classId,
-      detail: { purged },
+      detail: { purged, chunks: Math.ceil(ids.length / CHUNK) },
       clientIp: req.ip,
     });
     res.json({ ok: true, purged, message: `已永久清空题目回收站 ${purged} 题` });

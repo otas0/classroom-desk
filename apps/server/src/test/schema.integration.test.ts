@@ -23,6 +23,7 @@ const REQUIRED_TABLES = [
   'presence_heartbeats',
   'cleanup_stats',
   'exit_lock_events',
+  'teacher_audit_log',
   'settings',
   'attendance_schedules',
   'attendance_holidays',

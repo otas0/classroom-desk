@@ -145,7 +145,7 @@ export function App() {
       ws.onopen = () => {
         /* connected */
       };
-      const failOver = () => {
+      const failOver = (reason = 'WebSocket 断开') => {
         if (closed) return;
         try {
           ws?.close();
@@ -153,18 +153,29 @@ export function App() {
           /* ignore */
         }
         ws = null;
-        startSse('WebSocket 断开');
+        startSse(reason);
       };
-      ws.onerror = failOver;
+      ws.onerror = () => failOver('WebSocket 断开');
       ws.onclose = () => {
         if (!closed && !usingSse) startSse('WebSocket 关闭');
       };
+      // DevTools / Playwright：?e2e=1 或 DEV 下可强制切 SSE（不进正式默认路径）
+      const e2e =
+        import.meta.env.DEV ||
+        (typeof location !== 'undefined' && new URLSearchParams(location.search).has('e2e'));
+      if (e2e && typeof window !== 'undefined') {
+        (window as unknown as { __cdForceExitLockFailover?: () => void }).__cdForceExitLockFailover =
+          () => failOver('WebSocket 关闭');
+      }
     } catch {
       startSse('WebSocket 不可用');
     }
 
     return () => {
       closed = true;
+      if (typeof window !== 'undefined') {
+        delete (window as unknown as { __cdForceExitLockFailover?: () => void }).__cdForceExitLockFailover;
+      }
       try {
         ws?.close();
       } catch {
@@ -254,7 +265,8 @@ export function App() {
           setToken(null);
           const msg = e instanceof Error ? e.message : '请重新选择身份';
           setToast(msg);
-          window.setTimeout(() => setToast(''), 2200);
+          // Keep kick/delete toast visible longer so students notice before re-selecting.
+          window.setTimeout(() => setToast(''), 6500);
         }
         setUser(null);
       }
@@ -788,7 +800,22 @@ export function App() {
         </>
       )}
 
-      {toast ? <div className="toast">{toast}</div> : null}
+      {toast ? (
+        <div
+          className={`toast${/账号已下线|账号已删除|session_kicked|account_deleted/i.test(toast) ? ' toast-session-ended' : ''}`}
+          data-testid={
+            /账号已下线|session_kicked/i.test(toast)
+              ? 'session-kicked-toast'
+              : /账号已删除|account_deleted/i.test(toast)
+                ? 'account-deleted-toast'
+                : 'app-toast'
+          }
+          role="status"
+          aria-live="assertive"
+        >
+          {toast}
+        </div>
+      ) : null}
     </div>
   );
 }

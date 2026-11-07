@@ -8,7 +8,25 @@ function tryParse(detail: string): unknown {
   }
 }
 
-export function AuditDetail({ detail }: { detail: string }) {
+export type AuditJumpTarget = 'roster' | 'questions' | 'q-recycle';
+
+export function auditJumpTarget(action: string | null | undefined): AuditJumpTarget | null {
+  const a = String(action ?? '');
+  if (a.startsWith('students.')) return 'roster';
+  if (a.includes('recycle') && a.startsWith('questions.')) return 'q-recycle';
+  if (a.startsWith('questions.')) return 'questions';
+  return null;
+}
+
+export function AuditDetail({
+  detail,
+  action,
+  onJumpIds,
+}: {
+  detail: string;
+  action?: string | null;
+  onJumpIds?: (opts: { ids: string[]; target: AuditJumpTarget; action: string }) => void;
+}) {
   const [open, setOpen] = useState(false);
   const parsed = tryParse(detail);
   if (!parsed || typeof parsed !== 'object') {
@@ -21,6 +39,7 @@ export function AuditDetail({ detail }: { detail: string }) {
     .map(([k, v]) => `${k}=${typeof v === 'string' ? v : JSON.stringify(v)}`)
     .slice(0, 4)
     .join(' · ');
+  const target = auditJumpTarget(action);
 
   return (
     <span className="audit-detail">
@@ -31,8 +50,23 @@ export function AuditDetail({ detail }: { detail: string }) {
           <button type="button" className="linkish" onClick={() => setOpen((v) => !v)}>
             {open ? '收起 ids' : `展开 ids（${ids.length}）`}
           </button>
+          {target && onJumpIds ? (
+            <>
+              {' '}
+              <button
+                type="button"
+                className="linkish"
+                data-testid="audit-jump-ids"
+                onClick={() => onJumpIds({ ids, target, action: String(action ?? '') })}
+              >
+                {target === 'roster' ? '跳转名单' : target === 'q-recycle' ? '跳转题目回收站' : '跳转发题'}
+              </button>
+            </>
+          ) : null}
           {open ? (
-            <pre className="audit-ids">{ids.join('\n')}</pre>
+            <pre className="audit-ids" data-testid="audit-ids-list">
+              {ids.join('\n')}
+            </pre>
           ) : null}
         </>
       ) : detail.length > 80 ? (
