@@ -7,7 +7,7 @@ import { ensureTeacherPasswordReady, TEACHER_USER } from './helpers/teacherLogin
 const API = process.env.API_BASE ?? 'http://127.0.0.1:8787';
 const TEACHER_WEB = process.env.TEACHER_WEB ?? 'http://127.0.0.1:5174';
 
-function backdateUnlockCodeSetAt() {
+function backdateUnlockCodeSetAtViaSqlite() {
   const dbPath = path.join(process.cwd(), 'apps/server/data/classroom.db');
   if (!fs.existsSync(dbPath)) throw new Error(`missing ${dbPath}`);
   const db = new DatabaseSync(dbPath);
@@ -16,23 +16,10 @@ function backdateUnlockCodeSetAt() {
     `INSERT INTO settings (key, value) VALUES ('exit_unlock_code_set_at', ?)
      ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
   ).run(old);
-  db.prepare(
-    `INSERT INTO settings (key, value) VALUES ('exit_unlock_code_rotate_days', '7')
-     ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
-  ).run();
-  const has = db.prepare(`SELECT value FROM settings WHERE key = 'exit_unlock_code_hash'`).get() as
-    | { value: string }
-    | undefined;
-  if (!has?.value) {
-    db.prepare(
-      `INSERT INTO settings (key, value) VALUES ('exit_unlock_code_hash', 'e2e-placeholder-hash')
-       ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
-    ).run();
-  }
   try {
     db.exec('PRAGMA wal_checkpoint(TRUNCATE)');
   } catch {
-    /* ignore if not WAL */
+    /* ignore */
   }
   db.close();
 }
@@ -45,22 +32,35 @@ test.describe('exit-lock rotation banner', () => {
     });
     expect(login.ok()).toBeTruthy();
     const { token } = (await login.json()) as { token: string };
-    await request.patch(`${API}/api/v1/settings`, {
-      headers: { Authorization: `Bearer ${token}` },
-      data: { exitUnlockCode: `BannerE2e${Date.now() % 1_000_000}`, exitUnlockCodeRotateDays: 7 },
-    });
-    backdateUnlockCodeSetAt();
+    const auth = { Authorization: `Bearer ${token}` };
 
-    // Confirm API sees rotation before UI (retry briefly for WAL visibility).
+    await request.patch(`${API}/api/v1/settings`, {
+      headers: auth,
+      data: {
+        exitUnlockCode: `BannerE2e${Date.now() % 1_000_000}`,
+        exitUnlockCodeRotateDays: 7,
+      },
+    });
+
+    const old = new Date(Date.now() - 10 * 24 * 60 * 60_000).toISOString();
+    const clock = await request.patch(`${API}/api/v1/settings`, {
+      headers: auth,
+      data: { exitUnlockCodeSetAt: old },
+    });
+    // Prefer API clock (no WAL race). Fall back to sqlite+checkpoint when E2E clock hook is off.
+    if (!clock.ok()) {
+      backdateUnlockCodeSetAtViaSqlite();
+    }
+
     let due = false;
-    for (let i = 0; i < 10; i++) {
+    for (let i = 0; i < 20; i++) {
       const pub = await request.get(`${API}/api/v1/settings/public`);
       const body = (await pub.json()) as { exitUnlockCodeRotationDue?: boolean };
       if (body.exitUnlockCodeRotationDue) {
         due = true;
         break;
       }
-      await new Promise((r) => setTimeout(r, 200));
+      await new Promise((r) => setTimeout(r, 250));
     }
     expect(due).toBeTruthy();
 

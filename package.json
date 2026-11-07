@@ -32,7 +32,8 @@
     "verify:exit-lock-packaged": "node scripts/verify-exit-lock-packaged.mjs",
     "verify:exit-lock-audit": "node scripts/verify-exit-lock-audit.mjs",
     "smoke:dev-stack-api-restart": "node scripts/dev-stack-api-restart-smoke.mjs",
-    "test:month": "node --import tsx/esm apps/server/src/test/localMonthRange.test.ts"
+    "test:month": "node --import tsx/esm apps/server/src/test/localMonthRange.test.ts",
+    "test:confirm-modal-a11y": "tsx apps/teacher-web/src/confirmModalA11y.test.ts"
   },
   "type": "module",
   "engines": {

@@ -2818,6 +2818,7 @@ export function SettingsPanel({
   onPasswordChanged?: () => void;
   onMessagesChange?: (enabled: boolean) => void;
 } = {}) {
+  const toast = useToast();
   const [diag, setDiag] = useState('');
   const [ttl, setTtl] = useState(60);
   const [saveMsg, setSaveMsg] = useState('');
@@ -3806,6 +3807,7 @@ export function SettingsPanel({
               type="number"
               min={1}
               max={365}
+              id="recycle-retention-days"
               data-testid="recycle-retention-days"
               value={recycleDays}
               onChange={(e) => setRecycleDays(Number(e.target.value) || 1)}
@@ -3853,8 +3855,28 @@ export function SettingsPanel({
             />
           </label>
           {purgeJumpHint ? (
-            <p className="hint" data-testid="purge-jump-hint">
+            <p
+              className={/无已过期|无过期/.test(purgeJumpHint) ? 'error' : 'hint'}
+              data-testid="purge-jump-hint"
+            >
               审计跳转：{purgeJumpHint}
+              {/无已过期|无过期/.test(purgeJumpHint) ? (
+                <>
+                  {' '}
+                  <button
+                    type="button"
+                    className="linkish"
+                    data-testid="purge-jump-retention"
+                    onClick={() => {
+                      const el = document.getElementById('recycle-retention-days');
+                      el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                      if (el instanceof HTMLInputElement) el.focus();
+                    }}
+                  >
+                    去改保留天数
+                  </button>
+                </>
+              ) : null}
             </p>
           ) : null}
           <div className="row" id="recycle-purge-confirm" data-testid="recycle-purge-confirm">
@@ -3988,23 +4010,38 @@ export function SettingsPanel({
                     commit: false,
                   }),
                 })
-                  .then((r) => {
+                  .then(
+                    (r: {
+                      checklist?: string[];
+                      sha256?: string;
+                      confirmCode?: string;
+                      mailtoUrl?: string | null;
+                      emailDelivered?: boolean;
+                      webhookError?: string | null;
+                      restoredPath?: string;
+                    }) => {
                     setRestoreChecklist(r.checklist ?? []);
                     setRestoreSha(r.sha256 ?? '');
                     setRestoreConfirmCode(r.confirmCode ?? '');
                     setRestoreConfirmInput('');
                     setRestoreMailtoUrl(r.mailtoUrl ?? '');
                     setRestoreEmailDelivered(r.emailDelivered === true);
+                    if (r.webhookError) {
+                      toast.err(`邮件 webhook 失败：${r.webhookError}（已写审计，请用剪贴板确认码）`);
+                    }
                     const channel =
                       r.emailDelivered === true
                         ? '已投递 webhook'
-                        : r.mailtoUrl
-                          ? '可点「发到邮箱/打开邮件」'
-                          : '请复制确认码，或先保存确认码邮箱后重新校验';
+                        : r.webhookError
+                          ? `webhook 失败（${r.webhookError}）`
+                          : r.mailtoUrl
+                            ? '可点「发到邮箱/打开邮件」'
+                            : '请复制确认码，或先保存确认码邮箱后重新校验';
                     setBackupMsg(
                       `校验通过 · ${channel}（页面不回显确认码）${r.restoredPath ? ` → ${r.restoredPath}` : ''}`,
                     );
-                  })
+                  },
+                  )
                   .catch((e) => setBackupMsg(e instanceof Error ? e.message : '恢复失败'));
               }}
             >
@@ -4345,8 +4382,6 @@ export function SettingsPanel({
           >
             保存投影只读时长
           </button>
-          {saveMsg ? <p className="hint">{saveMsg}</p> : null}
-
           <h3>留言</h3>
           <label className="row">
             <input
@@ -4414,7 +4449,11 @@ export function SettingsPanel({
           >
             保存设置
           </button>
-          {saveMsg ? <p className="hint">{saveMsg}</p> : null}
+          {saveMsg ? (
+            <p className="hint" data-testid="settings-save-msg">
+              {saveMsg}
+            </p>
+          ) : null}
 
           <div className="card">
             <h3>创建助教账号</h3>

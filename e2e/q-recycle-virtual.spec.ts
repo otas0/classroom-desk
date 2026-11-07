@@ -63,12 +63,23 @@ test.describe('question recycle virtual list (≥500)', () => {
 
     const virt = page.getByTestId('q-recycle-virtual');
     await expect(virt).toBeVisible({ timeout: 30_000 });
-    // Allow ≥520 if other suites left orphans; still require our seed visible.
-    const selectAll = page.getByText(/全选（\d+）/);
-    await expect(selectAll).toBeVisible({ timeout: 30_000 });
-    const label = (await selectAll.innerText()).replace(/\s+/g, '');
-    const n = Number(label.match(/全选（(\d+)）/)?.[1] ?? 0);
-    expect(n).toBeGreaterThanOrEqual(520);
+    // Wait until recycle count reflects seed (avoid asserting 全选（0） mid-load).
+    await expect
+      .poll(
+        async () => {
+          const label = ((await page.getByText(/全选（\d+）/).innerText()) || '').replace(/\s+/g, '');
+          return Number(label.match(/全选[（(](\d+)[）)]/)?.[1] ?? 0);
+        },
+        { timeout: 60_000 },
+      )
+      .toBeGreaterThanOrEqual(520);
+    // Newest-first: high indexes mount at top — don't require -0 (may be virtualized off-screen).
+    await virt.evaluate((el) => {
+      el.scrollTop = 0;
+    });
+    await expect(page.getByText(new RegExp(`VR大${stamp}-\\d+`)).first()).toBeVisible({
+      timeout: 15_000,
+    });
     await expect(page.getByTestId('recycle-days-left').first()).toBeVisible();
 
     // Scroll deep — virtual list should still render rows without mounting 520 DOM nodes

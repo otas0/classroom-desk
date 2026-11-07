@@ -357,6 +357,29 @@ settingsRouter.patch('/api/v1/settings', requireAuth, requireRoles('teacher', 'a
     );
   }
 
+  /** E2E / CI only: backdate exit_unlock_code_set_at without touching live sqlite from the test runner (WAL race). */
+  if (req.body?.exitUnlockCodeSetAt != null) {
+    const allow =
+      process.env.CLASSROOM_DESK_E2E === '1' ||
+      String(process.env.JWT_SECRET ?? '').includes('ci-secret');
+    if (!allow) {
+      res.status(403).json({
+        error: 'e2e_clock_forbidden',
+        message: 'exitUnlockCodeSetAt 仅联调/E2E 可用（CLASSROOM_DESK_E2E=1）',
+      });
+      return;
+    }
+    const at = String(req.body.exitUnlockCodeSetAt).trim();
+    if (!at || !Number.isFinite(Date.parse(at))) {
+      res.status(400).json({ error: 'invalid_set_at', message: 'exitUnlockCodeSetAt 须为合法 ISO 时间' });
+      return;
+    }
+    db.prepare(
+      `INSERT INTO settings (key, value) VALUES ('exit_unlock_code_set_at', ?)
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+    ).run(new Date(Date.parse(at)).toISOString());
+  }
+
   res.json({
     ok: true,
     ...getClientExitLockState(db),

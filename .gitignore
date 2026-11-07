@@ -34,6 +34,10 @@ RELEASE_NOTES.md
 apps/server/assets/fonts/*.ttf
 apps/server/assets/fonts/*.otf
 !apps/server/assets/fonts/README.md
-# Generated A4 poster PDF (source HTML/PNG live in docs/assets/)
-docs/posters/*.pdf
+# Posters / marketing printables — local only, never push to GitHub
+docs/posters/
+docs/assets/classroom-desk-a4-spec.html
+docs/assets/classroom-desk-a4-spec.pdf
+docs/assets/classroom-desk-logo.png
+docs/assets/github-qr.png
 docs/assets/*.pdf

@@ -1,0 +1,119 @@
+# 学生端强锁 / 课堂防护 — 完整计划（合法机房 kiosk）
+
+> **边界（硬性）**  
+> 本计划只做**教师授权的课堂机房管控**（退出锁定、Assigned Access、防误关）。  
+> **不做**：隐蔽植入、木马/后门、未授权持久化、键盘记录、绕过系统安全中心、对学生隐瞒的监控。  
+> 「木马式」若指隐蔽驻留 / 自启对抗杀软——**明确拒绝**。可借鉴的仅是公开的 **kiosk / MDM / 应用锁 / 会话守护** 机制（用户可见、可卸载策略、学校 IT 知情）。
+
+## 1. 产品目标
+
+| 维度 | 目标 |
+|------|------|
+| 上课体验 | 学生无法随意退出；错关有明确提示；解除码或教师批量窗可解开 |
+| 教师体验 | 一键批量解锁/重锁、轮换提醒、失败可感知（toast/审计） |
+| 机房合规 | Intune / Assigned Access / 组策略；证据可归档 |
+| 可恢复 | 断线、服务重启、客户端崩溃后状态以服务器为准对账 |
+| 伦理 | 所有锁定对学生可见；无隐蔽通道；家长/IT 可查文档 |
+
+## 2. 现状盘点
+
+| 能力 | 位置 | 缺口 |
+|------|------|------|
+| 解除码 + 轮换横幅深链 | 设置 / public settings / App banner | 教师深链须 `prep→settings`（已修） |
+| 批量解锁分钟窗 | exit-lock API + WS | 二次确认文案与人数汇总可加强 |
+| 学生端锁态 | student-desktop | Alt+F4 / 任务栏关闭统一拦截需验收表 |
+| MDM 文档 | `docs/EXIT_LOCK_MDM.md` | 真机 C2 证据持续补 |
+| webhook / 健康 | notifyEmail + settings | toast 已接 `webhookError` |
+| e2e | `exit-lock-*` | 轮换用 API `exitUnlockCodeSetAt`，禁 WAL 竞态 |
+
+## 3. 「强学生端锁」合法架构（对照，非木马）
+
+借鉴公开 kiosk 产品的**显式**能力分层，全部对学生/IT 可见：
+
+```
+┌─────────────────────────────────────────────┐
+│ L3  学校 MDM / Assigned Access / 组策略      │  ← 系统层，IT 配置
+├─────────────────────────────────────────────┤
+│ L2  应用会话守护（锁态 UI + 拦截退出）        │  ← 本仓库 student-desktop
+├─────────────────────────────────────────────┤
+│ L1  服务端权威（解除码/批量窗/审计）          │  ← apps/server exitLock
+└─────────────────────────────────────────────┘
+```
+
+| 公开产品常见做法 | 本仓库对应 | 禁止对照（不做） |
+|------------------|------------|------------------|
+| 单应用 kiosk 壳 | Electron 主窗 + 锁态全屏提示 | 隐藏进程 / 注入 explorer |
+| 看门狗拉起（策略可见） | MDM 或文档化启动项 | Run 键隐蔽自启 |
+| 退出需管理员 PIN | 教师解除码 + 批量解锁 | 对学生隐瞒的后门码 |
+| 心跳上报在线 | presence / heartbeat | 键鼠/剪贴板偷采 |
+| 策略下发 | settings + WS | 静默改系统防火墙/杀软 |
+
+## 4. 分阶段路线
+
+### P0 — 严格与可恢复（1–2 周）【优先】
+
+1. **解除码轮换**：生产只前进时钟；E2E 仅 `CLASSROOM_DESK_E2E=1` 的 `exitUnlockCodeSetAt`；UI「已用 N / 阈值 M 天」。  
+2. **深链**：登录前 `cd_goto_exit_lock` → 登录后 `openExitLockSettings()`（教师 prep/settings，助教 settings）。  
+3. **退出拦截**：锁态下关闭按钮 / Alt+F4 / `beforeunload` 统一 toast「请向教师申请解除」。  
+4. **断线对账**：本地 cache `locked` + 重连后以服务器 `exitLock` 为准；冲突写审计。  
+5. **失败可见**：webhook / 健康 / 换座 409 → toast + 可重试；禁止吞错。  
+6. **空状态**：回收站 0 条 →「去改保留天数」；无假名单/假积分。
+
+### P1 — Windows 机房加固（2–4 周，需真机）
+
+1. Assigned Access 安装路径与「任务管理器负向」证据表（`docs/EXIT_LOCK_MDM.md`）。  
+2. 启动检测：非 Assigned Access → 醒目但可关闭的「本机未加固」提示（不阻断上课）。  
+3. Intune 配置样例与版本对齐（`docs/C2_*`）。  
+4. 开机自启**仅**经学校 MDM/启动文件夹；changelog 写明路径。
+
+### P2 — UX 与防护加严（持续）
+
+1. 错码限流：剩余次数 + 锁定冷却倒计时。  
+2. 投影/助教只读：不可改解除码/轮换天数。  
+3. 批量解锁：ConfirmModal 展示班级名 + 预计解锁机位数；Esc/Tab 环绕已测。  
+4. 座位/名单/发题失败：一键重试；换座成功清 shake。  
+5. 教师设置：保存反馈单实例 `settings-save-msg`（防 Strict 双挂载）。  
+6. 学生端：锁态下禁用开发者工具快捷键（仅打包生产构建；开发态保留）。
+
+### P3 — 明确不做（审计用清单）
+
+- 注入其它进程、挂钩系统输入、隐藏托盘对抗卸载  
+- 未告知的屏幕/键鼠/麦克风采集  
+- 绕过 SmartScreen / Defender 的打包技巧当功能  
+- 预填演示教师口令进正式 UI  
+- 海报/宣传 PDF 进 GitHub（本地 `docs/assets/*.pdf`、`docs/posters/` gitignore）
+
+## 5. UX 优化清单（与锁无关但同轨）
+
+| 项 | 验收 |
+|----|------|
+| 轮换横幅 → 设置锚点 | e2e `exit-lock-rotation-banner` |
+| webhook 失败 toast | 设置页可见 `webhookError` |
+| purge 空状态深链 | 「去改保留天数」滚动到保留天数输入 |
+| 换座成功 | 清除 shake + toast 成功 |
+| ConfirmModal | Esc 关闭；Tab 环绕焦点 |
+| CI summary | 打印 quarantine 条数；修绿后名单为空 |
+
+## 6. 验收标准
+
+1. e2e：`exit-lock-*`、rotation banner、smoke 全绿；nightly quarantine **0** 条。  
+2. 真机：C2 证据表（narrator / taskmgr deny）归档。  
+3. 审计：轮换、批量解锁、webhook 失败均有行。  
+4. 文档：SETUP / USB checklist 含「须学校 IT 知情」；本文件边界条款不删改。  
+5. 安全评审：任何「持久化/守护」PR 必须引用本文件 P3 否决项自检。
+
+## 7. 实施顺序建议（两周冲刺）
+
+| Day | 交付 |
+|-----|------|
+| 1–2 | 深链 + 轮换 E2E 稳绿；quarantine 清空 |
+| 3–4 | 学生端退出拦截 + 断线对账 |
+| 5–6 | 错码限流 UI + 批量解锁确认增强 |
+| 7–8 | MDM 检测提示 + 文档/证据 |
+| 9–10 | 回归 e2e-full + nightly；CHANGELOG |
+
+## 8. 与仓库其它工作
+
+- Quarantine：**仅 nightly**（`CD_E2E_USE_QUARANTINE=1`）；本地修绿即删名单。  
+- 海报：**不进 GitHub**。  
+- no-mock：锁相关 UI 不得预填解除码/假机位。

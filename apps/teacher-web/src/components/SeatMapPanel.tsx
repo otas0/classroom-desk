@@ -157,6 +157,8 @@ export function SeatMapPanel({ classId }: { classId: string }) {
       setMsg('已换座');
       setSelected(null);
       setPendingSwap(null);
+      setShakeIds([]);
+      setErrToast('');
       await load();
     } catch (e) {
       setItems(before);

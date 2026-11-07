@@ -58,9 +58,15 @@ jobs:
           set +e
           echo "### Quarantine (skipped in nightly)" >> "$GITHUB_STEP_SUMMARY"
           if [ -f e2e/quarantine.txt ]; then
-            grep -vE '^\s*(#|$)' e2e/quarantine.txt | sed 's/^/- /' >> "$GITHUB_STEP_SUMMARY" || echo "- (empty)" >> "$GITHUB_STEP_SUMMARY"
+            mapfile -t QLINES < <(grep -vE '^\s*(#|$)' e2e/quarantine.txt || true)
+            echo "- count: **${#QLINES[@]}**" >> "$GITHUB_STEP_SUMMARY"
+            if [ "${#QLINES[@]}" -eq 0 ]; then
+              echo "- (empty)" >> "$GITHUB_STEP_SUMMARY"
+            else
+              printf '%s\n' "${QLINES[@]}" | sed 's/^/- /' >> "$GITHUB_STEP_SUMMARY"
+            fi
           else
-            echo "- (no quarantine.txt)" >> "$GITHUB_STEP_SUMMARY"
+            echo "- count: **0** (no quarantine.txt)" >> "$GITHUB_STEP_SUMMARY"
           fi
           npx playwright test
           code=$?

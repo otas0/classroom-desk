@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, type ReactNode } from 'react';
+import { nextTabFocusIndex, shouldCancelOnEscape } from './confirmModalA11y';
 
 export function ConfirmModal({
   open,
@@ -30,28 +31,35 @@ export function ConfirmModal({
       document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const t = window.setTimeout(() => confirmRef.current?.focus(), 0);
 
+    function focusables(): HTMLElement[] {
+      if (!cardRef.current) return [];
+      return [
+        ...cardRef.current.querySelectorAll<HTMLElement>(
+          'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        ),
+      ].filter((el) => el.tabIndex !== -1);
+    }
+
     function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') {
-        if (busy) return;
+      if (shouldCancelOnEscape(e.key, busy)) {
         e.preventDefault();
         onCancel();
         return;
       }
-      if (e.key !== 'Tab' || !cardRef.current) return;
-      const focusable = [
-        ...cardRef.current.querySelectorAll<HTMLElement>(
-          'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
-        ),
-      ].filter((el) => !el.hasAttribute('disabled') && el.tabIndex !== -1);
-      if (!focusable.length) return;
-      const first = focusable[0]!;
-      const last = focusable[focusable.length - 1]!;
-      if (e.shiftKey && document.activeElement === first) {
+      if (e.key !== 'Tab') return;
+      const list = focusables();
+      if (!list.length) return;
+      const activeIndex = list.findIndex((el) => el === document.activeElement);
+      const next = nextTabFocusIndex(list.length, activeIndex < 0 ? 0 : activeIndex, e.shiftKey);
+      if (next == null) return;
+      // Only trap when leaving ends
+      if (
+        (e.shiftKey && activeIndex <= 0) ||
+        (!e.shiftKey && activeIndex >= list.length - 1) ||
+        activeIndex < 0
+      ) {
         e.preventDefault();
-        last.focus();
-      } else if (!e.shiftKey && document.activeElement === last) {
-        e.preventDefault();
-        first.focus();
+        list[next]!.focus();
       }
     }
 

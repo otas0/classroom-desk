@@ -6,6 +6,7 @@ export async function selectTeacherClass(page: Page, classId: string): Promise<v
   const sel = page.locator('aside select').first();
   await expect(sel).toBeVisible({ timeout: 15_000 });
   await sel.selectOption(classId);
+  await expect(sel).toHaveValue(classId, { timeout: 10_000 });
 }
 
 /** Open 备课 and optionally a prep sub-tab (名单 / 设置 / 发题 / …). */

@@ -39,7 +39,10 @@
 - e2e：班级选择对齐 + 名单搜索；轮换横幅按钮文案 + WAL checkpoint；回收站 ≥520
 - CI：`windows-pack-verify-artifact` 下载 Artifact 再校 SHA；e2e-rbac 去掉与 bulk 重复的 settings-health
 - 文档：Artifact 版本 ↔ tag 对照；C2 / DevTools 实机步骤对齐 0.1.7
-- nightly 42347577161 失败规格入 `e2e/quarantine.txt`（仅 `CD_E2E_USE_QUARANTINE=1`）；ConfirmModal Esc/焦点；purge 深链 0 条空状态；webhook 非 2xx 审计；换座网络失败可重试；海报 PDF gitignore
+- nightly 42347577161 失败规格入 `e2e/quarantine.txt`（仅 `CD_E2E_USE_QUARANTINE=1`）；ConfirmModal Esc/焦点；purge 深链 0 条空状态；webhook 非 2xx 审计；换座网络失败可重试；海报不进 GitHub
+- e2e：解除码轮换用 API `exitUnlockCodeSetAt`（禁 WAL 直写竞态）；回收站全选 poll；班级 select 校验 value
+- 设置：webhookError toast；purge 空状态「去改保留天数」；换座成功清 shake；nightly summary 打印 quarantine 条数
+- 计划：`docs/STUDENT_LOCK_HARDENING_PLAN.md`（合法 kiosk，拒绝隐蔽木马式植入）
 
 ### 安装包
 
