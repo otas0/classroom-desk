@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { createDedicatedClass } from './helpers/navPrep';
 import { ensureTeacherPasswordReady, TEACHER_USER } from './helpers/teacherLogin';
 import { loginTeacherWeb } from './helpers/teacherWebLogin';
 
@@ -14,13 +15,7 @@ test.describe('quiz + teacher UI', () => {
     const { token } = (await login.json()) as { token: string };
     const auth = { Authorization: `Bearer ${token}` };
 
-    const classes = await request.get(`${API}/api/v1/classes`, { headers: auth });
-    const items = ((await classes.json()) as { items: Array<{ id: string; name: string }> }).items;
-    const classId =
-      items.find((c) => c.name === '本教室')?.id ?? items[0]?.id;
-    expect(classId).toBeTruthy();
-
-    const stamp = Date.now();
+    const { classId, stamp } = await createDedicatedClass(request, auth, 'HwPts');
     const name = `QZ-${stamp}`;
     const created = await request.post(`${API}/api/v1/classes/${classId}/students`, {
       headers: auth,
