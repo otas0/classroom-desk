@@ -1,8 +1,27 @@
 ClassroomDesk-Setup 版本: 0.1.7（对照 Release tag v0.1.7 / Setup 文件名）
-Windows 版本/内部版本: 例如 24H2 (26100.xxxx)
-HideTaskManager: 是 / 否
-Intune 配置文件名: intune-student-kiosk.example.xml（或租户内实际名）
 试验组名:
-同步时间 (本地): YYYY-MM-DD HH:mm
+Intune 配置文件名: intune-student-kiosk.example.xml（或租户内实际名）
+回滚配置: intune-student-kiosk.rollback.xml
 样机主机名:
-备注:
+同步时间 (本地): YYYY-MM-DD HH:mm
+操作员:
+
+---- Windows 版本对照（试验组至少各 1 台）----
+【22H2】
+  内部版本: 例如 22621.xxxx
+  HideTaskManager 生效: 是 / 否
+  RemovableDiskDenyWrite 生效（U 盘不可写）: 是 / 否
+  RemovableDiskDenyExecute 生效: 是 / 否
+  备注:
+
+【24H2】
+  内部版本: 例如 26100.xxxx
+  HideTaskManager 生效: 是 / 否
+  RemovableDiskDenyWrite 生效（U 盘不可写）: 是 / 否
+  RemovableDiskDenyExecute 生效: 是 / 否
+  备注:
+
+---- 回滚验证 ----
+回滚时间:
+U 盘写回可写（若学校基线允许）: 是 / 否
+任务管理器可开: 是 / 否

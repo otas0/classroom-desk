@@ -3,6 +3,7 @@
  * Extract the CHANGELOG.md section for the current git tag (or argv[2] / GITHUB_REF_NAME)
  * into RELEASE_NOTES.md for softprops/action-gh-release body_path.
  */
+import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -65,3 +66,18 @@ const install = `
 
 fs.writeFileSync(outPath, `${body.trim()}\n\n${install}\n`, 'utf8');
 console.log(`wrote ${outPath} for ${tag} (${body.length} chars section)`);
+
+// Dual-write tag + tree SHA into docs/ARTIFACTS.md (idempotent per tag).
+try {
+  const r = spawnSync(process.execPath, [path.join(root, 'scripts/append-artifacts-release.mjs'), tag], {
+    cwd: root,
+    encoding: 'utf8',
+  });
+  if (r.stdout) process.stdout.write(r.stdout);
+  if (r.stderr) process.stderr.write(r.stderr);
+  if (r.status !== 0) {
+    console.warn('extract-release-notes: append-artifacts-release failed (non-fatal)');
+  }
+} catch (e) {
+  console.warn('extract-release-notes: append-artifacts-release error', e);
+}

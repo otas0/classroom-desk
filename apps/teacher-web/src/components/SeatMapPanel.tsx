@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api';
+import { ConfirmModal } from '../ConfirmModal';
 
 type Seat = {
   id: string;
@@ -50,6 +51,18 @@ export function SeatMapPanel({ classId }: { classId: string }) {
   const [shakeIds, setShakeIds] = useState<string[]>([]);
   const [pendingSwap, setPendingSwap] = useState<{ a: string; b: string } | null>(null);
   const [swapRetryBusy, setSwapRetryBusy] = useState(false);
+  const [lockBusy, setLockBusy] = useState(false);
+  const [batchConfirm, setBatchConfirm] = useState<{
+    action: 'lock' | 'unlock';
+    mode: 'row' | 'col' | 'all';
+    seatIds: string[];
+    /** Unlock: how many of seatIds currently have bySeat locks. */
+    lockedCount?: number;
+    /** Unlock: seat labels for ConfirmModal list. */
+    seatLabels?: string[];
+  } | null>(null);
+  const [unlockLabelsExpanded, setUnlockLabelsExpanded] = useState(false);
+  const UNLOCK_LABEL_PREVIEW = 5;
 
   async function load() {
     if (!classId) {
@@ -178,6 +191,132 @@ export function SeatMapPanel({ classId }: { classId: string }) {
     await load();
   }
 
+  function seatsInMode(mode: 'row' | 'col' | 'all', onlyEmpty: boolean): Seat[] | null {
+    let pool = onlyEmpty ? items.filter((s) => !s.studentId) : items;
+    if (mode === 'row' || mode === 'col') {
+      const anchor = selected ? items.find((s) => s.id === selected) : null;
+      if (!anchor) {
+        setMsg(
+          mode === 'row'
+            ? '请先点选一行内任意座位'
+            : '请先点选一列内任意座位',
+        );
+        return null;
+      }
+      pool =
+        mode === 'row'
+          ? pool.filter((s) => s.rowIndex === anchor.rowIndex)
+          : pool.filter((s) => s.colIndex === anchor.colIndex);
+    }
+    return pool;
+  }
+
+  function requestLockEmpty(mode: 'row' | 'col' | 'all') {
+    if (!classId) return;
+    const targets = seatsInMode(mode, true);
+    if (!targets) return;
+    if (!targets.length) {
+      setMsg('没有可锁的空座');
+      return;
+    }
+    setUnlockLabelsExpanded(false);
+    setBatchConfirm({ action: 'lock', mode, seatIds: targets.map((s) => s.id) });
+  }
+
+  async function loadLockedSeatIds(): Promise<Set<string>> {
+    const s = await api<{
+      inputLockStore?: { bySeat?: Record<string, unknown> };
+    }>(`/api/v1/settings/public?classId=${encodeURIComponent(classId)}`);
+    const prefix = `${classId}:`;
+    const ids = new Set<string>();
+    for (const k of Object.keys(s.inputLockStore?.bySeat ?? {})) {
+      if (k.startsWith(prefix)) ids.add(k.slice(prefix.length));
+    }
+    return ids;
+  }
+
+  function requestUnlockSeats(mode: 'row' | 'col' | 'all') {
+    if (!classId) return;
+    const targets = seatsInMode(mode, false);
+    if (!targets) return;
+    if (!targets.length) {
+      setMsg('该范围无座位');
+      return;
+    }
+    setLockBusy(true);
+    void loadLockedSeatIds()
+      .then((locked) => {
+        const lockedSeats = targets.filter((s) => locked.has(s.id));
+        const seatIds = lockedSeats.map((s) => s.id);
+        if (!seatIds.length) {
+          setMsg('该范围没有已上锁的机位');
+          return;
+        }
+        setUnlockLabelsExpanded(false);
+        setBatchConfirm({
+          action: 'unlock',
+          mode,
+          seatIds,
+          lockedCount: seatIds.length,
+          seatLabels: lockedSeats.map((s) => s.label || s.id),
+        });
+      })
+      .catch((e) => setMsg(e instanceof Error ? e.message : '读取机位锁失败'))
+      .finally(() => setLockBusy(false));
+  }
+
+  async function runBatchConfirm() {
+    if (!classId || !batchConfirm) return;
+    const { action, mode, seatIds } = batchConfirm;
+    setLockBusy(true);
+    try {
+      if (action === 'lock') {
+        await api('/api/v1/settings', {
+          method: 'PATCH',
+          body: JSON.stringify({
+            inputLock: {
+              classId,
+              seatIds,
+              keyboard: true,
+              mouse: true,
+              voice: false,
+              camera: false,
+            },
+          }),
+        });
+        setMsg(
+          mode === 'all'
+            ? `已锁全部空座 ${seatIds.length} 个（键鼠）`
+            : mode === 'row'
+              ? `已锁本行空座 ${seatIds.length} 个（键鼠）`
+              : `已锁本列空座 ${seatIds.length} 个（键鼠）`,
+        );
+      } else {
+        await api('/api/v1/settings', {
+          method: 'PATCH',
+          body: JSON.stringify({
+            inputLock: { classId, clearSeatIds: seatIds },
+          }),
+        });
+        setMsg(
+          mode === 'all'
+            ? `已解除 ${seatIds.length} 个机位锁`
+            : mode === 'row'
+              ? `已解除本行 ${seatIds.length} 个机位锁`
+              : `已解除本列 ${seatIds.length} 个机位锁`,
+        );
+      }
+      setBatchConfirm(null);
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : '批量机位锁操作失败');
+    } finally {
+      setLockBusy(false);
+    }
+  }
+
+  const modeLabel =
+    batchConfirm?.mode === 'all' ? '全部' : batchConfirm?.mode === 'row' ? '本行' : '本列';
+
   const gridStyle = {
     display: 'grid',
     gridTemplateColumns: `repeat(${Math.max(cols, 1)}, minmax(72px, 1fr))`,
@@ -213,6 +352,61 @@ export function SeatMapPanel({ classId }: { classId: string }) {
         </button>
         <button type="button" className="secondary" disabled={!classId} onClick={() => void load()}>
           刷新在线
+        </button>
+        <button
+          type="button"
+          data-testid="seat-lock-empty-row"
+          disabled={!classId || lockBusy}
+          title="先选中该行任意座位"
+          onClick={() => requestLockEmpty('row')}
+        >
+          锁本行空座
+        </button>
+        <button
+          type="button"
+          data-testid="seat-lock-empty-col"
+          disabled={!classId || lockBusy}
+          title="先选中该列任意座位"
+          onClick={() => requestLockEmpty('col')}
+        >
+          锁本列空座
+        </button>
+        <button
+          type="button"
+          data-testid="seat-lock-empty-all"
+          disabled={!classId || lockBusy}
+          onClick={() => requestLockEmpty('all')}
+        >
+          锁全部空座
+        </button>
+        <button
+          type="button"
+          className="secondary"
+          data-testid="seat-unlock-row"
+          disabled={!classId || lockBusy}
+          title="先选中该行任意座位"
+          onClick={() => requestUnlockSeats('row')}
+        >
+          解本行座锁
+        </button>
+        <button
+          type="button"
+          className="secondary"
+          data-testid="seat-unlock-col"
+          disabled={!classId || lockBusy}
+          title="先选中该列任意座位"
+          onClick={() => requestUnlockSeats('col')}
+        >
+          解本列座锁
+        </button>
+        <button
+          type="button"
+          className="secondary"
+          data-testid="seat-unlock-all"
+          disabled={!classId || lockBusy}
+          onClick={() => requestUnlockSeats('all')}
+        >
+          解全部座锁
         </button>
       </div>
       {msg ? <p className="hint">{msg}</p> : null}
@@ -299,6 +493,67 @@ export function SeatMapPanel({ classId }: { classId: string }) {
           </label>
         </div>
       ) : null}
+      <ConfirmModal
+        open={Boolean(batchConfirm)}
+        title={
+          batchConfirm?.action === 'lock'
+            ? `确认锁${modeLabel}空座`
+            : `确认解除${modeLabel}机位锁`
+        }
+        body={
+          batchConfirm ? (
+            <div data-testid="seat-batch-lock-confirm-body">
+              {batchConfirm.action === 'lock' ? (
+                <p>
+                  将对本范围 {batchConfirm.seatIds.length}{' '}
+                  个空座启用键鼠锁（语音/相机不变）。
+                </p>
+              ) : (
+                <>
+                  <p>
+                    将清除 {batchConfirm.lockedCount ?? batchConfirm.seatIds.length}{' '}
+                    个已上锁机位的输入锁（仅含当前确有 bySeat 的座位）：
+                    <span className="hint" data-testid="seat-batch-unlock-total">
+                      {' '}
+                      共 {(batchConfirm.seatLabels ?? []).length}
+                    </span>
+                  </p>
+                  <ul data-testid="seat-batch-unlock-labels">
+                    {(unlockLabelsExpanded ||
+                    (batchConfirm.seatLabels ?? []).length <= UNLOCK_LABEL_PREVIEW
+                      ? batchConfirm.seatLabels ?? []
+                      : (batchConfirm.seatLabels ?? []).slice(0, UNLOCK_LABEL_PREVIEW)
+                    ).map((lb) => (
+                      <li key={lb}>{lb}</li>
+                    ))}
+                  </ul>
+                  {(batchConfirm.seatLabels ?? []).length > UNLOCK_LABEL_PREVIEW ? (
+                    <button
+                      type="button"
+                      className="linkish"
+                      data-testid="seat-batch-unlock-labels-toggle"
+                      onClick={() => setUnlockLabelsExpanded((v) => !v)}
+                    >
+                      {unlockLabelsExpanded
+                        ? '收起'
+                        : `展开其余 ${(batchConfirm.seatLabels ?? []).length - UNLOCK_LABEL_PREVIEW}（共 ${(batchConfirm.seatLabels ?? []).length}）`}
+                    </button>
+                  ) : null}
+                </>
+              )}
+            </div>
+          ) : null
+        }
+        confirmLabel={batchConfirm?.action === 'lock' ? '确认锁定' : '确认解除'}
+        busy={lockBusy}
+        onCancel={() => {
+          if (!lockBusy) {
+            setBatchConfirm(null);
+            setUnlockLabelsExpanded(false);
+          }
+        }}
+        onConfirm={() => void runBatchConfirm()}
+      />
     </section>
   );
 }

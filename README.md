@@ -25,6 +25,7 @@
 - API：[docs/API.md](docs/API.md)
 - 合规：[docs/SECURITY.md](docs/SECURITY.md)
 - 讲台卡：[docs/PRINT_DESK_CARD.md](docs/PRINT_DESK_CARD.md)
+- U 盘打包 / 座位对照表打印筛选（全部·仅空座·仅已排）：[docs/LOCAL_USB_CHECKLIST.md](docs/LOCAL_USB_CHECKLIST.md)·[`prepare-usb-pack.sh`](scripts/prepare-usb-pack.sh)（默认 `--filter all`）
 
 ## 当前进度
 

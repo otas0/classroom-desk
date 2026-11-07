@@ -30,9 +30,15 @@ presenceRouter.post('/api/v1/presence/heartbeat', requireAuth, requireRoles('stu
   const clientId = String(req.body?.clientId ?? req.body?.presenceClientId ?? '')
     .trim()
     .slice(0, 64);
+  const hardened =
+    req.body?.hardened === true ||
+    req.body?.hardened === 1 ||
+    req.body?.hardened === '1'
+      ? 1
+      : 0;
   db.prepare(
-    `INSERT INTO presence_heartbeats (student_id, class_id, last_seen_at, client_version, client_platform, client_id)
-     VALUES (?, ?, ?, ?, ?, ?)
+    `INSERT INTO presence_heartbeats (student_id, class_id, last_seen_at, client_version, client_platform, client_id, hardened)
+     VALUES (?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(student_id) DO UPDATE SET
        class_id = excluded.class_id,
        last_seen_at = excluded.last_seen_at,
@@ -41,8 +47,9 @@ presenceRouter.post('/api/v1/presence/heartbeat', requireAuth, requireRoles('stu
        client_id = CASE
          WHEN excluded.client_id != '' THEN excluded.client_id
          ELSE presence_heartbeats.client_id
-       END`,
-  ).run(req.user.id, req.user.classId, now, clientVersion, clientPlatform, clientId);
+       END,
+       hardened = excluded.hardened`,
+  ).run(req.user.id, req.user.classId, now, clientVersion, clientPlatform, clientId, hardened);
 
   // Auto check-in for open auto sessions if online during window.
   const sessions = db
@@ -96,6 +103,8 @@ presenceRouter.get(
       onlineWindowMs: Number.isFinite(sinceMs) && sinceMs > 0 ? sinceMs : ONLINE_MS,
       count: snap.count,
       versions: snap.versions,
+      hardenedCount: snap.hardenedCount,
+      unhardenedCount: snap.unhardenedCount,
       items: rows,
     });
   },

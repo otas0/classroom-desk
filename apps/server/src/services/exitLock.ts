@@ -1,3 +1,4 @@
+import { randomInt } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
 import { getSetting } from '../db/migrate.js';
 import { newId, nowIso } from '../utils/id.js';
@@ -22,6 +23,11 @@ const DEFAULT_MAX_FAILS = 5;
 const DEFAULT_WINDOW_MIN = 15;
 const DEFAULT_LOCKOUT_MIN = 15;
 const DEFAULT_ROTATE_DAYS = 90;
+/** Minimum seconds between exit-unlock code rotations (manual or system-generated). */
+export const EXIT_UNLOCK_ROTATE_MIN_SEC = 30;
+/** Alphabet without ambiguous 0/O/1/I/L. */
+const EXIT_CODE_ALPHABET = '23456789ABCDEFGHJKMNPQRSTUVWXYZ';
+const EXIT_CODE_LEN = 8;
 
 type AttemptBucket = { fails: number[]; lockedUntil: number };
 const attemptBuckets = new Map<string, AttemptBucket>();
@@ -212,16 +218,51 @@ export function setClientExitLockedFlag(
   notifyClients(db);
 }
 
+/** Readable system exit-unlock code (never persisted in plaintext). */
+export function generateExitUnlockCode(length = EXIT_CODE_LEN): string {
+  const n = Math.min(32, Math.max(6, Math.trunc(length)));
+  let out = '';
+  for (let i = 0; i < n; i++) {
+    out += EXIT_CODE_ALPHABET[randomInt(EXIT_CODE_ALPHABET.length)]!;
+  }
+  return out;
+}
+
+function rotateCooldownRemainingSec(db: DatabaseSync): number {
+  const setAt = getSetting(db, KEY_CODE_SET_AT);
+  const setAtMs = setAt ? Date.parse(setAt) : NaN;
+  if (!setAt || !Number.isFinite(setAtMs)) return 0;
+  const elapsed = Date.now() - setAtMs;
+  const left = EXIT_UNLOCK_ROTATE_MIN_SEC * 1000 - elapsed;
+  return left > 0 ? Math.ceil(left / 1000) : 0;
+}
+
 export async function setExitUnlockCode(
   db: DatabaseSync,
   code: string,
-  meta?: { actorUserId?: string; actorRole?: string; clientIp?: string },
+  meta?: {
+    actorUserId?: string;
+    actorRole?: string;
+    clientIp?: string;
+    detail?: string;
+  },
 ) {
   const trimmed = code.trim();
   if (trimmed.length < 6) {
     return { ok: false as const, error: 'invalid_exit_unlock_code', message: '解除码至少 6 位' };
   }
   const hadCode = Boolean(getSetting(db, KEY_CODE_HASH));
+  if (hadCode) {
+    const wait = rotateCooldownRemainingSec(db);
+    if (wait > 0) {
+      return {
+        ok: false as const,
+        error: 'exit_unlock_rotate_too_soon',
+        message: `解除码轮换最快 ${EXIT_UNLOCK_ROTATE_MIN_SEC} 秒一次，请 ${wait} 秒后再试`,
+        retryAfterSec: wait,
+      };
+    }
+  }
   const hash = await hashPassword(trimmed);
   upsertSetting(db, KEY_CODE_HASH, hash);
   upsertSetting(db, KEY_CODE_SET_AT, nowIso());
@@ -229,11 +270,34 @@ export async function setExitUnlockCode(
     kind: hadCode ? 'code_rotated' : 'code_set',
     actorUserId: meta?.actorUserId,
     actorRole: meta?.actorRole,
-    detail: hadCode ? 'exit_unlock_code_rotated' : 'exit_unlock_code_set',
+    detail:
+      meta?.detail ??
+      (hadCode ? 'exit_unlock_code_rotated' : 'exit_unlock_code_set'),
     clientIp: meta?.clientIp,
   });
   notifyClients(db);
   return { ok: true as const, rotated: hadCode };
+}
+
+/**
+ * System-generated rotation: new plaintext returned once; hashed in settings.
+ * Enforces EXIT_UNLOCK_ROTATE_MIN_SEC between rotations.
+ */
+export async function rotateExitUnlockCodeGenerated(
+  db: DatabaseSync,
+  meta?: { actorUserId?: string; actorRole?: string; clientIp?: string },
+) {
+  let code = generateExitUnlockCode();
+  const prevHash = getSetting(db, KEY_CODE_HASH);
+  if (prevHash && (await verifyPassword(code, prevHash))) {
+    code = generateExitUnlockCode();
+  }
+  const set = await setExitUnlockCode(db, code, {
+    ...meta,
+    detail: 'exit_unlock_code_system_generated',
+  });
+  if (!set.ok) return set;
+  return { ok: true as const, rotated: set.rotated, generatedExitUnlockCode: code };
 }
 
 export function setExitUnlockRateConfig(

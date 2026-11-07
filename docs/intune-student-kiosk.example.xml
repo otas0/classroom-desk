@@ -1,13 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Classroom Desk · Intune / SyncML 概念示例（非官方生产模板）
-  用途：限制学生机打开任务管理器等，配合 Assigned Access / 展台策略。
-  使用前必须由学校 IT 在试验机组验证，并按租户 CSP 路径调整。
-  文档：docs/EXIT_LOCK_MDM.md
+  Classroom Desk · Intune / SyncML 试验组样例（非官方生产模板）
+  用途：HideTaskManager + 限制可移动存储（USB），配合 Assigned Access。
+  必须：学校 IT 知情 → 仅试验组（1～3 台）验证 → 可回滚后再扩面。
+  文档：docs/EXIT_LOCK_MDM.md § Intune 试验组 / 回滚
 -->
 <SyncML xmlns="SYNCML:SYNCML1.2">
   <SyncBody>
-    <!-- 隐藏任务管理器（策略 CSP；不同 Windows 版本可用性不同） -->
+    <!-- 隐藏任务管理器（Start CSP；版本可用性因 Windows 而异） -->
     <Replace>
       <CmdID>1</CmdID>
       <Item>
@@ -21,7 +21,7 @@
       </Item>
     </Replace>
 
-    <!-- 可选：限制设置应用部分页面（示例占位，按学校策略替换） -->
+    <!-- 设置页隐藏 taskmanager 入口（可选互补） -->
     <Replace>
       <CmdID>2</CmdID>
       <Item>
@@ -32,6 +32,36 @@
           <Format xmlns="syncml:metinf">chr</Format>
         </Meta>
         <Data>hide:taskmanager</Data>
+      </Item>
+    </Replace>
+
+    <!--
+      限制可移动磁盘（USB 存储）。CSP：Storage/RemovableDiskDenyWrite / RemovableDiskDenyExecute
+      试验组验证：插入 U 盘应无法写入或被策略拒绝；教师机 / 豁免组勿分配本配置。
+      若租户使用「设备限制」模板，亦可在 Intune UI 勾选「可移动存储」等效项，不必强行用 OMA-URI。
+    -->
+    <Replace>
+      <CmdID>3</CmdID>
+      <Item>
+        <Target>
+          <LocURI>./Device/Vendor/MSFT/Policy/Config/Storage/RemovableDiskDenyWrite</LocURI>
+        </Target>
+        <Meta>
+          <Format xmlns="syncml:metinf">int</Format>
+        </Meta>
+        <Data>1</Data>
+      </Item>
+    </Replace>
+    <Replace>
+      <CmdID>4</CmdID>
+      <Item>
+        <Target>
+          <LocURI>./Device/Vendor/MSFT/Policy/Config/Storage/RemovableDiskDenyExecute</LocURI>
+        </Target>
+        <Meta>
+          <Format xmlns="syncml:metinf">int</Format>
+        </Meta>
+        <Data>1</Data>
       </Item>
     </Replace>
 

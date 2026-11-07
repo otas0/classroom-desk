@@ -35,7 +35,10 @@
     "verify:exit-lock-audit": "node scripts/verify-exit-lock-audit.mjs",
     "smoke:dev-stack-api-restart": "node scripts/dev-stack-api-restart-smoke.mjs",
     "test:month": "node --import tsx/esm apps/server/src/test/localMonthRange.test.ts",
-    "test:confirm-modal-a11y": "tsx apps/teacher-web/src/confirmModalA11y.test.ts"
+    "test:confirm-modal-a11y": "tsx apps/teacher-web/src/confirmModalA11y.test.ts",
+    "check:nightly-flake": "node scripts/check-nightly-flake.mjs",
+    "init:c2-evidence": "bash scripts/init-c2-evidence-dir.sh",
+    "ops:webhook-dry-run": "node scripts/ops-webhook-dry-run.mjs"
   },
   "type": "module",
   "engines": {

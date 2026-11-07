@@ -37,9 +37,11 @@ node scripts/pack-classroom-config.mjs --apiBase http://教师IP:8787 --classId 
 ```bash
 CD_TOKEN=<teacherJWT> CD_CLASS_ID=<classId> CD_API_BASE=http://127.0.0.1:8787 \
   bash scripts/prepare-usb-pack.sh 192.168.x.x
+# 默认带 --filter all；可选 CD_SEAT_FILTER=empty|seated
 # 或：
 node scripts/gen-seat-map-sheet.mjs --api http://127.0.0.1:8787 --token "$TOKEN" --class "$CLASS_ID" \
+  --filter all \
   --out releases/192.168.x.x/SEAT-MAP-ID-SHEET.html
 ```
 
-输出 `SEAT-MAP-ID-SHEET.html`：空座/已排 + **内嵌 SVG QR**（离线打印）。详见 [LOCAL_USB_CHECKLIST.md](../docs/LOCAL_USB_CHECKLIST.md)。
+输出 `SEAT-MAP-ID-SHEET.html`：空座/已排 + **内嵌 SVG QR**；页内「全部 / 仅空座 / 仅已排」筛选后再打印。详见 [LOCAL_USB_CHECKLIST.md](../docs/LOCAL_USB_CHECKLIST.md)（打印筛选说明）。

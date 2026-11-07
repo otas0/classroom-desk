@@ -43,6 +43,12 @@ opsRouter.get(
     let rosterTotal = 0;
     let onlineTotal = 0;
     let driftClients = 0;
+    let hardenedOnline = 0;
+    let unhardenedOnline = 0;
+    /** Alert when unhardened share of online clients ≥ this (0–1). Setting: unhardened_alert_threshold. */
+    const rawThresh = Number(getSetting(db, 'unhardened_alert_threshold') ?? 0.25);
+    const unhardenedAlertThreshold =
+      Number.isFinite(rawThresh) && rawThresh >= 0 && rawThresh <= 1 ? rawThresh : 0.25;
     const byClass: Array<{
       classId: string;
       name: string;
@@ -50,6 +56,8 @@ opsRouter.get(
       online: number;
       onlineRate: number;
       driftCount: number;
+      hardenedCount: number;
+      unhardenedCount: number;
       versions: string[];
     }> = [];
 
@@ -68,9 +76,13 @@ opsRouter.get(
       const clients = listPresenceClients(c.id, ONLINE_MS);
       const versions = [...new Set(clients.map((x) => x.clientVersion).filter(Boolean))];
       const drift = clients.filter((x) => x.clientVersion && expected && x.clientVersion !== expected).length;
+      const hardened = clients.filter((x) => x.hardened).length;
+      const unhardened = clients.length - hardened;
       rosterTotal += roster;
       onlineTotal += clients.length;
       driftClients += drift;
+      hardenedOnline += hardened;
+      unhardenedOnline += unhardened;
       byClass.push({
         classId: c.id,
         name: c.name,
@@ -78,9 +90,14 @@ opsRouter.get(
         online: clients.length,
         onlineRate: roster > 0 ? clients.length / roster : 0,
         driftCount: drift,
+        hardenedCount: hardened,
+        unhardenedCount: unhardened,
         versions,
       });
     }
+    const unhardenedRate = onlineTotal > 0 ? unhardenedOnline / onlineTotal : 0;
+    const unhardenedAlert =
+      onlineTotal > 0 && unhardenedRate >= unhardenedAlertThreshold;
 
     const readyRows = db
       .prepare(
@@ -187,6 +204,11 @@ opsRouter.get(
         driftClients,
         driftRate: onlineTotal > 0 ? driftClients / onlineTotal : 0,
         driftSnapshotLastAt: driftAudit[0]?.createdAt ?? null,
+        hardenedOnline,
+        unhardenedOnline,
+        unhardenedRate,
+        unhardenedAlertThreshold,
+        unhardenedAlert,
       },
       readiness: {
         ctaCount,

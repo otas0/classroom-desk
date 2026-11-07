@@ -90,3 +90,32 @@ gh workflow run e2e-nightly.yml -f verify_issues_write=true
 Flake 跟踪见 [E2E_FLAKE_BOARD.md](./E2E_FLAKE_BOARD.md)。
 
 下个 Release tag：`scripts/extract-release-notes.mjs` 已在安装说明末自动附 [ARTIFACTS.md](./ARTIFACTS.md) 链接；发版后核对 Release body。
+
+发版 checklist：badge 对 **tag** + **tree SHA** 双写（`append-artifacts-release.mjs` / Release job `record-artifacts`）。失败时开 Issue（label `release`/`artifacts`）；可选 secret `CLASSROOM_DESK_OPS_WEBHOOK` POST 机房频道。
+
+### 仓库 Settings：`CLASSROOM_DESK_OPS_WEBHOOK`
+
+GitHub → **Settings → Secrets and variables → Actions** → New repository secret：
+
+| Name | Value |
+|---|---|
+| `CLASSROOM_DESK_OPS_WEBHOOK` | Slack Incoming Webhook 或飞书自定义机器人 URL |
+
+Release job `record-artifacts` 失败时 `POST` JSON（`text` / `tag` / `runId`）。未配置则跳过，不影响发版。PR 上 `flake-pr-comment.yml` 会自动贴 `check:nightly-flake --md` 看板。
+
+#### 失败路径验证（Issue + 频道双触达）
+
+1. GitHub → Settings → Secrets → Actions 写入 `CLASSROOM_DESK_OPS_WEBHOOK`（Slack Incoming / 飞书自定义机器人）。
+2. 本机干跑（不写进 git）：
+
+```bash
+export CLASSROOM_DESK_OPS_WEBHOOK='https://hooks.slack.com/services/…'  # 或飞书
+npm run ops:webhook-dry-run
+# 期望频道出现 [classroom-desk] ops webhook dry-run …
+```
+
+3. **双触达**：在验证分支临时让 `release.yml` → `record-artifacts` 失败（或手工触发会走到失败分支的路径）→ 应同时看到  
+   - GitHub Issue（labels `release`/`artifacts`）  
+   - 频道 POST（`Release record-artifacts failed for <tag>`）  
+   验完即还原；正式发版失败时同样双触达。  
+4. 未配置 secret 时 webhook 跳过，Issue 仍应创建。

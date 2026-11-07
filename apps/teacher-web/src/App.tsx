@@ -3,6 +3,7 @@ import { APP_NAME, GITHUB_RELEASES_BASE } from '@classroom-desk/shared';
 import { API_BASE, api, getToken, setToken } from './api';
 import { ClassroomConnect } from './components/ClassroomConnect';
 import { LiveBoard } from './components/LiveBoard';
+import { HardeningHealthPanel } from './components/HardeningHealthPanel';
 import { OpsDashboard } from './components/OpsDashboard';
 import { PresenceClients } from './components/PresenceClients';
 import { SeatMapPanel } from './components/SeatMapPanel';
@@ -41,6 +42,7 @@ const PREP_ITEMS: Array<[PrepTab, string]> = [
   ['requests', '加分'],
   ['attendance', '出勤报表'],
   ['presence', '在线机位'],
+  ['hardening', '加固体检'],
   ['seats', '座位图'],
   ['ops', '健康仪表盘'],
   ['packs', '题库包'],
@@ -693,8 +695,20 @@ export function App() {
                 {prepTab === 'requests' && <RequestsPanel classId={classId} />}
                 {prepTab === 'attendance' && <AttendancePanel classId={classId} />}
                 {prepTab === 'presence' && <PresenceClients classId={classId} />}
+                {prepTab === 'hardening' && <HardeningHealthPanel classId={classId} />}
                 {prepTab === 'seats' && <SeatMapPanel classId={classId} />}
-                {prepTab === 'ops' && <OpsDashboard />}
+                {prepTab === 'ops' && (
+                  <OpsDashboard
+                    onGoUnhardenedThreshold={() => {
+                      setPrepTab('settings');
+                      window.requestAnimationFrame(() => {
+                        document
+                          .getElementById('unhardened-alert-threshold')
+                          ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                      });
+                    }}
+                  />
+                )}
                 {prepTab === 'packs' && (
                   <PacksPanel
                     classId={classId}

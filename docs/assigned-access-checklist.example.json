@@ -1,0 +1,28 @@
+{
+  "$schemaComment": "Classroom Desk Assigned Access 导出样例 — 须与教师「加固体检 → 导出 Assigned Access 清单」JSON 字段对齐（presence/health 仅导出时附加）",
+  "productName": "Classroom Desk",
+  "desktopAppPath": "C:\\Program Files\\Classroom Desk\\Classroom Desk.exe",
+  "accountHint": "StudentKiosk",
+  "blockedAppsHint": [
+    "Taskmgr.exe",
+    "cmd.exe",
+    "powershell.exe",
+    "regedit.exe",
+    "msedge.exe",
+    "chrome.exe",
+    "explorer.exe (shell replace via AA — do not dual-run)"
+  ],
+  "intuneProfiles": [
+    "docs/intune-student-kiosk.example.xml (HideTaskManager + USB deny write/execute)",
+    "docs/intune-student-kiosk.rollback.xml (trial-group rollback)"
+  ],
+  "watchdog": {
+    "allowed": "MDM / Assigned Access restart policy or documented Startup folder for Classroom Desk only",
+    "forbidden": "Hidden Run key, silent persistence, antivirus evasion"
+  },
+  "verify": [
+    "Alt+Tab / Win key blocked or ineffective under AA",
+    "Task Manager end-task denied",
+    "USB write denied on trial devices"
+  ]
+}

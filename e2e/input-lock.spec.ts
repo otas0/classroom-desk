@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { ensureTeacherPasswordReady, TEACHER_USER } from './helpers/teacherLogin';
-import { loginTeacherWeb } from './helpers/teacherWebLogin';
-import { openPrepTab } from './helpers/navPrep';
+import { loginStaffWeb, loginTeacherWeb } from './helpers/teacherWebLogin';
+import { openPrepTab, selectTeacherClass } from './helpers/navPrep';
 
 const API = process.env.API_BASE ?? 'http://127.0.0.1:8787';
 const STUDENT_WEB = process.env.STUDENT_WEB ?? 'http://127.0.0.1:5173';
@@ -535,5 +535,368 @@ test.describe('physical input lock', () => {
     await page.getByRole('button', { name: '确认全部解除' }).click();
     await expect(modal).toHaveCount(0, { timeout: 10_000 });
     await expect(page.getByText(/已全部解除物理输入锁/).first()).toBeVisible({ timeout: 10_000 });
+  });
+
+  test('projection SSE force-fallback shows projection-input-lock-sse-fallback', async ({
+    page,
+    request,
+  }) => {
+    const { password } = await loginTeacherWeb(page, request);
+    const login = await request.post(`${API}/api/v1/auth/login`, {
+      data: { username: TEACHER_USER, password },
+    });
+    expect(login.ok()).toBeTruthy();
+    const { token } = (await login.json()) as { token: string };
+    const auth = { Authorization: `Bearer ${token}` };
+
+    const stamp = Date.now();
+    const createdClass = await request.post(`${API}/api/v1/classes`, {
+      headers: auth,
+      data: { name: `ProjSse_${stamp}` },
+    });
+    expect(createdClass.ok()).toBeTruthy();
+    const classId = ((await createdClass.json()) as { id: string }).id;
+
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await selectTeacherClass(page, classId);
+    await page.locator('aside').getByRole('button', { name: '上课', exact: true }).click();
+
+    await expect(page.getByRole('button', { name: '投影全屏' })).toBeVisible({ timeout: 15_000 });
+    await page.getByRole('button', { name: '投影全屏' }).click();
+    await expect(page.getByTestId('projection-input-lock-summary')).toBeVisible({ timeout: 15_000 });
+
+    await page.waitForFunction(
+      () => typeof (window as unknown as { __cdForceInputLockSseFallback?: () => void }).__cdForceInputLockSseFallback === 'function',
+      { timeout: 10_000 },
+    );
+    await page.evaluate(() => {
+      (window as unknown as { __cdForceInputLockSseFallback: () => void }).__cdForceInputLockSseFallback();
+    });
+    await expect(page.getByTestId('projection-input-lock-sse-fallback')).toBeVisible({
+      timeout: 8_000,
+    });
+  });
+
+  test('assistant badge → 全局 after teacher clearAll (dual-role)', async ({
+    page,
+    request,
+  }) => {
+    const password = await ensureTeacherPasswordReady(request);
+    const login = await request.post(`${API}/api/v1/auth/login`, {
+      data: { username: TEACHER_USER, password },
+    });
+    expect(login.ok()).toBeTruthy();
+    const { token } = (await login.json()) as { token: string };
+    const auth = { Authorization: `Bearer ${token}` };
+
+    const stamp = Date.now();
+    const createdClass = await request.post(`${API}/api/v1/classes`, {
+      headers: auth,
+      data: { name: `AsstBadge_${stamp}` },
+    });
+    expect(createdClass.ok()).toBeTruthy();
+    const classId = ((await createdClass.json()) as { id: string }).id;
+
+    await request.patch(`${API}/api/v1/settings`, {
+      headers: auth,
+      data: {
+        inputLock: {
+          scope: 'class',
+          classId,
+          keyboard: true,
+          mouse: false,
+          voice: false,
+          camera: false,
+        },
+      },
+    });
+
+    const user = `asst_badge_${stamp}`;
+    const pass = `AsstPass${stamp % 100000}b9`;
+    const created = await request.post(`${API}/api/v1/auth/assistants`, {
+      headers: auth,
+      data: { username: user, password: pass, displayName: '徽章助教' },
+    });
+    expect(created.ok()).toBeTruthy();
+
+    await loginStaffWeb(page, user, pass);
+    await page.locator('aside').getByRole('button', { name: '设置', exact: true }).click();
+    await expect(page.getByTestId('input-lock-readonly')).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId('input-lock-scope-badge-class')).toBeVisible({ timeout: 10_000 });
+
+    // Teacher clearAll via API (second role)
+    await request.patch(`${API}/api/v1/settings`, {
+      headers: auth,
+      data: { inputLock: { clearAll: true } },
+    });
+
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await page.locator('aside').getByRole('button', { name: '设置', exact: true }).click();
+    await expect(page.getByTestId('input-lock-scope-badge-global')).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId('input-lock-scope-badge')).toContainText(/全局/);
+  });
+
+  test('TTL expire clears student input-lock banner', async ({ page, request }) => {
+    test.skip(!(await studentReachable()), 'student vite required');
+
+    const password = await ensureTeacherPasswordReady(request);
+    const login = await request.post(`${API}/api/v1/auth/login`, {
+      data: { username: TEACHER_USER, password },
+    });
+    expect(login.ok()).toBeTruthy();
+    const { token } = (await login.json()) as { token: string };
+    const auth = { Authorization: `Bearer ${token}` };
+
+    await request.patch(`${API}/api/v1/settings`, {
+      headers: auth,
+      data: {
+        inputLock: {
+          keyboard: true,
+          mouse: false,
+          voice: false,
+          camera: false,
+          expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
+        },
+      },
+    });
+
+    const student = await page.context().newPage();
+    await student.addInitScript((apiBase) => {
+      localStorage.setItem('classroom-desk.api-base', apiBase);
+    }, API);
+    await student.goto(`${STUDENT_WEB}/?e2e=1`, { waitUntil: 'domcontentloaded' });
+    await expect(student.getByTestId('input-lock-banner')).toBeVisible({ timeout: 15_000 });
+
+    // Past expiresAt → next public settings read purges + SSE/poll clears banner
+    await request.patch(`${API}/api/v1/settings`, {
+      headers: auth,
+      data: {
+        inputLock: { expiresAt: new Date(Date.now() - 2_000).toISOString() },
+      },
+    });
+    // Force purge path via public GET (same as student poll)
+    await request.get(`${API}/api/v1/settings/public`);
+    await expect(student.getByTestId('input-lock-banner')).toHaveCount(0, { timeout: 20_000 });
+    await expect(student.getByTestId('input-lock-ttl-cleared-toast')).toContainText(
+      '课次结束，输入锁已解除',
+      { timeout: 12_000 },
+    );
+    await student.close();
+  });
+
+  test('TTL expire toast via public purge broadcast (not 8s poll)', async ({ page, request }) => {
+    test.skip(!(await studentReachable()), 'student vite required');
+
+    const password = await ensureTeacherPasswordReady(request);
+    const login = await request.post(`${API}/api/v1/auth/login`, {
+      data: { username: TEACHER_USER, password },
+    });
+    expect(login.ok()).toBeTruthy();
+    const { token } = (await login.json()) as { token: string };
+    const auth = { Authorization: `Bearer ${token}` };
+
+    await request.patch(`${API}/api/v1/settings`, {
+      headers: auth,
+      data: {
+        inputLock: {
+          keyboard: true,
+          mouse: false,
+          voice: false,
+          camera: false,
+          expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
+        },
+      },
+    });
+
+    const student = await page.context().newPage();
+    await student.addInitScript((apiBase) => {
+      localStorage.setItem('classroom-desk.api-base', apiBase);
+    }, API);
+    await student.goto(`${STUDENT_WEB}/?e2e=1`, { waitUntil: 'domcontentloaded' });
+    await expect(student.getByTestId('input-lock-banner')).toBeVisible({ timeout: 15_000 });
+
+    await request.patch(`${API}/api/v1/settings`, {
+      headers: auth,
+      data: {
+        inputLock: { expiresAt: new Date(Date.now() - 2_000).toISOString() },
+      },
+    });
+    const t0 = Date.now();
+    // public GET purges + broadcastInputLock → student SSE should toast without waiting 8s poll
+    await request.get(`${API}/api/v1/settings/public`);
+    await expect(student.getByTestId('input-lock-ttl-cleared-toast')).toContainText(
+      '课次结束，输入锁已解除',
+      { timeout: 4_000 },
+    );
+    expect(Date.now() - t0).toBeLessThan(7_000);
+    await student.close();
+  });
+
+  test('input lock TTL binds attendance session end_at', async ({ request }) => {
+    const password = await ensureTeacherPasswordReady(request);
+    const login = await request.post(`${API}/api/v1/auth/login`, {
+      data: { username: TEACHER_USER, password },
+    });
+    expect(login.ok()).toBeTruthy();
+    const { token } = (await login.json()) as { token: string };
+    const auth = { Authorization: `Bearer ${token}` };
+
+    const stamp = Date.now();
+    const createdClass = await request.post(`${API}/api/v1/classes`, {
+      headers: auth,
+      data: { name: `TtlLock_${stamp}` },
+    });
+    expect(createdClass.ok()).toBeTruthy();
+    const classId = ((await createdClass.json()) as { id: string }).id;
+
+    const startAt = new Date(Date.now() - 60_000).toISOString();
+    const endAt = new Date(Date.now() + 3_600_000).toISOString();
+    const sess = await request.post(`${API}/api/v1/attendance/sessions`, {
+      headers: auth,
+      data: { classId, mode: 'manual', startAt, endAt, lateAfterMinutes: 5 },
+    });
+    expect(sess.ok()).toBeTruthy();
+    const sessionId = ((await sess.json()) as { id: string }).id;
+
+    await request.patch(`${API}/api/v1/settings`, {
+      headers: auth,
+      data: {
+        inputLock: {
+          keyboard: true,
+          mouse: false,
+          voice: false,
+          camera: false,
+          bindAttendanceSessionId: sessionId,
+        },
+      },
+    });
+
+    const settings = await request.get(`${API}/api/v1/settings`, { headers: auth });
+    expect(settings.ok()).toBeTruthy();
+    const body = (await settings.json()) as {
+      inputLockExpiresAt?: string | null;
+      inputLockAttendanceSessionId?: string | null;
+      inputLock?: { keyboard?: boolean };
+    };
+    expect(body.inputLockAttendanceSessionId).toBe(sessionId);
+    expect(body.inputLockExpiresAt).toBeTruthy();
+    expect(Date.parse(String(body.inputLockExpiresAt))).toBe(Date.parse(endAt));
+    expect(body.inputLock?.keyboard).toBeTruthy();
+
+    // Past expiry → purged
+    await request.patch(`${API}/api/v1/settings`, {
+      headers: auth,
+      data: {
+        inputLock: { expiresAt: new Date(Date.now() - 5_000).toISOString() },
+      },
+    });
+    const pub = await request.get(`${API}/api/v1/settings/public`);
+    expect(pub.ok()).toBeTruthy();
+    const pubBody = (await pub.json()) as {
+      inputLockActive?: boolean;
+      inputLock?: { keyboard?: boolean };
+      inputLockExpiresAt?: string | null;
+    };
+    expect(pubBody.inputLockActive).toBeFalsy();
+    expect(pubBody.inputLock?.keyboard).toBeFalsy();
+    expect(pubBody.inputLockExpiresAt).toBeNull();
+  });
+
+  test('bulk clearSeatIds unlocks seat locks', async ({ request }) => {
+    const password = await ensureTeacherPasswordReady(request);
+    const login = await request.post(`${API}/api/v1/auth/login`, {
+      data: { username: TEACHER_USER, password },
+    });
+    expect(login.ok()).toBeTruthy();
+    const { token } = (await login.json()) as { token: string };
+    const auth = { Authorization: `Bearer ${token}` };
+
+    const stamp = Date.now();
+    const createdClass = await request.post(`${API}/api/v1/classes`, {
+      headers: auth,
+      data: { name: `ClearSeats_${stamp}` },
+    });
+    expect(createdClass.ok()).toBeTruthy();
+    const classId = ((await createdClass.json()) as { id: string }).id;
+    await request.put(`${API}/api/v1/classes/${classId}/seats`, {
+      headers: auth,
+      data: { rows: 1, cols: 2 },
+    });
+    const seats = await request.get(`${API}/api/v1/classes/${classId}/seats`, { headers: auth });
+    const seatIds = ((await seats.json()) as { items: Array<{ id: string }> }).items.map((s) => s.id);
+    expect(seatIds.length).toBe(2);
+
+    await request.patch(`${API}/api/v1/settings`, {
+      headers: auth,
+      data: {
+        inputLock: {
+          classId,
+          seatIds,
+          keyboard: true,
+          mouse: true,
+          voice: false,
+          camera: false,
+        },
+      },
+    });
+    await request.patch(`${API}/api/v1/settings`, {
+      headers: auth,
+      data: { inputLock: { classId, clearSeatIds: seatIds } },
+    });
+
+    const pub = await request.get(
+      `${API}/api/v1/settings/public?classId=${encodeURIComponent(classId)}&seatId=${encodeURIComponent(seatIds[0]!)}`,
+    );
+    const body = (await pub.json()) as { inputLock?: { keyboard?: boolean } };
+    expect(body.inputLock?.keyboard).toBeFalsy();
+  });
+
+  test('bulk lock empty seats by seatIds', async ({ request }) => {
+    const password = await ensureTeacherPasswordReady(request);
+    const login = await request.post(`${API}/api/v1/auth/login`, {
+      data: { username: TEACHER_USER, password },
+    });
+    expect(login.ok()).toBeTruthy();
+    const { token } = (await login.json()) as { token: string };
+    const auth = { Authorization: `Bearer ${token}` };
+
+    const stamp = Date.now();
+    const createdClass = await request.post(`${API}/api/v1/classes`, {
+      headers: auth,
+      data: { name: `EmptyLock_${stamp}` },
+    });
+    expect(createdClass.ok()).toBeTruthy();
+    const classId = ((await createdClass.json()) as { id: string }).id;
+
+    await request.put(`${API}/api/v1/classes/${classId}/seats`, {
+      headers: auth,
+      data: { rows: 2, cols: 2 },
+    });
+    const seats = await request.get(`${API}/api/v1/classes/${classId}/seats`, { headers: auth });
+    expect(seats.ok()).toBeTruthy();
+    const seatIds = ((await seats.json()) as { items: Array<{ id: string }> }).items.map((s) => s.id);
+    expect(seatIds.length).toBeGreaterThanOrEqual(2);
+
+    const patch = await request.patch(`${API}/api/v1/settings`, {
+      headers: auth,
+      data: {
+        inputLock: {
+          classId,
+          seatIds: seatIds.slice(0, 2),
+          keyboard: true,
+          mouse: true,
+          voice: false,
+          camera: false,
+        },
+      },
+    });
+    expect(patch.ok()).toBeTruthy();
+
+    const pubA = await request.get(
+      `${API}/api/v1/settings/public?classId=${encodeURIComponent(classId)}&seatId=${encodeURIComponent(seatIds[0]!)}`,
+    );
+    const bodyA = (await pubA.json()) as { inputLock?: { keyboard?: boolean; mouse?: boolean } };
+    expect(bodyA.inputLock?.keyboard).toBeTruthy();
+    expect(bodyA.inputLock?.mouse).toBeTruthy();
   });
 });
