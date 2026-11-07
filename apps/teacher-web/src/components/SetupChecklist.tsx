@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
-import { api } from '../api';
+import { API_BASE, api } from '../api';
 import type { ClassItem } from '../types';
+
+export type SetupDest = 'prep' | 'assign' | 'session' | 'prep-roster' | 'prep-questions';
 
 export function SetupChecklist({
   classId,
@@ -16,11 +18,14 @@ export function SetupChecklist({
   studentCount: number;
   hasApiBase: boolean;
   refreshTick?: number;
-  onGo: (tab: 'prep' | 'assign' | 'session') => void;
+  onGo: (tab: SetupDest) => void;
   onCreateClass?: () => void;
 }) {
   const [hasQuestion, setHasQuestion] = useState(false);
   const [questionKnown, setQuestionKnown] = useState(false);
+  const [serverOk, setServerOk] = useState<boolean | null>(null);
+  const [serverVersion, setServerVersion] = useState('');
+  const [studentPkgVersion, setStudentPkgVersion] = useState('');
 
   useEffect(() => {
     if (!classId) {
@@ -46,15 +51,80 @@ export function SetupChecklist({
     };
   }, [classId, refreshTick]);
 
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch(`${API_BASE}/health`, { cache: 'no-store' });
+        const body = (await res.json()) as {
+          ok?: boolean;
+          version?: string;
+          studentDesktopVersion?: string;
+        };
+        if (cancelled) return;
+        setServerOk(Boolean(res.ok && body.ok));
+        setServerVersion(String(body.version ?? ''));
+        setStudentPkgVersion(String(body.studentDesktopVersion ?? body.version ?? ''));
+      } catch {
+        if (cancelled) return;
+        setServerOk(false);
+        setServerVersion('');
+        setStudentPkgVersion('');
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [refreshTick]);
+
   const rosterDone = classes.length > 0 && Boolean(classId) && studentCount > 0;
   const assignDone = hasApiBase && Boolean(classId);
   const questionDone = hasQuestion;
-  if (rosterDone && assignDone && (!questionKnown || questionDone)) return null;
+  const healthDone = serverOk === true;
+  if (rosterDone && assignDone && healthDone && (!questionKnown || questionDone)) return null;
 
-  const steps: Array<{ n: number; label: string; done: boolean; pending: boolean }> = [
-    { n: 1, label: '建班并导入名单', done: rosterDone, pending: false },
-    { n: 2, label: '指派学生机', done: assignDone, pending: false },
-    { n: 3, label: '发第一题', done: questionDone, pending: !questionKnown },
+  type Step = {
+    n: number;
+    label: string;
+    done: boolean;
+    pending: boolean;
+    actionLabel?: string;
+    action?: () => void;
+  };
+
+  const steps: Step[] = [
+    {
+      n: 1,
+      label: '建班并导入名单',
+      done: rosterDone,
+      pending: false,
+      actionLabel: classes.length === 0 ? '去建班' : '去导入名单',
+      action: () => (classes.length === 0 ? (onCreateClass ? onCreateClass() : onGo('prep-roster')) : onGo('prep-roster')),
+    },
+    {
+      n: 2,
+      label: '指派学生机',
+      done: assignDone,
+      pending: false,
+      actionLabel: '去指派',
+      action: () => onGo('assign'),
+    },
+    {
+      n: 3,
+      label: '发第一题',
+      done: questionDone,
+      pending: !questionKnown,
+      actionLabel: '去发第一题',
+      action: () => onGo('session'),
+    },
+    {
+      n: 4,
+      label: '服务器可达 / 学生端版本',
+      done: healthDone,
+      pending: serverOk === null,
+      actionLabel: '重新检测',
+      action: () => onGo('assign'),
+    },
   ];
 
   let ctaLabel = '去发第一题';
@@ -62,27 +132,48 @@ export function SetupChecklist({
   if (!rosterDone) {
     if (classes.length === 0) {
       ctaLabel = '创建班级';
-      cta = () => (onCreateClass ? onCreateClass() : onGo('prep'));
+      cta = () => (onCreateClass ? onCreateClass() : onGo('prep-roster'));
     } else {
       ctaLabel = '去导入名单';
-      cta = () => onGo('prep');
+      cta = () => onGo('prep-roster');
     }
   } else if (!assignDone) {
     ctaLabel = '去指派学生机';
+    cta = () => onGo('assign');
+  } else if (!healthDone) {
+    ctaLabel = '检查服务器';
     cta = () => onGo('assign');
   }
 
   return (
     <section className="setup-checklist">
       <h2>开课准备</h2>
-      <p className="hint">完成以下三步后，本清单会自动收起。</p>
+      <p className="hint">完成以下步骤后，本清单会自动收起。未完成项可一键跳转。</p>
       <ol className="setup-steps">
         {steps.map((step) => (
           <li key={step.n} className={step.done ? 'setup-step done' : 'setup-step'}>
             <span>
               {step.n}. {step.label}
+              {step.n === 4 ? (
+                <span className="hint">
+                  {' '}
+                  ·{' '}
+                  {serverOk === null
+                    ? '检测中…'
+                    : serverOk
+                      ? `可达 · 服务端 v${serverVersion || '—'}${
+                          studentPkgVersion ? ` · 学生机包应对齐 v${studentPkgVersion}` : ''
+                        }`
+                      : '不可达，请检查教师机服务'}
+                </span>
+              ) : null}
             </span>
             <span className="status">{step.done ? '已完成' : step.pending ? '检查中' : '未完成'}</span>
+            {!step.done && !step.pending && step.action && step.actionLabel ? (
+              <button type="button" className="secondary setup-step-jump" onClick={step.action}>
+                {step.actionLabel}
+              </button>
+            ) : null}
           </li>
         ))}
       </ol>

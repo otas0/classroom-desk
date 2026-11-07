@@ -10,8 +10,10 @@ import {
   verifyAdminPassword,
   verifyPassword,
 } from '../services/auth.js';
-import { requireAuth, type AuthedRequest } from '../middleware/auth.js';
+import { writeAudit } from '../services/audit.js';
+import { requireAuth, requireRoles, type AuthedRequest } from '../middleware/auth.js';
 import { config } from '../config.js';
+import { newId, nowIso } from '../utils/id.js';
 
 export const authRouter = Router();
 
@@ -25,8 +27,16 @@ authRouter.post('/api/v1/auth/login', async (req, res) => {
 
   const db = openDb();
   const user = findUserByUsername(db, username);
-  if (!user || !user.password_hash || (user.role !== 'teacher' && user.role !== 'admin')) {
+  if (
+    !user ||
+    !user.password_hash ||
+    (user.role !== 'teacher' && user.role !== 'admin' && user.role !== 'assistant')
+  ) {
     res.status(401).json({ error: 'invalid_credentials' });
+    return;
+  }
+  if (user.disabled_at != null && String(user.disabled_at).trim() !== '') {
+    res.status(401).json({ error: 'account_disabled', message: '账号已停用，请联系教师' });
     return;
   }
   const ok = await verifyPassword(password, user.password_hash);
@@ -74,7 +84,9 @@ authRouter.post('/api/v1/auth/student-select', async (req, res) => {
 
   const user = db
     .prepare(
-      `SELECT * FROM users WHERE id = ? AND role = 'student' AND class_id = ?`,
+      `SELECT * FROM users
+       WHERE id = ? AND role = 'student' AND class_id = ?
+         AND (deleted_at IS NULL OR deleted_at = '')`,
     )
     .get(studentId, classId) as
     | {
@@ -176,7 +188,11 @@ authRouter.post('/api/v1/auth/change-admin-password', requireAuth, async (req: A
 
 /** Teacher login password (users.password_hash). Teachers change this in /admin 设置. */
 authRouter.post('/api/v1/auth/change-password', requireAuth, async (req: AuthedRequest, res) => {
-  if (req.user?.role !== 'teacher' && req.user?.role !== 'admin') {
+  if (
+    req.user?.role !== 'teacher' &&
+    req.user?.role !== 'admin' &&
+    req.user?.role !== 'assistant'
+  ) {
     res.status(403).json({ error: 'forbidden' });
     return;
   }
@@ -239,3 +255,171 @@ authRouter.get('/api/v1/auth/bootstrap-info', (_req, res) => {
     ),
   });
 });
+
+/** Create an assistant account (username + initial password). Teacher/admin only. */
+authRouter.post(
+  '/api/v1/auth/assistants',
+  requireAuth,
+  requireRoles('teacher', 'admin'),
+  async (req: AuthedRequest, res) => {
+    const username = String(req.body?.username ?? '').trim();
+    const password = String(req.body?.password ?? '');
+    const displayName = String(req.body?.displayName ?? '').trim() || '助教';
+    if (!/^[A-Za-z0-9._-]{3,32}$/.test(username)) {
+      res.status(400).json({
+        error: 'invalid_username',
+        message: '用户名须为 3–32 位字母数字._-',
+      });
+      return;
+    }
+    if (password.length < 8 || !/[A-Za-z]/.test(password) || !/[0-9]/.test(password)) {
+      res.status(400).json({
+        error: 'weak_password',
+        message: '初始口令至少 8 位且含字母与数字',
+      });
+      return;
+    }
+    if (!/^[\u4e00-\u9fffA-Za-z0-9·•\s._-]{1,40}$/.test(displayName)) {
+      res.status(400).json({ error: 'invalid_name', message: '显示名含非法字符或过长' });
+      return;
+    }
+    const db = openDb();
+    if (findUserByUsername(db, username)) {
+      res.status(409).json({ error: 'username_taken', message: '用户名已存在' });
+      return;
+    }
+    const id = newId();
+    const hash = await hashPassword(password);
+    const createdAt = nowIso();
+    db.prepare(
+      `INSERT INTO users (id, role, display_name, username, password_hash, class_id, total_points, created_at)
+       VALUES (?, 'assistant', ?, ?, ?, NULL, 0, ?)`,
+    ).run(id, displayName, username, hash, createdAt);
+    writeAudit({
+      actorUserId: req.user?.id,
+      actorRole: req.user?.role,
+      action: 'auth.create_assistant',
+      detail: { id, username, displayName },
+      clientIp: req.ip,
+    });
+    res.status(201).json({
+      ok: true,
+      id,
+      username,
+      displayName,
+      role: 'assistant',
+      message: `已创建助教「${username}」，请告知其用此口令登录后尽快改密`,
+    });
+  },
+);
+
+authRouter.get(
+  '/api/v1/auth/assistants',
+  requireAuth,
+  requireRoles('teacher', 'admin'),
+  (_req, res) => {
+    const items = openDb()
+      .prepare(
+        `SELECT id, username, display_name AS displayName, created_at AS createdAt,
+                disabled_at AS disabledAt
+         FROM users WHERE role = 'assistant'
+         ORDER BY created_at DESC`,
+      )
+      .all();
+    res.json({ items });
+  },
+);
+
+authRouter.post(
+  '/api/v1/auth/assistants/:id/disable',
+  requireAuth,
+  requireRoles('teacher', 'admin'),
+  (req: AuthedRequest, res) => {
+    const id = String(req.params.id ?? '').trim();
+    const db = openDb();
+    const at = nowIso();
+    const info = db
+      .prepare(
+        `UPDATE users SET disabled_at = ?
+         WHERE id = ? AND role = 'assistant'
+           AND (disabled_at IS NULL OR disabled_at = '')`,
+      )
+      .run(at, id);
+    if (!info.changes) {
+      res.status(404).json({ error: 'not_found', message: '助教不存在或已停用' });
+      return;
+    }
+    writeAudit({
+      actorUserId: req.user?.id,
+      actorRole: req.user?.role,
+      action: 'auth.disable_assistant',
+      detail: { id },
+      clientIp: req.ip,
+    });
+    res.json({ ok: true, id, disabledAt: at, message: '已停用助教' });
+  },
+);
+
+authRouter.post(
+  '/api/v1/auth/assistants/:id/enable',
+  requireAuth,
+  requireRoles('teacher', 'admin'),
+  (req: AuthedRequest, res) => {
+    const id = String(req.params.id ?? '').trim();
+    const db = openDb();
+    const info = db
+      .prepare(
+        `UPDATE users SET disabled_at = NULL
+         WHERE id = ? AND role = 'assistant'
+           AND disabled_at IS NOT NULL AND disabled_at != ''`,
+      )
+      .run(id);
+    if (!info.changes) {
+      res.status(404).json({ error: 'not_found', message: '助教不存在或未停用' });
+      return;
+    }
+    writeAudit({
+      actorUserId: req.user?.id,
+      actorRole: req.user?.role,
+      action: 'auth.enable_assistant',
+      detail: { id },
+      clientIp: req.ip,
+    });
+    res.json({ ok: true, id, message: '已启用助教' });
+  },
+);
+
+authRouter.post(
+  '/api/v1/auth/assistants/:id/reset-password',
+  requireAuth,
+  requireRoles('teacher', 'admin'),
+  async (req: AuthedRequest, res) => {
+    const id = String(req.params.id ?? '').trim();
+    const password = String(req.body?.password ?? '');
+    if (password.length < 8 || !/[A-Za-z]/.test(password) || !/[0-9]/.test(password)) {
+      res.status(400).json({
+        error: 'weak_password',
+        message: '新口令至少 8 位且含字母与数字',
+      });
+      return;
+    }
+    const db = openDb();
+    const row = db
+      .prepare(`SELECT id, username FROM users WHERE id = ? AND role = 'assistant'`)
+      .get(id) as { id: string; username: string } | undefined;
+    if (!row) {
+      res.status(404).json({ error: 'not_found', message: '助教不存在' });
+      return;
+    }
+    const hash = await hashPassword(password);
+    db.prepare(`UPDATE users SET password_hash = ? WHERE id = ?`).run(hash, id);
+    writeAudit({
+      actorUserId: req.user?.id,
+      actorRole: req.user?.role,
+      action: 'auth.reset_assistant_password',
+      detail: { id, username: row.username },
+      clientIp: req.ip,
+    });
+    res.json({ ok: true, id, message: `已重置「${row.username}」口令` });
+  },
+);

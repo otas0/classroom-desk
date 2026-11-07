@@ -6,6 +6,7 @@ import {
   getApiBase,
   getToken,
   initApiBase,
+  isSessionEndedError,
   setApiBase,
   setToken,
 } from './api';
@@ -68,8 +69,10 @@ export function App() {
   const [switchIdentity, setSwitchIdentity] = useState(false);
   const [selecting, setSelecting] = useState(false);
   const [gateAdmin, setGateAdmin] = useState(false);
+  const [needsFirstRun, setNeedsFirstRun] = useState(false);
   const [exitAllowed, setExitAllowed] = useState(false);
   const [exitUnlockUntil, setExitUnlockUntil] = useState<string | null>(null);
+  const [quizConfirmSubmit, setQuizConfirmSubmit] = useState(true);
   const [nowTick, setNowTick] = useState(() => Date.now());
   const knownQuestionIdsRef = useRef(new Set<string>());
 
@@ -98,6 +101,74 @@ export function App() {
     const t = window.setInterval(() => setNowTick(Date.now()), 1000);
     return () => window.clearInterval(t);
   }, []);
+
+  // Real-time exit-lock: WebSocket first; on close/error → SSE + toast; poll remains backup.
+  useEffect(() => {
+    if (!ready || healthOk === false) return;
+    const base = getApiBase().replace(/\/$/, '');
+    if (!base) return;
+    let closed = false;
+    let ws: WebSocket | null = null;
+    let es: EventSource | null = null;
+    let usingSse = false;
+
+    function applyPayload(raw: unknown) {
+      try {
+        const data = typeof raw === 'string' ? JSON.parse(raw) : raw;
+        if (!data || data.type !== 'exit_lock') return;
+        setExitUnlockUntil(data.clientExitUnlockUntil ?? null);
+        void syncExitLock(data.clientExitAllowed === true);
+      } catch {
+        /* ignore */
+      }
+    }
+
+    function startSse(reason: string) {
+      if (closed || usingSse) return;
+      usingSse = true;
+      showToast(`实时通道已切到备用（${reason}）`);
+      es = new EventSource(`${base}/api/v1/exit-lock/stream`);
+      es.onmessage = (ev) => applyPayload(ev.data);
+      es.onerror = () => {
+        /* EventSource auto-reconnects; keep silent */
+      };
+    }
+
+    try {
+      const wsUrl = base.replace(/^http/i, 'ws') + '/api/v1/exit-lock/ws';
+      ws = new WebSocket(wsUrl);
+      ws.onmessage = (ev) => applyPayload(ev.data);
+      ws.onopen = () => {
+        /* connected */
+      };
+      const failOver = () => {
+        if (closed) return;
+        try {
+          ws?.close();
+        } catch {
+          /* ignore */
+        }
+        ws = null;
+        startSse('WebSocket 断开');
+      };
+      ws.onerror = failOver;
+      ws.onclose = () => {
+        if (!closed && !usingSse) startSse('WebSocket 关闭');
+      };
+    } catch {
+      startSse('WebSocket 不可用');
+    }
+
+    return () => {
+      closed = true;
+      try {
+        ws?.close();
+      } catch {
+        /* ignore */
+      }
+      es?.close();
+    };
+  }, [ready, healthOk, syncExitLock, showToast]);
 
   const announceNewQuestions = useCallback(
     (items: Array<Record<string, unknown>>) => {
@@ -139,10 +210,12 @@ export function App() {
     try {
       const pub = await api<{
         messagesEnabled?: boolean;
+        quizConfirmSubmit?: boolean;
         clientExitAllowed?: boolean;
         clientExitUnlockUntil?: string | null;
       }>('/api/v1/settings/public');
       setMessagesEnabled(pub.messagesEnabled !== false);
+      setQuizConfirmSubmit(pub.quizConfirmSubmit !== false);
       setExitUnlockUntil(pub.clientExitUnlockUntil ?? null);
       await syncExitLock(pub.clientExitAllowed === true);
       if (!getToken()) {
@@ -156,12 +229,25 @@ export function App() {
         setClassName(me.class.name);
         setClassId(me.class.id);
       }
+      try {
+        await api('/api/v1/presence/heartbeat', { method: 'POST', body: '{}' });
+      } catch {
+        /* optional */
+      }
       const unreadRes = await api<{ count: number }>('/api/v1/messages/unread-count');
       setUnread(unreadRes.count);
       setOffline(false);
     } catch (e) {
       if (e instanceof ApiOfflineError) setOffline(true);
-      else setUser(null);
+      else {
+        if (isSessionEndedError(e)) {
+          setToken(null);
+          const msg = e instanceof Error ? e.message : '请重新选择身份';
+          setToast(msg);
+          window.setTimeout(() => setToast(''), 2200);
+        }
+        setUser(null);
+      }
     }
   }, [syncExitLock]);
 
@@ -196,12 +282,22 @@ export function App() {
     void (async () => {
       await initApiBase();
       let cid = '';
+      let firstRun = false;
       try {
-        const cfg = await window.classroomDesk?.getConfig?.();
+        const desk = window.classroomDesk;
+        const cfg = desk?.getConfig ? await desk.getConfig() : null;
         cid = String(cfg?.classId ?? '').trim();
+        const apiBase = String(cfg?.apiBase ?? getApiBase()).replace(/\/$/, '');
+        // First-run wizard only on Electron (can write userData/config.json).
+        firstRun = Boolean(desk?.setConfig) && needsLocalConfigSetup(apiBase, cid);
         setClassId(cid);
       } catch {
-        /* browser */
+        /* browser preview: skip first-run gate */
+      }
+      setNeedsFirstRun(firstRun);
+      if (firstRun) {
+        setReady(true);
+        return;
       }
       const ok = await probeHealth();
       if (ok) {
@@ -350,7 +446,13 @@ export function App() {
           <div className="collapsed-meta">
             <span className="brand">{APP_NAME}</span>
             <span className="collapsed-stats">
-              <span className={exitAllowed ? 'lock-badge unlocked' : 'lock-badge'} title="退出锁定状态">
+              <span
+                className={exitAllowed ? 'lock-badge unlocked' : 'lock-badge'}
+                title="退出锁定状态"
+                role="status"
+                aria-live="polite"
+                aria-atomic="true"
+              >
                 {exitLockLabel}
               </span>
               {user ? (
@@ -398,6 +500,36 @@ export function App() {
   }
 
   const visibleTabs = TABS.filter((t) => t.id !== 'messages' || messagesEnabled);
+
+  if (ready && needsFirstRun) {
+    return (
+      <div className="shell">
+        <header className="titlebar" data-drag>
+          <div className="titlebar-main">
+            <strong className="brand">{APP_NAME}</strong>
+            <span className="meta">首次配置</span>
+          </div>
+        </header>
+        <main className="content" data-no-drag>
+          <FirstRunSetup
+            onDone={async (next) => {
+              setClassId(next.classId);
+              setNeedsFirstRun(false);
+              const ok = await probeHealth();
+              if (ok) {
+                try {
+                  await loadRoster(next.classId);
+                } catch {
+                  /* roster may be empty */
+                }
+                await refreshMe();
+              }
+            }}
+          />
+        </main>
+      </div>
+    );
+  }
 
   if (ready && healthOk === false) {
     return (
@@ -475,9 +607,15 @@ export function App() {
         <div className="titlebar-main">
           <div className="titlebar-row">
             <strong className="brand">{APP_NAME}</strong>
-            <span className={`lock-badge${exitAllowed ? ' unlocked' : ''}`} title="退出锁定状态">
-              {exitLockLabel}
-            </span>
+          <span
+            className={`lock-badge${exitAllowed ? ' unlocked' : ''}`}
+            title="退出锁定状态"
+            role="status"
+            aria-live="polite"
+            aria-atomic="true"
+          >
+            {exitLockLabel}
+          </span>
             {user ? (
               <button
                 type="button"
@@ -582,7 +720,13 @@ export function App() {
               />
             )}
             {tab === 'attendance' && <AttendanceTab showToast={showToast} classId={classId} />}
-            {tab === 'quiz' && <QuizTab onAnswered={showToast} onOpenCount={setOpenQuizCount} />}
+            {tab === 'quiz' && (
+              <QuizTab
+                onAnswered={showToast}
+                onOpenCount={setOpenQuizCount}
+                confirmSubmit={quizConfirmSubmit}
+              />
+            )}
             {tab === 'messages' && messagesEnabled && (
               <MessagesTab userId={user.id} roster={roster} onRead={() => void refreshMe()} />
             )}
@@ -609,6 +753,90 @@ export function App() {
 
       {toast ? <div className="toast">{toast}</div> : null}
     </div>
+  );
+}
+
+function needsLocalConfigSetup(apiBase: string, classId: string): boolean {
+  const base = apiBase.replace(/\/$/, '');
+  if (!classId.trim()) return true;
+  if (/127\.0\.0\.1|localhost/i.test(base)) return true;
+  if (/YOUR_TEACHER_LAN_IP|YOUR_CLASS_ID/i.test(`${base} ${classId}`)) return true;
+  return false;
+}
+
+function FirstRunSetup({
+  onDone,
+}: {
+  onDone: (cfg: { apiBase: string; classId: string }) => Promise<void>;
+}) {
+  const [serverUrl, setServerUrl] = useState('');
+  const [seat, setSeat] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState('');
+
+  async function saveAndProbe() {
+    setMsg('');
+    const apiBase = serverUrl.trim().replace(/\/$/, '');
+    const classId = seat.trim();
+    if (!/^https?:\/\/[^/\s]+/i.test(apiBase)) {
+      setMsg('请填写完整服务器地址，例如 http://192.168.1.50:8787');
+      return;
+    }
+    if (/127\.0\.0\.1|localhost/i.test(apiBase)) {
+      setMsg('学生机不可使用 127.0.0.1 / localhost，请填教师机局域网 IP');
+      return;
+    }
+    if (!classId) {
+      setMsg('请填写机位班级 ID（教师后台「指派学生机」复制的 classId）');
+      return;
+    }
+    setBusy(true);
+    try {
+      const res = await fetch(`${apiBase}/health`, { cache: 'no-store' });
+      if (!res.ok) throw new Error(`健康检查失败 HTTP ${res.status}`);
+      const body = (await res.json()) as { ok?: boolean; version?: string };
+      if (!body.ok) throw new Error('服务未就绪（/health ok=false）');
+      await setApiBase(apiBase);
+      if (window.classroomDesk?.setConfig) {
+        await window.classroomDesk.setConfig({ apiBase, classId });
+      }
+      setMsg(`已写入本机 config.json · 服务端 v${body.version ?? '—'} · 连通正常`);
+      await onDone({ apiBase, classId });
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : '保存或连通失败');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section className="panel">
+      <h1>首次配置本机</h1>
+      <p className="lead">安装后由老师填写本教室服务器与机位班级，写入本机 config.json 并校验连通。</p>
+      <label className="field">
+        服务器地址（serverUrl / apiBase）
+        <input
+          value={serverUrl}
+          onChange={(e) => setServerUrl(e.target.value)}
+          placeholder="http://教师机局域网IP:8787"
+          autoComplete="off"
+        />
+      </label>
+      <label className="field">
+        机位班级（seat / classId）
+        <input
+          value={seat}
+          onChange={(e) => setSeat(e.target.value)}
+          placeholder="从教师后台「复制 classId」粘贴"
+          autoComplete="off"
+        />
+      </label>
+      <button type="button" className="primary" disabled={busy} onClick={() => void saveAndProbe()}>
+        {busy ? '检测中…' : '保存并检测 /health'}
+      </button>
+      {msg ? <p className="hint">{msg}</p> : null}
+      <p className="hint">禁止 127.0.0.1。配置保存在本机用户目录 config.json，可随时在「设置」修改。</p>
+    </section>
   );
 }
 
@@ -1294,9 +1522,11 @@ function optionQuestionSig(q: Record<string, unknown>): string {
 function QuizTab({
   onAnswered,
   onOpenCount,
+  confirmSubmit = true,
 }: {
   onAnswered: (msg: string) => void;
   onOpenCount: (count: number) => void;
+  confirmSubmit?: boolean;
 }) {
   const [items, setItems] = useState<Array<Record<string, unknown>>>([]);
   const [multi, setMulti] = useState<Record<string, string[]>>({});
@@ -1464,19 +1694,27 @@ function QuizTab({
                     type="button"
                     className={picked[id] === opt.id ? 'option-btn selected' : 'option-btn'}
                     disabled={busy}
-                    onClick={() => setPicked((prev) => ({ ...prev, [id]: opt.id }))}
+                    onClick={() => {
+                      if (confirmSubmit) {
+                        setPicked((prev) => ({ ...prev, [id]: opt.id }));
+                        return;
+                      }
+                      void answer(id, { optionIds: [opt.id] });
+                    }}
                   >
                     {opt.label}. {opt.content}
                   </button>
                 ))}
-                <button
-                  type="button"
-                  className="primary"
-                  disabled={busy || !picked[id]}
-                  onClick={() => void answer(id, { optionIds: [picked[id]!] })}
-                >
-                  {busy ? '提交中…' : '确认提交'}
-                </button>
+                {confirmSubmit ? (
+                  <button
+                    type="button"
+                    className="primary"
+                    disabled={busy || !picked[id]}
+                    onClick={() => void answer(id, { optionIds: [picked[id]!] })}
+                  >
+                    {busy ? '提交中…' : '确认提交'}
+                  </button>
+                ) : null}
               </>
             ) : null}
             {type === 'multi' && canAnswer ? (

@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Classroom Desk · Intune / SyncML 概念示例（非官方生产模板）
+  用途：限制学生机打开任务管理器等，配合 Assigned Access / 展台策略。
+  使用前必须由学校 IT 在试验机组验证，并按租户 CSP 路径调整。
+  文档：docs/EXIT_LOCK_MDM.md
+-->
+<SyncML xmlns="SYNCML:SYNCML1.2">
+  <SyncBody>
+    <!-- 隐藏任务管理器（策略 CSP；不同 Windows 版本可用性不同） -->
+    <Replace>
+      <CmdID>1</CmdID>
+      <Item>
+        <Target>
+          <LocURI>./Device/Vendor/MSFT/Policy/Config/Start/HideTaskManager</LocURI>
+        </Target>
+        <Meta>
+          <Format xmlns="syncml:metinf">int</Format>
+        </Meta>
+        <Data>1</Data>
+      </Item>
+    </Replace>
+
+    <!-- 可选：限制设置应用部分页面（示例占位，按学校策略替换） -->
+    <Replace>
+      <CmdID>2</CmdID>
+      <Item>
+        <Target>
+          <LocURI>./Device/Vendor/MSFT/Policy/Config/Settings/PageVisibilityList</LocURI>
+        </Target>
+        <Meta>
+          <Format xmlns="syncml:metinf">chr</Format>
+        </Meta>
+        <Data>hide:taskmanager</Data>
+      </Item>
+    </Replace>
+
+    <Final/>
+  </SyncBody>
+</SyncML>

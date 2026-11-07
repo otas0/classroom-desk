@@ -6,6 +6,8 @@ import {
   shouldRunDailyCleanup,
 } from '../services/cleanup.js';
 import { openScheduledAttendanceSessions } from '../services/attendanceSchedule.js';
+import { purgeExpiredSoftDeletes } from '../services/audit.js';
+import { flushAuditRetryQueue } from '../services/auditRetry.js';
 import { runDbBackup, shouldRunDailyBackup } from '../services/backup.js';
 import { nowIso } from '../utils/id.js';
 
@@ -64,6 +66,18 @@ export function startCleanupScheduler(): void {
       const closed = autoCloseQuestions();
       if (closed > 0) {
         console.log(`[questions] auto-closed: ${closed}`);
+      }
+      const purged = purgeExpiredSoftDeletes(db);
+      if (purged.students > 0 || purged.questions > 0) {
+        console.log(
+          `[recycle] purged soft-deletes students=${purged.students} questions=${purged.questions}`,
+        );
+      }
+      const auditFlush = flushAuditRetryQueue();
+      if (auditFlush.flushed > 0 || auditFlush.remaining > 0 || auditFlush.failed > 0) {
+        console.log(
+          `[audit-retry] flushed=${auditFlush.flushed} remaining=${auditFlush.remaining} failed=${auditFlush.failed}`,
+        );
       }
       maybeDailyBackup();
     } catch (error) {

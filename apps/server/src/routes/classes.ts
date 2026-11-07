@@ -3,11 +3,14 @@ import multer from 'multer';
 import * as XLSX from 'xlsx';
 import { openDb } from '../db/client.js';
 import { requireAuth, requireRoles, type AuthedRequest } from '../middleware/auth.js';
+import { RECYCLE_RETENTION_DAYS, writeAudit } from '../services/audit.js';
+import { clearSessionKick, kickStudents } from '../services/sessionKick.js';
 import {
   parseCsvToRows,
   parseSheetMatrixToRows,
   type ImportRow,
 } from '../services/rosterParse.js';
+import { chunkIds, parseIdList, sqlInPlaceholders } from '../utils/bulkIds.js';
 import { newClassCode, newId, nowIso } from '../utils/id.js';
 import { paramId } from '../utils/params.js';
 
@@ -73,10 +76,12 @@ function importStudentRows(classId: string, rows: ImportRow[], opts?: { replace?
      VALUES (?, 'student', ?, NULL, NULL, ?, ?, 0, ?)`,
   );
   const existsByName = db.prepare(
-    `SELECT id FROM users WHERE role = 'student' AND class_id = ? AND display_name = ? COLLATE NOCASE`,
+    `SELECT id FROM users WHERE role = 'student' AND class_id = ? AND display_name = ? COLLATE NOCASE
+     AND (deleted_at IS NULL OR deleted_at = '')`,
   );
   const existsByNo = db.prepare(
-    `SELECT id FROM users WHERE role = 'student' AND class_id = ? AND student_no = ?`,
+    `SELECT id FROM users WHERE role = 'student' AND class_id = ? AND student_no = ?
+     AND (deleted_at IS NULL OR deleted_at = '')`,
   );
 
   for (const row of rows) {
@@ -135,7 +140,7 @@ function importStudentRows(classId: string, rows: ImportRow[], opts?: { replace?
   return { created, skipped, replaced, total: rows.length, failures };
 }
 
-classesRouter.get('/api/v1/classes', requireAuth, requireRoles('teacher', 'admin'), (_req, res) => {
+classesRouter.get('/api/v1/classes', requireAuth, requireRoles('teacher', 'admin', 'assistant'), (_req, res) => {
   const rows = openDb()
     .prepare(`SELECT id, name, class_code AS classCode, created_at AS createdAt FROM classes ORDER BY created_at DESC`)
     .all();
@@ -178,7 +183,10 @@ classesRouter.get('/api/v1/classes/:id/roster', (req, res) => {
   const items = db
     .prepare(
       `SELECT id, display_name AS displayName, student_no AS studentNo, total_points AS totalPoints
-       FROM users WHERE role = 'student' AND class_id = ? ORDER BY display_name COLLATE NOCASE`,
+       FROM users
+       WHERE role = 'student' AND class_id = ?
+         AND (deleted_at IS NULL OR deleted_at = '')
+       ORDER BY display_name COLLATE NOCASE`,
     )
     .all(classId);
   res.json({ class: klass, items });
@@ -187,12 +195,15 @@ classesRouter.get('/api/v1/classes/:id/roster', (req, res) => {
 classesRouter.get(
   '/api/v1/classes/:id/students',
   requireAuth,
-  requireRoles('teacher', 'admin'),
+  requireRoles('teacher', 'admin', 'assistant'),
   (req, res) => {
     const students = openDb()
       .prepare(
         `SELECT id, display_name AS displayName, student_no AS studentNo, total_points AS totalPoints, created_at AS createdAt
-         FROM users WHERE role = 'student' AND class_id = ? ORDER BY display_name`,
+         FROM users
+         WHERE role = 'student' AND class_id = ?
+           AND (deleted_at IS NULL OR deleted_at = '')
+         ORDER BY display_name`,
       )
       .all(paramId(req.params.id));
     res.json({ items: students });
@@ -320,7 +331,8 @@ classesRouter.post(
     if (
       db
         .prepare(
-          `SELECT id FROM users WHERE role = 'student' AND class_id = ? AND display_name = ? COLLATE NOCASE`,
+          `SELECT id FROM users WHERE role = 'student' AND class_id = ? AND display_name = ? COLLATE NOCASE
+           AND (deleted_at IS NULL OR deleted_at = '')`,
         )
         .get(classId, displayName)
     ) {
@@ -330,7 +342,10 @@ classesRouter.post(
     if (
       studentNo &&
       db
-        .prepare(`SELECT id FROM users WHERE role = 'student' AND class_id = ? AND student_no = ?`)
+        .prepare(
+          `SELECT id FROM users WHERE role = 'student' AND class_id = ? AND student_no = ?
+           AND (deleted_at IS NULL OR deleted_at = '')`,
+        )
         .get(classId, studentNo)
     ) {
       res.status(409).json({ error: 'duplicate_student_no', message: '学号已存在' });
@@ -435,7 +450,8 @@ classesRouter.patch(
     const dupName = db
       .prepare(
         `SELECT id FROM users
-         WHERE role = 'student' AND class_id = ? AND display_name = ? COLLATE NOCASE AND id != ?`,
+         WHERE role = 'student' AND class_id = ? AND display_name = ? COLLATE NOCASE AND id != ?
+           AND (deleted_at IS NULL OR deleted_at = '')`,
       )
       .get(classId, nextName, studentId);
     if (dupName) {
@@ -446,7 +462,8 @@ classesRouter.patch(
       const dupNo = db
         .prepare(
           `SELECT id FROM users
-           WHERE role = 'student' AND class_id = ? AND student_no = ? AND id != ?`,
+           WHERE role = 'student' AND class_id = ? AND student_no = ? AND id != ?
+             AND (deleted_at IS NULL OR deleted_at = '')`,
         )
         .get(classId, hasNo, studentId);
       if (dupNo) {
@@ -477,38 +494,130 @@ classesRouter.delete(
     const classId = paramId(req.params.id);
     const studentId = paramId(req.params.studentId);
     const db = openDb();
+    const at = nowIso();
     const info = db
-      .prepare(`DELETE FROM users WHERE id = ? AND role = 'student' AND class_id = ?`)
-      .run(studentId, classId);
+      .prepare(
+        `UPDATE users SET deleted_at = ?
+         WHERE id = ? AND role = 'student' AND class_id = ?
+           AND (deleted_at IS NULL OR deleted_at = '')`,
+      )
+      .run(at, studentId, classId);
     if (!info.changes) {
       res.status(404).json({ error: 'student_not_found', message: '学生不在本班名单中' });
       return;
     }
-    res.json({ ok: true, id: studentId });
+    kickStudents([studentId], db);
+    writeAudit({
+      actorUserId: req.user?.id,
+      actorRole: req.user?.role,
+      action: 'students.soft_delete',
+      classId,
+      detail: { ids: [studentId] },
+      clientIp: req.ip,
+    });
+    res.json({ ok: true, id: studentId, softDeleted: true, deletedAt: at });
   },
 );
 
-/** Bulk delete students in a class (CASCADE cleans related rows). */
+/** Aggregate impact for bulk delete confirmation. */
+classesRouter.post(
+  '/api/v1/classes/:id/students/bulk-impact',
+  requireAuth,
+  requireRoles('teacher', 'admin', 'assistant'),
+  (req: AuthedRequest, res) => {
+    const classId = paramId(req.params.id);
+    const ids = parseIdList(req.body?.ids, 500);
+    if (ids.length === 0) {
+      res.status(400).json({ error: 'ids_required', message: '请选择学生' });
+      return;
+    }
+    const db = openDb();
+    let attendanceRecords = 0;
+    let pointsLog = 0;
+    let answers = 0;
+    let messages = 0;
+    let pointRequests = 0;
+    let found = 0;
+    for (const chunk of chunkIds(ids)) {
+      const ph = sqlInPlaceholders(chunk.length);
+      const rows = db
+        .prepare(
+          `SELECT id FROM users
+           WHERE role = 'student' AND class_id = ?
+             AND (deleted_at IS NULL OR deleted_at = '')
+             AND id IN (${ph})`,
+        )
+        .all(classId, ...chunk) as Array<{ id: string }>;
+      found += rows.length;
+      const foundIds = rows.map((r) => r.id);
+      if (foundIds.length === 0) continue;
+      const ph2 = sqlInPlaceholders(foundIds.length);
+      attendanceRecords += Number(
+        (
+          db
+            .prepare(`SELECT COUNT(*) AS c FROM attendance_records WHERE student_id IN (${ph2})`)
+            .get(...foundIds) as { c: number }
+        ).c,
+      );
+      pointsLog += Number(
+        (
+          db.prepare(`SELECT COUNT(*) AS c FROM points_log WHERE student_id IN (${ph2})`).get(...foundIds) as {
+            c: number;
+          }
+        ).c,
+      );
+      answers += Number(
+        (
+          db
+            .prepare(`SELECT COUNT(*) AS c FROM student_answers WHERE student_id IN (${ph2})`)
+            .get(...foundIds) as { c: number }
+        ).c,
+      );
+      messages += Number(
+        (
+          db
+            .prepare(
+              `SELECT COUNT(*) AS c FROM messages
+               WHERE student_id IN (${ph2}) OR to_student_id IN (${ph2})`,
+            )
+            .get(...foundIds, ...foundIds) as { c: number }
+        ).c,
+      );
+      pointRequests += Number(
+        (
+          db
+            .prepare(`SELECT COUNT(*) AS c FROM point_requests WHERE student_id IN (${ph2})`)
+            .get(...foundIds) as { c: number }
+        ).c,
+      );
+    }
+    res.json({
+      studentCount: found,
+      requested: ids.length,
+      attendanceRecords,
+      pointsLog,
+      answers,
+      messages,
+      pointRequests,
+      total: attendanceRecords + pointsLog + answers + messages + pointRequests,
+    });
+  },
+);
+
+/**
+ * Soft-delete students (回收站). Related rows kept until purge / retention expiry.
+ * Body: { ids: string[], hard?: boolean } — hard=true 立即硬删（仅 admin/teacher）.
+ */
 classesRouter.post(
   '/api/v1/classes/:id/students/bulk-delete',
   requireAuth,
   requireRoles('teacher', 'admin'),
   (req: AuthedRequest, res) => {
     const classId = paramId(req.params.id);
-    const rawIds = Array.isArray(req.body?.ids) ? (req.body.ids as unknown[]) : [];
-    const ids = [
-      ...new Set(
-        rawIds
-          .map((x) => String(x ?? '').trim())
-          .filter((x): x is string => x.length > 0),
-      ),
-    ];
+    const ids = parseIdList(req.body?.ids, 500);
+    const hard = Boolean(req.body?.hard);
     if (ids.length === 0) {
       res.status(400).json({ error: 'ids_required', message: '请选择要删除的学生' });
-      return;
-    }
-    if (ids.length > 500) {
-      res.status(400).json({ error: 'too_many', message: '单次最多删除 500 人' });
       return;
     }
     const db = openDb();
@@ -516,29 +625,398 @@ classesRouter.post(
       res.status(404).json({ error: 'class_not_found', message: '班级不存在' });
       return;
     }
-    const del = db.prepare(`DELETE FROM users WHERE id = ? AND role = 'student' AND class_id = ?`);
+    const at = nowIso();
     let deleted = 0;
-    const missing: string[] = [];
+    const touched = new Set<string>();
     db.exec('BEGIN');
     try {
-      for (const id of ids) {
-        const info = del.run(id, classId);
-        if (info.changes) deleted += 1;
-        else missing.push(id);
+      for (const chunk of chunkIds(ids)) {
+        const ph = sqlInPlaceholders(chunk.length);
+        if (hard) {
+          const info = db
+            .prepare(
+              `DELETE FROM users
+               WHERE role = 'student' AND class_id = ? AND id IN (${ph})`,
+            )
+            .run(classId, ...chunk);
+          deleted += Number(info.changes ?? 0);
+        } else {
+          const existing = db
+            .prepare(
+              `SELECT id FROM users
+               WHERE role = 'student' AND class_id = ?
+                 AND (deleted_at IS NULL OR deleted_at = '')
+                 AND id IN (${ph})`,
+            )
+            .all(classId, ...chunk) as Array<{ id: string }>;
+          for (const r of existing) touched.add(r.id);
+          if (existing.length) {
+            const ph2 = sqlInPlaceholders(existing.length);
+            const info = db
+              .prepare(
+                `UPDATE users SET deleted_at = ?
+                 WHERE role = 'student' AND class_id = ?
+                   AND id IN (${ph2})
+                   AND (deleted_at IS NULL OR deleted_at = '')`,
+              )
+              .run(at, classId, ...existing.map((r) => r.id));
+            deleted += Number(info.changes ?? 0);
+          }
+        }
       }
       db.exec('COMMIT');
     } catch (e) {
       db.exec('ROLLBACK');
       throw e;
     }
+    const missing = hard ? [] : ids.filter((id) => !touched.has(id));
+    if (!hard && touched.size) {
+      kickStudents([...touched], db);
+    }
+    writeAudit({
+      actorUserId: req.user?.id,
+      actorRole: req.user?.role,
+      action: hard ? 'students.bulk_purge' : 'students.bulk_soft_delete',
+      classId,
+      detail: { ids, deleted, hard },
+      clientIp: req.ip,
+    });
     res.json({
       ok: true,
+      softDeleted: !hard,
       deleted,
       requested: ids.length,
-      missing,
-      message: missing.length
-        ? `已删除 ${deleted} 人，${missing.length} 人未在本班`
-        : `已删除 ${deleted} 人`,
+      missing: hard ? [] : missing,
+      message: hard
+        ? `已永久删除 ${deleted} 人`
+        : missing.length
+          ? `已移入回收站 ${deleted} 人，${missing.length} 人未在本班`
+          : `已移入回收站 ${deleted} 人（${RECYCLE_RETENTION_DAYS} 日内可恢复）`,
     });
+  },
+);
+
+/** Bulk set / clear student numbers. action: prefix | clear | setPrefix */
+classesRouter.post(
+  '/api/v1/classes/:id/students/bulk-student-no',
+  requireAuth,
+  requireRoles('teacher', 'admin'),
+  (req: AuthedRequest, res) => {
+    const classId = paramId(req.params.id);
+    const ids = parseIdList(req.body?.ids, 500);
+    const action = String(req.body?.action ?? '').trim();
+    const prefix = String(req.body?.prefix ?? '').trim();
+    if (ids.length === 0) {
+      res.status(400).json({ error: 'ids_required', message: '请选择学生' });
+      return;
+    }
+    if (!['clear', 'prefix'].includes(action)) {
+      res.status(400).json({ error: 'invalid_action', message: 'action 须为 clear / prefix' });
+      return;
+    }
+    if (action === 'prefix') {
+      if (!prefix || !/^[A-Za-z0-9_-]{1,16}$/.test(prefix)) {
+        res.status(400).json({
+          error: 'invalid_prefix',
+          message: '前缀须为 1–16 位字母数字_-',
+        });
+        return;
+      }
+    }
+    const db = openDb();
+    const students = db
+      .prepare(
+        `SELECT id, student_no AS studentNo, display_name AS displayName
+         FROM users
+         WHERE role = 'student' AND class_id = ?
+           AND (deleted_at IS NULL OR deleted_at = '')`,
+      )
+      .all(classId) as Array<{ id: string; studentNo: string | null; displayName: string }>;
+    const byId = new Map(students.map((s) => [s.id, s]));
+    const selected = ids.map((id) => byId.get(id)).filter(Boolean) as Array<{
+      id: string;
+      studentNo: string | null;
+      displayName: string;
+    }>;
+    if (selected.length === 0) {
+      res.status(400).json({ error: 'none_found', message: '选中学生均不在本班' });
+      return;
+    }
+
+    type Plan = { id: string; next: string | null };
+    const plans: Plan[] = selected.map((s) => {
+      if (action === 'clear') return { id: s.id, next: null };
+      const base = (s.studentNo && s.studentNo.trim()) || s.id.slice(0, 8);
+      const stripped = base.startsWith(prefix) ? base.slice(prefix.length) : base;
+      const next = `${prefix}${stripped}`;
+      return { id: s.id, next };
+    });
+
+    for (const p of plans) {
+      if (p.next && !/^[A-Za-z0-9_-]{1,32}$/.test(p.next)) {
+        res.status(400).json({
+          error: 'invalid_student_no',
+          message: `生成学号非法：${p.next}`,
+        });
+        return;
+      }
+    }
+
+    const nextNos = plans.map((p) => p.next).filter((n): n is string => Boolean(n));
+    const dupInBatch = nextNos.filter((n, i) => nextNos.indexOf(n) !== i);
+    if (dupInBatch.length) {
+      res.status(409).json({
+        error: 'duplicate_in_batch',
+        message: `批次内学号冲突：${[...new Set(dupInBatch)].slice(0, 5).join('、')}`,
+      });
+      return;
+    }
+
+    const selectedSet = new Set(plans.map((p) => p.id));
+    const occupied = new Set(
+      students
+        .filter((s) => !selectedSet.has(s.id) && s.studentNo)
+        .map((s) => String(s.studentNo)),
+    );
+    const conflicts = plans.filter((p) => p.next && occupied.has(p.next));
+    if (conflicts.length) {
+      res.status(409).json({
+        error: 'duplicate_student_no',
+        message: `与现有学号冲突：${conflicts
+          .slice(0, 5)
+          .map((c) => c.next)
+          .join('、')}`,
+      });
+      return;
+    }
+
+    let updated = 0;
+    db.exec('BEGIN');
+    try {
+      const stmt = db.prepare(`UPDATE users SET student_no = ? WHERE id = ? AND class_id = ?`);
+      for (const p of plans) {
+        const info = stmt.run(p.next, p.id, classId);
+        if (info.changes) updated += 1;
+      }
+      db.exec('COMMIT');
+    } catch (e) {
+      db.exec('ROLLBACK');
+      throw e;
+    }
+    writeAudit({
+      actorUserId: req.user?.id,
+      actorRole: req.user?.role,
+      action: 'students.bulk_student_no',
+      classId,
+      detail: { action, prefix: action === 'prefix' ? prefix : null, ids: plans.map((p) => p.id), updated },
+      clientIp: req.ip,
+    });
+    res.json({
+      ok: true,
+      updated,
+      requested: ids.length,
+      message: action === 'clear' ? `已清空 ${updated} 人学号` : `已为 ${updated} 人加前缀「${prefix}」`,
+    });
+  },
+);
+
+/** Recycle bin: soft-deleted students. */
+classesRouter.get(
+  '/api/v1/classes/:id/students/recycle',
+  requireAuth,
+  requireRoles('teacher', 'admin', 'assistant'),
+  (req, res) => {
+    const classId = paramId(req.params.id);
+    const raw = openDb()
+      .prepare(
+        `SELECT id, display_name AS displayName, student_no AS studentNo, total_points AS totalPoints,
+                deleted_at AS deletedAt, created_at AS createdAt
+         FROM users
+         WHERE role = 'student' AND class_id = ?
+           AND deleted_at IS NOT NULL AND deleted_at != ''
+         ORDER BY deleted_at DESC`,
+      )
+      .all(classId) as Array<{
+      id: string;
+      displayName: string;
+      studentNo: string | null;
+      totalPoints: number;
+      deletedAt: string;
+      createdAt: string;
+    }>;
+    const now = Date.now();
+    const items = raw.map((row) => {
+      const deletedMs = Date.parse(row.deletedAt);
+      const expiresAt = Number.isFinite(deletedMs)
+        ? new Date(deletedMs + RECYCLE_RETENTION_DAYS * 86_400_000).toISOString()
+        : null;
+      const daysLeft =
+        expiresAt != null
+          ? Math.max(0, Math.ceil((Date.parse(expiresAt) - now) / 86_400_000))
+          : null;
+      return { ...row, expiresAt, daysLeft, retentionDays: RECYCLE_RETENTION_DAYS };
+    });
+    res.json({ items, retentionDays: RECYCLE_RETENTION_DAYS });
+  },
+);
+
+classesRouter.post(
+  '/api/v1/classes/:id/students/bulk-restore',
+  requireAuth,
+  requireRoles('teacher', 'admin'),
+  (req: AuthedRequest, res) => {
+    const classId = paramId(req.params.id);
+    const ids = parseIdList(req.body?.ids, 500);
+    if (ids.length === 0) {
+      res.status(400).json({ error: 'ids_required', message: '请选择要恢复的学生' });
+      return;
+    }
+    const db = openDb();
+    let restored = 0;
+    db.exec('BEGIN');
+    try {
+      for (const chunk of chunkIds(ids)) {
+        const ph = sqlInPlaceholders(chunk.length);
+        const info = db
+          .prepare(
+            `UPDATE users SET deleted_at = NULL
+             WHERE role = 'student' AND class_id = ?
+               AND deleted_at IS NOT NULL AND deleted_at != ''
+               AND id IN (${ph})`,
+          )
+          .run(classId, ...chunk);
+        restored += Number(info.changes ?? 0);
+      }
+      db.exec('COMMIT');
+    } catch (e) {
+      db.exec('ROLLBACK');
+      throw e;
+    }
+    for (const id of ids) clearSessionKick(id, db);
+    writeAudit({
+      actorUserId: req.user?.id,
+      actorRole: req.user?.role,
+      action: 'students.bulk_restore',
+      classId,
+      detail: { ids, restored },
+      clientIp: req.ip,
+    });
+    res.json({
+      ok: true,
+      restored,
+      requested: ids.length,
+      message: `已恢复 ${restored} 人`,
+    });
+  },
+);
+
+classesRouter.post(
+  '/api/v1/classes/:id/students/bulk-purge',
+  requireAuth,
+  requireRoles('teacher', 'admin'),
+  (req: AuthedRequest, res) => {
+    const classId = paramId(req.params.id);
+    const ids = parseIdList(req.body?.ids, 500);
+    if (ids.length === 0) {
+      res.status(400).json({ error: 'ids_required', message: '请选择要永久删除的学生' });
+      return;
+    }
+    const db = openDb();
+    let purged = 0;
+    db.exec('BEGIN');
+    try {
+      for (const chunk of chunkIds(ids)) {
+        const ph = sqlInPlaceholders(chunk.length);
+        const info = db
+          .prepare(
+            `DELETE FROM users
+             WHERE role = 'student' AND class_id = ?
+               AND deleted_at IS NOT NULL AND deleted_at != ''
+               AND id IN (${ph})`,
+          )
+          .run(classId, ...chunk);
+        purged += Number(info.changes ?? 0);
+      }
+      db.exec('COMMIT');
+    } catch (e) {
+      db.exec('ROLLBACK');
+      throw e;
+    }
+    writeAudit({
+      actorUserId: req.user?.id,
+      actorRole: req.user?.role,
+      action: 'students.bulk_purge',
+      classId,
+      detail: { ids, purged },
+      clientIp: req.ip,
+    });
+    res.json({
+      ok: true,
+      purged,
+      requested: ids.length,
+      message: `已永久删除 ${purged} 人`,
+    });
+  },
+);
+
+classesRouter.post(
+  '/api/v1/classes/:id/students/recycle/restore-all',
+  requireAuth,
+  requireRoles('teacher', 'admin'),
+  (req: AuthedRequest, res) => {
+    const classId = paramId(req.params.id);
+    const db = openDb();
+    const doomed = db
+      .prepare(
+        `SELECT id FROM users
+         WHERE role = 'student' AND class_id = ?
+           AND deleted_at IS NOT NULL AND deleted_at != ''`,
+      )
+      .all(classId) as Array<{ id: string }>;
+    const info = db
+      .prepare(
+        `UPDATE users SET deleted_at = NULL
+         WHERE role = 'student' AND class_id = ?
+           AND deleted_at IS NOT NULL AND deleted_at != ''`,
+      )
+      .run(classId);
+    const restored = Number(info.changes ?? 0);
+    for (const r of doomed) clearSessionKick(r.id, db);
+    writeAudit({
+      actorUserId: req.user?.id,
+      actorRole: req.user?.role,
+      action: 'students.recycle_restore_all',
+      classId,
+      detail: { restored },
+      clientIp: req.ip,
+    });
+    res.json({ ok: true, restored, message: `已恢复全部 ${restored} 人` });
+  },
+);
+
+classesRouter.post(
+  '/api/v1/classes/:id/students/recycle/purge-all',
+  requireAuth,
+  requireRoles('teacher', 'admin'),
+  (req: AuthedRequest, res) => {
+    const classId = paramId(req.params.id);
+    const db = openDb();
+    const info = db
+      .prepare(
+        `DELETE FROM users
+         WHERE role = 'student' AND class_id = ?
+           AND deleted_at IS NOT NULL AND deleted_at != ''`,
+      )
+      .run(classId);
+    const purged = Number(info.changes ?? 0);
+    writeAudit({
+      actorUserId: req.user?.id,
+      actorRole: req.user?.role,
+      action: 'students.recycle_purge_all',
+      classId,
+      detail: { purged },
+      clientIp: req.ip,
+    });
+    res.json({ ok: true, purged, message: `已永久清空回收站 ${purged} 人` });
   },
 );

@@ -1,6 +1,11 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState, type CSSProperties, type UIEvent } from 'react';
 import { API_BASE, api, getToken } from './api';
+import { AuditDetail } from './AuditDetail';
+import { canBulkDelete, canWriteClass, isAssistant } from './authRole';
+import { ConfirmModal } from './ConfirmModal';
+import { downloadPost } from './download';
 import { hardReloadTeacherNav } from './navStorage';
+import { useToast } from './toast';
 import {
   IMPORT_ERROR_ZH,
   POINT_REASON_CHIPS,
@@ -34,12 +39,40 @@ export function RosterPanel({
   const [awardMsg, setAwardMsg] = useState('');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
+  const [stuNoPrefix, setStuNoPrefix] = useState('');
+  const [recycle, setRecycle] = useState<Array<Record<string, unknown>>>([]);
+  const [showRecycle, setShowRecycle] = useState(false);
+  const [rosterScrollTop, setRosterScrollTop] = useState(0);
+  const [impactModal, setImpactModal] = useState<{
+    studentCount: number;
+    attendanceRecords: number;
+    pointsLog: number;
+    answers: number;
+    messages: number;
+    pointRequests: number;
+    total: number;
+    ids: string[];
+    label?: string;
+  } | null>(null);
+  const toast = useToast();
+  const allowDelete = canBulkDelete();
+  const allowWrite = canWriteClass();
+  const ROSTER_ROW_H = 44;
+  const ROSTER_VIEW_H = 420;
 
   async function loadStudents() {
     if (!classId) return;
     const r = await api<{ items: Array<Record<string, unknown>> }>(`/api/v1/classes/${classId}/students`);
     setStudents(r.items);
     setSelectedIds(new Set());
+  }
+
+  async function loadRecycle() {
+    if (!classId) return;
+    const r = await api<{ items: Array<Record<string, unknown>> }>(
+      `/api/v1/classes/${classId}/students/recycle`,
+    );
+    setRecycle(r.items);
   }
 
   async function addOneStudent() {
@@ -111,7 +144,17 @@ export function RosterPanel({
 
   useEffect(() => {
     void loadStudents().catch(() => setStudents([]));
+    setShowRecycle(false);
+    setRecycle([]);
+    setRosterScrollTop(0);
   }, [classId]);
+
+  const rosterVirtual = useMemo(() => {
+    const start = Math.max(0, Math.floor(rosterScrollTop / ROSTER_ROW_H) - 4);
+    const visible = Math.ceil(ROSTER_VIEW_H / ROSTER_ROW_H) + 8;
+    const end = Math.min(filteredStudents.length, start + visible);
+    return { start, end, totalH: filteredStudents.length * ROSTER_ROW_H };
+  }, [filteredStudents.length, rosterScrollTop]);
 
   async function confirmBeforeImport(): Promise<boolean> {
     try {
@@ -181,6 +224,8 @@ export function RosterPanel({
   return (
     <section>
       <h2>班级与名单</h2>
+      {!allowWrite ? <p className="hint">助教只读名单，不可创建班级/导入/加分/删人</p> : null}
+      {allowWrite ? (
       <div className="row">
         <input value={name} onChange={(e) => setName(e.target.value)} placeholder="新班级名称" />
         <button
@@ -195,7 +240,10 @@ export function RosterPanel({
           创建班级
         </button>
       </div>
+      ) : null}
 
+      {allowWrite ? (
+      <>
       <h3>单个新增</h3>
       <div className="row">
         <input
@@ -311,9 +359,11 @@ export function RosterPanel({
         从文本导入 CSV
       </button>
       {importResult ? <p className={/失败|错误|无效|损坏/.test(importResult) ? 'error' : 'hint'}>{importResult}</p> : null}
+      </>
+      ) : null}
 
       <h3>当前班名单（{classes.find((c) => c.id === classId)?.name ?? ''}）· 按学号排序</h3>
-      <p className="hint">可直接改姓名/学号并保存；勾选后可批量删除（相关签到/加分/作答等一并清除）。</p>
+      <p className="hint">可直接改姓名/学号并保存；勾选后可批量处理。删除先入回收站，{7} 日内可恢复。</p>
       <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="搜索姓名/学号" />
       <div className="row bulk-bar">
         <label className="row">
@@ -335,28 +385,121 @@ export function RosterPanel({
         </label>
         <button
           type="button"
+          className="secondary"
           disabled={bulkBusy || selectedIds.size === 0}
           onClick={() =>
             void (async () => {
-              const n = selectedIds.size;
-              if (
-                !window.confirm(
-                  `确定批量删除选中的 ${n} 名学生？\n签到、积分流水、作答、留言、加分请求等关联记录也会清除。`,
-                )
-              ) {
+              setBulkBusy(true);
+              try {
+                await downloadPost(
+                  '/api/v1/exports/students-selected',
+                  { classId, ids: [...selectedIds], format: 'xlsx' },
+                  `students-selected.xlsx`,
+                );
+                toast.ok(`已导出选中 ${selectedIds.size} 人`);
+              } catch (e) {
+                toast.err(e instanceof Error ? e.message : '导出失败');
+              } finally {
+                setBulkBusy(false);
+              }
+            })()
+          }
+        >
+          导出选中
+        </button>
+        <input
+          value={stuNoPrefix}
+          onChange={(e) => setStuNoPrefix(e.target.value)}
+          placeholder="学号前缀"
+          aria-label="学号前缀"
+          style={{ width: '7rem' }}
+          disabled={!allowDelete}
+        />
+        <button
+          type="button"
+          className="secondary"
+          disabled={bulkBusy || selectedIds.size === 0 || !allowDelete || !stuNoPrefix.trim()}
+          onClick={() =>
+            void (async () => {
+              if (!window.confirm(`为选中的 ${selectedIds.size} 人学号加上前缀「${stuNoPrefix.trim()}」？`)) {
                 return;
               }
               setBulkBusy(true);
               try {
-                const r = await api<{ message?: string; deleted: number }>(
-                  `/api/v1/classes/${classId}/students/bulk-delete`,
-                  { method: 'POST', body: JSON.stringify({ ids: [...selectedIds] }) },
+                const r = await api<{ message?: string }>(
+                  `/api/v1/classes/${classId}/students/bulk-student-no`,
+                  {
+                    method: 'POST',
+                    body: JSON.stringify({
+                      ids: [...selectedIds],
+                      action: 'prefix',
+                      prefix: stuNoPrefix.trim(),
+                    }),
+                  },
                 );
-                setImportResult(r.message ?? `已删除 ${r.deleted} 人`);
+                toast.ok(r.message ?? '已更新学号');
                 await loadStudents();
-                onRosterChanged?.();
               } catch (e) {
-                setImportResult(e instanceof Error ? e.message : '批量删除失败');
+                toast.err(e instanceof Error ? e.message : '学号更新失败');
+              } finally {
+                setBulkBusy(false);
+              }
+            })()
+          }
+        >
+          加前缀
+        </button>
+        <button
+          type="button"
+          className="secondary"
+          disabled={bulkBusy || selectedIds.size === 0 || !allowDelete}
+          onClick={() =>
+            void (async () => {
+              if (!window.confirm(`清空选中的 ${selectedIds.size} 人学号？`)) return;
+              setBulkBusy(true);
+              try {
+                const r = await api<{ message?: string }>(
+                  `/api/v1/classes/${classId}/students/bulk-student-no`,
+                  {
+                    method: 'POST',
+                    body: JSON.stringify({ ids: [...selectedIds], action: 'clear' }),
+                  },
+                );
+                toast.ok(r.message ?? '已清空学号');
+                await loadStudents();
+              } catch (e) {
+                toast.err(e instanceof Error ? e.message : '清空失败');
+              } finally {
+                setBulkBusy(false);
+              }
+            })()
+          }
+        >
+          清空学号
+        </button>
+        <button
+          type="button"
+          data-testid="bulk-delete-students"
+          disabled={bulkBusy || selectedIds.size === 0 || !allowDelete}
+          onClick={() =>
+            void (async () => {
+              setBulkBusy(true);
+              try {
+                const impact = await api<{
+                  studentCount: number;
+                  attendanceRecords: number;
+                  pointsLog: number;
+                  answers: number;
+                  messages: number;
+                  pointRequests: number;
+                  total: number;
+                }>(`/api/v1/classes/${classId}/students/bulk-impact`, {
+                  method: 'POST',
+                  body: JSON.stringify({ ids: [...selectedIds] }),
+                });
+                setImpactModal({ ...impact, ids: [...selectedIds] });
+              } catch (e) {
+                toast.err(e instanceof Error ? e.message : '无法获取影响汇总');
               } finally {
                 setBulkBusy(false);
               }
@@ -365,40 +508,239 @@ export function RosterPanel({
         >
           批量删除（{selectedIds.size}）
         </button>
+        {!allowDelete ? <span className="hint">助教不可批量删除/改学号</span> : null}
       </div>
-      <table className="data-table">
-        <thead>
-          <tr>
-            <th style={{ width: '2.5rem' }}>选</th>
-            <th>学号</th>
-            <th>姓名</th>
-            <th>积分</th>
-            <th>操作</th>
-          </tr>
-        </thead>
-        <tbody>
-          {filteredStudents.map((s) => (
-            <StudentRow
-              key={String(s.id)}
-              classId={classId}
-              student={s}
-              selected={selectedIds.has(String(s.id))}
-              onSelectChange={(id, on) => {
-                setSelectedIds((prev) => {
-                  const next = new Set(prev);
-                  if (on) next.add(id);
-                  else next.delete(id);
-                  return next;
-                });
-              }}
-              onChanged={() => void loadStudents()}
-              onRemoved={() => onRosterChanged?.()}
-              onError={(msg) => setImportResult(msg)}
-            />
-          ))}
-        </tbody>
-      </table>
+      <div className="row" style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 4 }}>
+        <span style={{ width: '2.5rem' }}>选</span>
+        <span style={{ flex: 1 }}>学号</span>
+        <span style={{ flex: 1.2 }}>姓名</span>
+        <span style={{ width: '4rem' }}>积分</span>
+        <span>操作</span>
+      </div>
       {filteredStudents.length === 0 ? <p className="hint">暂无学生</p> : null}
+      <div
+        className="roster-virtual"
+        style={{ height: ROSTER_VIEW_H }}
+        data-testid="roster-virtual"
+        onScroll={(e: UIEvent<HTMLDivElement>) => setRosterScrollTop(e.currentTarget.scrollTop)}
+      >
+        <div className="roster-virtual-inner" style={{ height: rosterVirtual.totalH }}>
+          {filteredStudents.slice(rosterVirtual.start, rosterVirtual.end).map((s, i) => {
+            const idx = rosterVirtual.start + i;
+            return (
+              <StudentRow
+                key={String(s.id)}
+                classId={classId}
+                student={s}
+                style={{ top: idx * ROSTER_ROW_H, height: ROSTER_ROW_H } as CSSProperties}
+                selected={selectedIds.has(String(s.id))}
+                onSelectChange={(id, on) => {
+                  setSelectedIds((prev) => {
+                    const next = new Set(prev);
+                    if (on) next.add(id);
+                    else next.delete(id);
+                    return next;
+                  });
+                }}
+                onChanged={() => void loadStudents()}
+                onRemoved={() => {
+                  onRosterChanged?.();
+                  toast.ok('已移入回收站');
+                }}
+                onError={(msg) => toast.err(msg)}
+                onRequestDelete={allowWrite ? (payload) => setImpactModal(payload) : undefined}
+                allowWrite={allowWrite}
+              />
+            );
+          })}
+        </div>
+      </div>
+      <ConfirmModal
+        open={Boolean(impactModal)}
+        title="确认移入回收站"
+        confirmLabel="移入回收站"
+        busy={bulkBusy}
+        body={
+          impactModal ? (
+            <>
+              <p>
+                {impactModal.label
+                  ? `将「${impactModal.label}」移入回收站（7 日内可恢复）。`
+                  : `将 ${impactModal.studentCount} 名学生移入回收站（7 日内可恢复）。`}
+              </p>
+              <p>
+                关联数据暂保留：签到 {impactModal.attendanceRecords} · 积分流水 {impactModal.pointsLog} ·
+                作答 {impactModal.answers} · 留言 {impactModal.messages} · 加分请求{' '}
+                {impactModal.pointRequests}（共 {impactModal.total} 条）。
+              </p>
+              <p>永久删除或到期清理时才会清除关联记录；在线学生端将被踢下线。</p>
+            </>
+          ) : null
+        }
+        onCancel={() => setImpactModal(null)}
+        onConfirm={() =>
+          void (async () => {
+            if (!impactModal) return;
+            setBulkBusy(true);
+            try {
+              const r = await api<{ message?: string; deleted: number }>(
+                `/api/v1/classes/${classId}/students/bulk-delete`,
+                { method: 'POST', body: JSON.stringify({ ids: impactModal.ids }) },
+              );
+              toast.ok(r.message ?? `已移入回收站 ${r.deleted} 人`);
+              setImpactModal(null);
+              await loadStudents();
+              onRosterChanged?.();
+              if (showRecycle) await loadRecycle();
+            } catch (e) {
+              toast.err(e instanceof Error ? e.message : '批量删除失败');
+            } finally {
+              setBulkBusy(false);
+            }
+          })()
+        }
+      />
+
+      <div className="recycle-box">
+        <button
+          type="button"
+          className="secondary"
+          onClick={() =>
+            void (async () => {
+              const next = !showRecycle;
+              setShowRecycle(next);
+              if (next) {
+                try {
+                  await loadRecycle();
+                } catch (e) {
+                  toast.err(e instanceof Error ? e.message : '加载回收站失败');
+                }
+              }
+            })()
+          }
+        >
+          {showRecycle ? '收起回收站' : '学生回收站'}
+        </button>
+        {showRecycle ? (
+          <>
+            <p className="hint">软删除学生可恢复；永久删除会级联清除关联记录。</p>
+            {allowDelete && recycle.length > 0 ? (
+              <div className="row bulk-bar">
+                <button
+                  type="button"
+                  className="secondary"
+                  onClick={() =>
+                    void (async () => {
+                      if (!window.confirm(`恢复回收站全部 ${recycle.length} 人？`)) return;
+                      try {
+                        const r = await api<{ message?: string }>(
+                          `/api/v1/classes/${classId}/students/recycle/restore-all`,
+                          { method: 'POST', body: '{}' },
+                        );
+                        toast.ok(r.message ?? '已全部恢复');
+                        await loadRecycle();
+                        await loadStudents();
+                        onRosterChanged?.();
+                      } catch (e) {
+                        toast.err(e instanceof Error ? e.message : '恢复失败');
+                      }
+                    })()
+                  }
+                >
+                  一键恢复全部
+                </button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    void (async () => {
+                      if (
+                        !window.confirm(
+                          `永久清空回收站全部 ${recycle.length} 人？不可恢复，关联记录一并清除。`,
+                        )
+                      ) {
+                        return;
+                      }
+                      try {
+                        const r = await api<{ message?: string }>(
+                          `/api/v1/classes/${classId}/students/recycle/purge-all`,
+                          { method: 'POST', body: '{}' },
+                        );
+                        toast.ok(r.message ?? '已清空');
+                        await loadRecycle();
+                      } catch (e) {
+                        toast.err(e instanceof Error ? e.message : '清空失败');
+                      }
+                    })()
+                  }
+                >
+                  一键清空全部
+                </button>
+              </div>
+            ) : null}
+            {recycle.length === 0 ? <p className="hint">回收站为空</p> : null}
+            <ul className="question-list">
+              {recycle.map((s) => (
+                <li key={String(s.id)} className="question-item">
+                  <span className="title">
+                    {String(s.displayName)}
+                    {s.studentNo ? ` · ${String(s.studentNo)}` : ''}
+                    {s.deletedAt ? ` · 删除于 ${String(s.deletedAt).slice(0, 19)}` : ''}
+                    {s.daysLeft != null ? (
+                      <span className="days-left"> · 剩余 {String(s.daysLeft)} 天</span>
+                    ) : null}
+                  </span>
+                  {allowDelete ? (
+                    <>
+                      <button
+                        type="button"
+                        className="secondary"
+                        onClick={() =>
+                          void (async () => {
+                            try {
+                              await api(`/api/v1/classes/${classId}/students/bulk-restore`, {
+                                method: 'POST',
+                                body: JSON.stringify({ ids: [String(s.id)] }),
+                              });
+                              toast.ok(`已恢复 ${String(s.displayName)}`);
+                              await loadRecycle();
+                              await loadStudents();
+                              onRosterChanged?.();
+                            } catch (e) {
+                              toast.err(e instanceof Error ? e.message : '恢复失败');
+                            }
+                          })()
+                        }
+                      >
+                        恢复
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          void (async () => {
+                            if (!window.confirm(`永久删除「${String(s.displayName)}」？不可恢复。`)) return;
+                            try {
+                              await api(`/api/v1/classes/${classId}/students/bulk-purge`, {
+                                method: 'POST',
+                                body: JSON.stringify({ ids: [String(s.id)] }),
+                              });
+                              toast.ok('已永久删除');
+                              await loadRecycle();
+                            } catch (e) {
+                              toast.err(e instanceof Error ? e.message : '永久删除失败');
+                            }
+                          })()
+                        }
+                      >
+                        永久删除
+                      </button>
+                    </>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+          </>
+        ) : null}
+      </div>
     </section>
   );
 }
@@ -411,6 +753,9 @@ export function StudentRow({
   onChanged,
   onRemoved,
   onError,
+  onRequestDelete,
+  allowWrite = true,
+  style,
 }: {
   classId: string;
   student: Record<string, unknown>;
@@ -419,6 +764,19 @@ export function StudentRow({
   onChanged: () => void;
   onRemoved?: () => void;
   onError: (msg: string) => void;
+  onRequestDelete?: (payload: {
+    ids: string[];
+    studentCount: number;
+    attendanceRecords: number;
+    pointsLog: number;
+    answers: number;
+    messages: number;
+    pointRequests: number;
+    total: number;
+    label: string;
+  }) => void;
+  allowWrite?: boolean;
+  style?: CSSProperties;
 }) {
   const id = String(student.id);
   const [name, setName] = useState(String(student.displayName ?? ''));
@@ -448,21 +806,28 @@ export function StudentRow({
   async function remove() {
     setBusy(true);
     try {
-      let impactText = '相关签到与加分记录也会清除';
-      try {
-        const impact = await api<{
-          attendanceRecords: number;
-          pointsLog: number;
-          answers: number;
-          messages: number;
-          pointRequests: number;
-          total: number;
-        }>(`/api/v1/classes/${classId}/students/${id}/impact`);
-        impactText = `将清除：签到 ${impact.attendanceRecords} · 积分流水 ${impact.pointsLog} · 作答 ${impact.answers} · 留言 ${impact.messages} · 加分请求 ${impact.pointRequests}（共 ${impact.total} 条）`;
-      } catch {
-        /* keep default */
+      const impact = await api<{
+        attendanceRecords: number;
+        pointsLog: number;
+        answers: number;
+        messages: number;
+        pointRequests: number;
+        total: number;
+      }>(`/api/v1/classes/${classId}/students/${id}/impact`);
+      if (onRequestDelete) {
+        onRequestDelete({
+          ids: [id],
+          studentCount: 1,
+          attendanceRecords: impact.attendanceRecords,
+          pointsLog: impact.pointsLog,
+          answers: impact.answers,
+          messages: impact.messages,
+          pointRequests: impact.pointRequests,
+          total: impact.total,
+          label: name || id,
+        });
+        return;
       }
-      if (!window.confirm(`确定删除「${name || id}」？\n${impactText}`)) return;
       await api(`/api/v1/classes/${classId}/students/${id}`, { method: 'DELETE' });
       onChanged();
       onRemoved?.();
@@ -474,44 +839,47 @@ export function StudentRow({
   }
 
   return (
-    <tr>
-      <td>
-        <input
-          type="checkbox"
-          checked={Boolean(selected)}
-          disabled={busy}
-          aria-label={`选择 ${name || id}`}
-          onChange={(e) => onSelectChange?.(id, e.target.checked)}
-        />
-      </td>
-      <td>
-        <input
-          value={studentNo}
-          disabled={busy}
-          onChange={(e) => setStudentNo(e.target.value)}
-          placeholder="学号"
-          aria-label="学号"
-        />
-      </td>
-      <td>
-        <input
-          value={name}
-          disabled={busy}
-          onChange={(e) => setName(e.target.value)}
-          placeholder="姓名"
-          aria-label="姓名"
-        />
-      </td>
-      <td>{String(student.totalPoints)}</td>
-      <td>
-        <button type="button" className="secondary" disabled={busy} onClick={() => void save()}>
-          保存
-        </button>{' '}
-        <button type="button" disabled={busy} onClick={() => void remove()}>
-          删除
-        </button>
-      </td>
-    </tr>
+    <div className="roster-virtual-row" style={style} data-testid={`student-row-${id}`}>
+      <input
+        type="checkbox"
+        checked={Boolean(selected)}
+        disabled={busy}
+        aria-label={`选择 ${name || id}`}
+        data-testid={`student-check-${id}`}
+        onChange={(e) => onSelectChange?.(id, e.target.checked)}
+      />
+      <input
+        value={studentNo}
+        disabled={busy || !allowWrite}
+        onChange={(e) => setStudentNo(e.target.value)}
+        placeholder="学号"
+        aria-label="学号"
+        readOnly={!allowWrite}
+      />
+      <input
+        value={name}
+        disabled={busy || !allowWrite}
+        onChange={(e) => setName(e.target.value)}
+        placeholder="姓名"
+        aria-label="姓名"
+        readOnly={!allowWrite}
+      />
+      <span>{String(student.totalPoints)}</span>
+      <span>
+        {allowWrite ? (
+          <>
+            <button type="button" className="secondary" disabled={busy} onClick={() => void save()}>
+              保存
+            </button>{' '}
+            <button type="button" disabled={busy} onClick={() => void remove()}>
+              删除
+            </button>
+          </>
+        ) : (
+          <span className="hint">只读</span>
+        )}
+      </span>
+    </div>
   );
 }
 
@@ -554,6 +922,13 @@ export function QuestionsPanel({ classId }: { classId: string }) {
   const [editingQuestion, setEditingQuestion] = useState<Record<string, unknown> | null>(null);
   const [selectedQIds, setSelectedQIds] = useState<Set<string>>(new Set());
   const [bulkQBusy, setBulkQBusy] = useState(false);
+  const [bulkClosesAt, setBulkClosesAt] = useState('');
+  const [qScrollTop, setQScrollTop] = useState(0);
+  const toast = useToast();
+  const allowDelete = canBulkDelete();
+  const allowWrite = canWriteClass();
+  const Q_ROW_H = 48;
+  const Q_VIEW_H = 420;
 
   async function load() {
     const q = showArchived ? '&includeArchived=1' : '';
@@ -564,23 +939,40 @@ export function QuestionsPanel({ classId }: { classId: string }) {
     setSelectedQIds(new Set());
   }
 
-  async function bulkQuestions(action: 'delete' | 'close' | 'reopen' | 'archive' | 'unarchive') {
+  async function bulkQuestions(
+    action: 'delete' | 'purge' | 'restore' | 'close' | 'reopen' | 'archive' | 'unarchive' | 'set_closes_at',
+  ) {
     if (selectedQIds.size === 0) return;
+    if (!allowDelete && (action === 'delete' || action === 'purge')) {
+      toast.err('助教不可批量删除');
+      return;
+    }
     const labels: Record<typeof action, string> = {
-      delete: '删除',
+      delete: '移入回收站',
+      purge: '永久删除',
+      restore: '恢复',
       close: '收卷',
       reopen: '重开',
       archive: '下线',
-      unarchive: '恢复',
+      unarchive: '恢复上线',
+      set_closes_at: '设置截止',
     };
     if (action === 'delete') {
       if (
         !window.confirm(
-          `确定批量删除选中的 ${selectedQIds.size} 道题？作答记录也会清除。`,
+          `确定将选中的 ${selectedQIds.size} 道题移入回收站？作答记录暂保留，永久删除或到期后清除。`,
         )
       ) {
         return;
       }
+    } else if (action === 'purge') {
+      if (!window.confirm(`永久删除选中的 ${selectedQIds.size} 道题？不可恢复。`)) return;
+    } else if (action === 'set_closes_at') {
+      if (!bulkClosesAt.trim()) {
+        toast.err('请填写截止时间');
+        return;
+      }
+      if (!window.confirm(`为选中的 ${selectedQIds.size} 道题设置截止 ${bulkClosesAt}？`)) return;
     } else if (
       !window.confirm(`确定对选中的 ${selectedQIds.size} 道题执行「${labels[action]}」？`)
     ) {
@@ -590,15 +982,27 @@ export function QuestionsPanel({ classId }: { classId: string }) {
     try {
       const r = await api<{ message?: string; affected: number }>('/api/v1/questions/bulk', {
         method: 'POST',
-        body: JSON.stringify({ classId, ids: [...selectedQIds], action }),
+        body: JSON.stringify({
+          classId,
+          ids: [...selectedQIds],
+          action,
+          closesAt:
+            action === 'set_closes_at'
+              ? new Date(bulkClosesAt).toISOString()
+              : undefined,
+        }),
       });
-      setCreateMsg(r.message ?? `已${labels[action]} ${r.affected} 题`);
-      if (action === 'delete' && editingQuestion && selectedQIds.has(String(editingQuestion.id))) {
+      toast.ok(r.message ?? `已${labels[action]} ${r.affected} 题`);
+      if (
+        (action === 'delete' || action === 'purge') &&
+        editingQuestion &&
+        selectedQIds.has(String(editingQuestion.id))
+      ) {
         setEditingQuestion(null);
       }
       await load();
     } catch (e) {
-      setCreateMsg(e instanceof Error ? e.message : '批量操作失败');
+      toast.err(e instanceof Error ? e.message : '批量操作失败');
     } finally {
       setBulkQBusy(false);
     }
@@ -607,6 +1011,13 @@ export function QuestionsPanel({ classId }: { classId: string }) {
   useEffect(() => {
     void load().catch(() => setItems([]));
   }, [classId, showArchived]);
+
+  const qVirtual = useMemo(() => {
+    const start = Math.max(0, Math.floor(qScrollTop / Q_ROW_H) - 4);
+    const visible = Math.ceil(Q_VIEW_H / Q_ROW_H) + 8;
+    const end = Math.min(items.length, start + visible);
+    return { start, end, totalH: items.length * Q_ROW_H };
+  }, [items.length, qScrollTop]);
 
   function applyTemplate(kind: 'bool' | 'blank') {
     setType(kind);
@@ -768,13 +1179,18 @@ export function QuestionsPanel({ classId }: { classId: string }) {
   return (
     <section>
       <h2>发题 / 正确率 · 错误率</h2>
+      {!allowWrite ? <p className="hint">助教可收卷/下线，不可发布或编辑题目</p> : null}
       <div className="row">
-        <button type="button" className="chip" onClick={() => applyTemplate('bool')}>
-          判断题模板
-        </button>
-        <button type="button" className="chip" onClick={() => applyTemplate('blank')}>
-          填空题模板
-        </button>
+        {allowWrite ? (
+          <>
+            <button type="button" className="chip" onClick={() => applyTemplate('bool')}>
+              判断题模板
+            </button>
+            <button type="button" className="chip" onClick={() => applyTemplate('blank')}>
+              填空题模板
+            </button>
+          </>
+        ) : null}
         <label className="row">
           <input
             type="checkbox"
@@ -784,6 +1200,8 @@ export function QuestionsPanel({ classId }: { classId: string }) {
           显示已下线
         </label>
       </div>
+      {allowWrite ? (
+      <>
       <select value={type} onChange={(e) => setType(e.target.value as typeof type)}>
         <option value="single">单选</option>
         <option value="multi">多选</option>
@@ -904,6 +1322,8 @@ export function QuestionsPanel({ classId }: { classId: string }) {
         发布题目
       </button>
       {createMsg ? <p className="hint">{createMsg}</p> : null}
+      </>
+      ) : null}
       <div className="row bulk-bar">
         <label className="row">
           <input
@@ -916,7 +1336,27 @@ export function QuestionsPanel({ classId }: { classId: string }) {
           />
           全选（{items.length}）· 已选 {selectedQIds.size}
         </label>
-        <button type="button" disabled={bulkQBusy || selectedQIds.size === 0} onClick={() => void bulkQuestions('close')}>
+        <button
+          type="button"
+          className="secondary"
+          disabled={bulkQBusy || items.every((q) => !q.closed)}
+          onClick={() =>
+            setSelectedQIds(new Set(items.filter((q) => q.closed).map((q) => String(q.id))))
+          }
+        >
+          全选已收卷
+        </button>
+        <button
+          type="button"
+          className="secondary"
+          disabled={bulkQBusy || items.every((q) => !q.archived)}
+          onClick={() =>
+            setSelectedQIds(new Set(items.filter((q) => q.archived).map((q) => String(q.id))))
+          }
+        >
+          全选已下线
+        </button>
+        <button type="button" className="secondary" disabled={bulkQBusy || selectedQIds.size === 0} onClick={() => void bulkQuestions('close')}>
           批量收卷
         </button>
         <button type="button" className="secondary" disabled={bulkQBusy || selectedQIds.size === 0} onClick={() => void bulkQuestions('reopen')}>
@@ -926,22 +1366,97 @@ export function QuestionsPanel({ classId }: { classId: string }) {
           批量下线
         </button>
         <button type="button" className="secondary" disabled={bulkQBusy || selectedQIds.size === 0} onClick={() => void bulkQuestions('unarchive')}>
-          批量恢复
+          批量恢复上线
         </button>
-        <button type="button" disabled={bulkQBusy || selectedQIds.size === 0} onClick={() => void bulkQuestions('delete')}>
+        <input
+          type="datetime-local"
+          value={bulkClosesAt}
+          onChange={(e) => setBulkClosesAt(e.target.value)}
+          aria-label="批量截止时间"
+          disabled={!allowDelete}
+        />
+        <button
+          type="button"
+          className="secondary"
+          disabled={bulkQBusy || selectedQIds.size === 0 || !allowDelete || !bulkClosesAt.trim()}
+          onClick={() => void bulkQuestions('set_closes_at')}
+        >
+          批量设截止
+        </button>
+        <button
+          type="button"
+          className="secondary"
+          disabled={bulkQBusy || selectedQIds.size === 0 || !allowDelete}
+          onClick={() =>
+            void (async () => {
+              if (!window.confirm(`清空选中的 ${selectedQIds.size} 道题的截止时间？`)) return;
+              setBulkQBusy(true);
+              try {
+                const r = await api<{ message?: string }>('/api/v1/questions/bulk', {
+                  method: 'POST',
+                  body: JSON.stringify({
+                    classId,
+                    ids: [...selectedQIds],
+                    action: 'set_closes_at',
+                    closesAt: null,
+                  }),
+                });
+                toast.ok(r.message ?? '已清空截止');
+                await load();
+              } catch (e) {
+                toast.err(e instanceof Error ? e.message : '清空失败');
+              } finally {
+                setBulkQBusy(false);
+              }
+            })()
+          }
+        >
+          清空截止
+        </button>
+        <button
+          type="button"
+          className="secondary"
+          disabled={bulkQBusy || selectedQIds.size === 0}
+          onClick={() =>
+            void (async () => {
+              try {
+                await downloadPost(
+                  '/api/v1/exports/questions-selected',
+                  { classId, ids: [...selectedQIds], format: 'xlsx' },
+                  'questions-selected.xlsx',
+                );
+                toast.ok(`已导出选中 ${selectedQIds.size} 题`);
+              } catch (e) {
+                toast.err(e instanceof Error ? e.message : '导出失败');
+              }
+            })()
+          }
+        >
+          导出选中
+        </button>
+        <button type="button" disabled={bulkQBusy || selectedQIds.size === 0 || !allowDelete} onClick={() => void bulkQuestions('delete')}>
           批量删除
         </button>
+        {!allowDelete ? <span className="hint">助教不可删除/设截止</span> : null}
       </div>
-      <ul className="question-list">
-        {items.map((q) => {
+      {items.length === 0 ? <p className="hint">暂无题目</p> : null}
+      <div
+        className="q-virtual"
+        style={{ height: Q_VIEW_H }}
+        onScroll={(e: UIEvent<HTMLDivElement>) => setQScrollTop(e.currentTarget.scrollTop)}
+      >
+        <div className="q-virtual-inner" style={{ height: qVirtual.totalH }}>
+          {items.slice(qVirtual.start, qVirtual.end).map((q, i) => {
+          const idx = qVirtual.start + i;
           const qid = String(q.id);
           const active = editingQuestion && String(editingQuestion.id) === qid;
           const closed = Boolean(q.closed);
           const archived = Boolean(q.archived);
           return (
-            <li
+            <div
               key={qid}
-              className={`question-item${active ? ' active' : ''}`}
+              className={`q-virtual-row question-item${active ? ' active' : ''}`}
+              style={{ top: idx * Q_ROW_H, height: Q_ROW_H }}
               tabIndex={0}
               role="button"
               onClick={() => {
@@ -1038,36 +1553,44 @@ export function QuestionsPanel({ classId }: { classId: string }) {
               <button
                 type="button"
                 className="secondary"
+                disabled={!allowDelete}
                 onClick={(e) => {
                   e.stopPropagation();
-                  if (!window.confirm(`确定删除题目「${String(q.title)}」？作答记录也会清除。`)) return;
+                  if (!allowDelete) return;
+                  if (!window.confirm(`将题目「${String(q.title)}」移入回收站？`)) return;
                   void api(`/api/v1/questions/${String(q.id)}`, { method: 'DELETE' })
                     .then(async () => {
+                      toast.ok('已移入回收站');
                       if (String(editingQuestion?.id) === String(q.id)) setEditingQuestion(null);
                       await load();
                     })
-                    .catch((err) => setCreateMsg(err instanceof Error ? err.message : '删除失败'));
+                    .catch((err) => toast.err(err instanceof Error ? err.message : '删除失败'));
                 }}
               >
                 删除
               </button>
-            </li>
+            </div>
           );
-        })}
-      </ul>
-      <h3>编辑题目（加载原选项）</h3>
-      <QuestionEditForm
-        classId={classId}
-        seed={editingQuestion}
-        onSaved={async () => {
-          setEditingQuestion(null);
-          await load();
-        }}
-        onDeleted={async () => {
-          setEditingQuestion(null);
-          await load();
-        }}
-      />
+          })}
+        </div>
+      </div>
+      {allowWrite && editingQuestion ? (
+        <>
+          <h3>编辑题目（加载原选项）</h3>
+          <QuestionEditForm
+            classId={classId}
+            seed={editingQuestion}
+            onSaved={async () => {
+              setEditingQuestion(null);
+              await load();
+            }}
+            onDeleted={async () => {
+              setEditingQuestion(null);
+              await load();
+            }}
+          />
+        </>
+      ) : null}
       {chart ? (
         <div className="chart">
           <h3>{chart.title}</h3>
@@ -1096,6 +1619,189 @@ export function QuestionsPanel({ classId }: { classId: string }) {
           })}
         </div>
       ) : null}
+    </section>
+  );
+}
+
+function recycleDaysLeft(deletedAt: unknown, retentionDays = 7): number | null {
+  const ms = Date.parse(String(deletedAt ?? ''));
+  if (!Number.isFinite(ms)) return null;
+  const expires = ms + retentionDays * 86_400_000;
+  return Math.max(0, Math.ceil((expires - Date.now()) / 86_400_000));
+}
+
+export function QuestionRecyclePanel({ classId }: { classId: string }) {
+  const [items, setItems] = useState<Array<Record<string, unknown>>>([]);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [busy, setBusy] = useState(false);
+  const [scrollTop, setScrollTop] = useState(0);
+  const toast = useToast();
+  const allowDelete = canBulkDelete();
+  const ROW_H = 44;
+  const VIEW_H = 420;
+
+  async function load() {
+    const r = await api<{ items: Array<Record<string, unknown>> }>(
+      `/api/v1/questions?classId=${classId}&includeDeleted=1`,
+    );
+    setItems(r.items);
+    setSelected(new Set());
+  }
+
+  useEffect(() => {
+    void load().catch(() => setItems([]));
+    setScrollTop(0);
+  }, [classId]);
+
+  const virt = useMemo(() => {
+    const start = Math.max(0, Math.floor(scrollTop / ROW_H) - 4);
+    const visible = Math.ceil(VIEW_H / ROW_H) + 8;
+    const end = Math.min(items.length, start + visible);
+    return { start, end, totalH: items.length * ROW_H };
+  }, [items.length, scrollTop]);
+
+  async function run(action: 'restore' | 'purge', ids: string[]) {
+    if (!ids.length || !allowDelete) return;
+    if (action === 'purge' && !window.confirm(`永久删除 ${ids.length} 道题？不可恢复。`)) return;
+    setBusy(true);
+    try {
+      const r = await api<{ message?: string }>('/api/v1/questions/bulk', {
+        method: 'POST',
+        body: JSON.stringify({ classId, ids, action }),
+      });
+      toast.ok(r.message ?? '完成');
+      await load();
+    } catch (e) {
+      toast.err(e instanceof Error ? e.message : '操作失败');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section>
+      <h2>题目回收站</h2>
+      <p className="hint">软删除题目在此恢复或永久清除；与「含已下线」无关。默认保留 7 天。</p>
+      <div className="row bulk-bar">
+        <label className="row">
+          <input
+            type="checkbox"
+            checked={items.length > 0 && items.every((q) => selected.has(String(q.id)))}
+            onChange={(e) => {
+              if (e.target.checked) setSelected(new Set(items.map((q) => String(q.id))));
+              else setSelected(new Set());
+            }}
+          />
+          全选（{items.length}）
+        </label>
+        <button
+          type="button"
+          className="secondary"
+          disabled={busy || selected.size === 0 || !allowDelete}
+          onClick={() => void run('restore', [...selected])}
+        >
+          恢复选中
+        </button>
+        <button
+          type="button"
+          disabled={busy || selected.size === 0 || !allowDelete}
+          onClick={() => void run('purge', [...selected])}
+        >
+          永久删除选中
+        </button>
+        <button
+          type="button"
+          className="secondary"
+          disabled={busy || items.length === 0 || !allowDelete}
+          onClick={() =>
+            void (async () => {
+              if (!window.confirm(`恢复全部 ${items.length} 道题？`)) return;
+              setBusy(true);
+              try {
+                const r = await api<{ message?: string }>('/api/v1/questions/recycle/restore-all', {
+                  method: 'POST',
+                  body: JSON.stringify({ classId }),
+                });
+                toast.ok(r.message ?? '已全部恢复');
+                await load();
+              } catch (e) {
+                toast.err(e instanceof Error ? e.message : '恢复失败');
+              } finally {
+                setBusy(false);
+              }
+            })()
+          }
+        >
+          一键恢复全部
+        </button>
+        <button
+          type="button"
+          data-testid="q-recycle-purge-all"
+          disabled={busy || items.length === 0 || !allowDelete}
+          onClick={() =>
+            void (async () => {
+              if (!window.confirm(`永久清空回收站 ${items.length} 道题？`)) return;
+              setBusy(true);
+              try {
+                const r = await api<{ message?: string }>('/api/v1/questions/recycle/purge-all', {
+                  method: 'POST',
+                  body: JSON.stringify({ classId }),
+                });
+                toast.ok(r.message ?? '已清空');
+                await load();
+              } catch (e) {
+                toast.err(e instanceof Error ? e.message : '清空失败');
+              } finally {
+                setBusy(false);
+              }
+            })()
+          }
+        >
+          一键清空全部
+        </button>
+      </div>
+      {items.length === 0 ? <p className="hint">回收站为空</p> : null}
+      <div
+        className="q-virtual"
+        style={{ height: VIEW_H }}
+        data-testid="q-recycle-virtual"
+        onScroll={(e: UIEvent<HTMLDivElement>) => setScrollTop(e.currentTarget.scrollTop)}
+      >
+        <div className="q-virtual-inner" style={{ height: virt.totalH }}>
+          {items.slice(virt.start, virt.end).map((q, i) => {
+            const idx = virt.start + i;
+            const qid = String(q.id);
+            const days = recycleDaysLeft(q.deletedAt);
+            return (
+              <div
+                key={qid}
+                className="q-virtual-row question-item"
+                style={{ top: idx * ROW_H, height: ROW_H }}
+              >
+                <label className="choice">
+                  <input
+                    type="checkbox"
+                    checked={selected.has(qid)}
+                    onChange={(e) => {
+                      setSelected((prev) => {
+                        const next = new Set(prev);
+                        if (e.target.checked) next.add(qid);
+                        else next.delete(qid);
+                        return next;
+                      });
+                    }}
+                  />
+                </label>
+                <span className="title">
+                  [{String(q.type)}] {String(q.title)}
+                  {q.deletedAt ? ` · ${String(q.deletedAt).slice(0, 19)}` : ''}
+                  {days != null ? <span className="days-left"> · 剩余 {days} 天</span> : null}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      </div>
     </section>
   );
 }
@@ -1274,6 +1980,12 @@ export function AttendancePanel({ classId }: { classId: string }) {
   const [month, setMonth] = useState(
     `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`,
   );
+  const [sessionId, setSessionId] = useState('');
+  const [format, setFormat] = useState<'csv' | 'xlsx'>('csv');
+  const [sessions, setSessions] = useState<
+    Array<{ id: string; startAt: string; status: string; mode: string }>
+  >([]);
+  const [exportMsg, setExportMsg] = useState('');
   const [stats, setStats] = useState<{
     sessionCount: number;
     classAttendanceRate: number;
@@ -1289,24 +2001,97 @@ export function AttendancePanel({ classId }: { classId: string }) {
     setStats(r);
   }
 
+  async function loadSessions() {
+    const r = await api<{ items: Array<{ id: string; startAt: string; status: string; mode: string }> }>(
+      `/api/v1/attendance/sessions?classId=${encodeURIComponent(classId)}`,
+    );
+    setSessions(r.items ?? []);
+  }
+
+  async function download(kind: 'detail' | 'summary') {
+    setExportMsg('');
+    const token = getToken();
+    const q = new URLSearchParams({
+      month,
+      classId,
+      format,
+    });
+    if (sessionId) q.set('sessionId', sessionId);
+    const path =
+      kind === 'detail'
+        ? `/api/v1/exports/attendance?${q}`
+        : `/api/v1/exports/attendance-summary?${q}`;
+    try {
+      const res = await fetch(`${API_BASE}${path}`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      });
+      if (!res.ok) throw new Error(`导出失败 HTTP ${res.status}`);
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      const tag = sessionId ? `session-${sessionId.slice(0, 8)}` : month;
+      a.download = `${kind === 'detail' ? 'attendance' : 'attendance-summary'}-${tag}.${format}`;
+      a.click();
+      URL.revokeObjectURL(url);
+      setExportMsg(`已下载 ${a.download}`);
+    } catch (e) {
+      setExportMsg(e instanceof Error ? e.message : '导出失败');
+    }
+  }
+
   useEffect(() => {
     void load().catch(() => setStats(null));
+    void loadSessions().catch(() => setSessions([]));
   }, [classId, month]);
 
   return (
     <section>
-      <h2>出勤报表（月）</h2>
+      <h2>出勤报表</h2>
       <p className="hint">
-        按教师机本地时区自然月统计（非 UTC）。学生端点「签到」写入今日场次。
+        按教师机本地时区自然月统计（非 UTC）。可按课次筛选并导出 CSV / Excel。
       </p>
-      <input value={month} onChange={(e) => setMonth(e.target.value)} placeholder="YYYY-MM" />
-      <button type="button" onClick={() => void load()}>
-        刷新
-      </button>
+      <div className="row">
+        <label>
+          月份
+          <input value={month} onChange={(e) => setMonth(e.target.value)} placeholder="YYYY-MM" />
+        </label>
+        <label>
+          课次
+          <select value={sessionId} onChange={(e) => setSessionId(e.target.value)}>
+            <option value="">整月全部课次</option>
+            {sessions.map((s) => (
+              <option key={s.id} value={s.id}>
+                {new Date(s.startAt).toLocaleString()} · {s.status} · {s.mode}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          导出格式
+          <select value={format} onChange={(e) => setFormat(e.target.value as 'csv' | 'xlsx')}>
+            <option value="csv">CSV</option>
+            <option value="xlsx">Excel (.xlsx)</option>
+          </select>
+        </label>
+      </div>
+      <div className="row">
+        <button type="button" onClick={() => void load()}>
+          刷新
+        </button>
+        <button type="button" className="secondary" onClick={() => void download('detail')}>
+          导出明细
+        </button>
+        <button type="button" className="secondary" onClick={() => void download('summary')}>
+          导出汇总
+        </button>
+      </div>
+      {exportMsg ? <p className="hint">{exportMsg}</p> : null}
       {stats ? (
         <>
           <p>
             本月场次 {stats.sessionCount} · 班级出勤率 {(stats.classAttendanceRate * 100).toFixed(1)}%
+            {sessionId ? ' · 已选单场（导出按课次过滤）' : ''}
           </p>
           <table className="data-table">
             <thead>
@@ -1390,7 +2175,7 @@ export function ExportsPanel({ classId }: { classId: string }) {
             )
           }
         >
-          签到明细
+          出勤明细
         </button>
         <button
           type="button"
@@ -1401,7 +2186,7 @@ export function ExportsPanel({ classId }: { classId: string }) {
             )
           }
         >
-          月出勤汇总
+          出勤汇总
         </button>
         <button
           type="button"
@@ -1730,6 +2515,14 @@ export function SettingsPanel({
   const [newPwd, setNewPwd] = useState('');
   const [pwdMsg, setPwdMsg] = useState('');
   const [messagesOn, setMessagesOn] = useState(true);
+  const [quizConfirmOn, setQuizConfirmOn] = useState(true);
+  const [backupInfo, setBackupInfo] = useState<{
+    latestAt: string | null;
+    ageHours: number | null;
+    lastError: { at?: string; message?: string } | null;
+    lastAutoBackupAt: string | null;
+  } | null>(null);
+  const [backupMsg, setBackupMsg] = useState('');
   const [exitAllowed, setExitAllowed] = useState(false);
   const [exitUnlockUntil, setExitUnlockUntil] = useState<string | null>(null);
   const [hasExitCode, setHasExitCode] = useState(false);
@@ -1739,30 +2532,120 @@ export function SettingsPanel({
   const [exitEvents, setExitEvents] = useState<
     Array<{ id: string; kind: string; detail: string; createdAt: string; actorRole?: string | null }>
   >([]);
+  const [exitEventsTotal, setExitEventsTotal] = useState(0);
+  const [exitEventsPage, setExitEventsPage] = useState(0);
+  const EXIT_PAGE_SIZE = 15;
+  const [exitKindFilter, setExitKindFilter] = useState('');
+  const [showExitHelp, setShowExitHelp] = useState(false);
+  const [maxFails, setMaxFails] = useState(5);
+  const [windowMin, setWindowMin] = useState(15);
+  const [lockoutMin, setLockoutMin] = useState(15);
+  const [rotateDays, setRotateDays] = useState(90);
+  const [codeAgeDays, setCodeAgeDays] = useState<number | null>(null);
+  const [codeRotationDue, setCodeRotationDue] = useState(false);
+  const [auditItems, setAuditItems] = useState<
+    Array<{
+      id: string;
+      action: string;
+      actorRole?: string | null;
+      detail: string;
+      createdAt: string;
+      classId?: string | null;
+    }>
+  >([]);
+  const [auditActions, setAuditActions] = useState<string[]>([]);
+  const [auditClassId, setAuditClassId] = useState('');
+  const [auditAction, setAuditAction] = useState('');
+  const [auditClasses, setAuditClasses] = useState<ClassItem[]>([]);
+  const [asstUser, setAsstUser] = useState('');
+  const [asstPass, setAsstPass] = useState('');
+  const [asstName, setAsstName] = useState('助教');
+  const [asstMsg, setAsstMsg] = useState('');
+  const [assistants, setAssistants] = useState<
+    Array<{
+      id: string;
+      username: string;
+      displayName: string;
+      createdAt: string;
+      disabledAt?: string | null;
+    }>
+  >([]);
+  const [resetPwdDraft, setResetPwdDraft] = useState<Record<string, string>>({});
   const [nowTick, setNowTick] = useState(() => Date.now());
+
+  async function loadAudit() {
+    const q = new URLSearchParams({ limit: '80' });
+    if (auditClassId) q.set('classId', auditClassId);
+    if (auditAction) q.set('action', auditAction);
+    const r = await api<{ items: typeof auditItems; actions?: string[] }>(`/api/v1/audit?${q}`);
+    setAuditItems(r.items ?? []);
+    if (r.actions) setAuditActions(r.actions);
+  }
+
+  async function loadAssistants() {
+    const r = await api<{ items: typeof assistants }>('/api/v1/auth/assistants');
+    setAssistants(r.items ?? []);
+  }
 
   async function refreshExitLock() {
     const s = await api<{
       pointRequestTtlMinutes: number;
       messagesEnabled?: boolean;
+      quizConfirmSubmit?: boolean;
       clientExitAllowed?: boolean;
       clientExitUnlockUntil?: string | null;
       hasExitUnlockCode?: boolean;
+      exitUnlockMaxFails?: number;
+      exitUnlockWindowMinutes?: number;
+      exitUnlockLockoutMinutes?: number;
+      exitUnlockCodeRotateDays?: number;
+      exitUnlockCodeAgeDays?: number | null;
+      exitUnlockCodeRotationDue?: boolean;
+      backup?: {
+        latestAt: string | null;
+        ageHours: number | null;
+        lastError: { at?: string; message?: string } | null;
+        lastAutoBackupAt: string | null;
+      };
     }>('/api/v1/settings');
     setTtl(s.pointRequestTtlMinutes);
     setMessagesOn(s.messagesEnabled !== false);
+    setQuizConfirmOn(s.quizConfirmSubmit !== false);
+    if (s.backup) setBackupInfo(s.backup);
     setExitAllowed(s.clientExitAllowed === true);
     setExitUnlockUntil(s.clientExitUnlockUntil ?? null);
     setHasExitCode(s.hasExitUnlockCode === true);
+    setMaxFails(s.exitUnlockMaxFails ?? 5);
+    setWindowMin(s.exitUnlockWindowMinutes ?? 15);
+    setLockoutMin(s.exitUnlockLockoutMinutes ?? 15);
+    setRotateDays(s.exitUnlockCodeRotateDays ?? 90);
+    setCodeAgeDays(s.exitUnlockCodeAgeDays ?? null);
+    setCodeRotationDue(s.exitUnlockCodeRotationDue === true);
+    const q = new URLSearchParams({
+      limit: String(EXIT_PAGE_SIZE),
+      offset: String(exitEventsPage * EXIT_PAGE_SIZE),
+    });
+    if (exitKindFilter) q.set('kind', exitKindFilter);
     const ev = await api<{
       items: Array<{ id: string; kind: string; detail: string; createdAt: string; actorRole?: string | null }>;
-    }>('/api/v1/settings/exit-lock-events?limit=12');
+      total?: number;
+    }>(`/api/v1/settings/exit-lock-events?${q}`);
     setExitEvents(ev.items ?? []);
+    setExitEventsTotal(Number(ev.total ?? ev.items?.length ?? 0));
   }
 
   useEffect(() => {
     void refreshExitLock().catch(() => undefined);
-  }, []);
+    void loadAudit().catch(() => setAuditItems([]));
+    void loadAssistants().catch(() => setAssistants([]));
+    void api<{ items: ClassItem[] }>('/api/v1/classes')
+      .then((r) => setAuditClasses(r.items ?? []))
+      .catch(() => setAuditClasses([]));
+  }, [exitKindFilter, exitEventsPage]);
+
+  useEffect(() => {
+    void loadAudit().catch(() => undefined);
+  }, [auditClassId, auditAction]);
 
   useEffect(() => {
     const t = window.setInterval(() => setNowTick(Date.now()), 1000);
@@ -1779,14 +2662,18 @@ export function SettingsPanel({
         lanIps?: string[];
         suggestedApiBase?: string;
         backup?: { latestAt?: string | null; lastError?: { message?: string } | null };
+        audit?: { lastError?: { message?: string } | null };
       };
       const err = body.backup?.lastError;
+      const auditErr = body.audit?.lastError;
       setDiag(
         body.ok
           ? `正常 ${ms}ms · LAN ${body.lanIps?.join(', ') || '—'} · ${body.suggestedApiBase ?? ''}${
-              err ? ` · lastError：${err.message ?? JSON.stringify(err)}` : ' · lastError 无'
-            }`
-          : `失败 HTTP ${res.status}`,
+              err ? ` · backupError：${err.message ?? JSON.stringify(err)}` : ''
+            }${auditErr ? ` · auditError：${auditErr.message}` : ' · 无 lastError'}`
+          : `失败 HTTP ${res.status}${auditErr ? ` · audit：${auditErr.message}` : ''}${
+              err ? ` · backup：${err.message}` : ''
+            }`,
       );
     } catch (e) {
       setDiag(e instanceof Error ? e.message : 'network_error');
@@ -1849,6 +2736,56 @@ export function SettingsPanel({
 
       {forcePasswordOnly ? null : (
         <>
+          {!isAssistant() ? (
+          <>
+          <h3>数据库备份</h3>
+          <p className="hint">
+            {backupInfo
+              ? `上次成功：${
+                  backupInfo.latestAt
+                    ? new Date(backupInfo.latestAt).toLocaleString()
+                    : '尚无'
+                }${
+                  backupInfo.ageHours != null ? `（${backupInfo.ageHours} 小时前）` : ''
+                }${
+                  backupInfo.lastError?.message
+                    ? ` · 失败原因：${backupInfo.lastError.message}${
+                        backupInfo.lastError.at
+                          ? ` @ ${new Date(backupInfo.lastError.at).toLocaleString()}`
+                          : ''
+                      }`
+                    : ' · 无失败记录'
+                }`
+              : '加载备份状态…'}
+          </p>
+          <button
+            type="button"
+            className="secondary"
+            onClick={() =>
+              void api<{
+                ok?: boolean;
+                error?: string;
+                latestAt?: string | null;
+                ageHours?: number | null;
+                lastError?: { at?: string; message?: string } | null;
+                lastAutoBackupAt?: string | null;
+              }>('/api/v1/settings/backup-now', { method: 'POST', body: '{}' })
+                .then((r) => {
+                  setBackupInfo({
+                    latestAt: r.latestAt ?? null,
+                    ageHours: r.ageHours ?? null,
+                    lastError: r.lastError ?? null,
+                    lastAutoBackupAt: r.lastAutoBackupAt ?? null,
+                  });
+                  setBackupMsg(r.ok ? '备份成功' : r.error ?? '备份失败');
+                })
+                .catch((e) => setBackupMsg(e instanceof Error ? e.message : '备份失败'))
+            }
+          >
+            立即备份
+          </button>
+          {backupMsg ? <p className="hint">{backupMsg}</p> : null}
+
           <h3>留言</h3>
           <label className="row">
             <input
@@ -1872,6 +2809,30 @@ export function SettingsPanel({
               }
             />
             允许学生留言（关闭后侧栏隐藏「留言」）
+          </label>
+
+          <h3>答题确认</h3>
+          <label className="row">
+            <input
+              type="checkbox"
+              checked={quizConfirmOn}
+              onChange={(e) =>
+                void api('/api/v1/settings', {
+                  method: 'PATCH',
+                  body: JSON.stringify({ quizConfirmSubmit: e.target.checked }),
+                })
+                  .then(() => {
+                    setQuizConfirmOn(e.target.checked);
+                    setSaveMsg(
+                      e.target.checked
+                        ? '已开启：单选/判断需点「确认提交」'
+                        : '已关闭：点选项即提交',
+                    );
+                  })
+                  .catch((err) => setSaveMsg(err instanceof Error ? err.message : '保存失败'))
+              }
+            />
+            单选/判断二次确认提交（默认开启）
           </label>
 
           <h3>加分请求</h3>
@@ -1908,7 +2869,11 @@ export function SettingsPanel({
               return ` 当前：可退出剩余 ${m}:${s}（至 ${new Date(exitUnlockUntil).toLocaleString()}）`;
             })()}
             {hasExitCode ? ' · 已设置解除码' : ' · 尚未单独设置解除码（可用管理密码）'}
+            {codeAgeDays != null ? ` · 解除码已使用 ${codeAgeDays} 天` : ''}
           </p>
+          {codeRotationDue ? (
+            <p className="error">解除码已超过轮换周期（{rotateDays} 天），请尽快更换。</p>
+          ) : null}
           <label>
             批量解除时长（分钟）
             <input
@@ -2001,23 +2966,386 @@ export function SettingsPanel({
             保存解除码
           </button>
           {exitMsg ? <p className="hint">{exitMsg}</p> : null}
-          {exitEvents.length ? (
-            <div className="card">
-              <p className="hint">最近退出锁定审计</p>
+
+          <h4>解除码限流 / 轮换</h4>
+          <div className="row">
+            <label>
+              失败次数上限
+              <input type="number" min={3} max={30} value={maxFails} onChange={(e) => setMaxFails(Number(e.target.value))} />
+            </label>
+            <label>
+              统计窗口（分钟）
+              <input type="number" min={1} max={1440} value={windowMin} onChange={(e) => setWindowMin(Number(e.target.value))} />
+            </label>
+            <label>
+              锁定时长（分钟）
+              <input type="number" min={1} max={1440} value={lockoutMin} onChange={(e) => setLockoutMin(Number(e.target.value))} />
+            </label>
+            <label>
+              轮换提醒（天）
+              <input type="number" min={7} max={365} value={rotateDays} onChange={(e) => setRotateDays(Number(e.target.value))} />
+            </label>
+          </div>
+          <button
+            type="button"
+            className="secondary"
+            onClick={() =>
+              void api('/api/v1/settings', {
+                method: 'PATCH',
+                body: JSON.stringify({
+                  exitUnlockMaxFails: maxFails,
+                  exitUnlockWindowMinutes: windowMin,
+                  exitUnlockLockoutMinutes: lockoutMin,
+                  exitUnlockCodeRotateDays: rotateDays,
+                }),
+              })
+                .then(async () => {
+                  setExitMsg('限流/轮换设置已保存');
+                  await refreshExitLock().catch(() => undefined);
+                })
+                .catch((e) => setExitMsg(e instanceof Error ? e.message : '保存失败'))
+            }
+          >
+            保存限流与轮换
+          </button>
+
+          <div className="card">
+            <p className="hint">退出锁定审计（每页 {EXIT_PAGE_SIZE} 条）</p>
+            <label>
+              按类型筛选
+              <select
+                value={exitKindFilter}
+                onChange={(e) => {
+                  setExitEventsPage(0);
+                  setExitKindFilter(e.target.value);
+                }}
+              >
+                <option value="">全部</option>
+                <option value="batch_unlock">batch_unlock</option>
+                <option value="relock">relock</option>
+                <option value="code_ok">code_ok</option>
+                <option value="code_fail">code_fail</option>
+                <option value="code_rate_limited">code_rate_limited</option>
+                <option value="code_set">code_set</option>
+                <option value="rate_config">rate_config</option>
+              </select>
+            </label>
+            <div className="row">
+              <button type="button" className="secondary" onClick={() => void refreshExitLock().catch(() => undefined)}>
+                刷新审计
+              </button>
+              <button
+                type="button"
+                className="secondary"
+                disabled={exitEventsPage <= 0}
+                onClick={() => setExitEventsPage((p) => Math.max(0, p - 1))}
+              >
+                上一页
+              </button>
+              <button
+                type="button"
+                className="secondary"
+                disabled={(exitEventsPage + 1) * EXIT_PAGE_SIZE >= exitEventsTotal}
+                onClick={() => setExitEventsPage((p) => p + 1)}
+              >
+                下一页
+              </button>
+              <span className="hint">
+                第 {exitEventsPage + 1} / {Math.max(1, Math.ceil(exitEventsTotal / EXIT_PAGE_SIZE))} 页 · 共{' '}
+                {exitEventsTotal} 条
+              </span>
+              <button
+                type="button"
+                className="secondary"
+                onClick={(e) => {
+                  e.preventDefault();
+                  void (async () => {
+                    const token = getToken() || '';
+                    const url = `${API_BASE}/api/v1/settings/exit-lock-events.csv?limit=200${
+                      exitKindFilter ? `&kind=${encodeURIComponent(exitKindFilter)}` : ''
+                    }`;
+                    const res = await fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+                    if (!res.ok) {
+                      setExitMsg(`导出失败 HTTP ${res.status}`);
+                      return;
+                    }
+                    const blob = await res.blob();
+                    const a = document.createElement('a');
+                    a.href = URL.createObjectURL(blob);
+                    a.download = 'exit-lock-events.csv';
+                    a.click();
+                    URL.revokeObjectURL(a.href);
+                  })();
+                }}
+              >
+                导出 CSV
+              </button>
+            </div>
+            <ul>
+              {exitEvents.map((e) => (
+                <li key={e.id}>
+                  {new Date(e.createdAt).toLocaleString()} · {e.kind}
+                  {e.actorRole ? ` · ${e.actorRole}` : ''} · {e.detail}
+                </li>
+              ))}
+            </ul>
+            {!exitEvents.length ? <p className="hint">暂无记录</p> : null}
+          </div>
+
+          <div className="card">
+            <button type="button" className="secondary" onClick={() => setShowExitHelp((v) => !v)}>
+              {showExitHelp ? '收起帮助' : '帮助：锁定状态机'}
+            </button>
+            {showExitHelp ? (
+              <div className="hint">
+                <pre style={{ whiteSpace: 'pre-wrap', fontSize: 12, lineHeight: 1.45 }}>
+                  {`默认 → [已锁定]
+  │ 教师「批量允许关闭」(二次确认)
+  ▼
+[可退出 TimedOpen] ──时限到/重新锁定──▶ [已锁定]
+  │
+  │ 本机解除码成功 / 关窗
+  ▼
+[退出进程]
+
+错码达上限 → [限流 RateLimited] → 窗口结束 → [已锁定]
+
+详见 docs/EXIT_LOCK_MDM.md（含 Assigned Access / Intune）。`}
+                </pre>
+              </div>
+            ) : null}
+          </div>
+
+          <div className="card">
+            <h3>创建助教账号</h3>
+            <p className="hint">助教可登录后台只读导出/出勤，不可批量删除。详见 docs/PERMISSIONS.md。</p>
+            <label>
+              用户名
+              <input
+                value={asstUser}
+                onChange={(e) => setAsstUser(e.target.value)}
+                placeholder="如 assistant1"
+                autoComplete="off"
+              />
+            </label>
+            <label>
+              显示名
+              <input value={asstName} onChange={(e) => setAsstName(e.target.value)} placeholder="助教" />
+            </label>
+            <label>
+              初始口令
+              <input
+                type="password"
+                value={asstPass}
+                onChange={(e) => setAsstPass(e.target.value)}
+                placeholder="至少 8 位，含字母数字"
+                autoComplete="new-password"
+              />
+            </label>
+            <button
+              type="button"
+              onClick={() =>
+                void (async () => {
+                  setAsstMsg('');
+                  try {
+                    const r = await api<{ message?: string }>('/api/v1/auth/assistants', {
+                      method: 'POST',
+                      body: JSON.stringify({
+                        username: asstUser.trim(),
+                        password: asstPass,
+                        displayName: asstName.trim() || '助教',
+                      }),
+                    });
+                    setAsstMsg(r.message ?? '已创建');
+                    setAsstUser('');
+                    setAsstPass('');
+                    await loadAssistants();
+                  } catch (e) {
+                    setAsstMsg(e instanceof Error ? e.message : '创建失败');
+                  }
+                })()
+              }
+            >
+              创建助教
+            </button>
+            {asstMsg ? <p className={/失败|错误|已存在/.test(asstMsg) ? 'error' : 'hint'}>{asstMsg}</p> : null}
+            {assistants.length ? (
               <ul>
-                {exitEvents.map((e) => (
-                  <li key={e.id}>
-                    {new Date(e.createdAt).toLocaleString()} · {e.kind}
-                    {e.actorRole ? ` · ${e.actorRole}` : ''} · {e.detail}
+                {assistants.map((a) => (
+                  <li key={a.id}>
+                    {a.username} · {a.displayName}
+                    {a.disabledAt ? ' · 已停用' : ''} · {new Date(a.createdAt).toLocaleString()}
+                    <div className="row" style={{ marginTop: 4 }}>
+                      {a.disabledAt ? (
+                        <button
+                          type="button"
+                          className="secondary"
+                          onClick={() =>
+                            void api(`/api/v1/auth/assistants/${a.id}/enable`, {
+                              method: 'POST',
+                              body: '{}',
+                            })
+                              .then(async () => {
+                                setAsstMsg(`已启用 ${a.username}`);
+                                await loadAssistants();
+                              })
+                              .catch((e) => setAsstMsg(e instanceof Error ? e.message : '启用失败'))
+                          }
+                        >
+                          启用
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          className="secondary"
+                          onClick={() =>
+                            void api(`/api/v1/auth/assistants/${a.id}/disable`, {
+                              method: 'POST',
+                              body: '{}',
+                            })
+                              .then(async () => {
+                                setAsstMsg(`已停用 ${a.username}`);
+                                await loadAssistants();
+                              })
+                              .catch((e) => setAsstMsg(e instanceof Error ? e.message : '停用失败'))
+                          }
+                        >
+                          停用
+                        </button>
+                      )}
+                      <input
+                        type="password"
+                        placeholder="新口令"
+                        value={resetPwdDraft[a.id] ?? ''}
+                        onChange={(e) =>
+                          setResetPwdDraft((prev) => ({ ...prev, [a.id]: e.target.value }))
+                        }
+                        style={{ width: '8rem' }}
+                        autoComplete="new-password"
+                      />
+                      <button
+                        type="button"
+                        onClick={() =>
+                          void (async () => {
+                            const password = (resetPwdDraft[a.id] ?? '').trim();
+                            try {
+                              const r = await api<{ message?: string }>(
+                                `/api/v1/auth/assistants/${a.id}/reset-password`,
+                                { method: 'POST', body: JSON.stringify({ password }) },
+                              );
+                              setAsstMsg(r.message ?? '已重置口令');
+                              setResetPwdDraft((prev) => ({ ...prev, [a.id]: '' }));
+                            } catch (e) {
+                              setAsstMsg(e instanceof Error ? e.message : '重置失败');
+                            }
+                          })()
+                        }
+                      >
+                        重置口令
+                      </button>
+                    </div>
                   </li>
                 ))}
               </ul>
+            ) : (
+              <p className="hint">尚无助教账号</p>
+            )}
+            <p className="hint">
+              <a href="/PERMISSIONS.md" target="_blank" rel="noreferrer">
+                权限说明（PERMISSIONS.md）
+              </a>
+            </p>
+          </div>
+          </>
+          ) : (
+            <p className="hint">
+              助教可改本人密码、查看审计与导出；完整权限见{' '}
+              <a href="/PERMISSIONS.md" target="_blank" rel="noreferrer">
+                权限说明
+              </a>
+              。
+            </p>
+          )}
+
+          <div className="card">
+            <h3>操作审计（批量删除等）</h3>
+            <div className="row">
+              <label>
+                班级
+                <select value={auditClassId} onChange={(e) => setAuditClassId(e.target.value)}>
+                  <option value="">全部班级</option>
+                  {auditClasses.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                操作类型
+                <select value={auditAction} onChange={(e) => setAuditAction(e.target.value)}>
+                  <option value="">全部类型</option>
+                  {auditActions.map((a) => (
+                    <option key={a} value={a}>
+                      {a}
+                    </option>
+                  ))}
+                </select>
+              </label>
             </div>
-          ) : null}
+            <div className="row">
+              <button type="button" className="secondary" onClick={() => void loadAudit().catch(() => undefined)}>
+                刷新审计
+              </button>
+              <button
+                type="button"
+                className="secondary"
+                onClick={() =>
+                  void (async () => {
+                    const q = new URLSearchParams({ format: 'csv', limit: '500' });
+                    if (auditClassId) q.set('classId', auditClassId);
+                    if (auditAction) q.set('action', auditAction);
+                    const token = getToken() || '';
+                    const res = await fetch(`${API_BASE}/api/v1/audit/export?${q}`, {
+                      headers: token ? { Authorization: `Bearer ${token}` } : {},
+                    });
+                    if (!res.ok) return;
+                    const blob = await res.blob();
+                    const a = document.createElement('a');
+                    a.href = URL.createObjectURL(blob);
+                    a.download = 'audit.csv';
+                    a.click();
+                    URL.revokeObjectURL(a.href);
+                  })()
+                }
+              >
+                导出 CSV
+              </button>
+            </div>
+            {auditItems.length === 0 ? <p className="hint">暂无审计记录</p> : null}
+            <ul>
+              {auditItems.map((a) => (
+                <li key={a.id}>
+                  {new Date(a.createdAt).toLocaleString()} · {a.action}
+                  {a.actorRole ? ` · ${a.actorRole}` : ''}
+                  {a.detail ? (
+                    <>
+                      {' · '}
+                      <AuditDetail detail={a.detail} />
+                    </>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+          </div>
 
           <p className="hint">
             数据库：服务进程每天自动备份一次（保留约 14 份）；也可手动 `npm run backup:db`。确认 /health 无
-            lastError。任务管理器级结束见 docs/EXIT_LOCK_MDM.md。
+            backup/audit lastError。
+            <a href="/PERMISSIONS.md" target="_blank" rel="noreferrer">
+              权限说明
+            </a>
+            。
           </p>
         </>
       )}

@@ -216,6 +216,10 @@ export function SessionHome({
         <button type="button" onClick={onEnterProjection} disabled={!classId}>
           投影全屏
         </button>
+        <p className="hint help-bubble">
+          投影模式快捷键：<kbd>Esc</kbd> 退出投影，<kbd>F</kbd> 切换浏览器全屏。完整说明见仓库{' '}
+          <code>docs/TEACHER_PROJECTION.md</code>。
+        </p>
         {onGoPrep ? (
           <button type="button" className="secondary" onClick={onGoPrep}>
             去备课

@@ -2,12 +2,28 @@ import { Router } from 'express';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { networkInterfaces } from 'node:os';
 import { getDataDir, getDbPath, openDb } from '../db/client.js';
 import { getSetting } from '../db/migrate.js';
+import { readAuditWriteFailure } from '../services/auditFail.js';
+import { auditRetryQueueSize } from '../services/auditRetry.js';
 import { config } from '../config.js';
 
 export const healthRouter = Router();
+
+function packageVersion(): string {
+  try {
+    const rootPkg = path.resolve(
+      path.dirname(fileURLToPath(import.meta.url)),
+      '../../../../package.json',
+    );
+    const raw = JSON.parse(fs.readFileSync(rootPkg, 'utf8')) as { version?: string };
+    return String(raw.version ?? '0.0.0');
+  } catch {
+    return '0.0.0';
+  }
+}
 
 function lanIpv4List(): string[] {
   try {
@@ -82,6 +98,7 @@ function buildHealthPayload() {
   }
 
   const backup = latestBackupInfo();
+  const auditLastError = readAuditWriteFailure();
   const detected = lanIpv4List();
   const storedBase = getSetting(db, 'classroom_api_base')?.replace(/\/$/, '') ?? '';
   let fromStored = '';
@@ -96,8 +113,10 @@ function buildHealthPayload() {
     (lanIps[0] ? `http://${lanIps[0]}:${config.port}` : `http://127.0.0.1:${config.port}`);
   return {
     ok: dbOk,
+    degraded: Boolean(auditLastError),
     service: 'classroom-desk-server',
-    version: '0.1.0',
+    version: packageVersion(),
+    studentDesktopVersion: packageVersion(),
     engine: 'node:sqlite',
     time: new Date().toISOString(),
     hostName: os.hostname(),
@@ -118,6 +137,10 @@ function buildHealthPayload() {
       latestAt: backup.at,
       ageHours: backup.ageHours,
       lastError: backup.lastError,
+    },
+    audit: {
+      lastError: auditLastError,
+      retryQueueSize: auditRetryQueueSize(),
     },
     lastCleanupAt: getSetting(db, 'last_cleanup_at'),
   };

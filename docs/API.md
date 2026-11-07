@@ -22,7 +22,11 @@ Auth: `Authorization: Bearer <jwt>`（除注明公开接口外）
 | POST | `/api/v1/auth/student-select` | 无 | 本机 `classId` + 名单 `studentId` 选身份（无班级码入班） |
 | POST | `/api/v1/auth/admin-unlock` | 无 | 校验管理员密码 `{ password }` |
 | POST | `/api/v1/auth/exit-unlock` | 无 | 学生端退出：`{ code }`；失败限流 429 `exit_unlock_rate_limited` |
-| GET | `/api/v1/settings/exit-lock-events` | 教师 | 退出锁定审计（batch_unlock / relock / code_*） |
+| GET | `/api/v1/settings/exit-lock-events` | 教师 | 审计；`?kind=` 筛选；`?limit=` |
+| GET | `/api/v1/settings/exit-lock-events.csv` | 教师 | 同上，CSV 下载 |
+| GET | `/api/v1/exit-lock/stream` | 无 | SSE 推送锁定状态 |
+| WS | `/api/v1/exit-lock/ws` | 无 | WebSocket 推送锁定状态 |
+| PATCH | `/api/v1/settings` | 教师 | 另支持 `exitUnlockMaxFails` / `exitUnlockWindowMinutes` / `exitUnlockLockoutMinutes` / `exitUnlockCodeRotateDays` |
 | GET | `/api/v1/auth/me` | 登录 | 当前用户 |
 | GET | `/api/v1/auth/bootstrap-info` | 无 | 是否已写入管理员哈希等 |
 | POST | `/api/v1/auth/change-admin-password` | 教师 | 修改管理员密码 |

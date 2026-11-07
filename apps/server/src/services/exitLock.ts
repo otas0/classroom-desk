@@ -2,17 +2,23 @@ import type { DatabaseSync } from 'node:sqlite';
 import { getSetting } from '../db/migrate.js';
 import { newId, nowIso } from '../utils/id.js';
 import { hashPassword, verifyAdminPassword, verifyPassword } from './auth.js';
+import { broadcastExitLockPayload } from './exitLockHub.js';
 
 const KEY_LOCKED = 'client_exit_locked';
 const KEY_UNTIL = 'client_exit_unlock_until';
 const KEY_CODE_HASH = 'exit_unlock_code_hash';
+const KEY_CODE_SET_AT = 'exit_unlock_code_set_at';
+const KEY_MAX_FAILS = 'exit_unlock_max_fails';
+const KEY_WINDOW_MIN = 'exit_unlock_window_minutes';
+const KEY_LOCKOUT_MIN = 'exit_unlock_lockout_minutes';
+const KEY_ROTATE_DAYS = 'exit_unlock_code_rotate_days';
 
-const MAX_FAILS = 5;
-const WINDOW_MS = 15 * 60_000;
-const LOCKOUT_MS = 15 * 60_000;
+const DEFAULT_MAX_FAILS = 5;
+const DEFAULT_WINDOW_MIN = 15;
+const DEFAULT_LOCKOUT_MIN = 15;
+const DEFAULT_ROTATE_DAYS = 90;
 
 type AttemptBucket = { fails: number[]; lockedUntil: number };
-/** In-memory rate limit by client key (IP). Single classroom server process. */
 const attemptBuckets = new Map<string, AttemptBucket>();
 
 export function upsertSetting(db: DatabaseSync, key: string, value: string) {
@@ -20,6 +26,21 @@ export function upsertSetting(db: DatabaseSync, key: string, value: string) {
     `INSERT INTO settings (key, value) VALUES (?, ?)
      ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
   ).run(key, value);
+}
+
+function numSetting(db: DatabaseSync, key: string, fallback: number, min: number, max: number) {
+  const n = Number(getSetting(db, key) ?? fallback);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(max, Math.max(min, Math.trunc(n)));
+}
+
+export function getExitUnlockRateConfig(db: DatabaseSync) {
+  return {
+    exitUnlockMaxFails: numSetting(db, KEY_MAX_FAILS, DEFAULT_MAX_FAILS, 3, 30),
+    exitUnlockWindowMinutes: numSetting(db, KEY_WINDOW_MIN, DEFAULT_WINDOW_MIN, 1, 1440),
+    exitUnlockLockoutMinutes: numSetting(db, KEY_LOCKOUT_MIN, DEFAULT_LOCKOUT_MIN, 1, 1440),
+    exitUnlockCodeRotateDays: numSetting(db, KEY_ROTATE_DAYS, DEFAULT_ROTATE_DAYS, 7, 365),
+  };
 }
 
 export function recordExitLockEvent(
@@ -46,18 +67,43 @@ export function recordExitLockEvent(
   );
 }
 
-export function listExitLockEvents(db: DatabaseSync, limit = 50) {
-  const n = Math.min(200, Math.max(1, Math.trunc(limit)));
+export function listExitLockEvents(
+  db: DatabaseSync,
+  opts: { limit?: number; offset?: number; kind?: string } = {},
+) {
+  const n = Math.min(500, Math.max(1, Math.trunc(opts.limit ?? 50)));
+  const offset = Math.max(0, Math.trunc(opts.offset ?? 0));
+  const kind = opts.kind?.trim();
+  if (kind) {
+    return db
+      .prepare(
+        `SELECT id, kind, actor_user_id AS actorUserId, actor_role AS actorRole,
+                detail, client_ip AS clientIp, created_at AS createdAt
+         FROM exit_lock_events WHERE kind = ? ORDER BY created_at DESC LIMIT ? OFFSET ?`,
+      )
+      .all(kind, n, offset);
+  }
   return db
     .prepare(
       `SELECT id, kind, actor_user_id AS actorUserId, actor_role AS actorRole,
               detail, client_ip AS clientIp, created_at AS createdAt
-       FROM exit_lock_events ORDER BY created_at DESC LIMIT ?`,
+       FROM exit_lock_events ORDER BY created_at DESC LIMIT ? OFFSET ?`,
     )
-    .all(n);
+    .all(n, offset);
 }
 
-/** Default: locked. Teacher may open a timed unlock window or set locked=0. */
+export function countExitLockEvents(db: DatabaseSync, kind?: string) {
+  const k = kind?.trim();
+  if (k) {
+    const row = db.prepare(`SELECT COUNT(*) AS c FROM exit_lock_events WHERE kind = ?`).get(k) as {
+      c: number;
+    };
+    return Number(row?.c ?? 0);
+  }
+  const row = db.prepare(`SELECT COUNT(*) AS c FROM exit_lock_events`).get() as { c: number };
+  return Number(row?.c ?? 0);
+}
+
 export function isClientExitAllowed(db: DatabaseSync): boolean {
   const locked = (getSetting(db, KEY_LOCKED) ?? '1') !== '0';
   if (!locked) return true;
@@ -73,12 +119,35 @@ export function getClientExitLockState(db: DatabaseSync) {
   const untilMs = untilRaw ? Date.parse(untilRaw) : NaN;
   const unlockUntil =
     untilRaw && Number.isFinite(untilMs) && untilMs > Date.now() ? new Date(untilMs).toISOString() : null;
+  const rate = getExitUnlockRateConfig(db);
+  const setAt = getSetting(db, KEY_CODE_SET_AT);
+  const setAtMs = setAt ? Date.parse(setAt) : NaN;
+  const ageDays =
+    setAt && Number.isFinite(setAtMs)
+      ? Math.floor((Date.now() - setAtMs) / (24 * 60 * 60_000))
+      : null;
+  const rotationDue =
+    Boolean(getSetting(db, KEY_CODE_HASH)) &&
+    ageDays != null &&
+    ageDays >= rate.exitUnlockCodeRotateDays;
   return {
     clientExitLocked: locked,
     clientExitAllowed: isClientExitAllowed(db),
     clientExitUnlockUntil: unlockUntil,
     hasExitUnlockCode: Boolean(getSetting(db, KEY_CODE_HASH)),
+    exitUnlockCodeSetAt: setAt && Number.isFinite(setAtMs) ? new Date(setAtMs).toISOString() : null,
+    exitUnlockCodeAgeDays: ageDays,
+    exitUnlockCodeRotationDue: rotationDue,
+    ...rate,
   };
+}
+
+function notifyClients(db: DatabaseSync) {
+  try {
+    broadcastExitLockPayload(getClientExitLockState(db));
+  } catch {
+    /* hub may not be attached yet in tests */
+  }
 }
 
 export function grantBatchExitUnlock(
@@ -97,6 +166,7 @@ export function grantBatchExitUnlock(
     detail: `minutes=${mins};until=${until}`,
     clientIp: meta?.clientIp,
   });
+  notifyClients(db);
   return { minutes: mins, until };
 }
 
@@ -113,6 +183,7 @@ export function relockClientExit(
     detail: 'relock',
     clientIp: meta?.clientIp,
   });
+  notifyClients(db);
 }
 
 export function setClientExitLockedFlag(
@@ -129,6 +200,7 @@ export function setClientExitLockedFlag(
     detail: `clientExitLocked=${locked ? '1' : '0'}`,
     clientIp: meta?.clientIp,
   });
+  notifyClients(db);
 }
 
 export async function setExitUnlockCode(
@@ -142,6 +214,7 @@ export async function setExitUnlockCode(
   }
   const hash = await hashPassword(trimmed);
   upsertSetting(db, KEY_CODE_HASH, hash);
+  upsertSetting(db, KEY_CODE_SET_AT, nowIso());
   recordExitLockEvent(db, {
     kind: 'code_set',
     actorUserId: meta?.actorUserId,
@@ -149,7 +222,43 @@ export async function setExitUnlockCode(
     detail: 'exit_unlock_code_updated',
     clientIp: meta?.clientIp,
   });
+  notifyClients(db);
   return { ok: true as const };
+}
+
+export function setExitUnlockRateConfig(
+  db: DatabaseSync,
+  patch: {
+    exitUnlockMaxFails?: number;
+    exitUnlockWindowMinutes?: number;
+    exitUnlockLockoutMinutes?: number;
+    exitUnlockCodeRotateDays?: number;
+  },
+  meta?: { actorUserId?: string; actorRole?: string; clientIp?: string },
+) {
+  if (patch.exitUnlockMaxFails != null) {
+    const v = Math.min(30, Math.max(3, Math.trunc(Number(patch.exitUnlockMaxFails))));
+    upsertSetting(db, KEY_MAX_FAILS, String(v));
+  }
+  if (patch.exitUnlockWindowMinutes != null) {
+    const v = Math.min(1440, Math.max(1, Math.trunc(Number(patch.exitUnlockWindowMinutes))));
+    upsertSetting(db, KEY_WINDOW_MIN, String(v));
+  }
+  if (patch.exitUnlockLockoutMinutes != null) {
+    const v = Math.min(1440, Math.max(1, Math.trunc(Number(patch.exitUnlockLockoutMinutes))));
+    upsertSetting(db, KEY_LOCKOUT_MIN, String(v));
+  }
+  if (patch.exitUnlockCodeRotateDays != null) {
+    const v = Math.min(365, Math.max(7, Math.trunc(Number(patch.exitUnlockCodeRotateDays))));
+    upsertSetting(db, KEY_ROTATE_DAYS, String(v));
+  }
+  recordExitLockEvent(db, {
+    kind: 'rate_config',
+    actorUserId: meta?.actorUserId,
+    actorRole: meta?.actorRole,
+    detail: JSON.stringify(getExitUnlockRateConfig(db)),
+    clientIp: meta?.clientIp,
+  });
 }
 
 function getBucket(key: string): AttemptBucket {
@@ -161,11 +270,12 @@ function getBucket(key: string): AttemptBucket {
   return b;
 }
 
-export function getExitUnlockRateLimit(clientKey: string): {
-  limited: boolean;
-  retryAfterSec: number;
-  failsInWindow: number;
-} {
+export function getExitUnlockRateLimit(
+  db: DatabaseSync,
+  clientKey: string,
+): { limited: boolean; retryAfterSec: number; failsInWindow: number } {
+  const cfg = getExitUnlockRateConfig(db);
+  const windowMs = cfg.exitUnlockWindowMinutes * 60_000;
   const now = Date.now();
   const b = getBucket(clientKey || 'unknown');
   if (b.lockedUntil > now) {
@@ -175,19 +285,25 @@ export function getExitUnlockRateLimit(clientKey: string): {
       failsInWindow: b.fails.length,
     };
   }
-  b.fails = b.fails.filter((t) => now - t < WINDOW_MS);
+  b.fails = b.fails.filter((t) => now - t < windowMs);
   return { limited: false, retryAfterSec: 0, failsInWindow: b.fails.length };
 }
 
-function noteExitUnlockFailure(clientKey: string): { limited: boolean; retryAfterSec: number } {
+function noteExitUnlockFailure(
+  db: DatabaseSync,
+  clientKey: string,
+): { limited: boolean; retryAfterSec: number } {
+  const cfg = getExitUnlockRateConfig(db);
+  const windowMs = cfg.exitUnlockWindowMinutes * 60_000;
+  const lockoutMs = cfg.exitUnlockLockoutMinutes * 60_000;
   const now = Date.now();
   const b = getBucket(clientKey || 'unknown');
-  b.fails = b.fails.filter((t) => now - t < WINDOW_MS);
+  b.fails = b.fails.filter((t) => now - t < windowMs);
   b.fails.push(now);
-  if (b.fails.length >= MAX_FAILS) {
-    b.lockedUntil = now + LOCKOUT_MS;
+  if (b.fails.length >= cfg.exitUnlockMaxFails) {
+    b.lockedUntil = now + lockoutMs;
     b.fails = [];
-    return { limited: true, retryAfterSec: Math.ceil(LOCKOUT_MS / 1000) };
+    return { limited: true, retryAfterSec: Math.ceil(lockoutMs / 1000) };
   }
   return { limited: false, retryAfterSec: 0 };
 }
@@ -196,7 +312,6 @@ function clearExitUnlockFailures(clientKey: string) {
   attemptBuckets.delete(clientKey || 'unknown');
 }
 
-/** Accept dedicated exit unlock code, else classroom admin password. Rate-limited by clientKey. */
 export async function attemptExitUnlock(
   db: DatabaseSync,
   code: string,
@@ -206,7 +321,7 @@ export async function attemptExitUnlock(
   | { ok: false; error: string; message: string; status: number; retryAfterSec?: number }
 > {
   const clientKey = String(meta?.clientIp ?? 'unknown');
-  const rl = getExitUnlockRateLimit(clientKey);
+  const rl = getExitUnlockRateLimit(db, clientKey);
   if (rl.limited) {
     recordExitLockEvent(db, {
       kind: 'code_rate_limited',
@@ -233,7 +348,7 @@ export async function attemptExitUnlock(
   else if (await verifyAdminPassword(db, trimmed)) matched = true;
 
   if (!matched) {
-    const after = noteExitUnlockFailure(clientKey);
+    const after = noteExitUnlockFailure(db, clientKey);
     recordExitLockEvent(db, {
       kind: after.limited ? 'code_rate_limited' : 'code_fail',
       detail: after.limited ? `lockoutSec=${after.retryAfterSec}` : 'invalid_code',
@@ -260,7 +375,6 @@ export async function attemptExitUnlock(
   return { ok: true };
 }
 
-/** @deprecated use attemptExitUnlock */
 export async function verifyExitUnlockCode(db: DatabaseSync, code: string): Promise<boolean> {
   const r = await attemptExitUnlock(db, code, { clientIp: 'legacy' });
   return r.ok;

@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { getDataDir } from './db/client.js';
 import { assignmentsRouter } from './routes/assignments.js';
 import { attendanceRouter } from './routes/attendance.js';
+import { auditRouter } from './routes/audit.js';
 import { authRouter } from './routes/auth.js';
 import { classesRouter } from './routes/classes.js';
 import { exportsRouter } from './routes/exports.js';
@@ -40,6 +41,7 @@ export function createApp() {
   app.use(healthRouter);
   app.use(settingsRouter);
   app.use(authRouter);
+  app.use(auditRouter);
   app.use(classesRouter);
   app.use(assignmentsRouter);
   app.use(pointRequestsRouter);

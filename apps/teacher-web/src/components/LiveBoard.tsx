@@ -28,6 +28,7 @@ export function LiveBoard({
   const [rosterTotal, setRosterTotal] = useState(0);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [err, setErr] = useState('');
+  const [fsHint, setFsHint] = useState('');
 
   async function load() {
     if (!classId) return;
@@ -45,15 +46,58 @@ export function LiveBoard({
     return () => window.clearInterval(t);
   }, [classId]);
 
+  useEffect(() => {
+    if (!projection) return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        if (document.fullscreenElement) {
+          void document.exitFullscreen().catch(() => undefined);
+        }
+        onExitProjection?.();
+        return;
+      }
+      if (e.key === 'f' || e.key === 'F') {
+        e.preventDefault();
+        void toggleFullscreen();
+      }
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [projection, onExitProjection]);
+
+  async function toggleFullscreen() {
+    try {
+      if (!document.fullscreenElement) {
+        await document.documentElement.requestFullscreen();
+        setFsHint('已进入全屏（Esc 退出投影，F 切换全屏）');
+      } else {
+        await document.exitFullscreen();
+        setFsHint('已退出全屏');
+      }
+    } catch (e) {
+      setFsHint(e instanceof Error ? e.message : '全屏失败');
+    }
+  }
+
   return (
     <section className={projection ? 'live-board projection-mode' : 'live-board'}>
       <h2>大屏答题态势</h2>
       {projection ? (
-        <button type="button" className="secondary" onClick={() => onExitProjection?.()}>
-          退出投影
-        </button>
+        <div className="row">
+          <button type="button" className="secondary" onClick={() => onExitProjection?.()}>
+            退出投影（Esc）
+          </button>
+          <button type="button" className="secondary" onClick={() => void toggleFullscreen()}>
+            全屏（F）
+          </button>
+        </div>
       ) : null}
-      <p className="hint">全班 {rosterTotal} 人 · 约每 3 秒刷新 · 投影可读</p>
+      <p className="hint">
+        全班 {rosterTotal} 人 · 约每 3 秒刷新 · 投影可读
+        {projection ? ' · 快捷键：Esc 退出投影，F 全屏' : ''}
+      </p>
+      {fsHint ? <p className="hint">{fsHint}</p> : null}
       {err ? <p className="error">{err}</p> : null}
       {items.length === 0 ? <p className="hint">暂无进行中的已发布题目</p> : null}
       {items.map((q) => {

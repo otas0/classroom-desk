@@ -9,14 +9,16 @@ CREATE TABLE IF NOT EXISTS classes (
 
 CREATE TABLE IF NOT EXISTS users (
   id TEXT PRIMARY KEY,
-  role TEXT NOT NULL CHECK (role IN ('student', 'teacher', 'admin')),
+  role TEXT NOT NULL CHECK (role IN ('student', 'teacher', 'admin', 'assistant')),
   display_name TEXT NOT NULL,
   username TEXT UNIQUE,
   password_hash TEXT,
   student_no TEXT,
   class_id TEXT REFERENCES classes(id) ON DELETE SET NULL,
   total_points INTEGER NOT NULL DEFAULT 0,
-  created_at TEXT NOT NULL
+  created_at TEXT NOT NULL,
+  deleted_at TEXT,
+  disabled_at TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_users_class_id ON users(class_id);
@@ -108,7 +110,8 @@ CREATE TABLE IF NOT EXISTS questions (
   closed_at TEXT,
   closes_at TEXT,
   archived INTEGER NOT NULL DEFAULT 0,
-  retry_wrong INTEGER NOT NULL DEFAULT 0
+  retry_wrong INTEGER NOT NULL DEFAULT 0,
+  deleted_at TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_questions_class_created ON questions(class_id, created_at);
@@ -196,6 +199,12 @@ CREATE TABLE IF NOT EXISTS presence_heartbeats (
   last_seen_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS session_kicks (
+  student_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  reason TEXT NOT NULL DEFAULT 'soft_deleted',
+  created_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS cleanup_stats (
   id TEXT PRIMARY KEY,
   cleanup_date TEXT NOT NULL,
@@ -217,6 +226,20 @@ CREATE TABLE IF NOT EXISTS exit_lock_events (
 );
 
 CREATE INDEX IF NOT EXISTS idx_exit_lock_events_created ON exit_lock_events(created_at DESC);
+
+CREATE TABLE IF NOT EXISTS teacher_audit_log (
+  id TEXT PRIMARY KEY,
+  actor_user_id TEXT,
+  actor_role TEXT,
+  action TEXT NOT NULL,
+  class_id TEXT,
+  detail TEXT NOT NULL DEFAULT '',
+  client_ip TEXT,
+  created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_teacher_audit_created ON teacher_audit_log(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_teacher_audit_class ON teacher_audit_log(class_id, created_at DESC);
 
 CREATE TABLE IF NOT EXISTS settings (
   key TEXT PRIMARY KEY,

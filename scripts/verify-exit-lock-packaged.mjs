@@ -57,19 +57,55 @@ else {
 const ui = path.join(root, 'apps/student-desktop/src/App.tsx');
 if (fs.existsSync(ui)) {
   const src = fs.readFileSync(ui, 'utf8');
-  if (src.includes('已锁定') && src.includes('exit-unlock') && src.includes('lock-badge')) {
-    ok('ui.lockBadge', '已锁定 / exit-unlock / lock-badge');
+  if (
+    src.includes('已锁定') &&
+    src.includes('exit-unlock') &&
+    src.includes('lock-badge') &&
+    src.includes('aria-live')
+  ) {
+    ok('ui.lockBadge', '已锁定 / exit-unlock / lock-badge / aria-live');
   } else fail('ui.lockBadge', 'App.tsx missing lock UI markers');
+  if (src.includes('exit-lock/ws') || src.includes('WebSocket')) ok('ui.ws', 'WebSocket client');
+  else fail('ui.ws', 'missing WebSocket subscribe');
 }
 
 const md = path.join(root, 'docs/EXIT_LOCK_MDM.md');
-if (fs.existsSync(md)) ok('docs.mdm', 'docs/EXIT_LOCK_MDM.md');
-else fail('docs.mdm', 'missing');
+if (fs.existsSync(md)) {
+  const body = fs.readFileSync(md, 'utf8');
+  if (/stateDiagram/.test(body) && /Assigned Access/i.test(body) && /Intune/i.test(body)) {
+    ok('docs.mdm', 'state machine + MDM + Intune');
+  } else fail('docs.mdm', 'missing mermaid stateDiagram / Assigned Access / Intune');
+} else fail('docs.mdm', 'missing');
+
+const intuneXml = path.join(root, 'docs/intune-student-kiosk.example.xml');
+if (fs.existsSync(intuneXml) && /HideTaskManager|SYNCML/i.test(fs.readFileSync(intuneXml, 'utf8'))) {
+  ok('docs.intuneXml', 'intune-student-kiosk.example.xml');
+} else fail('docs.intuneXml', 'missing Intune XML example');
 
 const checklist = path.join(root, 'docs/LOCAL_USB_CHECKLIST.md');
-if (fs.existsSync(checklist) && /锁退出|退出锁定/.test(fs.readFileSync(checklist, 'utf8'))) {
-  ok('docs.usbChecklist', '锁退出项存在');
-} else fail('docs.usbChecklist', 'LOCAL_USB_CHECKLIST 缺少锁退出');
+if (fs.existsSync(checklist) && /C2\.|锁退出/.test(fs.readFileSync(checklist, 'utf8'))) {
+  ok('docs.usbChecklist', 'C2 锁退出项存在');
+} else fail('docs.usbChecklist', 'LOCAL_USB_CHECKLIST 缺少 C2 锁退出');
+
+const exeDirs = [
+  path.join(root, 'apps/student-desktop/release'),
+  path.join(root, 'artifacts'),
+  path.join(root, 'artifacts'),
+];
+const exes = [];
+for (const dir of exeDirs) {
+  if (!fs.existsSync(dir)) continue;
+  for (const name of fs.readdirSync(dir)) {
+    if (/ClassroomDesk.*\.exe$/i.test(name)) exes.push(path.join(dir, name));
+  }
+}
+if (exes.length) {
+  ok('release.exe', `${exes.length} found; e.g. ${path.relative(root, exes[0])}`);
+} else if (process.env.REQUIRE_WIN_EXE === '1') {
+  fail('release.exe', 'REQUIRE_WIN_EXE=1 but no ClassroomDesk*.exe under release/artifacts/releases');
+} else {
+  ok('release.exe', 'skipped (no exe yet; windows-pack sets REQUIRE_WIN_EXE=1)');
+}
 
 console.log('\nManual Windows install check: docs/EXIT_LOCK_MDM.md →「验证打包安装态退出锁定」');
 const failed = log.filter((x) => !x.ok);

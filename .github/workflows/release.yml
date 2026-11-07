@@ -12,8 +12,8 @@ jobs:
   windows-setup:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: '24'
           cache: npm
@@ -34,12 +34,13 @@ jobs:
             Write-Host ("sha256 {0} {1}" -f $hash, $_.Name)
             Set-Content -Path ("{0}.sha256" -f $_.FullName) -Value ("{0}  {1}" -f $hash, $_.Name)
           }
-      - name: Stage config.example.json
+      - name: Stage release extras
         shell: pwsh
         run: |
           Copy-Item apps/student-desktop/resources/config.example.json apps/student-desktop/release/config.example.json -Force
+          Copy-Item CHANGELOG.md apps/student-desktop/release/CHANGELOG.md -Force
       - name: Upload to GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: |
             apps/student-desktop/release/ClassroomDesk-Setup-*.exe
@@ -47,12 +48,6 @@ jobs:
             apps/student-desktop/release/config.example.json
           fail_on_unmatched_files: true
           generate_release_notes: true
-          body: |
-            ## 安装说明
-            教师机 / 学生机从 GitHub 安装步骤见：
-            [docs/SETUP_FROM_GITHUB.md](https://github.com/otas0/classroom-desk/blob/main/docs/SETUP_FROM_GITHUB.md)
-
-            学生机：下载本页 `ClassroomDesk-Setup-*.exe` + `config.example.json`，改名为 `config.json`，填入本教室 `apiBase`（`http://教师机局域网IP:8787`）与后台复制的 `classId`。禁止 127.0.0.1。
-            未签名包：SmartScreen → 更多信息 → 仍要运行（见 docs/SMARTSCREEN.md）。适用于任意机房自托管，不绑定固定教室 IP。
+          body_path: CHANGELOG.md
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

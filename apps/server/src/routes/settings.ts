@@ -7,11 +7,17 @@ import { config } from '../config.js';
 import {
   getClientExitLockState,
   grantBatchExitUnlock,
+  countExitLockEvents,
   listExitLockEvents,
   relockClientExit,
   setClientExitLockedFlag,
   setExitUnlockCode,
+  setExitUnlockRateConfig,
 } from '../services/exitLock.js';
+import { addExitLockSseClient } from '../services/exitLockHub.js';
+import { toCsv } from '../utils/csv.js';
+import { getBackupStatus, runDbBackup } from '../services/backup.js';
+import { nowIso } from '../utils/id.js';
 
 export const settingsRouter = Router();
 
@@ -22,6 +28,7 @@ settingsRouter.get('/api/v1/settings/public', (_req, res) => {
     noticeText: getSetting(db, 'notice_text') ?? APP_NOTICE,
     attendanceNoticeText: getSetting(db, 'attendance_notice_text') ?? ATTENDANCE_NOTICE,
     messagesEnabled: (getSetting(db, 'messages_enabled') ?? '1') !== '0',
+    quizConfirmSubmit: (getSetting(db, 'quiz_confirm_submit') ?? '1') !== '0',
     pointRequestTtlMinutes: Number(
       getSetting(db, 'point_request_ttl_minutes') ?? config.defaultPointRequestTtlMinutes,
     ),
@@ -30,10 +37,13 @@ settingsRouter.get('/api/v1/settings/public', (_req, res) => {
       '未确认加分请求每天凌晨清空；已通过加分永久保留并可按月导出。',
     clientExitAllowed: exit.clientExitAllowed,
     clientExitUnlockUntil: exit.clientExitUnlockUntil,
+    exitUnlockCodeRotationDue: exit.exitUnlockCodeRotationDue,
+    exitUnlockCodeAgeDays: exit.exitUnlockCodeAgeDays,
+    exitUnlockCodeRotateDays: exit.exitUnlockCodeRotateDays,
   });
 });
 
-settingsRouter.get('/api/v1/settings', requireAuth, requireRoles('teacher', 'admin'), (_req, res) => {
+settingsRouter.get('/api/v1/settings', requireAuth, requireRoles('teacher', 'admin', 'assistant'), (_req, res) => {
   const db = openDb();
   const cleanupStats = db
     .prepare(
@@ -52,6 +62,7 @@ settingsRouter.get('/api/v1/settings', requireAuth, requireRoles('teacher', 'adm
     pointRequestDailyCleanupTime: getSetting(db, 'point_request_daily_cleanup_time') ?? '02:00',
     pointRequestDailyCleanupEditable: false,
     messagesEnabled: (getSetting(db, 'messages_enabled') ?? '1') !== '0',
+    quizConfirmSubmit: (getSetting(db, 'quiz_confirm_submit') ?? '1') !== '0',
     classroomApiBase: getSetting(db, 'classroom_api_base') ?? '',
     noticeText: getSetting(db, 'notice_text') ?? APP_NOTICE,
     attendanceNoticeText: getSetting(db, 'attendance_notice_text') ?? ATTENDANCE_NOTICE,
@@ -60,6 +71,7 @@ settingsRouter.get('/api/v1/settings', requireAuth, requireRoles('teacher', 'adm
     lastCleanupAt: lastCleanup?.createdAt ?? getSetting(db, 'last_cleanup_at'),
     lastCleanupKind: lastCleanup?.kind ?? getSetting(db, 'last_cleanup_kind'),
     lastCleanupRemovedCount: lastCleanup?.removedCount ?? null,
+    backup: getBackupStatus(getSetting(db, 'last_auto_backup_at')),
     ...exit,
   });
 });
@@ -92,6 +104,14 @@ settingsRouter.patch('/api/v1/settings', requireAuth, requireRoles('teacher', 'a
     const enabled = Boolean(req.body.messagesEnabled);
     db.prepare(
       `INSERT INTO settings (key, value) VALUES ('messages_enabled', ?)
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+    ).run(enabled ? '1' : '0');
+  }
+
+  if (req.body?.quizConfirmSubmit != null) {
+    const enabled = Boolean(req.body.quizConfirmSubmit);
+    db.prepare(
+      `INSERT INTO settings (key, value) VALUES ('quiz_confirm_submit', ?)
        ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
     ).run(enabled ? '1' : '0');
   }
@@ -158,7 +178,29 @@ settingsRouter.patch('/api/v1/settings', requireAuth, requireRoles('teacher', 'a
     }
   }
 
+  if (
+    req.body?.exitUnlockMaxFails != null ||
+    req.body?.exitUnlockWindowMinutes != null ||
+    req.body?.exitUnlockLockoutMinutes != null ||
+    req.body?.exitUnlockCodeRotateDays != null
+  ) {
+    setExitUnlockRateConfig(
+      db,
+      {
+        exitUnlockMaxFails: req.body.exitUnlockMaxFails,
+        exitUnlockWindowMinutes: req.body.exitUnlockWindowMinutes,
+        exitUnlockLockoutMinutes: req.body.exitUnlockLockoutMinutes,
+        exitUnlockCodeRotateDays: req.body.exitUnlockCodeRotateDays,
+      },
+      actor,
+    );
+  }
+
   res.json({ ok: true, ...getClientExitLockState(db) });
+});
+
+settingsRouter.get('/api/v1/exit-lock/stream', (_req, res) => {
+  addExitLockSseClient(res);
 });
 
 settingsRouter.get(
@@ -166,7 +208,81 @@ settingsRouter.get(
   requireAuth,
   requireRoles('teacher', 'admin'),
   (req: AuthedRequest, res) => {
-    const limit = Number(req.query.limit ?? 40);
-    res.json({ items: listExitLockEvents(openDb(), limit) });
+    const limit = Number(req.query.limit ?? 20);
+    const offset = Number(req.query.offset ?? 0);
+    const kind = String(req.query.kind ?? '').trim() || undefined;
+    const db = openDb();
+    const safeLimit = Number.isFinite(limit) ? limit : 20;
+    const safeOffset = Number.isFinite(offset) ? offset : 0;
+    const total = countExitLockEvents(db, kind);
+    res.json({
+      items: listExitLockEvents(db, {
+        limit: safeLimit,
+        offset: safeOffset,
+        kind,
+      }),
+      total,
+      limit: safeLimit,
+      offset: safeOffset,
+    });
+  },
+);
+
+settingsRouter.get(
+  '/api/v1/settings/backup',
+  requireAuth,
+  requireRoles('teacher', 'admin', 'assistant'),
+  (_req, res) => {
+    const db = openDb();
+    res.json(getBackupStatus(getSetting(db, 'last_auto_backup_at')));
+  },
+);
+
+settingsRouter.post(
+  '/api/v1/settings/backup-now',
+  requireAuth,
+  requireRoles('teacher', 'admin'),
+  (_req, res) => {
+    const result = runDbBackup();
+    const db = openDb();
+    if (result.ok) {
+      db.prepare(
+        `INSERT INTO settings (key, value) VALUES ('last_auto_backup_at', ?)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+      ).run(nowIso());
+    }
+    res.status(result.ok ? 200 : 500).json({
+      ...result,
+      ...getBackupStatus(getSetting(db, 'last_auto_backup_at')),
+    });
+  },
+);
+
+settingsRouter.get(
+  '/api/v1/settings/exit-lock-events.csv',
+  requireAuth,
+  requireRoles('teacher', 'admin'),
+  (req: AuthedRequest, res) => {
+    const limit = Number(req.query.limit ?? 200);
+    const kind = String(req.query.kind ?? '').trim();
+    const items = listExitLockEvents(openDb(), {
+      limit: Number.isFinite(limit) ? limit : 200,
+      kind: kind || undefined,
+    }) as Array<{
+      id: string;
+      kind: string;
+      actorUserId: string | null;
+      actorRole: string | null;
+      detail: string;
+      clientIp: string | null;
+      createdAt: string;
+    }>;
+    const csv = toCsv(
+      ['时间', '类型', '角色', '详情', 'IP', 'ID'],
+      items.map((e) => [e.createdAt, e.kind, e.actorRole ?? '', e.detail, e.clientIp ?? '', e.id]),
+    );
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', 'attachment; filename="exit-lock-events.csv"');
+    res.send('\uFEFF' + csv);
   },
 );

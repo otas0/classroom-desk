@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { openDb } from '../db/client.js';
-import { requireAuth, requireRoles } from '../middleware/auth.js';
+import { requireAuth, requireRoles, type AuthedRequest } from '../middleware/auth.js';
+import { chunkIds, parseIdList, sqlInPlaceholders } from '../utils/bulkIds.js';
 import { currentMonth, localMonthRange, monthRange } from '../utils/csv.js';
 import { parseFormat, sendTableExport } from '../utils/exportFormats.js';
 
@@ -9,7 +10,7 @@ export const exportsRouter = Router();
 exportsRouter.get(
   '/api/v1/exports/attendance',
   requireAuth,
-  requireRoles('teacher', 'admin'),
+  requireRoles('teacher', 'admin', 'assistant'),
   (req, res) => {
     const month = String(req.query.month ?? currentMonth());
     const format = parseFormat(req.query.format);
@@ -22,8 +23,9 @@ exportsRouter.get(
       return;
     }
 
+    const sessionId = String(req.query.sessionId ?? '').trim();
     let sql = `SELECT c.name AS className, u.display_name AS studentName, u.student_no AS studentNo,
-                s.id AS sessionId, s.mode AS sessionMode,
+                s.id AS sessionId, s.mode AS sessionMode, s.start_at AS sessionStart,
                 r.checked_at AS checkedAt, r.status, r.source, r.remark
          FROM attendance_records r
          JOIN attendance_sessions s ON s.id = r.session_id
@@ -35,18 +37,24 @@ exportsRouter.get(
       sql += ` AND s.class_id = ?`;
       params.push(classId);
     }
+    if (sessionId) {
+      sql += ` AND s.id = ?`;
+      params.push(sessionId);
+    }
     sql += ` ORDER BY COALESCE(r.checked_at, s.start_at)`;
 
     const rows = openDb().prepare(sql).all(...params) as Array<Record<string, string>>;
+    const fileSuffix = sessionId ? `session-${sessionId.slice(0, 8)}` : month;
     sendTableExport(res, {
       format,
-      filenameBase: `attendance-${month}`,
-      headers: ['班级', '学生', '学号', '场次', '签到模式', '签到时间', '状态', '来源', '备注'],
+      filenameBase: `attendance-${fileSuffix}`,
+      headers: ['班级', '学生', '学号', '场次', '场次开始', '签到模式', '签到时间', '状态', '来源', '备注'],
       rows: rows.map((r) => [
         r.className,
         r.studentName,
         r.studentNo,
         r.sessionId,
+        r.sessionStart,
         r.sessionMode,
         r.checkedAt,
         r.status,
@@ -60,7 +68,7 @@ exportsRouter.get(
 exportsRouter.get(
   '/api/v1/exports/attendance-summary',
   requireAuth,
-  requireRoles('teacher', 'admin'),
+  requireRoles('teacher', 'admin', 'assistant'),
   (req, res) => {
     const month = String(req.query.month ?? currentMonth());
     const format = parseFormat(req.query.format);
@@ -77,39 +85,60 @@ exportsRouter.get(
       return;
     }
     const db = openDb();
-    const sessionCount = (
-      db
-        .prepare(
-          `SELECT COUNT(*) AS c FROM attendance_sessions WHERE class_id = ? AND start_at >= ? AND start_at < ?`,
-        )
-        .get(classId, range.start, range.end) as { c: number }
-    ).c;
+    const sessionId = String(req.query.sessionId ?? '').trim();
+    const sessionCount = sessionId
+      ? 1
+      : (
+          db
+            .prepare(
+              `SELECT COUNT(*) AS c FROM attendance_sessions WHERE class_id = ? AND start_at >= ? AND start_at < ?`,
+            )
+            .get(classId, range.start, range.end) as { c: number }
+        ).c;
     const students = db
       .prepare(
         `SELECT id, display_name AS displayName, student_no AS studentNo FROM users
-         WHERE role = 'student' AND class_id = ? ORDER BY student_no, display_name`,
+         WHERE role = 'student' AND class_id = ?
+           AND (deleted_at IS NULL OR deleted_at = '')
+         ORDER BY student_no, display_name`,
       )
       .all(classId) as Array<{ id: string; displayName: string; studentNo: string | null }>;
 
     const rows = students.map((s) => {
-      const c = (
-        db
-          .prepare(
-            `SELECT COUNT(*) AS c FROM attendance_records r
-             JOIN attendance_sessions sess ON sess.id = r.session_id
-             WHERE r.student_id = ? AND sess.class_id = ? AND sess.start_at >= ? AND sess.start_at < ?
-               AND r.status IN ('present','late')`,
-          )
-          .get(s.id, classId, range.start, range.end) as { c: number }
-      ).c;
+      let c: number;
+      if (sessionId) {
+        c = (
+          db
+            .prepare(
+              `SELECT COUNT(*) AS c FROM attendance_records r
+               WHERE r.student_id = ? AND r.session_id = ?
+                 AND r.status IN ('present','late')`,
+            )
+            .get(s.id, sessionId) as { c: number }
+        ).c;
+      } else {
+        c = (
+          db
+            .prepare(
+              `SELECT COUNT(*) AS c FROM attendance_records r
+               JOIN attendance_sessions sess ON sess.id = r.session_id
+               WHERE r.student_id = ? AND sess.class_id = ? AND sess.start_at >= ? AND sess.start_at < ?
+                 AND r.status IN ('present','late')`,
+            )
+            .get(s.id, classId, range.start, range.end) as { c: number }
+        ).c;
+      }
       const rate = sessionCount > 0 ? ((c / sessionCount) * 100).toFixed(1) + '%' : '0%';
       return [s.displayName, s.studentNo, c, sessionCount, rate];
     });
 
+    const fileSuffix = sessionId ? `session-${sessionId.slice(0, 8)}` : month;
     sendTableExport(res, {
       format,
-      filenameBase: `attendance-summary-${month}`,
-      headers: ['学生', '学号', '本月出勤次数', '本月场次数', '出勤率'],
+      filenameBase: `attendance-summary-${fileSuffix}`,
+      headers: sessionId
+        ? ['学生', '学号', '本场出勤', '场次数', '出勤率']
+        : ['学生', '学号', '本月出勤次数', '本月场次数', '出勤率'],
       rows,
     });
   },
@@ -118,7 +147,7 @@ exportsRouter.get(
 exportsRouter.get(
   '/api/v1/exports/points',
   requireAuth,
-  requireRoles('teacher', 'admin'),
+  requireRoles('teacher', 'admin', 'assistant'),
   (req, res) => {
     const month = String(req.query.month ?? currentMonth());
     const format = parseFormat(req.query.format);
@@ -174,7 +203,7 @@ exportsRouter.get(
 exportsRouter.get(
   '/api/v1/exports/questions',
   requireAuth,
-  requireRoles('teacher', 'admin'),
+  requireRoles('teacher', 'admin', 'assistant'),
   (req, res) => {
     const format = parseFormat(req.query.format);
     const classId = String(req.query.classId ?? '');
@@ -189,12 +218,98 @@ exportsRouter.get(
          FROM questions q
          LEFT JOIN error_stats e ON e.question_id = q.id
          WHERE q.class_id = ?
+           AND (q.deleted_at IS NULL OR q.deleted_at = '')
          ORDER BY q.created_at DESC`,
       )
       .all(classId) as Array<Record<string, string | number>>;
     sendTableExport(res, {
       format,
       filenameBase: `questions-${classId.slice(0, 8)}`,
+      headers: ['题目', '类型', '作答数', '错误数', '错误率'],
+      rows: rows.map((r) => [r.title, r.type, r.answered, r.wrong, r.errorRate]),
+    });
+  },
+);
+
+/** Export only selected students (POST body: { classId, ids, format }). */
+exportsRouter.post(
+  '/api/v1/exports/students-selected',
+  requireAuth,
+  requireRoles('teacher', 'admin', 'assistant'),
+  (req: AuthedRequest, res) => {
+    const classId = String(req.body?.classId ?? '').trim();
+    const ids = parseIdList(req.body?.ids, 500);
+    const format = parseFormat(req.body?.format ?? req.query.format);
+    if (!classId) {
+      res.status(400).json({ error: 'class_id_required' });
+      return;
+    }
+    if (ids.length === 0) {
+      res.status(400).json({ error: 'ids_required', message: '请选择要导出的学生' });
+      return;
+    }
+    const db = openDb();
+    const rows: Array<Record<string, string | number | null>> = [];
+    for (const chunk of chunkIds(ids)) {
+      const ph = sqlInPlaceholders(chunk.length);
+      const part = db
+        .prepare(
+          `SELECT display_name AS displayName, student_no AS studentNo, total_points AS totalPoints
+           FROM users
+           WHERE role = 'student' AND class_id = ?
+             AND (deleted_at IS NULL OR deleted_at = '')
+             AND id IN (${ph})
+           ORDER BY student_no, display_name`,
+        )
+        .all(classId, ...chunk) as Array<Record<string, string | number | null>>;
+      rows.push(...part);
+    }
+    sendTableExport(res, {
+      format,
+      filenameBase: `students-selected-${classId.slice(0, 8)}`,
+      headers: ['姓名', '学号', '积分'],
+      rows: rows.map((r) => [r.displayName, r.studentNo, r.totalPoints]),
+    });
+  },
+);
+
+/** Export only selected questions (POST body: { classId, ids, format }). */
+exportsRouter.post(
+  '/api/v1/exports/questions-selected',
+  requireAuth,
+  requireRoles('teacher', 'admin', 'assistant'),
+  (req: AuthedRequest, res) => {
+    const classId = String(req.body?.classId ?? '').trim();
+    const ids = parseIdList(req.body?.ids, 200);
+    const format = parseFormat(req.body?.format ?? req.query.format);
+    if (!classId) {
+      res.status(400).json({ error: 'class_id_required' });
+      return;
+    }
+    if (ids.length === 0) {
+      res.status(400).json({ error: 'ids_required', message: '请选择要导出的题目' });
+      return;
+    }
+    const db = openDb();
+    const rows: Array<Record<string, string | number>> = [];
+    for (const chunk of chunkIds(ids)) {
+      const ph = sqlInPlaceholders(chunk.length);
+      const part = db
+        .prepare(
+          `SELECT q.title, q.type, COALESCE(e.answered_count,0) AS answered,
+                  COALESCE(e.wrong_count,0) AS wrong, COALESCE(e.error_rate,0) AS errorRate
+           FROM questions q
+           LEFT JOIN error_stats e ON e.question_id = q.id
+           WHERE q.class_id = ? AND q.id IN (${ph})
+             AND (q.deleted_at IS NULL OR q.deleted_at = '')
+           ORDER BY q.created_at DESC`,
+        )
+        .all(classId, ...chunk) as Array<Record<string, string | number>>;
+      rows.push(...part);
+    }
+    sendTableExport(res, {
+      format,
+      filenameBase: `questions-selected-${classId.slice(0, 8)}`,
       headers: ['题目', '类型', '作答数', '错误数', '错误率'],
       rows: rows.map((r) => [r.title, r.type, r.answered, r.wrong, r.errorRate]),
     });

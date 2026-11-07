@@ -1,12 +1,13 @@
 #!/usr/bin/env node
 /**
- * Supervised local stack: API + teacher Vite + student Electron.
- * Each child restarts independently so one exit does not tear down the rest.
+ * Supervised local stack: API + teacher Vite (+ optional student Electron).
+ * Default always starts API then teacher (waits /health) so one hang doesn't leave you with a half stack.
+ * Each child restarts independently.
  *
  * Usage:
- *   npm run dev:stack
- *   npm run dev:stack -- --no-student
- *   npm run dev:stack -- --once   # no restart (CI-friendly)
+ *   npm run dev:stack                 # API + teacher + student
+ *   npm run dev:stack -- --no-student # API + teacher only
+ *   npm run dev:stack -- --once
  */
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
@@ -18,6 +19,8 @@ const args = new Set(process.argv.slice(2));
 const noStudent = args.has('--no-student');
 const once = args.has('--once');
 const restartMs = Number(process.env.DEV_STACK_RESTART_MS ?? 1500);
+const apiPort = process.env.PORT || '8787';
+const apiHost = process.env.HOST || '127.0.0.1';
 
 const offFile = path.join(root, 'apps/student-desktop/.electron-off');
 if (fs.existsSync(offFile)) {
@@ -30,11 +33,11 @@ const serverEnv = {
   ADMIN_PASSWORD: process.env.ADMIN_PASSWORD || 'AdminPass123',
   TEACHER_PASSWORD: process.env.TEACHER_PASSWORD || 'TeacherPass123',
   DEFAULT_CLASS_CODE: process.env.DEFAULT_CLASS_CODE || 'LOCAL01',
-  HOST: process.env.HOST || '127.0.0.1',
-  PORT: process.env.PORT || '8787',
+  HOST: apiHost,
+  PORT: apiPort,
 };
 
-/** @type {Array<{ name: string, npmScript: string, env?: Record<string, string>, cwd?: string }>} */
+/** @type {Array<{ name: string, npmScript: string, env?: Record<string, string>, cwd?: string, waitHealth?: boolean }>} */
 const specs = [
   {
     name: 'api',
@@ -44,6 +47,7 @@ const specs = [
   {
     name: 'teacher',
     npmScript: 'dev:teacher',
+    waitHealth: true,
   },
 ];
 
@@ -53,6 +57,7 @@ if (!noStudent) {
     npmScript: 'dev:electron',
     cwd: path.join(root, 'apps/student-desktop'),
     env: { FORCE_ELECTRON: '1' },
+    waitHealth: true,
   });
 }
 
@@ -60,7 +65,7 @@ let shuttingDown = false;
 /** @type {Map<string, { child: import('node:child_process').ChildProcess, restarts: number }>} */
 const procs = new Map();
 
-function prefixPipe(stream, name, streamName) {
+function prefixPipe(stream, name) {
   let buf = '';
   stream.on('data', (chunk) => {
     buf += String(chunk);
@@ -73,7 +78,27 @@ function prefixPipe(stream, name, streamName) {
   stream.on('end', () => {
     if (buf.length) process.stdout.write(`[${name}] ${buf}\n`);
   });
-  void streamName;
+}
+
+async function waitForHealth(timeoutMs = 45_000) {
+  const url = `http://${apiHost}:${apiPort}/health`;
+  const t0 = Date.now();
+  while (Date.now() - t0 < timeoutMs) {
+    try {
+      const res = await fetch(url);
+      if (res.ok) {
+        const j = await res.json();
+        if (j?.ok) {
+          console.log(`[dev-stack] API healthy ${url}`);
+          return;
+        }
+      }
+    } catch {
+      /* retry */
+    }
+    await new Promise((r) => setTimeout(r, 400));
+  }
+  console.warn(`[dev-stack] API health wait timed out (${url}); starting remaining services anyway`);
 }
 
 function start(spec, restarts = 0) {
@@ -87,8 +112,8 @@ function start(spec, restarts = 0) {
     shell: process.platform === 'win32',
   });
   procs.set(spec.name, { child, restarts });
-  prefixPipe(child.stdout, spec.name, 'out');
-  prefixPipe(child.stderr, spec.name, 'err');
+  prefixPipe(child.stdout, spec.name);
+  prefixPipe(child.stderr, spec.name);
   console.log(`[dev-stack] started ${spec.name} pid=${child.pid} (restarts=${restarts})`);
 
   child.on('exit', (code, signal) => {
@@ -101,7 +126,12 @@ function start(spec, restarts = 0) {
     const next = restarts + 1;
     const delay = Math.min(10_000, restartMs * Math.min(next, 5));
     console.log(`[dev-stack] restarting ${spec.name} in ${delay}ms…`);
-    setTimeout(() => start(spec, next), delay);
+    setTimeout(() => {
+      void (async () => {
+        if (spec.waitHealth && spec.name !== 'api') await waitForHealth(20_000);
+        start(spec, next);
+      })();
+    }, delay);
   });
 }
 
@@ -125,6 +155,13 @@ function shutdown(signal) {
 process.on('SIGINT', () => shutdown('SIGINT'));
 process.on('SIGTERM', () => shutdown('SIGTERM'));
 
-console.log('[dev-stack] API :8787 · teacher :5174 · student Electron');
+console.log('[dev-stack] default: API :8787 + teacher :5174' + (noStudent ? '' : ' + student'));
 console.log('[dev-stack] Ctrl+C stops all. Flags: --no-student --once');
-for (const spec of specs) start(spec);
+
+async function main() {
+  start(specs[0]); // api
+  await waitForHealth();
+  for (const spec of specs.slice(1)) start(spec);
+}
+
+void main();

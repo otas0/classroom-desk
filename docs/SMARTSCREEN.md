@@ -1,20 +1,70 @@
-# 教室机旁 SmartScreen 话术（可打印）
+# 教室机旁 SmartScreen / 组策略放行（可打印）
 
 **适用：** 未签名或新发布的 `ClassroomDesk-Setup-*.exe`  
-**对象：** 任课教师 / 机房管理员
+**对象：** 任课教师 / 机房管理员  
+**目标：** 任意机房本地部署均可安装，不依赖代码签名证书。
 
 ---
 
 ## 对学生怎么说（30 秒）
 
-「这是学校发的课堂积分客户端，不是网上下载的未知软件。如果 Windows 提示『未知发布者』，点 **更多信息 → 仍要运行**。装完后老师会帮你们填教室服务器地址。」
+「这是学校发的课堂客户端，不是网上下载的未知软件。如果 Windows 提示『未知发布者』，点 **更多信息 → 仍要运行**。装完后老师会帮你们填教室服务器地址。」
 
-## 操作步骤
+---
 
-1. 只安装来自 **本校网盘 / 教师分发** 的安装包（核对下方 SHA256）。
-2. SmartScreen 拦截 → **更多信息** → **仍要运行**。
-3. 安装结束弹窗：设置 **apiBase**（例 `http://192.168.1.50:8787`）。
-4. 学生：本机已指派 `classId` 后，在 **名单** 点自己的姓名 → 交作业 / 加分请求；教师 `/admin` 审核。无班级码进入、无「我的」页。
+## A. 单机操作（无组策略时）
+
+1. 只安装来自 **本校网盘 / 教师分发 / GitHub Release** 的安装包（核对下方 SHA256）。
+2. SmartScreen 蓝屏拦截 → 点 **更多信息** → **仍要运行**。  
+   （界面示意：蓝色「Windows 已保护你的电脑」→ 左下「更多信息」→ 出现「仍要运行」。）
+3. 若被 Defender「严重威胁」拦下：打开 **Windows 安全中心 → 病毒和威胁防护 → 保护历史记录** → 对该文件选 **允许**。
+4. 安装结束：学生端弹出 **首次配置**，填写  
+   - 服务器地址 `http://教师机局域网IP:8787`  
+   - 机位班级 `classId`（教师后台「指派学生机」复制）  
+   → **保存并检测 /health**。禁止 `127.0.0.1`。
+
+> 截图占位（机房打印时可贴本校实际截图）：  
+> `[图1] SmartScreen「更多信息」` · `[图2]「仍要运行」` · `[图3] 首次配置页]`
+
+---
+
+## B. 机房组策略 / 域控放行（批量）
+
+适用：整间机房由 AD / 本地 GPO 管控，学生无管理员权限。
+
+### B1. SmartScreen 对指定路径放宽（Win10/11 教育版常见）
+
+1. `gpedit.msc`（或域 GPO）→ **计算机配置 → 管理模板 → Windows 组件 → Windows Defender SmartScreen → Explorer**。
+2. **配置 Windows Defender SmartScreen** → 启用，选「警告」或按校策「关闭」（仅机房镜像建议关闭）。
+3. 或保留 SmartScreen，改用 **软件限制 / WDAC 白名单** 放行安装目录，例如：  
+   `C:\Program Files\Classroom Desk\`  
+   `C:\Users\*\AppData\Local\Programs\Classroom Desk\`（以实际安装路径为准）。
+
+### B2. Defender 排除（降低误杀未签名包）
+
+**计算机配置 → 管理模板 → Windows 组件 → Microsoft Defender 防病毒 → 排除项**
+
+- 排除路径：安装目录 + 学生机 `config.json` 所在用户目录（若策略允许）。
+- 排除进程：`Classroom Desk.exe`（productName 以 electron-builder 为准）。
+
+### B3. AppLocker / WDAC（高安全机房）
+
+1. 以发布包 SHA256 或发布者证书（若已签名）建允许规则。
+2. 未签名时：用 **路径规则** 仅允许教师分发目录（如 `D:\ClassroomDesk\Setup\`）内的 `ClassroomDesk-Setup-*.exe` 执行一次安装。
+3. 安装完成后，对已安装目录建永久允许规则。
+
+### B4. 「从 Internet 下载」标记（MOTW）
+
+U 盘 / 网盘解压后若仍被拦，可在教师机 PowerShell（管理员）对安装包去区域标记：
+
+```powershell
+Unblock-File -Path .\ClassroomDesk-Setup-0.1.2.exe
+Get-FileHash .\ClassroomDesk-Setup-0.1.2.exe -Algorithm SHA256
+```
+
+与 Release 旁 `.sha256` 文件对照，不一致则**不要安装**。
+
+---
 
 ## 安装包校验（填写本批哈希）
 
@@ -22,20 +72,16 @@
 |---|---|
 | 文件名 | ClassroomDesk-Setup-_______.exe |
 | SHA256 | ______________________________________ |
-| 来源 | GitHub Actions artifact `classroom-desk-windows-setup` / 校内网盘路径 |
+| 来源 | GitHub Release / 校内网盘路径 |
 | 签名 | □ 已签名（CSC）　□ 未签名（预期可能有 SmartScreen） |
 
-在教室机 PowerShell 校验：
-
-```powershell
-Get-FileHash .\ClassroomDesk-Setup-0.1.0.exe -Algorithm SHA256
-```
-
-与网盘旁 `.sha256` 文件或 Actions 日志中的 `sha256 ...` 行对照，不一致则**不要安装**。
+---
 
 ## 长期
 
 申请代码签名证书 → 仓库 Secrets `CSC_LINK` + `CSC_KEY_PASSWORD` → 重打签名包，SmartScreen 显著减少。
 
-网盘留档约定见 [NAS_RELEASES.md](./NAS_RELEASES.md)。  
-教师机当服务器、学生机互联见 [CLASSROOM_TEACHER_HOST.md](./CLASSROOM_TEACHER_HOST.md)。
+- 从零部署：[SETUP_FROM_GITHUB.md](./SETUP_FROM_GITHUB.md)  
+- U 盘清单：[LOCAL_USB_CHECKLIST.md](./LOCAL_USB_CHECKLIST.md)  
+- 网盘留档：[NAS_RELEASES.md](./NAS_RELEASES.md)  
+- 教师机当服务器：[CLASSROOM_TEACHER_HOST.md](./CLASSROOM_TEACHER_HOST.md)

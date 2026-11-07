@@ -32,4 +32,15 @@ npm run prepare:live -- --apiBase http://192.168.x.x:8787 --className 高一(3)�
 - [ ] 安装 Release exe + 本班 `config.json`  
 - [ ] 点名「确认是我」后可答题  
 
-网络不通先查 [NETWORK.md](./NETWORK.md)。退出锁定说明见 [EXIT_LOCK_MDM.md](./EXIT_LOCK_MDM.md)。
+## C2. 锁退出（须 Windows 真机）
+
+详见 [EXIT_LOCK_MDM.md](./EXIT_LOCK_MDM.md)（状态机表 + Assigned Access / Intune XML 示例 [`intune-student-kiosk.example.xml`](./intune-student-kiosk.example.xml)）。  
+静态检查（CI / `dist:win`）：`npm run verify:exit-lock-packaged`（打包机加 `REQUIRE_WIN_EXE=1`）。
+
+- [ ] 标题栏「已锁定」（读屏可听）；关窗 / Alt+F4 无效  
+- [ ] 教师批量解除二次确认后，学生秒级「可退出 m:ss」并可关  
+- [ ] 重新锁定后无法关闭  
+- [ ] 解除码可退；错码限流可配；审计可筛选/导出 CSV；超期轮换提醒  
+- [ ] （可选）Assigned Access / Intune 挡任务管理器（按 EXIT_LOCK_MDM 手测表勾完） 
+
+网络不通先查 [NETWORK.md](./NETWORK.md)。

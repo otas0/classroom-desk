@@ -128,7 +128,7 @@ npm run start:server
 }
 ```
 
-4. 将 `config.json` 放到客户端说明的安装目录（常见为 `resources\config.json`，或以客户端「设置」保存为准）。  
+4. **推荐：** 安装后打开客户端，按 **首次配置** 向导填写服务器地址与机位班级（写入用户目录 `config.json`）并自动校验 `/health`。也可手动改 `config.example.json` → `config.json` 放到安装目录（常见 `resources\config.json`）。未签名拦截见 [SMARTSCREEN.md](./SMARTSCREEN.md)（含组策略放行）。  
 5. 浏览器先打开 `http://<教师机IP>:8787/ready`，通过后再启动 Classroom Desk。  
 6. 点自己的姓名 →「确认是我」→ 签到 / 答题 / 积分。
 

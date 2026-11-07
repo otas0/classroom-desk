@@ -90,8 +90,16 @@ function zhError(code?: string): string | undefined {
     already_answered: '本题已作答',
     cannot_message_self: '不能给自己留言',
     peer_not_in_class: '只能发给本班同学',
+    account_deleted: '账号已删除，请重新选择身份',
+    session_kicked: '账号已下线，请重新选择身份',
+    account_disabled: '账号已停用',
   };
   return map[code] ?? code;
+}
+
+export function isSessionEndedError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  return /账号已删除|账号已下线|account_deleted|session_kicked/i.test(err.message);
 }
 
 export { getApiBase as API_BASE_FN };

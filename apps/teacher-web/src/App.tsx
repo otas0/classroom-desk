@@ -9,6 +9,7 @@ import {
   AttendancePanel,
   ExportsPanel,
   MessagesPanel,
+  QuestionRecyclePanel,
   QuestionsPanel,
   RequestsPanel,
   RosterPanel,
@@ -23,6 +24,7 @@ import {
   type TeacherPrepTab,
   type TeacherTab,
 } from './navStorage';
+import { assistantPrepTabs, isAssistant, setStaffRole } from './authRole';
 import { preferClassroomId, type ClassItem } from './types';
 
 type Tab = TeacherTab;
@@ -31,6 +33,7 @@ type PrepTab = TeacherPrepTab;
 const PREP_ITEMS: Array<[PrepTab, string]> = [
   ['roster', '名单'],
   ['questions', '发题'],
+  ['q-recycle', '题目回收站'],
   ['requests', '加分'],
   ['attendance', '出勤报表'],
   ['exports', '导出'],
@@ -59,6 +62,36 @@ export function App() {
   const [hasApiBase, setHasApiBase] = useState(false);
   const [setupTick, setSetupTick] = useState(0);
   const [pendingCount, setPendingCount] = useState(0);
+  const [codeRotationBanner, setCodeRotationBanner] = useState('');
+
+  useEffect(() => {
+    if (tokenReady) return;
+    let cancelled = false;
+    void fetch(`${API_BASE}/api/v1/settings/public`)
+      .then((r) => r.json())
+      .then(
+        (s: {
+          exitUnlockCodeRotationDue?: boolean;
+          exitUnlockCodeAgeDays?: number | null;
+          exitUnlockCodeRotateDays?: number;
+        }) => {
+          if (cancelled) return;
+          if (s.exitUnlockCodeRotationDue) {
+            setCodeRotationBanner(
+              `解除码已使用 ${s.exitUnlockCodeAgeDays ?? '?'} 天（阈值 ${s.exitUnlockCodeRotateDays ?? 90} 天），登录后请在「设置」更换。`,
+            );
+          } else {
+            setCodeRotationBanner('');
+          }
+        },
+      )
+      .catch(() => {
+        if (!cancelled) setCodeRotationBanner('');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [tokenReady]);
 
   async function loadClasses() {
     const res = await api<{ items: ClassItem[] }>('/api/v1/classes');
@@ -139,18 +172,23 @@ export function App() {
         const res = await fetch(`${API_BASE}/health`, { cache: 'no-store' });
         const body = (await res.json()) as {
           ok?: boolean;
+          degraded?: boolean;
           lanIps?: string[];
           backup?: { lastError?: { message?: string } | null };
+          audit?: { lastError?: { message?: string } | null };
         };
         if (cancelled) return;
         setHealthLanIps(body.lanIps ?? []);
         const err = body.backup?.lastError;
+        const auditErr = body.audit?.lastError;
         setHealthAlert(
           !body.ok
             ? '服务异常：/health 未就绪'
-            : err
-              ? `备份异常：${err.message ?? JSON.stringify(err)}（自动备份或 npm run backup:db）`
-              : '',
+            : auditErr
+              ? `审计写入异常：${auditErr.message}`
+              : err
+                ? `备份异常：${err.message ?? JSON.stringify(err)}（自动备份或 npm run backup:db）`
+                : '',
         );
       } catch {
         if (!cancelled) {
@@ -174,6 +212,13 @@ export function App() {
   }, [mustChangePassword]);
 
   useEffect(() => {
+    if (!tokenReady || mustChangePassword || !isAssistant()) return;
+    setTab('prep');
+    const allowed = new Set([...assistantPrepTabs(), 'settings'] as string[]);
+    if (!allowed.has(prepTab)) setPrepTab('attendance');
+  }, [tokenReady, mustChangePassword]);
+
+  useEffect(() => {
     if (!tokenReady || mustChangePassword) return;
     localStorage.setItem(NAV_TAB_KEY, tab);
   }, [tokenReady, mustChangePassword, tab]);
@@ -189,7 +234,9 @@ export function App() {
   }, [classId]);
 
   useEffect(() => {
-    if (!messagesEnabled && prepTab === 'messages') setPrepTab('roster');
+    if (!messagesEnabled && prepTab === 'messages') {
+      setPrepTab(isAssistant() ? 'attendance' : 'roster');
+    }
   }, [messagesEnabled, prepTab]);
 
   useEffect(() => {
@@ -204,25 +251,42 @@ export function App() {
   async function login() {
     setError('');
     try {
-      const res = await api<{ token: string; mustChangePassword?: boolean }>('/api/v1/auth/login', {
+      const res = await api<{
+        token: string;
+        mustChangePassword?: boolean;
+        user?: { role?: string };
+      }>('/api/v1/auth/login', {
         method: 'POST',
         body: JSON.stringify({ username, password }),
       });
       setToken(res.token);
+      setStaffRole(res.user?.role);
       const force = Boolean(res.mustChangePassword);
       setMustChangePassword(force);
       sessionStorage.setItem('cd_must_change_password', force ? '1' : '0');
       setTokenReady(true);
-      setTab(force ? 'settings' : 'session');
+      if (force) {
+        setTab('settings');
+      } else if (res.user?.role === 'assistant') {
+        setTab('prep');
+        setPrepTab('attendance');
+      } else {
+        setTab('session');
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'login_failed');
     }
   }
 
-  function openDest(dest: 'prep' | 'assign' | 'session') {
+  function openDest(dest: 'prep' | 'assign' | 'session' | 'prep-roster' | 'prep-questions') {
     setProjectionMode(false);
-    if (dest === 'prep') {
+    if (dest === 'prep' || dest === 'prep-roster') {
       setPrepTab('roster');
+      setTab('prep');
+      return;
+    }
+    if (dest === 'prep-questions') {
+      setPrepTab('questions');
       setTab('prep');
       return;
     }
@@ -241,6 +305,11 @@ export function App() {
       <div className="login">
         <h1>{APP_NAME} 教师后台</h1>
         <p className="hint">使用教师账号登录。若仍是联调口令，登录后须先改个人密码。</p>
+        {codeRotationBanner ? (
+          <div className="banner-alert" role="status" aria-live="polite">
+            <p>{codeRotationBanner}</p>
+          </div>
+        ) : null}
         <label>
           用户名
           <input value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="username" />
@@ -262,7 +331,13 @@ export function App() {
     );
   }
 
-  const visiblePrep = PREP_ITEMS.filter(([id]) => id !== 'messages' || messagesEnabled);
+  const visiblePrep = (
+    isAssistant()
+      ? PREP_ITEMS.filter(([id]) =>
+          (assistantPrepTabs() as string[]).includes(id) || id === 'settings',
+        )
+      : PREP_ITEMS
+  ).filter(([id]) => id !== 'messages' || messagesEnabled);
 
   return (
     <div className={projectionMode ? 'layout projection-active' : 'layout'}>
@@ -300,12 +375,15 @@ export function App() {
           </label>
           {!mustChangePassword
             ? (
-                [
-                  ['session', '上课'],
-                  ['prep', '备课'],
-                  ['assign', '指派学生机'],
-                ] as const
-              ).map(([id, label]) => (
+                (
+                  isAssistant()
+                    ? ([['prep', '备课'], ['settings', '设置']] as const)
+                    : ([
+                        ['session', '上课'],
+                        ['prep', '备课'],
+                        ['assign', '指派学生机'],
+                      ] as const)
+                ).map(([id, label]) => (
                 <button
                   key={id}
                   type="button"
@@ -321,6 +399,7 @@ export function App() {
                   ) : null}
                 </button>
               ))
+            )
             : null}
           {!messagesEnabled && !mustChangePassword ? (
             <p className="hint">留言已关闭（学生端无留言 Tab）</p>
@@ -330,6 +409,7 @@ export function App() {
             className="nav"
             onClick={() => {
               setToken(null);
+              setStaffRole(null);
               setTokenReady(false);
               setMustChangePassword(false);
               setProjectionMode(false);
@@ -347,7 +427,12 @@ export function App() {
             onPasswordChanged={() => {
               setMustChangePassword(false);
               sessionStorage.setItem('cd_must_change_password', '0');
-              setTab('session');
+              if (isAssistant()) {
+                setTab('prep');
+                setPrepTab('attendance');
+              } else {
+                setTab('session');
+              }
             }}
           />
         ) : projectionMode ? (
@@ -358,15 +443,17 @@ export function App() {
           />
         ) : (
           <>
-            <SetupChecklist
-              classId={classId}
-              classes={classes}
-              studentCount={studentCount}
-              hasApiBase={hasApiBase}
-              refreshTick={setupTick}
-              onGo={openDest}
-              onCreateClass={() => openDest('prep')}
-            />
+            {!isAssistant() ? (
+              <SetupChecklist
+                classId={classId}
+                classes={classes}
+                studentCount={studentCount}
+                hasApiBase={hasApiBase}
+                refreshTick={setupTick}
+                onGo={openDest}
+                onCreateClass={() => openDest('prep')}
+              />
+            ) : null}
             {tab === 'session' && (
               <SessionHome
                 classId={classId}
@@ -409,6 +496,7 @@ export function App() {
                   />
                 )}
                 {prepTab === 'questions' && <QuestionsPanel classId={classId} />}
+                {prepTab === 'q-recycle' && <QuestionRecyclePanel classId={classId} />}
                 {prepTab === 'requests' && <RequestsPanel classId={classId} />}
                 {prepTab === 'attendance' && <AttendancePanel classId={classId} />}
                 {prepTab === 'exports' && <ExportsPanel classId={classId} />}

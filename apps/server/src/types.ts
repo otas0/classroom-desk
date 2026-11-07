@@ -1,4 +1,4 @@
-export type Role = 'student' | 'teacher' | 'admin';
+export type Role = 'student' | 'teacher' | 'admin' | 'assistant';
 
 export type AuthUser = {
   id: string;
@@ -18,4 +18,6 @@ export type DbUser = {
   class_id: string | null;
   total_points: number;
   created_at: string;
+  deleted_at?: string | null;
+  disabled_at?: string | null;
 };

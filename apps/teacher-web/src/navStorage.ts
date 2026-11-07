@@ -2,6 +2,7 @@ export type TeacherTab = 'session' | 'prep' | 'assign' | 'settings';
 export type TeacherPrepTab =
   | 'roster'
   | 'questions'
+  | 'q-recycle'
   | 'requests'
   | 'attendance'
   | 'exports'
@@ -16,6 +17,7 @@ const TABS: TeacherTab[] = ['session', 'prep', 'assign', 'settings'];
 const PREP_TABS: TeacherPrepTab[] = [
   'roster',
   'questions',
+  'q-recycle',
   'requests',
   'attendance',
   'exports',

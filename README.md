@@ -12,7 +12,7 @@
 | 角色 | 怎么装 |
 |---|---|
 | 教师机 | `git clone` → `npm install` → `build:teacher` → 按本教室改 Windows 固定 IP 脚本 → `npm run start:server` → `/admin/` |
-| 学生机 | [Releases](https://github.com/otas0/classroom-desk/releases) 下 `ClassroomDesk-Setup-*.exe` + `config.example.json` 改成 `config.json` → 浏览器先验 `/ready` |
+| 学生机 | [Releases](https://github.com/otas0/classroom-desk/releases) 下 `ClassroomDesk-Setup-*.exe`；安装后首次引导填服务器/机位并校验 `/health`（也可手写 `config.json`）→ 浏览器可先验 `/ready` |
 | 发版 | `git tag v0.1.2 && git push origin v0.1.2` → Actions `Release` 挂 exe（无证书则为未签名包） |
 
 - 需求：[docs/REQUIREMENTS.md](docs/REQUIREMENTS.md)

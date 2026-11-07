@@ -12,7 +12,7 @@ export const STUDENT_WINDOW = {
   collapsedHeight: 48,
 } as const;
 
-export type UserRole = 'student' | 'teacher' | 'admin';
+export type UserRole = 'student' | 'teacher' | 'admin' | 'assistant';
 
 export type AttendanceStatus = 'present' | 'late' | 'absent' | 'leave';
 export type PointRequestStatus = 'pending' | 'confirmed' | 'rejected' | 'expired';

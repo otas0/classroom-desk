@@ -1,7 +1,9 @@
 import { Router } from 'express';
 import { openDb, withTransaction } from '../db/client.js';
 import { requireAuth, requireRoles, type AuthedRequest } from '../middleware/auth.js';
+import { RECYCLE_RETENTION_DAYS, writeAudit } from '../services/audit.js';
 import { computeErrorRate, gradeAnswer, type QuestionType } from '../services/grading.js';
+import { chunkIds, parseIdList, sqlInPlaceholders } from '../utils/bulkIds.js';
 import { newId, nowIso } from '../utils/id.js';
 import { toCsv } from '../utils/csv.js';
 import { paramId } from '../utils/params.js';
@@ -47,16 +49,18 @@ questionsRouter.get('/api/v1/questions', requireAuth, (req: AuthedRequest, res) 
   const db = openDb();
   const teacher = req.user?.role === 'teacher' || req.user?.role === 'admin';
   const includeArchived = teacher && String(req.query.includeArchived ?? '') === '1';
+  const includeDeleted = teacher && String(req.query.includeDeleted ?? '') === '1';
   const rows = db
     .prepare(
       `SELECT id, class_id AS classId, title, stem, type, answer_key AS answerKey, points,
               attachments, created_by AS createdBy, created_at AS createdAt, published,
               closed_at AS closedAt, closes_at AS closesAt, COALESCE(archived, 0) AS archived,
-              COALESCE(retry_wrong, 0) AS retryWrong
+              COALESCE(retry_wrong, 0) AS retryWrong, deleted_at AS deletedAt
        FROM questions
        WHERE class_id = ?
+         ${includeDeleted ? "AND deleted_at IS NOT NULL AND deleted_at != ''" : "AND (deleted_at IS NULL OR deleted_at = '')"}
          ${teacher ? '' : 'AND published = 1 AND COALESCE(archived, 0) = 0'}
-         ${teacher && !includeArchived ? 'AND COALESCE(archived, 0) = 0' : ''}
+         ${teacher && !includeArchived && !includeDeleted ? 'AND COALESCE(archived, 0) = 0' : ''}
        ORDER BY created_at DESC`,
     )
     .all(classId) as Array<{
@@ -138,6 +142,31 @@ questionsRouter.post(
       return;
     }
 
+    const options = Array.isArray(req.body?.options) ? req.body.options : [];
+    if (type === 'blank') {
+      if (!String(req.body?.answerKey ?? '').trim()) {
+        res.status(400).json({ error: 'blank_answer_required', message: '填空题须填写参考答案' });
+        return;
+      }
+    } else {
+      if (options.length < 2) {
+        res.status(400).json({ error: 'options_required', message: '选择题至少两个选项' });
+        return;
+      }
+      const correctCount = options.filter((opt: { isCorrect?: boolean }) => Boolean(opt?.isCorrect)).length;
+      if (correctCount < 1) {
+        res.status(400).json({
+          error: 'correct_option_required',
+          message: type === 'multi' ? '多选题请至少勾选一个正确答案' : '请选择正确答案',
+        });
+        return;
+      }
+      if ((type === 'single' || type === 'bool') && correctCount !== 1) {
+        res.status(400).json({ error: 'single_correct_required', message: '单选/判断只能有一个正确答案' });
+        return;
+      }
+    }
+
     const attachmentsJson = JSON.stringify(parseAttachments(req.body?.attachments));
     const closesAt =
       req.body?.closesAt != null && String(req.body.closesAt).trim()
@@ -166,7 +195,6 @@ questionsRouter.post(
         closesAt,
       );
 
-      const options = Array.isArray(req.body?.options) ? req.body.options : [];
       for (const opt of options) {
         db.prepare(
           `INSERT INTO question_options (id, question_id, label, content, is_correct)
@@ -320,32 +348,48 @@ questionsRouter.delete(
   (req: AuthedRequest, res) => {
     const id = paramId(req.params.id);
     const db = openDb();
-    const existing = db.prepare(`SELECT id FROM questions WHERE id = ?`).get(id);
+    const at = nowIso();
+    const existing = db
+      .prepare(
+        `SELECT id, class_id AS classId FROM questions
+         WHERE id = ? AND (deleted_at IS NULL OR deleted_at = '')`,
+      )
+      .get(id) as { id: string; classId: string } | undefined;
     if (!existing) {
       res.status(404).json({ error: 'not_found', message: '题目不存在' });
       return;
     }
-    db.prepare(`DELETE FROM questions WHERE id = ?`).run(id);
-    res.json({ ok: true, id });
+    db.prepare(`UPDATE questions SET deleted_at = ? WHERE id = ?`).run(at, id);
+    writeAudit({
+      actorUserId: req.user?.id,
+      actorRole: req.user?.role,
+      action: 'questions.soft_delete',
+      classId: existing.classId,
+      detail: { ids: [id] },
+      clientIp: req.ip,
+    });
+    res.json({ ok: true, id, softDeleted: true, deletedAt: at });
   },
 );
 
-/** Bulk question actions: delete | close | reopen | archive | unarchive */
+/**
+ * Bulk question actions:
+ * delete (soft) | purge | restore | close | reopen | archive | unarchive | set_closes_at
+ */
 questionsRouter.post(
   '/api/v1/questions/bulk',
   requireAuth,
-  requireRoles('teacher', 'admin'),
+  requireRoles('teacher', 'admin', 'assistant'),
   (req: AuthedRequest, res) => {
     const classId = String(req.body?.classId ?? '').trim();
     const action = String(req.body?.action ?? '').trim();
-    const rawIds = Array.isArray(req.body?.ids) ? (req.body.ids as unknown[]) : [];
-    const ids = [
-      ...new Set(
-        rawIds
-          .map((x) => String(x ?? '').trim())
-          .filter((x): x is string => x.length > 0),
-      ),
-    ];
+    const ids = parseIdList(req.body?.ids, 200);
+    const closesAtRaw = req.body?.closesAt;
+    const closesAt =
+      closesAtRaw == null || String(closesAtRaw).trim() === ''
+        ? null
+        : String(closesAtRaw).trim();
+
     if (!classId) {
       res.status(400).json({ error: 'class_id_required', message: '缺少班级' });
       return;
@@ -354,51 +398,153 @@ questionsRouter.post(
       res.status(400).json({ error: 'ids_required', message: '请选择题目' });
       return;
     }
-    if (ids.length > 200) {
-      res.status(400).json({ error: 'too_many', message: '单次最多处理 200 题' });
-      return;
-    }
-    if (!['delete', 'close', 'reopen', 'archive', 'unarchive'].includes(action)) {
+    const allowed = [
+      'delete',
+      'purge',
+      'restore',
+      'close',
+      'reopen',
+      'archive',
+      'unarchive',
+      'set_closes_at',
+    ];
+    if (!allowed.includes(action)) {
       res.status(400).json({
         error: 'invalid_action',
-        message: 'action 须为 delete / close / reopen / archive / unarchive',
+        message: `action 须为 ${allowed.join(' / ')}`,
       });
+      return;
+    }
+    if (
+      req.user?.role === 'assistant' &&
+      (action === 'delete' || action === 'purge' || action === 'set_closes_at')
+    ) {
+      res.status(403).json({ error: 'forbidden', message: '助教不可删除题目或改截止时间' });
+      return;
+    }
+    if (action === 'set_closes_at' && closesAt != null && Number.isNaN(Date.parse(closesAt))) {
+      res.status(400).json({ error: 'invalid_closes_at', message: '截止时间格式无效' });
       return;
     }
 
     const db = openDb();
     const at = nowIso();
     let affected = 0;
-    const missing: string[] = [];
+    const found = new Set<string>();
+
+    const activeIn = (chunk: string[]) => {
+      const ph = sqlInPlaceholders(chunk.length);
+      return db
+        .prepare(
+          `SELECT id FROM questions
+           WHERE class_id = ? AND id IN (${ph})
+             AND (deleted_at IS NULL OR deleted_at = '')`,
+        )
+        .all(classId, ...chunk) as Array<{ id: string }>;
+    };
+    const deletedIn = (chunk: string[]) => {
+      const ph = sqlInPlaceholders(chunk.length);
+      return db
+        .prepare(
+          `SELECT id FROM questions
+           WHERE class_id = ? AND id IN (${ph})
+             AND deleted_at IS NOT NULL AND deleted_at != ''`,
+        )
+        .all(classId, ...chunk) as Array<{ id: string }>;
+    };
+
     db.exec('BEGIN');
     try {
-      for (const id of ids) {
-        const row = db
-          .prepare(`SELECT id FROM questions WHERE id = ? AND class_id = ?`)
-          .get(id, classId) as { id: string } | undefined;
-        if (!row) {
-          missing.push(id);
+      for (const chunk of chunkIds(ids)) {
+        if (action === 'restore') {
+          const rows = deletedIn(chunk);
+          for (const r of rows) found.add(r.id);
+          if (rows.length) {
+            const ph = sqlInPlaceholders(rows.length);
+            const info = db
+              .prepare(
+                `UPDATE questions SET deleted_at = NULL
+                 WHERE class_id = ? AND id IN (${ph})`,
+              )
+              .run(classId, ...rows.map((r) => r.id));
+            affected += Number(info.changes ?? 0);
+          }
           continue;
         }
+        if (action === 'purge') {
+          const rows = deletedIn(chunk);
+          for (const r of rows) found.add(r.id);
+          if (rows.length) {
+            const ph = sqlInPlaceholders(rows.length);
+            const info = db
+              .prepare(`DELETE FROM questions WHERE class_id = ? AND id IN (${ph})`)
+              .run(classId, ...rows.map((r) => r.id));
+            affected += Number(info.changes ?? 0);
+          }
+          continue;
+        }
+
+        const rows = activeIn(chunk);
+        for (const r of rows) found.add(r.id);
+        if (!rows.length) continue;
+        const rowIds = rows.map((r) => r.id);
+        const ph = sqlInPlaceholders(rowIds.length);
+
         if (action === 'delete') {
-          db.prepare(`DELETE FROM questions WHERE id = ?`).run(id);
-          affected += 1;
+          const info = db
+            .prepare(
+              `UPDATE questions SET deleted_at = ?
+               WHERE class_id = ? AND id IN (${ph})
+                 AND (deleted_at IS NULL OR deleted_at = '')`,
+            )
+            .run(at, classId, ...rowIds);
+          affected += Number(info.changes ?? 0);
         } else if (action === 'close') {
-          const info = db.prepare(`UPDATE questions SET closed_at = ? WHERE id = ?`).run(at, id);
-          if (info.changes) affected += 1;
+          const info = db
+            .prepare(
+              `UPDATE questions SET closed_at = ?
+               WHERE class_id = ? AND id IN (${ph})
+                 AND (deleted_at IS NULL OR deleted_at = '')`,
+            )
+            .run(at, classId, ...rowIds);
+          affected += Number(info.changes ?? 0);
         } else if (action === 'reopen') {
           const info = db
             .prepare(
-              `UPDATE questions SET closed_at = NULL, published = 1, archived = 0 WHERE id = ?`,
+              `UPDATE questions
+               SET closed_at = NULL, published = 1, archived = 0
+               WHERE class_id = ? AND id IN (${ph})
+                 AND (deleted_at IS NULL OR deleted_at = '')`,
             )
-            .run(id);
-          if (info.changes) affected += 1;
+            .run(classId, ...rowIds);
+          affected += Number(info.changes ?? 0);
         } else if (action === 'archive') {
-          const info = db.prepare(`UPDATE questions SET archived = 1 WHERE id = ?`).run(id);
-          if (info.changes) affected += 1;
+          const info = db
+            .prepare(
+              `UPDATE questions SET archived = 1
+               WHERE class_id = ? AND id IN (${ph})
+                 AND (deleted_at IS NULL OR deleted_at = '')`,
+            )
+            .run(classId, ...rowIds);
+          affected += Number(info.changes ?? 0);
         } else if (action === 'unarchive') {
-          const info = db.prepare(`UPDATE questions SET archived = 0, published = 1 WHERE id = ?`).run(id);
-          if (info.changes) affected += 1;
+          const info = db
+            .prepare(
+              `UPDATE questions SET archived = 0, published = 1
+               WHERE class_id = ? AND id IN (${ph})
+                 AND (deleted_at IS NULL OR deleted_at = '')`,
+            )
+            .run(classId, ...rowIds);
+          affected += Number(info.changes ?? 0);
+        } else if (action === 'set_closes_at') {
+          const info = db
+            .prepare(
+              `UPDATE questions SET closes_at = ?
+               WHERE class_id = ? AND id IN (${ph})
+                 AND (deleted_at IS NULL OR deleted_at = '')`,
+            )
+            .run(closesAt, classId, ...rowIds);
+          affected += Number(info.changes ?? 0);
         }
       }
       db.exec('COMMIT');
@@ -407,23 +553,100 @@ questionsRouter.post(
       throw e;
     }
 
+    const missing = ids.filter((id) => !found.has(id));
     const labels: Record<string, string> = {
-      delete: '删除',
+      delete: '移入回收站',
+      purge: '永久删除',
+      restore: '恢复',
       close: '收卷',
       reopen: '重开',
       archive: '下线',
-      unarchive: '恢复',
+      unarchive: '恢复上线',
+      set_closes_at: closesAt ? '设置截止' : '清空截止',
     };
+    writeAudit({
+      actorUserId: req.user?.id,
+      actorRole: req.user?.role,
+      action: 'questions.bulk',
+      classId,
+      detail: { action, ids, affected, closesAt },
+      clientIp: req.ip,
+    });
     res.json({
       ok: true,
       action,
       affected,
       requested: ids.length,
       missing,
+      retentionDays: action === 'delete' ? RECYCLE_RETENTION_DAYS : undefined,
       message: missing.length
-        ? `已${labels[action]} ${affected} 题，${missing.length} 题不在本班`
-        : `已${labels[action]} ${affected} 题`,
+        ? `已${labels[action]} ${affected} 题，${missing.length} 题不可用`
+        : action === 'delete'
+          ? `已移入回收站 ${affected} 题（${RECYCLE_RETENTION_DAYS} 日内可恢复）`
+          : action === 'set_closes_at' && !closesAt
+            ? `已清空 ${affected} 题截止时间`
+            : `已${labels[action]} ${affected} 题`,
     });
+  },
+);
+
+questionsRouter.post(
+  '/api/v1/questions/recycle/restore-all',
+  requireAuth,
+  requireRoles('teacher', 'admin'),
+  (req: AuthedRequest, res) => {
+    const classId = String(req.body?.classId ?? '').trim();
+    if (!classId) {
+      res.status(400).json({ error: 'class_id_required', message: '缺少班级' });
+      return;
+    }
+    const db = openDb();
+    const info = db
+      .prepare(
+        `UPDATE questions SET deleted_at = NULL
+         WHERE class_id = ? AND deleted_at IS NOT NULL AND deleted_at != ''`,
+      )
+      .run(classId);
+    const restored = Number(info.changes ?? 0);
+    writeAudit({
+      actorUserId: req.user?.id,
+      actorRole: req.user?.role,
+      action: 'questions.recycle_restore_all',
+      classId,
+      detail: { restored },
+      clientIp: req.ip,
+    });
+    res.json({ ok: true, restored, message: `已恢复全部 ${restored} 题` });
+  },
+);
+
+questionsRouter.post(
+  '/api/v1/questions/recycle/purge-all',
+  requireAuth,
+  requireRoles('teacher', 'admin'),
+  (req: AuthedRequest, res) => {
+    const classId = String(req.body?.classId ?? '').trim();
+    if (!classId) {
+      res.status(400).json({ error: 'class_id_required', message: '缺少班级' });
+      return;
+    }
+    const db = openDb();
+    const info = db
+      .prepare(
+        `DELETE FROM questions
+         WHERE class_id = ? AND deleted_at IS NOT NULL AND deleted_at != ''`,
+      )
+      .run(classId);
+    const purged = Number(info.changes ?? 0);
+    writeAudit({
+      actorUserId: req.user?.id,
+      actorRole: req.user?.role,
+      action: 'questions.recycle_purge_all',
+      classId,
+      detail: { purged },
+      clientIp: req.ip,
+    });
+    res.json({ ok: true, purged, message: `已永久清空题目回收站 ${purged} 题` });
   },
 );
 
@@ -541,7 +764,7 @@ questionsRouter.get(
     const rosterTotal = Number(
       (
         db
-          .prepare(`SELECT COUNT(*) AS c FROM users WHERE role = 'student' AND class_id = ?`)
+          .prepare(`SELECT COUNT(*) AS c FROM users WHERE role = 'student' AND class_id = ? AND (deleted_at IS NULL OR deleted_at = '')`)
           .get(classId) as { c: number }
       ).c,
     );
@@ -555,6 +778,7 @@ questionsRouter.get(
          FROM questions q
          LEFT JOIN error_stats e ON e.question_id = q.id
          WHERE q.class_id = ? AND COALESCE(q.archived, 0) = 0 AND q.published = 1
+           AND (q.deleted_at IS NULL OR q.deleted_at = '')
          ORDER BY q.created_at DESC
          LIMIT 12`,
       )
@@ -574,6 +798,7 @@ questionsRouter.get(
       `SELECT u.display_name AS displayName, u.student_no AS studentNo
        FROM users u
        WHERE u.role = 'student' AND u.class_id = ?
+         AND (u.deleted_at IS NULL OR u.deleted_at = '')
          AND NOT EXISTS (
            SELECT 1 FROM student_answers sa WHERE sa.question_id = ? AND sa.student_id = u.id
          )
@@ -651,7 +876,7 @@ questionsRouter.get(
     const rosterTotal = Number(
       (
         db
-          .prepare(`SELECT COUNT(*) AS c FROM users WHERE role = 'student' AND class_id = ?`)
+          .prepare(`SELECT COUNT(*) AS c FROM users WHERE role = 'student' AND class_id = ? AND (deleted_at IS NULL OR deleted_at = '')`)
           .get(q.classId) as { c: number }
       ).c,
     );

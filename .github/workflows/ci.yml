@@ -9,8 +9,8 @@ jobs:
   server:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: '24'
           cache: npm
@@ -20,7 +20,7 @@ jobs:
         run: npm run typecheck --workspace=@classroom-desk/server
       - name: Test server
         run: npm run test:server
-      - name: Health smoke
+      - name: Health smoke + 1plus1 + exit-lock packaged
         run: |
           JWT_SECRET=ci-secret-not-for-prod \
           ADMIN_PASSWORD=AdminPass123 \
@@ -30,7 +30,9 @@ jobs:
           for i in $(seq 1 30); do
             if curl -fsS http://127.0.0.1:8787/health | grep -q '"ok":true'; then
               echo "health ok"
-              exit 0
+              npm run verify:1plus1
+              npm run verify:exit-lock-packaged
+              exit $?
             fi
             sleep 1
           done
@@ -41,8 +43,8 @@ jobs:
     runs-on: ubuntu-latest
     needs: server
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: '24'
           cache: npm
@@ -66,7 +68,12 @@ jobs:
             curl -fsS -o /dev/null -w '%{http_code}' http://127.0.0.1:8787/admin/assignments | grep -q 200 && break
             sleep 1
           done
-      - name: Playwright e2e
+      - name: Playwright bulk gate (bulk-ui + bulk-ops + q-recycle)
+        run: npx playwright test e2e/bulk-ui.spec.ts e2e/bulk-ops.spec.ts e2e/q-recycle-purge.spec.ts
+        env:
+          API_BASE: http://127.0.0.1:8787
+          TEACHER_WEB: http://localhost:5174
+      - name: Playwright e2e (full suite)
         run: npx playwright test
         env:
           API_BASE: http://127.0.0.1:8787
@@ -76,8 +83,8 @@ jobs:
     runs-on: windows-latest
     if: github.event_name == 'push'
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: '24'
           cache: npm
@@ -136,6 +143,10 @@ jobs:
             Write-Host ("sha256 {0} {1}" -f $hash, $f.Name)
             Set-Content -Path ("{0}.sha256" -f $f.FullName) -Value ("{0}  {1}" -f $hash, $f.Name)
           }
+      - name: Verify exit-lock in packaged build
+        env:
+          REQUIRE_WIN_EXE: '1'
+        run: npm run verify:exit-lock-packaged
       - name: Upload installer
         uses: actions/upload-artifact@v4
         with:

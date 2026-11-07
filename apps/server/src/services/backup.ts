@@ -91,3 +91,70 @@ export function shouldRunDailyBackup(lastAtIso: string | null): boolean {
     a.getDate() !== b.getDate()
   );
 }
+
+export type BackupStatus = {
+  dir: string;
+  keep: number;
+  latestPath: string | null;
+  latestAt: string | null;
+  ageHours: number | null;
+  lastError: { at?: string; message?: string } | null;
+  lastAutoBackupAt: string | null;
+};
+
+/** Snapshot for teacher settings /health (no side effects). */
+export function getBackupStatus(lastAutoBackupAt: string | null = null): BackupStatus {
+  const dir = backupDirPath();
+  const keep = keepCount();
+  const errFile = path.join(dir, 'last-error.json');
+  let lastError: BackupStatus['lastError'] = null;
+  if (fs.existsSync(errFile)) {
+    try {
+      lastError = JSON.parse(fs.readFileSync(errFile, 'utf8')) as BackupStatus['lastError'];
+    } catch {
+      lastError = { message: 'unreadable last-error.json' };
+    }
+  }
+  if (!fs.existsSync(dir)) {
+    return {
+      dir,
+      keep,
+      latestPath: null,
+      latestAt: null,
+      ageHours: null,
+      lastError,
+      lastAutoBackupAt,
+    };
+  }
+  const files = fs
+    .readdirSync(dir)
+    .filter((name) => /^classroom-.*\.db$/.test(name))
+    .map((name) => {
+      const full = path.join(dir, name);
+      return { full, mtime: fs.statSync(full).mtimeMs };
+    })
+    .sort((a, b) => b.mtime - a.mtime);
+  const latest = files[0];
+  if (!latest) {
+    return {
+      dir,
+      keep,
+      latestPath: null,
+      latestAt: null,
+      ageHours: null,
+      lastError,
+      lastAutoBackupAt,
+    };
+  }
+  const latestAt = new Date(latest.mtime).toISOString();
+  const ageHours = Math.round(((Date.now() - latest.mtime) / 3_600_000) * 10) / 10;
+  return {
+    dir,
+    keep,
+    latestPath: latest.full,
+    latestAt,
+    ageHours,
+    lastError,
+    lastAutoBackupAt,
+  };
+}

@@ -24,4 +24,14 @@ if (!hasCert) {
 }
 
 const pack = spawnSync('npx', ebArgs, { cwd: pkgDir, stdio: 'inherit', shell: true, env: process.env });
-process.exit(pack.status ?? 1);
+if (pack.status !== 0) process.exit(pack.status ?? 1);
+
+const repoRoot = path.resolve(pkgDir, '../..');
+console.log('[dist-win] running verify:exit-lock-packaged …');
+const verify = spawnSync('npm', ['run', 'verify:exit-lock-packaged'], {
+  cwd: repoRoot,
+  stdio: 'inherit',
+  shell: true,
+  env: { ...process.env, REQUIRE_WIN_EXE: '1' },
+});
+process.exit(verify.status ?? 0);

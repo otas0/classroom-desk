@@ -286,7 +286,7 @@ attendanceRouter.post('/api/v1/attendance/check-in', requireAuth, requireRoles('
 attendanceRouter.get(
   '/api/v1/attendance/stats',
   requireAuth,
-  requireRoles('teacher', 'admin', 'student'),
+  requireRoles('teacher', 'admin', 'assistant', 'student'),
   (req: AuthedRequest, res) => {
     const classId = String(req.query.classId ?? req.user?.classId ?? '');
     const month = String(req.query.month ?? `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`);
@@ -354,7 +354,7 @@ attendanceRouter.get(
 attendanceRouter.get(
   '/api/v1/attendance/schedules',
   requireAuth,
-  requireRoles('teacher', 'admin'),
+  requireRoles('teacher', 'admin', 'assistant'),
   (req, res) => {
     const classId = String(req.query.classId ?? '');
     if (!classId) {
@@ -431,7 +431,7 @@ attendanceRouter.delete(
 attendanceRouter.get(
   '/api/v1/attendance/holidays',
   requireAuth,
-  requireRoles('teacher', 'admin'),
+  requireRoles('teacher', 'admin', 'assistant'),
   (req, res) => {
     const classId = String(req.query.classId ?? '');
     const items = openDb()
