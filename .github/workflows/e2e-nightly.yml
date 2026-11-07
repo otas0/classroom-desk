@@ -150,17 +150,19 @@ jobs:
       - name: Student desktop package smoke (main entry resolves)
         shell: pwsh
         run: |
+          $ErrorActionPreference = 'Stop'
           $pkg = Get-Content apps/student-desktop/package.json -Raw | ConvertFrom-Json
-          Write-Host "student-desktop name=$($pkg.name) main=$($pkg.main)"
+          Write-Host "student-desktop name=$($pkg.name) main=$($pkg.main) version=$($pkg.version)"
           if (-not $pkg.main) { throw 'package.json missing main' }
           $mainPath = Join-Path 'apps/student-desktop' $pkg.main
           if (-not (Test-Path $mainPath)) {
-            # Vite/electron often uses electron/main or dist; accept package scripts as smoke.
-            Write-Host "main path missing ($mainPath); checking scripts.dev"
+            # Built by vite-plugin-electron; absent before dist — OK for smoke.
+            Write-Host "main path missing ($mainPath); typecheck source only"
           }
-          npm run --workspace=@classroom-desk/student-desktop -s typecheck 2>$null
+          # Always run tsc explicitly (no package typecheck script) so TS errors fail this job clearly.
+          npx tsc -p apps/student-desktop --noEmit
           if ($LASTEXITCODE -ne 0) {
-            npx tsc -p apps/student-desktop --noEmit
+            throw "windows-student-smoke: tsc failed (exit $LASTEXITCODE). Fix apps/student-desktop TS before merge."
           }
           Write-Host 'windows student smoke: typecheck ok'
       - name: Electron binary present after install

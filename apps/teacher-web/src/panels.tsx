@@ -1856,14 +1856,19 @@ export function QuestionRecyclePanel({ classId }: { classId: string }) {
   useEffect(() => {
     void load().catch(() => setItems([]));
     setScrollTop(0);
-    const ids = consumeAuditJumpIds();
-    if (ids.length) setJumpIds(new Set(ids));
     void api<{ recycleUrgentDays?: number }>('/api/v1/settings')
       .then((s) => {
         if (s.recycleUrgentDays != null) setUrgentDays(Number(s.recycleUrgentDays));
       })
       .catch(() => undefined);
   }, [classId]);
+
+  // Consume jump stash once on mount (hard-reload from audit). Do not re-consume on
+  // classId sync — that raced the clear timer and dropped cd-audit-jump-hl in CI.
+  useEffect(() => {
+    const ids = consumeAuditJumpIds();
+    if (ids.length) setJumpIds(new Set(ids));
+  }, []);
 
   const virt = useMemo(() => {
     const start = Math.max(0, Math.floor(scrollTop / ROW_H) - 4);
@@ -2845,12 +2850,42 @@ export function SettingsPanel({
   const [exitMsg, setExitMsg] = useState('');
   const [csvExportBusy, setCsvExportBusy] = useState(false);
   const csvExportAbortRef = useRef<AbortController | null>(null);
+  const csvPartialRowsRef = useRef<
+    Array<{
+      createdAt: string;
+      kind: string;
+      actorRole?: string | null;
+      detail: string;
+      clientIp?: string | null;
+      id: string;
+    }>
+  >([]);
+  const [csvPartialCount, setCsvPartialCount] = useState(0);
   const [healthPollMsDraft, setHealthPollMsDraft] = useState(() => {
     const fromLs = Number(localStorage.getItem('cd_health_poll_ms') || '');
     if (Number.isFinite(fromLs) && fromLs > 0) return String(Math.round(fromLs));
     return import.meta.env.PROD ? '30000' : '8000';
   });
   const [healthPollMsg, setHealthPollMsg] = useState('');
+  const [healthPollTick, setHealthPollTick] = useState(0);
+  const healthPollEffectiveMs = (() => {
+    void healthPollTick;
+    const fromLs = Number(localStorage.getItem('cd_health_poll_ms') || '');
+    const fromEnv = Number(import.meta.env.VITE_HEALTH_POLL_MS || '');
+    const fallback = import.meta.env.PROD ? 30_000 : 8_000;
+    const raw =
+      Number.isFinite(fromLs) && fromLs > 0
+        ? fromLs
+        : Number.isFinite(fromEnv) && fromEnv > 0
+          ? fromEnv
+          : fallback;
+    return Math.min(120_000, Math.max(3_000, raw));
+  })();
+  const healthPollSource = localStorage.getItem('cd_health_poll_ms')
+    ? 'localStorage'
+    : import.meta.env.VITE_HEALTH_POLL_MS
+      ? 'VITE_HEALTH_POLL_MS'
+      : '默认';
   const [bulkUnlockOpen, setBulkUnlockOpen] = useState(false);
   const [bulkUnlockBusy, setBulkUnlockBusy] = useState(false);
   const [bulkUnlockMeta, setBulkUnlockMeta] = useState<{
@@ -3153,12 +3188,40 @@ export function SettingsPanel({
     URL.revokeObjectURL(a.href);
   }
 
+  function downloadExitLockCsvRows(
+    rows: Array<{
+      createdAt: string;
+      kind: string;
+      actorRole?: string | null;
+      detail: string;
+      clientIp?: string | null;
+      id: string;
+    }>,
+    filename: string,
+  ) {
+    const esc = (v: string) => (/[",\n\r]/.test(v) ? `"${v.replaceAll('"', '""')}"` : v);
+    const lines = [
+      ['时间', '类型', '角色', '详情', 'IP', 'ID'].join(','),
+      ...rows.map((e) =>
+        [e.createdAt, e.kind, e.actorRole ?? '', e.detail, e.clientIp ?? '', e.id].map(esc).join(','),
+      ),
+    ];
+    const blob = new Blob(['\uFEFF' + lines.join('\n')], { type: 'text/csv;charset=utf-8' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }
+
   /** Page through JSON API and build full CSV (no 500 hard cap). */
   async function exportExitLockCsvAll(filename: string) {
     csvExportAbortRef.current?.abort();
     const ac = new AbortController();
     csvExportAbortRef.current = ac;
     setCsvExportBusy(true);
+    setCsvPartialCount(0);
+    csvPartialRowsRef.current = [];
     const token = getToken() || '';
     const pageSize = 200;
     const rows: Array<{
@@ -3175,7 +3238,9 @@ export function SettingsPanel({
     try {
       while (offset < total) {
         if (ac.signal.aborted) {
-          setExitMsg(`已取消导出（已取 ${rows.length} 条）`);
+          csvPartialRowsRef.current = rows;
+          setCsvPartialCount(rows.length);
+          setExitMsg(`已取消导出（已取 ${rows.length} 条，可下载已拉取部分）`);
           return;
         }
         const q = new URLSearchParams({
@@ -3195,6 +3260,8 @@ export function SettingsPanel({
         const items = body.items ?? [];
         total = Number(body.total ?? items.length);
         rows.push(...items);
+        csvPartialRowsRef.current = rows;
+        setCsvPartialCount(rows.length);
         const denom = Number.isFinite(total) && total > 0 ? total : Math.max(rows.length, 1);
         setExitMsg(`导出进度 ${Math.min(rows.length, denom)} / ${denom}…`);
         if (!items.length) break;
@@ -3205,26 +3272,20 @@ export function SettingsPanel({
         }
       }
       if (ac.signal.aborted) {
-        setExitMsg(`已取消导出（已取 ${rows.length} 条）`);
+        csvPartialRowsRef.current = rows;
+        setCsvPartialCount(rows.length);
+        setExitMsg(`已取消导出（已取 ${rows.length} 条，可下载已拉取部分）`);
         return;
       }
-      const esc = (v: string) => (/[",\n\r]/.test(v) ? `"${v.replaceAll('"', '""')}"` : v);
-      const lines = [
-        ['时间', '类型', '角色', '详情', 'IP', 'ID'].join(','),
-        ...rows.map((e) =>
-          [e.createdAt, e.kind, e.actorRole ?? '', e.detail, e.clientIp ?? '', e.id].map(esc).join(','),
-        ),
-      ];
-      const blob = new Blob(['\uFEFF' + lines.join('\n')], { type: 'text/csv;charset=utf-8' });
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
-      a.download = filename;
-      a.click();
-      URL.revokeObjectURL(a.href);
+      downloadExitLockCsvRows(rows, filename);
+      setCsvPartialCount(0);
+      csvPartialRowsRef.current = [];
       setExitMsg(`已导出全部 CSV（${rows.length} 条）`);
     } catch (err) {
       if (ac.signal.aborted || (err instanceof DOMException && err.name === 'AbortError')) {
-        setExitMsg(`已取消导出（已取 ${rows.length} 条）`);
+        csvPartialRowsRef.current = rows;
+        setCsvPartialCount(rows.length);
+        setExitMsg(`已取消导出（已取 ${rows.length} 条，可下载已拉取部分）`);
         return;
       }
       setExitMsg(err instanceof Error ? err.message : '导出失败');
@@ -3236,6 +3297,13 @@ export function SettingsPanel({
 
   function cancelExitLockCsvExport() {
     csvExportAbortRef.current?.abort();
+  }
+
+  function downloadExitLockCsvPartial() {
+    const rows = csvPartialRowsRef.current;
+    if (!rows.length) return;
+    downloadExitLockCsvRows(rows, 'exit-lock-events-partial.csv');
+    setExitMsg(`已下载已拉取部分（${rows.length} 条）`);
   }
 
   useEffect(() => {
@@ -3644,10 +3712,14 @@ export function SettingsPanel({
                 setHealthPollMsDraft(String(ms));
                 localStorage.setItem('cd_health_poll_ms', String(ms));
                 setHealthPollMsg(`已写入 localStorage.cd_health_poll_ms=${ms}（立即重载轮询）`);
+                setHealthPollTick((n) => n + 1);
                 window.dispatchEvent(new Event('cd-health-poll-changed'));
               }}
             />
           </label>
+          <p className="hint" data-testid="health-poll-effective">
+            当前生效间隔：{healthPollEffectiveMs}ms（{healthPollSource}）
+          </p>
           <div className="row">
             <button
               type="button"
@@ -3658,6 +3730,7 @@ export function SettingsPanel({
                 const fallback = import.meta.env.PROD ? 30_000 : 8_000;
                 setHealthPollMsDraft(String(fallback));
                 setHealthPollMsg(`已恢复默认 ${fallback}ms`);
+                setHealthPollTick((n) => n + 1);
                 window.dispatchEvent(new Event('cd-health-poll-changed'));
               }}
             >
@@ -5275,6 +5348,19 @@ export function SettingsPanel({
                   }}
                 >
                   取消导出
+                </button>
+              ) : null}
+              {!csvExportBusy && csvPartialCount > 0 ? (
+                <button
+                  type="button"
+                  className="secondary"
+                  data-testid="exit-lock-csv-export-partial"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    downloadExitLockCsvPartial();
+                  }}
+                >
+                  下载已拉取部分（{csvPartialCount}）
                 </button>
               ) : null}
             </div>

@@ -50,15 +50,18 @@ test.describe('audit jump highlight', () => {
     await openPrepTab(page, '设置');
     await expect(page.getByRole('heading', { name: /操作审计/ })).toBeVisible({ timeout: 15_000 });
 
-    const jump = page.getByTestId('audit-jump-ids').filter({ hasText: '跳转题目回收站' }).first();
+    // Scope audit to this class so `.first()` cannot hit another suite's soft-delete.
+    const auditCard = page.locator('.card').filter({ has: page.getByRole('heading', { name: /操作审计/ }) });
+    await auditCard.locator('select').first().selectOption(classId);
+    const jump = auditCard.getByTestId('audit-jump-ids').filter({ hasText: '跳转题目回收站' });
     await expect(jump).toBeVisible({ timeout: 20_000 });
     await jump.click();
 
     await expect(page.getByRole('heading', { name: '题目回收站' })).toBeVisible({
       timeout: 20_000,
     });
-    await expect(page.locator(`[data-row-id="${qid}"].cd-audit-jump-hl`)).toBeVisible({
-      timeout: 15_000,
-    });
+    const row = page.locator(`[data-row-id="${qid}"]`);
+    await expect(row).toBeVisible({ timeout: 20_000 });
+    await expect(row).toHaveClass(/cd-audit-jump-hl/, { timeout: 15_000 });
   });
 });

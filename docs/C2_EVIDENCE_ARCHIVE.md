@@ -31,5 +31,14 @@
 | 7 | 错码限流 | 剩余次数 + 冷却倒计时 | 学生设置截图 | | | |
 | 8 | 非 Assigned Access 提示 | 可关闭「本机未加固」 | 截图（未加固样机） | | | |
 | 9 | （可选）Intune HideTaskManager | 试验组生效 | `C2-intune-policy.png` + version.txt | | | |
+| 10 | 实机 DevTools 关 `/exit-lock/ws` | toast「实时通道已切到备用」+ SSE | 截图 Network WS/SSE | | | |
+
+### 样机安装（本机无法代跑 — 操作员）
+
+1. 拷 `artifacts/windows-pack-check/ClassroomDesk-Setup-0.1.7.exe`（或 Release 附件）到样机，核对 SHA256。
+2. 安装 → 写入本班 `config.json` → 启动学生端。
+3. 录 `C2-narrator.mp4` / `C2-taskmgr-deny.mp4`，截 `C2-titlebar.png`。
+4. 试验组 Intune 同步后填满本地 `artifacts/C2-intune-version.txt`（或归档目录内同名文件）。
+5. DevTools → Network → WS → Close `/api/v1/exit-lock/ws` → 对照 toast + EventSource。
 
 **须学校 IT 知情**：完成本表前，确认机房管理员已知晓 Assigned Access / 退出锁定策略（见 SETUP / USB checklist）。

@@ -7,11 +7,18 @@
 ```text
 releases/
   <教师机IP>/
-    ClassroomDesk-Setup-0.1.0.exe
-    ClassroomDesk-Setup-0.1.0.exe.sha256
+    ClassroomDesk-Setup-0.1.7.exe
+    ClassroomDesk-Setup-0.1.7.exe.sha256
     config.json          # pack-classroom-config 生成
     classroom-identity.json
     PRINT_DESK_CARD.md
+    C2-intune-version.txt   # 可选：试验组填写后拷入
+```
+
+本批 SHA256（`v0.1.7`）：
+
+```text
+992ee805ff2a8e92f66dfaee6d26068b29ac598d08082af0ebc399408f898b57  ClassroomDesk-Setup-0.1.7.exe
 ```
 
 生成：
@@ -19,5 +26,8 @@ releases/
 ```bash
 node scripts/prepare-live-classroom.mjs --apiBase http://教师IP:8787
 node scripts/pack-classroom-config.mjs --apiBase http://教师IP:8787 --classId <id>
-# CI 下载 windows-pack artifact → 拷入本目录后带 U 盘
+# 优先：gh release download v0.1.7 -p 'ClassroomDesk-Setup-0.1.7.exe*'
+# 或：CI windows-pack Artifact / 本地 artifacts/windows-pack-check/
 ```
+
+对照表：[docs/ARTIFACTS.md](../docs/ARTIFACTS.md)；C2：[docs/C2_EVIDENCE_ARCHIVE.md](../docs/C2_EVIDENCE_ARCHIVE.md)。

@@ -27,6 +27,8 @@
     "typecheck:server": "npm run typecheck --workspace=@classroom-desk/server",
     "backup:db": "bash scripts/backup-db.sh",
     "prepare:live": "node scripts/prepare-live-classroom.mjs",
+    "prepare:usb": "bash scripts/prepare-usb-pack.sh",
+    "copy:usb": "bash scripts/copy-usb-release.sh",
     "verify:1plus1": "node scripts/local-1plus1-verify.mjs",
     "verify:usb-host": "node scripts/verify-usb-host.mjs",
     "verify:exit-lock-packaged": "node scripts/verify-exit-lock-packaged.mjs",
