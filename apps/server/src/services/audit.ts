@@ -29,7 +29,9 @@ export type AuditAction =
   | 'auth.reset_assistant_password'
   | 'setup.scan_assign_cta'
   | 'setup.classroom_ready'
-  | 'session.reset';
+  | 'session.reset'
+  | 'ops.audit_retry_flush'
+  | 'ops.audit_retry_enqueue';
 
 export function writeAudit(
   opts: {

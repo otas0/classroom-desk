@@ -19,10 +19,10 @@
 - 抢答 WS：`?token=` JWT + 角色校验；e2e 无 token 失败 / 有 token 收快照
 - 座位：同班学生唯一索引；409 toast + 拖拽失败回滚动画
 - OCR 草稿 `sessionStorage` →「送到快发题」并切到上课 tab
-- 家长 PDF：优先 `apps/server/assets/fonts` 预置 Noto Sans SC（`npm run fonts:cjk`），失败回退 ASCII
-- 恢复向导：六位确认码剪贴板一次复制（不回显 placeholder）+ 审计 `backup.restore_commit`
+- 家长 PDF：优先 `apps/server/assets/fonts` 预置 Noto Sans SC（`npm run fonts:cjk`），失败回退 ASCII；Release 构建前预拉字体
+- 恢复向导：六位确认码仅剪贴板/邮件一次（页面与 placeholder 不回显）+ 审计 `backup.restore_commit`
 - 升级包：删除 / 校验 sha256；保留份数可在设置 UI 配置
-- 离线队列：条数/体积上限；侧栏答题徽标显示待补交
+- 离线队列：条数/体积上限；折叠侧栏与答题 tab 全局「补 N」徽标（不依赖打开答题页）
 - `fleet.drift_snapshot` 间隔可配置（分钟，0=关）
 - 投影色盲预设：Okabe–Ito / 蓝橙 / 灰阶
 - purge：dry-run 预览写入审计 `recycle.purge_preview` 后再确认执行
@@ -30,7 +30,7 @@
 ### 安装包
 
 - `ClassroomDesk-Setup-0.1.7.exe` + `.sha256` + `config.example.json`（由 tag `v0.1.7` Release workflow 产出）
-- 服务端部署建议：`npm run fonts:cjk` 预拉 CJK 字体到 `apps/server/assets/fonts/`
+- Release：`npm run fonts:cjk` → `apps/server/assets/fonts/NotoSansSC-VF.ttf`（字体本身 gitignore，安装/部署包内预置）
 
 ---
 

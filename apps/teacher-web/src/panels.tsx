@@ -3749,7 +3749,7 @@ export function SettingsPanel({
                     setRestoreConfirmInput('');
                     setBackupMsg(
                       r.message
-                        ? `${r.message}${r.confirmCode ? ' · 请点「复制确认码」后粘贴' : ''} → ${r.restoredPath}`
+                        ? `${r.confirmCode ? '校验通过 · 请点「复制确认码」一次后粘贴（不在页面回显）' : r.message}${r.restoredPath ? ` → ${r.restoredPath}` : ''}`
                         : '已准备',
                     );
                   })
@@ -3804,12 +3804,12 @@ export function SettingsPanel({
                   void navigator.clipboard
                     .writeText(restoreConfirmCode)
                     .then(() => {
-                      setBackupMsg('确认码已复制到剪贴板（仅此一次显示机会，请粘贴到下方）');
+                      setBackupMsg('确认码已复制到剪贴板（仅此一次，页面不回显）');
                       setRestoreConfirmCode('');
                     })
                     .catch(() => {
-                      setBackupMsg(`请手动抄写确认码：${restoreConfirmCode}`);
-                      setRestoreConfirmCode('');
+                      setBackupMsg('无法写入剪贴板：请允许站点剪贴板权限后重试，或查收邮件中的确认码');
+                      /* keep restoreConfirmCode so user can retry copy — never echo digits into UI */
                     });
                 }}
               >

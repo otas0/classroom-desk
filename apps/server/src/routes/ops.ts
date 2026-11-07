@@ -4,10 +4,16 @@ import path from 'node:path';
 import { getDataDir, openDb } from '../db/client.js';
 import { getSetting } from '../db/migrate.js';
 import { requireAuth, requireRoles, type AuthedRequest } from '../middleware/auth.js';
-import { auditRetryHealth, flushAuditRetryQueue } from '../services/auditRetry.js';
+import { writeAudit } from '../services/audit.js';
+import {
+  auditRetryHealth,
+  enqueueAuditRetry,
+  flushAuditRetryQueue,
+} from '../services/auditRetry.js';
 import { getBackupStatus } from '../services/backup.js';
 import { listPresenceClients } from '../services/presenceHub.js';
 import { summarizeDurations } from '../utils/percentile.js';
+import { nowIso } from '../utils/id.js';
 import { packageVersion } from '../routes/health.js';
 
 export const opsRouter = Router();
@@ -205,15 +211,59 @@ opsRouter.get(
   },
 );
 
+/** Seed one retry-queue row (settings flush UI / e2e). */
+opsRouter.post(
+  '/api/v1/ops/audit-retry/enqueue',
+  requireAuth,
+  requireRoles('teacher', 'admin'),
+  (req: AuthedRequest, res) => {
+    const action = String(req.body?.action ?? 'ops.audit_retry_enqueue').trim() || 'ops.audit_retry_enqueue';
+    const detail =
+      req.body?.detail && typeof req.body.detail === 'object'
+        ? JSON.stringify(req.body.detail)
+        : String(req.body?.detail ?? JSON.stringify({ note: 'manual enqueue' }));
+    enqueueAuditRetry({
+      actorUserId: req.user?.id ?? null,
+      actorRole: req.user?.role ?? null,
+      action,
+      classId: String(req.body?.classId ?? '').trim() || null,
+      detail,
+      clientIp: req.ip ?? null,
+      createdAt: nowIso(),
+    });
+    writeAudit({
+      actorUserId: req.user?.id,
+      actorRole: req.user?.role,
+      action: 'ops.audit_retry_enqueue',
+      detail: { queuedAction: action },
+      clientIp: req.ip,
+    });
+    res.json({ ok: true, health: auditRetryHealth(), message: '已写入审计重试队列 1 条' });
+  },
+);
+
 /** Manually drain audit retry JSONL queue (teacher settings / health bypass). */
 opsRouter.post(
   '/api/v1/ops/audit-retry/flush',
   requireAuth,
   requireRoles('teacher', 'admin'),
-  (_req: AuthedRequest, res) => {
+  (req: AuthedRequest, res) => {
     const before = auditRetryHealth();
     const result = flushAuditRetryQueue();
     const after = auditRetryHealth();
+    writeAudit({
+      actorUserId: req.user?.id,
+      actorRole: req.user?.role,
+      action: 'ops.audit_retry_flush',
+      detail: {
+        flushed: result.flushed,
+        remaining: result.remaining,
+        failed: result.failed,
+        beforeSize: before.retryQueueSize,
+        afterSize: after.retryQueueSize,
+      },
+      clientIp: req.ip,
+    });
     res.json({
       ok: true,
       before,

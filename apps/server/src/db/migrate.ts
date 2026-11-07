@@ -143,6 +143,7 @@ export function migrate(database?: DatabaseSync): DatabaseSync {
   ensureAssistantRoleAllowed(conn);
   seedSettings(conn);
   backfillAssistantPasswordOk(conn);
+  alignLegacyRecycleRetention30to7(conn);
   return conn;
 }
 
@@ -226,6 +227,32 @@ function backfillAssistantPasswordOk(conn: DatabaseSync): void {
     conn
       .prepare(
         `INSERT INTO settings (key, value) VALUES ('assistant_password_ok_backfill_v1', '1')
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+      )
+      .run();
+  });
+}
+
+/**
+ * One-shot: early installs shipped recycle_retention_days=30; align to shared default 7.
+ * Only rewrites exactly "30" (legacy default). Custom values (e.g. 14) are left alone.
+ * Flag set even when current ≠ 30 so we never re-prompt or re-touch later.
+ */
+function alignLegacyRecycleRetention30to7(conn: DatabaseSync): void {
+  if (getSetting(conn, 'recycle_retention_align_shared_v1') === '1') return;
+  withTransaction(conn, () => {
+    const cur = getSetting(conn, 'recycle_retention_days');
+    if (cur === '30') {
+      conn
+        .prepare(
+          `INSERT INTO settings (key, value) VALUES ('recycle_retention_days', ?)
+           ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+        )
+        .run(String(RECYCLE_RETENTION_DAYS));
+    }
+    conn
+      .prepare(
+        `INSERT INTO settings (key, value) VALUES ('recycle_retention_align_shared_v1', '1')
          ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
       )
       .run();

@@ -72,6 +72,16 @@ export function App() {
   const [openQuizCount, setOpenQuizCount] = useState(0);
   const [offlineQueueCount, setOfflineQueueCount] = useState(0);
   const [pendingIdentity, setPendingIdentity] = useState<RosterRow | null>(null);
+
+  /** Global offline-answer queue length (sidebar badge; not only QuizTab). */
+  const refreshOfflineQueueCount = useCallback(() => {
+    try {
+      const q = JSON.parse(localStorage.getItem('cd_offline_answers') || '[]') as unknown;
+      setOfflineQueueCount(Array.isArray(q) ? q.length : 0);
+    } catch {
+      setOfflineQueueCount(0);
+    }
+  }, []);
   const [switchIdentity, setSwitchIdentity] = useState(false);
   const [selecting, setSelecting] = useState(false);
   const [gateAdmin, setGateAdmin] = useState(false);
@@ -107,6 +117,19 @@ export function App() {
     const t = window.setInterval(() => setNowTick(Date.now()), 1000);
     return () => window.clearInterval(t);
   }, []);
+
+  useEffect(() => {
+    refreshOfflineQueueCount();
+    const onStorage = (ev: StorageEvent) => {
+      if (ev.key === 'cd_offline_answers' || ev.key == null) refreshOfflineQueueCount();
+    };
+    window.addEventListener('storage', onStorage);
+    const t = window.setInterval(refreshOfflineQueueCount, 4000);
+    return () => {
+      window.removeEventListener('storage', onStorage);
+      window.clearInterval(t);
+    };
+  }, [refreshOfflineQueueCount]);
 
   // Real-time exit-lock: WebSocket first; on close/error → SSE + toast; poll remains backup.
   useEffect(() => {
@@ -509,6 +532,17 @@ export function App() {
                   未答 {openQuizCount}
                 </button>
               ) : null}
+              {offlineQueueCount > 0 ? (
+                <button
+                  type="button"
+                  className="badge clickable"
+                  data-no-drag
+                  aria-label={`待补交 ${offlineQueueCount}`}
+                  onClick={() => void expandTo('quiz')}
+                >
+                  补{offlineQueueCount}
+                </button>
+              ) : null}
               {unread > 0 && messagesEnabled ? (
                 <button
                   type="button"
@@ -753,16 +787,17 @@ export function App() {
                 onClick={() => setTab(item.id)}
               >
                 {item.label}
-                {item.id === 'quiz' && (openQuizCount > 0 || offlineQueueCount > 0) ? (
+                {item.id === 'quiz' && openQuizCount > 0 ? (
                   <span
                     className="badge"
-                    aria-label={
-                      offlineQueueCount > 0
-                        ? `未答 ${openQuizCount}，待补交 ${offlineQueueCount}`
-                        : `未答 ${openQuizCount}`
-                    }
+                    aria-label={`未答 ${openQuizCount}`}
                   >
-                    {offlineQueueCount > 0 ? `补${offlineQueueCount}` : openQuizCount}
+                    {openQuizCount}
+                  </span>
+                ) : null}
+                {item.id === 'quiz' && offlineQueueCount > 0 ? (
+                  <span className="badge" aria-label={`待补交 ${offlineQueueCount}`}>
+                    补{offlineQueueCount}
                   </span>
                 ) : null}
                 {item.id === 'messages' && unread > 0 ? <span className="badge">{unread}</span> : null}

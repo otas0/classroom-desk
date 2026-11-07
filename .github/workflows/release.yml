@@ -19,6 +19,8 @@ jobs:
           cache: npm
       - name: Install
         run: npm install
+      - name: Prefetch CJK font into server assets
+        run: npm run fonts:cjk
       - name: Build Windows NSIS
         env:
           CSC_LINK: ${{ secrets.CSC_LINK }}
