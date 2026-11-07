@@ -3358,12 +3358,30 @@ export function SettingsPanel({
         new CustomEvent('cd-select-class', { detail: { classId: meta.classId } }),
       );
     }
+    const count = meta?.count ?? null;
+    const emptyExpired =
+      count === 0 ||
+      (count == null &&
+        meta?.students === 0 &&
+        meta?.questions === 0);
+    if (emptyExpired) {
+      setPurgeJumpHint('审计预览：当前无已过期可硬删项（学生 0 · 题目 0），无需执行清理');
+      setSaveMsg('无过期回收站条目可 purge');
+      const elEmpty = document.getElementById('recycle-purge-confirm');
+      elEmpty?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      elEmpty?.classList.add('cd-audit-jump-hl');
+      window.setTimeout(() => elEmpty?.classList.remove('cd-audit-jump-hl'), 3200);
+      if (window.location.hash.startsWith('#recycle-purge-confirm')) {
+        window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}`);
+      }
+      return;
+    }
     const parts: string[] = [];
     if (meta?.count != null) parts.push(`预览共 ${meta.count} 条`);
     if (meta?.students != null) parts.push(`学生 ${meta.students}`);
     if (meta?.questions != null) parts.push(`题目 ${meta.questions}`);
     if (meta?.classId) parts.push(`班级已选中`);
-    setPurgeJumpHint(parts.join(' · '));
+    setPurgeJumpHint(parts.join(' · ') || '跳转清理确认');
     const el = document.getElementById('recycle-purge-confirm');
     if (!el) {
       setSaveMsg('当前账号看不到回收站清理确认');

@@ -68,7 +68,26 @@ async function run() {
       const elapsed = Date.now() - started;
       assert.equal(r.emailDelivered, false);
       assert.equal(r.mailtoUrl, null);
+      assert.equal(r.webhookError, 'timeout');
       assert.ok(elapsed < 2000, `timeout should abort quickly, took ${elapsed}ms`);
+    });
+
+    // Webhook non-2xx → not delivered + status
+    await withServer((_req, res) => {
+      res.writeHead(503, { 'content-type': 'text/plain' });
+      res.end('unavailable');
+    }, async (base) => {
+      process.env.CLASSROOM_DESK_EMAIL_WEBHOOK = base;
+      const r = await notifyRestoreConfirm({
+        to: 'ops@example.com',
+        code: '999888',
+        sha256: '503sha',
+        fileName: 'backup.db',
+        timeoutMs: 2000,
+      });
+      assert.equal(r.emailDelivered, false);
+      assert.equal(r.webhookStatus, 503);
+      assert.equal(r.webhookError, 'http_503');
     });
 
     // No webhook → mailto when address set

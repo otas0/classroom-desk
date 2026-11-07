@@ -14,15 +14,19 @@ type Seat = {
 
 type Roster = { id: string; displayName: string; studentNo: string | null };
 
+function isSeatNetworkError(err: unknown): boolean {
+  const text = err instanceof Error ? err.message : String(err);
+  return /network|fetch|Failed to fetch|断线|offline|ECONNREFUSED|超时|timeout|http_5\d\d|TypeError/i.test(
+    text,
+  );
+}
+
 function seatFailMessage(err: unknown, kind: 'bind' | 'swap'): string {
   const text = err instanceof Error ? err.message : String(err);
   const conflict = /already_seated|一人一座|其它座位|student_already|409|conflict|UNIQUE|unique/i.test(
     text,
   );
-  const network =
-    /network|fetch|Failed to fetch|断线|offline|ECONNREFUSED|超时|timeout|http_5\d\d|TypeError/i.test(
-      text,
-    );
+  const network = isSeatNetworkError(err);
   if (kind === 'swap') {
     if (conflict) return `换座冲突：${text}（已回滚本地预览）`;
     if (network) return `换座网络失败：${text}（已回滚，请检查教师机连接后重试）`;
@@ -44,6 +48,8 @@ export function SeatMapPanel({ classId }: { classId: string }) {
   const [selected, setSelected] = useState<string | null>(null);
   const [dragId, setDragId] = useState<string | null>(null);
   const [shakeIds, setShakeIds] = useState<string[]>([]);
+  const [pendingSwap, setPendingSwap] = useState<{ a: string; b: string } | null>(null);
+  const [swapRetryBusy, setSwapRetryBusy] = useState(false);
 
   async function load() {
     if (!classId) {
@@ -73,6 +79,7 @@ export function SeatMapPanel({ classId }: { classId: string }) {
   }
 
   useEffect(() => {
+    setPendingSwap(null);
     void load().catch((e) => setMsg(e instanceof Error ? e.message : '加载失败'));
     const t = window.setInterval(() => void load().catch(() => undefined), 8000);
     return () => window.clearInterval(t);
@@ -149,10 +156,13 @@ export function SeatMapPanel({ classId }: { classId: string }) {
       });
       setMsg('已换座');
       setSelected(null);
+      setPendingSwap(null);
       await load();
     } catch (e) {
       setItems(before);
       flashShake([a, b], seatFailMessage(e, 'swap'));
+      if (isSeatNetworkError(e)) setPendingSwap({ a, b });
+      else setPendingSwap(null);
       await load();
     }
   }
@@ -208,6 +218,27 @@ export function SeatMapPanel({ classId }: { classId: string }) {
         <p className="error seat-toast" role="alert">
           {errToast}
         </p>
+      ) : null}
+      {pendingSwap ? (
+        <div className="row" data-testid="seat-swap-retry">
+          <p className="error" style={{ margin: 0 }}>
+            上次换座因网络失败已回滚
+          </p>
+          <button
+            type="button"
+            disabled={swapRetryBusy || !classId}
+            onClick={() => {
+              const { a, b } = pendingSwap;
+              setSwapRetryBusy(true);
+              void swapSeats(a, b).finally(() => setSwapRetryBusy(false));
+            }}
+          >
+            {swapRetryBusy ? '重试中…' : '重试换座'}
+          </button>
+          <button type="button" className="secondary" disabled={swapRetryBusy} onClick={() => setPendingSwap(null)}>
+            取消
+          </button>
+        </div>
       ) : null}
       <div className="seat-grid" style={gridStyle}>
         {items.map((s) => (

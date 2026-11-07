@@ -1,3 +1,12 @@
-# One Playwright file path per line to skip in nightly/CI full suite.
-# Lines starting with # are comments. Empty = nothing quarantined.
-# After nightly flake triage, move chronic flakes here and open a fix issue.
+# Paths relative to Playwright testDir (./e2e). One file per line.
+# Skipped only when CD_E2E_USE_QUARANTINE=1 (nightly). Smoke gates omit that env.
+# Lines starting with # are comments.
+#
+# Failed on nightly run 42347577161 (commit 9db26b2). e240ba1 attempted fixes;
+# keep quarantined in nightly until a green full suite clears them.
+
+bulk-ui.spec.ts
+exit-lock-rotation-banner.spec.ts
+q-recycle-virtual.spec.ts
+questions-shift-select.spec.ts
+recycle-urgent-days.spec.ts

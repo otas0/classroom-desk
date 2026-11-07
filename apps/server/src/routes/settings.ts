@@ -521,6 +521,8 @@ settingsRouter.post(
         code: confirmCode,
         sha256: hash,
         fileName,
+        actorUserId: req.user?.id ?? null,
+        actorRole: req.user?.role ?? null,
       });
       res.json({
         ok: true,
@@ -531,9 +533,16 @@ settingsRouter.post(
         confirmCode,
         emailDelivered: delivery.emailDelivered,
         mailtoUrl: delivery.mailtoUrl,
+        webhookStatus: delivery.webhookStatus ?? null,
+        webhookError: delivery.webhookError ?? null,
         checklist,
-        message:
-          '已准备恢复文件。确认码已签发一次（剪贴板或邮件），确认哈希后带 confirmCode 请求 commit:true（或按清单手动替换）。',
+        message: delivery.emailDelivered
+          ? '已准备恢复文件。确认码已通过邮件 webhook 送达（页面不回显），确认哈希后带 confirmCode 请求 commit:true。'
+          : delivery.mailtoUrl
+            ? '已准备恢复文件。确认码已签发（可用 mailto）；确认哈希后带 confirmCode 请求 commit:true。'
+            : delivery.webhookError
+              ? `已准备恢复文件。邮件 webhook 失败（${delivery.webhookError}，已写审计）；请用剪贴板中的确认码。`
+              : '已准备恢复文件。确认码已签发一次（剪贴板），确认哈希后带 confirmCode 请求 commit:true。',
       });
     } catch (e) {
       res.status(400).json({

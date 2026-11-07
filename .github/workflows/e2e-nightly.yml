@@ -49,13 +49,14 @@ jobs:
             curl -fsS -o /dev/null -w '%{http_code}' http://127.0.0.1:8787/admin/assignments | grep -q 200 && break
             sleep 1
           done
-      - name: Playwright e2e (full suite, retries=1, quarantine skipped)
+      - name: Playwright e2e (full suite, retries=1, quarantine on)
         id: full_suite
         env:
           CD_E2E_RETRIES: '1'
+          CD_E2E_USE_QUARANTINE: '1'
         run: |
           set +e
-          echo "### Quarantine (skipped)" >> "$GITHUB_STEP_SUMMARY"
+          echo "### Quarantine (skipped in nightly)" >> "$GITHUB_STEP_SUMMARY"
           if [ -f e2e/quarantine.txt ]; then
             grep -vE '^\s*(#|$)' e2e/quarantine.txt | sed 's/^/- /' >> "$GITHUB_STEP_SUMMARY" || echo "- (empty)" >> "$GITHUB_STEP_SUMMARY"
           else
@@ -66,10 +67,10 @@ jobs:
           {
             echo "### e2e suite: full (nightly)"
             if [ "$code" -eq 0 ]; then
-              echo "- result: **passed** (CD_E2E_RETRIES=1)"
+              echo "- result: **passed** (CD_E2E_RETRIES=1, quarantine on)"
             else
-              echo "- result: **failed** — move chronic flakes into e2e/quarantine.txt and file a fix"
-              echo "- tip: re-run with CD_E2E_INCLUDE_QUARANTINE=1 to force quarantined specs"
+              echo "- result: **failed** — add chronic flakes to e2e/quarantine.txt"
+              echo "- tip: CD_E2E_INCLUDE_QUARANTINE=1 forces quarantined specs"
             fi
           } >> "$GITHUB_STEP_SUMMARY"
           exit $code

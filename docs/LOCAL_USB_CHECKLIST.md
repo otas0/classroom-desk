@@ -20,7 +20,8 @@ npm run prepare:live -- --apiBase http://192.168.x.x:8787 --className 高一(3)�
 ## 教师机勾选
 
 - [ ] **硬步骤：** 第一次家长 PDF 或离线拷贝之前 `npm run fonts:cjk`，确认 `apps/server/assets/fonts/` 已有 NotoSansSC  
-- [ ] （可选）机房张贴：打印 [`docs/assets/classroom-desk-a4-spec.html`](./assets/classroom-desk-a4-spec.html)（logo / QR 同目录）；勿把本机 exe 路径写进海报  
+- [ ] （可选）机房张贴：浏览器打开 [`docs/assets/classroom-desk-a4-spec.html`](./assets/classroom-desk-a4-spec.html) 打印（logo / QR 同目录）；生成的 PDF 不入库（gitignore）  
+
 - [ ] 固定 IP（`windows-set-fixed-ip.ps1`，参数用本教室地址）  
 - [ ] 防火墙放行 8787 + 开机自启  
 - [ ] `.env` 中 `JWT_SECRET` / 教师密码已自设  

@@ -34,3 +34,6 @@ RELEASE_NOTES.md
 apps/server/assets/fonts/*.ttf
 apps/server/assets/fonts/*.otf
 !apps/server/assets/fonts/README.md
+# Generated A4 poster PDF (source HTML/PNG live in docs/assets/)
+docs/posters/*.pdf
+docs/assets/*.pdf

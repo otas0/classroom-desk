@@ -41,7 +41,8 @@ export type AuditAction =
   | 'setup.classroom_ready'
   | 'session.reset'
   | 'ops.audit_retry_flush'
-  | 'ops.audit_retry_enqueue';
+  | 'ops.audit_retry_enqueue'
+  | 'notify.restore_confirm_fail';
 
 export function writeAudit(
   opts: {
