@@ -183,6 +183,7 @@ opsRouter.get(
         onlineRate: rosterTotal > 0 ? onlineTotal / rosterTotal : 0,
         driftClients,
         driftRate: onlineTotal > 0 ? driftClients / onlineTotal : 0,
+        driftSnapshotLastAt: driftAudit[0]?.createdAt ?? null,
       },
       readiness: {
         ctaCount,

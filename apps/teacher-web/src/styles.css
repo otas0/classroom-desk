@@ -717,6 +717,26 @@ section label.choice input {
   background: var(--paper);
 }
 
+.roster-virtual:focus {
+  outline: 2px solid color-mix(in srgb, var(--accent, #1d4ed8) 70%, #000);
+  outline-offset: 2px;
+}
+
+.roster-virtual-row:focus,
+.roster-virtual-row:focus-visible,
+.q-virtual-row:focus,
+.q-virtual-row:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent, #1d4ed8) 80%, #000);
+  outline-offset: -2px;
+  z-index: 1;
+  background: color-mix(in srgb, var(--accent, #1d4ed8) 8%, var(--paper, #fff));
+}
+
+.q-virtual:focus {
+  outline: 2px solid color-mix(in srgb, var(--accent, #1d4ed8) 70%, #000);
+  outline-offset: 2px;
+}
+
 .roster-virtual-row input[type='text'] {
   width: 100%;
   min-width: 0;

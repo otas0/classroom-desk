@@ -78,7 +78,7 @@ WantedBy=multi-user.target
 预发机清单：
 
 1. 建用户 `classroom`，数据目录 `/var/lib/classroom-desk`（750）。
-2. 克隆仓库到 `WorkingDirectory`（与 unit 一致），`npm ci`，`npm run build:teacher`。
+2. 克隆仓库到 `WorkingDirectory`（与 unit 一致），`npm ci`，**`npm run fonts:cjk`**（第一次家长 PDF / 离线部署之前的硬步骤，把 NotoSansSC 放到 `apps/server/assets/fonts/`），`npm run build:teacher`。
 3. 写 `/etc/classroom-desk.env`，`systemctl enable --now classroom-desk`。
 4. 挂载网盘 → `CLASSROOM_DESK_NAS_DIR`；`bash scripts/install-backup-cron.example.sh`。
 5. 人为断 NAS 跑一次 backup，确认 `curl /health` 含 `backup.lastError`。

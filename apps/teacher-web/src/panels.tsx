@@ -56,7 +56,6 @@ export function RosterPanel({
   const [awardPts, setAwardPts] = useState(1);
   const [awardReason, setAwardReason] = useState('表扬');
   const [awardMsg, setAwardMsg] = useState('');
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
   const [stuNoPrefix, setStuNoPrefix] = useState('');
   const [recycle, setRecycle] = useState<Array<Record<string, unknown>>>([]);
@@ -76,18 +75,43 @@ export function RosterPanel({
   const toast = useToast();
   const allowDelete = canBulkDelete();
   const allowWrite = canWriteClass();
-  const rosterAnchorId = useRef<string | null>(null);
-  const rosterFocusIndex = useRef(0);
   const [jumpIds, setJumpIds] = useState<Set<string>>(new Set());
   const [urgentDays, setUrgentDays] = useState(RECYCLE_URGENT_DAYS);
   const ROSTER_ROW_H = 44;
   const ROSTER_VIEW_H = 420;
 
+  const filteredStudents = useMemo(() => {
+    return [...students]
+      .sort((a, b) => String(a.studentNo ?? '').localeCompare(String(b.studentNo ?? ''), 'zh'))
+      .filter((s) => {
+        const key = search.trim().toLowerCase();
+        if (!key) return true;
+        return (
+          String(s.displayName).toLowerCase().includes(key) ||
+          String(s.studentNo ?? '')
+            .toLowerCase()
+            .includes(key)
+        );
+      });
+  }, [students, search]);
+
+  const orderedRosterIds = useMemo(
+    () => filteredStudents.map((s) => String(s.id)),
+    [filteredStudents],
+  );
+  const {
+    selected: selectedIds,
+    setSelected: setSelectedIds,
+    clear: clearRosterSelection,
+    toggleOne: toggleRosterSelect,
+    onKeyDown: onRosterKeyDown,
+  } = useListSelection(orderedRosterIds);
+
   async function loadStudents() {
     if (!classId) return;
     const r = await api<{ items: Array<Record<string, unknown>> }>(`/api/v1/classes/${classId}/students`);
     setStudents(r.items);
-    setSelectedIds(new Set());
+    clearRosterSelection();
   }
 
   async function loadRecycle() {
@@ -152,19 +176,6 @@ export function RosterPanel({
     }
   }
 
-  const filteredStudents = [...students]
-    .sort((a, b) => String(a.studentNo ?? '').localeCompare(String(b.studentNo ?? ''), 'zh'))
-    .filter((s) => {
-      const key = search.trim().toLowerCase();
-      if (!key) return true;
-      return (
-        String(s.displayName).toLowerCase().includes(key) ||
-        String(s.studentNo ?? '')
-          .toLowerCase()
-          .includes(key)
-      );
-    });
-
   useEffect(() => {
     void loadStudents().catch(() => setStudents([]));
     setShowRecycle(false);
@@ -178,6 +189,11 @@ export function RosterPanel({
           setJumpIds(new Set(ids.map(String)));
           sessionStorage.removeItem('cd_audit_jump_ids');
         }
+      }
+      if (sessionStorage.getItem('cd_audit_jump_open_recycle') === '1') {
+        sessionStorage.removeItem('cd_audit_jump_open_recycle');
+        setShowRecycle(true);
+        void loadRecycle().catch(() => setRecycle([]));
       }
     } catch {
       /* ignore */
@@ -575,68 +591,7 @@ export function RosterPanel({
         aria-multiselectable
         aria-label="学生名单，可用方向键与空格多选"
         onScroll={(e: UIEvent<HTMLDivElement>) => setRosterScrollTop(e.currentTarget.scrollTop)}
-        onKeyDown={(e) => {
-          const ordered = filteredStudents.map((row) => String(row.id));
-          if (!ordered.length) return;
-          if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-            e.preventDefault();
-            const next = Math.min(
-              ordered.length - 1,
-              Math.max(0, rosterFocusIndex.current + (e.key === 'ArrowDown' ? 1 : -1)),
-            );
-            rosterFocusIndex.current = next;
-            const id = ordered[next]!;
-            if (e.shiftKey) {
-              if (!rosterAnchorId.current) rosterAnchorId.current = id;
-              const a = ordered.indexOf(rosterAnchorId.current);
-              const b = next;
-              if (a >= 0) {
-                const [lo, hi] = a < b ? [a, b] : [b, a];
-                setSelectedIds((prev) => {
-                  const nextSet = new Set(prev);
-                  for (let k = lo; k <= hi; k++) nextSet.add(ordered[k]!);
-                  return nextSet;
-                });
-              }
-            } else {
-              rosterAnchorId.current = id;
-            }
-            (
-              document.querySelector(`[data-row-id="${CSS.escape(id)}"]`) as HTMLElement | null
-            )?.focus();
-            return;
-          }
-          if (e.key === ' ' || e.key === 'Spacebar') {
-            e.preventDefault();
-            const id = ordered[rosterFocusIndex.current];
-            if (!id) return;
-            const on = !selectedIds.has(id);
-            if (e.shiftKey && rosterAnchorId.current) {
-              const a = ordered.indexOf(rosterAnchorId.current);
-              const b = ordered.indexOf(id);
-              if (a >= 0 && b >= 0) {
-                const [lo, hi] = a < b ? [a, b] : [b, a];
-                setSelectedIds((prev) => {
-                  const next = new Set(prev);
-                  for (let k = lo; k <= hi; k++) {
-                    const rid = ordered[k]!;
-                    if (on) next.add(rid);
-                    else next.delete(rid);
-                  }
-                  return next;
-                });
-                return;
-              }
-            }
-            rosterAnchorId.current = id;
-            setSelectedIds((prev) => {
-              const next = new Set(prev);
-              if (on) next.add(id);
-              else next.delete(id);
-              return next;
-            });
-          }
-        }}
+        onKeyDown={(e) => onRosterKeyDown(e)}
       >
         <div className="roster-virtual-inner" style={{ height: rosterVirtual.totalH }}>
           {filteredStudents.slice(rosterVirtual.start, rosterVirtual.end).map((s, i) => {
@@ -650,31 +605,7 @@ export function RosterPanel({
                 jumpHighlight={jumpIds.has(String(s.id))}
                 selected={selectedIds.has(String(s.id))}
                 onSelectChange={(id, on, opts) => {
-                  const ordered = filteredStudents.map((row) => String(row.id));
-                  if (opts?.shift && rosterAnchorId.current) {
-                    const a = ordered.indexOf(rosterAnchorId.current);
-                    const b = ordered.indexOf(id);
-                    if (a >= 0 && b >= 0) {
-                      const [lo, hi] = a < b ? [a, b] : [b, a];
-                      setSelectedIds((prev) => {
-                        const next = new Set(prev);
-                        for (let k = lo; k <= hi; k++) {
-                          const rid = ordered[k]!;
-                          if (on) next.add(rid);
-                          else next.delete(rid);
-                        }
-                        return next;
-                      });
-                      return;
-                    }
-                  }
-                  rosterAnchorId.current = id;
-                  setSelectedIds((prev) => {
-                    const next = new Set(prev);
-                    if (on) next.add(id);
-                    else next.delete(id);
-                    return next;
-                  });
+                  toggleRosterSelect(id, on, Boolean(opts?.shift));
                 }}
                 onChanged={() => void loadStudents()}
                 onRemoved={() => {
@@ -2960,6 +2891,9 @@ export function SettingsPanel({
   const [restoreSha, setRestoreSha] = useState('');
   const [restoreConfirmCode, setRestoreConfirmCode] = useState('');
   const [restoreConfirmInput, setRestoreConfirmInput] = useState('');
+  const [restoreConfirmEmail, setRestoreConfirmEmail] = useState('');
+  const [restoreMailtoUrl, setRestoreMailtoUrl] = useState('');
+  const [restoreEmailDelivered, setRestoreEmailDelivered] = useState(false);
   const [upgradeMsg, setUpgradeMsg] = useState('');
   const [upgradeFiles, setUpgradeFiles] = useState<string[]>([]);
   const [grantEditId, setGrantEditId] = useState<string | null>(null);
@@ -2969,6 +2903,7 @@ export function SettingsPanel({
   const [grantWasEmpty, setGrantWasEmpty] = useState(false);
   const [grantMsg, setGrantMsg] = useState('');
   const [driftMins, setDriftMins] = useState(5);
+  const [driftLastAt, setDriftLastAt] = useState<string | null>(null);
   const [upgradesKeep, setUpgradesKeep] = useState(3);
 
   async function loadAudit() {
@@ -2995,7 +2930,9 @@ export function SettingsPanel({
       recycleRetentionDays?: number;
       recycleUrgentDays?: number;
       fleetDriftSnapshotMinutes?: number;
+      fleetDriftSnapshotLastAt?: string | null;
       upgradesKeepCount?: number;
+      restoreConfirmEmail?: string;
       clientExitAllowed?: boolean;
       clientExitUnlockUntil?: string | null;
       hasExitUnlockCode?: boolean;
@@ -3026,6 +2963,8 @@ export function SettingsPanel({
     if (s.fleetDriftSnapshotMinutes != null && Number.isFinite(Number(s.fleetDriftSnapshotMinutes))) {
       setDriftMins(Number(s.fleetDriftSnapshotMinutes));
     }
+    setDriftLastAt(s.fleetDriftSnapshotLastAt ?? null);
+    if (typeof s.restoreConfirmEmail === 'string') setRestoreConfirmEmail(s.restoreConfirmEmail);
     if (s.upgradesKeepCount != null && Number.isFinite(Number(s.upgradesKeepCount))) {
       setUpgradesKeep(Number(s.upgradesKeepCount));
     }
@@ -3171,22 +3110,68 @@ export function SettingsPanel({
       .catch(() => setUpgradeFiles([]));
 
     const token = getToken() || '';
+    let cancelled = false;
     let es: EventSource | null = null;
-    if (token && typeof EventSource !== 'undefined') {
+    let reconnectTimer: number | undefined;
+    let pollTimer: number | undefined;
+    let backoffMs = 1000;
+    let failStreak = 0;
+
+    function stopPoll() {
+      if (pollTimer != null) {
+        window.clearInterval(pollTimer);
+        pollTimer = undefined;
+      }
+    }
+
+    function startPollFallback() {
+      if (pollTimer != null || cancelled) return;
+      pollTimer = window.setInterval(() => {
+        void loadAssistants().catch(() => undefined);
+      }, 8_000);
+    }
+
+    function connectAssistantsSse() {
+      if (cancelled || !token || typeof EventSource === 'undefined') {
+        startPollFallback();
+        return;
+      }
+      try {
+        es?.close();
+      } catch {
+        /* ignore */
+      }
       es = new EventSource(
         `${API_BASE}/api/v1/auth/assistants/stream?token=${encodeURIComponent(token)}`,
       );
-      es.addEventListener('assistants.updated', () => {
+      const onUpdated = () => {
+        failStreak = 0;
+        backoffMs = 1000;
+        stopPoll();
         void loadAssistants().catch(() => undefined);
-      });
-      es.onmessage = () => {
-        void loadAssistants().catch(() => undefined);
+      };
+      es.addEventListener('assistants.updated', onUpdated);
+      es.onopen = () => {
+        failStreak = 0;
+        backoffMs = 1000;
+        stopPoll();
       };
       es.onerror = () => {
-        /* browser will retry; fall back to one-shot reload */
-        void loadAssistants().catch(() => undefined);
+        failStreak += 1;
+        try {
+          es?.close();
+        } catch {
+          /* ignore */
+        }
+        es = null;
+        if (cancelled) return;
+        if (failStreak >= 2) startPollFallback();
+        const wait = Math.min(30_000, backoffMs);
+        backoffMs = Math.min(30_000, Math.round(backoffMs * 1.8));
+        reconnectTimer = window.setTimeout(() => connectAssistantsSse(), wait);
       };
     }
+    connectAssistantsSse();
 
     async function pollHealthAlert() {
       try {
@@ -3215,7 +3200,14 @@ export function SettingsPanel({
     const healthPoll = window.setInterval(() => void pollHealthAlert(), 15_000);
 
     return () => {
-      es?.close();
+      cancelled = true;
+      try {
+        es?.close();
+      } catch {
+        /* ignore */
+      }
+      if (reconnectTimer != null) window.clearTimeout(reconnectTimer);
+      stopPoll();
       window.clearInterval(healthPoll);
     };
   }, [exitKindFilter, exitEventsPage]);
@@ -3255,6 +3247,31 @@ export function SettingsPanel({
     }
   }
 
+  function classesLosingExport(
+    rows: Array<{ name: string; canExport: boolean }>,
+  ): string[] {
+    return rows.filter((r) => !r.canExport).map((r) => r.name);
+  }
+
+  function updateGrantRow(classId: string, patch: { canExport?: boolean; canAwardPoints?: boolean }) {
+    const next = grantRows.map((x) => (x.classId === classId ? { ...x, ...patch } : x));
+    setGrantRows(next);
+    if (!grantWasEmpty) return;
+    const touched = next.some((r) => r.canExport || r.canAwardPoints);
+    if (!touched) {
+      setGrantMsg(
+        '当前为空表：助教仍可全局只读导出。首次勾选并保存后将改为仅授权班级可导出/加分。',
+      );
+      return;
+    }
+    const lose = classesLosingExport(next);
+    setGrantMsg(
+      lose.length
+        ? `首次勾选后将失去导出的班级（未勾选可导出）：${lose.join('、')}`
+        : '所有班级都已勾选可导出。',
+    );
+  }
+
   async function saveAssistantGrants() {
     if (!grantEditId) return;
     const grants = grantRows
@@ -3265,8 +3282,10 @@ export function SettingsPanel({
         canAwardPoints: r.canAwardPoints,
       }));
     if (grantWasEmpty && grants.length > 0) {
+      const lose = classesLosingExport(grantRows);
+      const listed = lose.length ? lose.join('、') : '（无）';
       const ok = window.confirm(
-        '即将离开「空表 = 全班可导出」的旧行为：保存后仅勾选班级可导出/加分，未勾选班级将无法导出。确定继续？',
+        `即将离开「空表 = 全班可导出」的旧行为：保存后仅勾选了「可导出」的班级可以导出。\n将失去导出的班级（未勾选可导出）：${listed}\n确定继续？`,
       );
       if (!ok) return;
     }
@@ -3289,6 +3308,34 @@ export function SettingsPanel({
   useEffect(() => {
     const t = window.setInterval(() => setNowTick(Date.now()), 1000);
     return () => window.clearInterval(t);
+  }, []);
+
+  function focusRecyclePurgeConfirm() {
+    const el = document.getElementById('recycle-purge-confirm');
+    if (!el) {
+      setSaveMsg('当前账号看不到回收站清理确认');
+      if (window.location.hash === '#recycle-purge-confirm') {
+        window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}`);
+      }
+      return;
+    }
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    el.classList.add('cd-audit-jump-hl');
+    const btn = document.getElementById('recycle-purge-confirm-btn');
+    if (btn instanceof HTMLElement) btn.focus();
+    window.setTimeout(() => el.classList.remove('cd-audit-jump-hl'), 3200);
+  }
+
+  useEffect(() => {
+    const flagged = sessionStorage.getItem('cd_goto_purge_confirm') === '1';
+    const hashed = window.location.hash === '#recycle-purge-confirm';
+    if (!flagged && !hashed) return;
+    sessionStorage.removeItem('cd_goto_purge_confirm');
+    if (hashed) {
+      window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}`);
+    }
+    const t = window.setTimeout(() => focusRecyclePurgeConfirm(), 80);
+    return () => window.clearTimeout(t);
   }, []);
 
   async function runDiag() {
@@ -3606,6 +3653,7 @@ export function SettingsPanel({
               type="number"
               min={1}
               max={365}
+              data-testid="recycle-retention-days"
               value={recycleDays}
               onChange={(e) => setRecycleDays(Number(e.target.value) || 1)}
               onBlur={() => {
@@ -3623,6 +3671,13 @@ export function SettingsPanel({
               }}
             />
           </label>
+          {recycleDays !== RECYCLE_RETENTION_DAYS ? (
+            <p className="hint" data-testid="recycle-retention-mismatch">
+              当前 {recycleDays} 天，与 shared / 文档默认 {RECYCLE_RETENTION_DAYS}{' '}
+              天不一致（可改回默认；升级时仅会自动把历史默认 30 迁到{' '}
+              {RECYCLE_RETENTION_DAYS}）。
+            </p>
+          ) : null}
           <label>
             即将到期高亮（剩余天数 ≤）
             <input
@@ -3644,7 +3699,7 @@ export function SettingsPanel({
               }}
             />
           </label>
-          <div className="row">
+          <div className="row" id="recycle-purge-confirm" data-testid="recycle-purge-confirm">
             <button
               type="button"
               className="secondary"
@@ -3661,6 +3716,7 @@ export function SettingsPanel({
             </button>
             <button
               type="button"
+              id="recycle-purge-confirm-btn"
               className="secondary"
               onClick={() => {
                 void api<{ message?: string; students?: number; questions?: number }>(
@@ -3716,6 +3772,36 @@ export function SettingsPanel({
           <h3>备份恢复向导</h3>
           <p className="hint">先解密/校验哈希并查看停服清单；确认后再 commit 替换 live DB（会先写 .pre-restore-*）。</p>
           <label>
+            恢复确认码邮箱
+            <input
+              type="email"
+              value={restoreConfirmEmail}
+              onChange={(e) => setRestoreConfirmEmail(e.target.value)}
+              autoComplete="email"
+              placeholder="用于接收恢复确认码"
+            />
+          </label>
+          <button
+            type="button"
+            className="secondary"
+            onClick={() => {
+              void api('/api/v1/settings', {
+                method: 'PATCH',
+                body: JSON.stringify({ restoreConfirmEmail: restoreConfirmEmail.trim() }),
+              })
+                .then(() =>
+                  setBackupMsg(
+                    restoreConfirmEmail.trim()
+                      ? '已保存恢复确认码邮箱（确认码不会显示在页面上）'
+                      : '已清空恢复确认码邮箱',
+                  ),
+                )
+                .catch((e) => setBackupMsg(e instanceof Error ? e.message : '保存失败'));
+            }}
+          >
+            保存确认码邮箱
+          </button>
+          <label>
             备份文件名（backups 目录下 .enc / .db）
             <input
               value={restoreFile}
@@ -3734,6 +3820,8 @@ export function SettingsPanel({
                   sha256?: string;
                   checklist?: string[];
                   confirmCode?: string;
+                  emailDelivered?: boolean;
+                  mailtoUrl?: string | null;
                 }>('/api/v1/settings/backup-restore-preview', {
                   method: 'POST',
                   body: JSON.stringify({
@@ -3747,10 +3835,16 @@ export function SettingsPanel({
                     setRestoreSha(r.sha256 ?? '');
                     setRestoreConfirmCode(r.confirmCode ?? '');
                     setRestoreConfirmInput('');
+                    setRestoreMailtoUrl(r.mailtoUrl ?? '');
+                    setRestoreEmailDelivered(r.emailDelivered === true);
+                    const channel =
+                      r.emailDelivered === true
+                        ? '已投递 webhook'
+                        : r.mailtoUrl
+                          ? '可点「发到邮箱/打开邮件」'
+                          : '请复制确认码，或先保存确认码邮箱后重新校验';
                     setBackupMsg(
-                      r.message
-                        ? `${r.confirmCode ? '校验通过 · 请点「复制确认码」一次后粘贴（不在页面回显）' : r.message}${r.restoredPath ? ` → ${r.restoredPath}` : ''}`
-                        : '已准备',
+                      `校验通过 · ${channel}（页面不回显确认码）${r.restoredPath ? ` → ${r.restoredPath}` : ''}`,
                     );
                   })
                   .catch((e) => setBackupMsg(e instanceof Error ? e.message : '恢复失败'));
@@ -3786,6 +3880,8 @@ export function SettingsPanel({
                     setRestoreSha(r.sha256 ?? restoreSha);
                     setRestoreConfirmCode('');
                     setRestoreConfirmInput('');
+                    setRestoreMailtoUrl('');
+                    setRestoreEmailDelivered(false);
                     setBackupMsg(r.message ?? '已替换 live DB，请重启服务');
                   })
                   .catch((e) => setBackupMsg(e instanceof Error ? e.message : '替换失败'));
@@ -3815,26 +3911,54 @@ export function SettingsPanel({
               >
                 复制确认码（一次）
               </button>
+              <button
+                type="button"
+                className="secondary"
+                disabled={restoreEmailDelivered || !restoreMailtoUrl}
+                onClick={() => {
+                  if (restoreEmailDelivered || !restoreMailtoUrl) return;
+                  window.location.href = restoreMailtoUrl;
+                  setBackupMsg('已打开邮件草稿（确认码在邮件正文，页面不回显）');
+                }}
+              >
+                {restoreEmailDelivered ? '已投递 webhook' : '发到邮箱/打开邮件'}
+              </button>
+              {restoreEmailDelivered ? <p className="hint">已投递 webhook</p> : null}
               <label>
                 粘贴二次确认码
                 <input
                   value={restoreConfirmInput}
                   onChange={(e) => setRestoreConfirmInput(e.target.value)}
-                  placeholder="六位数字"
+                  placeholder="从剪贴板或邮件粘贴"
                   autoComplete="one-time-code"
                 />
               </label>
             </div>
           ) : restoreSha ? (
-            <label>
-              粘贴二次确认码
-              <input
-                value={restoreConfirmInput}
-                onChange={(e) => setRestoreConfirmInput(e.target.value)}
-                placeholder="六位数字（先点校验并复制）"
-                autoComplete="one-time-code"
-              />
-            </label>
+            <div className="row">
+              <button
+                type="button"
+                className="secondary"
+                disabled={restoreEmailDelivered || !restoreMailtoUrl}
+                onClick={() => {
+                  if (restoreEmailDelivered || !restoreMailtoUrl) return;
+                  window.location.href = restoreMailtoUrl;
+                  setBackupMsg('已打开邮件草稿（确认码在邮件正文，页面不回显）');
+                }}
+              >
+                {restoreEmailDelivered ? '已投递 webhook' : '发到邮箱/打开邮件'}
+              </button>
+              {restoreEmailDelivered ? <p className="hint">已投递 webhook</p> : null}
+              <label>
+                粘贴二次确认码
+                <input
+                  value={restoreConfirmInput}
+                  onChange={(e) => setRestoreConfirmInput(e.target.value)}
+                  placeholder="从剪贴板或邮件粘贴"
+                  autoComplete="one-time-code"
+                />
+              </label>
+            </div>
           ) : null}
           {restoreChecklist.length ? (
             <ol className="hint">
@@ -3865,6 +3989,10 @@ export function SettingsPanel({
               }}
             />
           </label>
+          <p className="hint" data-testid="fleet-drift-snapshot-last">
+            上次 fleet.drift_snapshot：
+            {driftLastAt ? new Date(driftLastAt).toLocaleString() : '尚无'}
+          </p>
           <label>
             升级包保留份数（1–20）
             <input
@@ -3876,11 +4004,19 @@ export function SettingsPanel({
               onBlur={() => {
                 const n = Math.max(1, Math.min(20, Math.trunc(upgradesKeep) || 3));
                 setUpgradesKeep(n);
-                void api('/api/v1/settings', {
+                void api<{ pruned?: string[] }>('/api/v1/settings', {
                   method: 'PATCH',
                   body: JSON.stringify({ upgradesKeepCount: n }),
                 })
-                  .then(() => setSaveMsg(`升级包保留最新 ${n} 份`))
+                  .then((r) =>
+                    setSaveMsg(
+                      `升级包保留最新 ${n} 份${
+                        Array.isArray(r.pruned) && r.pruned.length
+                          ? `，已清理 ${r.pruned.length} 个旧文件`
+                          : ''
+                      }`,
+                    ),
+                  )
                   .catch((e) => setSaveMsg(e instanceof Error ? e.message : '保存失败'));
               }}
             />
@@ -4140,9 +4276,9 @@ export function SettingsPanel({
             </button>
             {asstMsg ? <p className={/失败|错误|已存在/.test(asstMsg) ? 'error' : 'hint'}>{asstMsg}</p> : null}
             {assistants.length ? (
-              <ul>
+              <ul data-testid="assistants-list">
                 {assistants.map((a) => (
-                  <li key={a.id}>
+                  <li key={a.id} data-testid={`assistant-row-${a.username}`}>
                     {a.username} · {a.displayName}
                     {a.disabledAt ? ' · 已停用' : ''} · {new Date(a.createdAt).toLocaleString()}
                     <div className="row" style={{ marginTop: 4 }}>
@@ -4240,13 +4376,7 @@ export function SettingsPanel({
                                     type="checkbox"
                                     checked={row.canExport}
                                     onChange={(e) =>
-                                      setGrantRows((prev) =>
-                                        prev.map((x) =>
-                                          x.classId === row.classId
-                                            ? { ...x, canExport: e.target.checked }
-                                            : x,
-                                        ),
-                                      )
+                                      updateGrantRow(row.classId, { canExport: e.target.checked })
                                     }
                                   />
                                   可导出
@@ -4256,13 +4386,7 @@ export function SettingsPanel({
                                     type="checkbox"
                                     checked={row.canAwardPoints}
                                     onChange={(e) =>
-                                      setGrantRows((prev) =>
-                                        prev.map((x) =>
-                                          x.classId === row.classId
-                                            ? { ...x, canAwardPoints: e.target.checked }
-                                            : x,
-                                        ),
-                                      )
+                                      updateGrantRow(row.classId, { canAwardPoints: e.target.checked })
                                     }
                                   />
                                   可加分
@@ -4704,10 +4828,20 @@ stateDiagram-v2
                       <AuditDetail
                         detail={a.detail}
                         action={a.action}
-                        onJumpIds={({ target, ids }) => {
+                        onJumpIds={({ target, ids, action }) => {
                           if (a.classId) localStorage.setItem('cd_teacher_class_id', String(a.classId));
                           sessionStorage.setItem('cd_audit_jump_ids', JSON.stringify(ids));
+                          if (/soft_delete|bulk_soft/i.test(action)) {
+                            sessionStorage.setItem('cd_audit_jump_open_recycle', '1');
+                          }
                           hardReloadTeacherNav({ tab: 'prep', prepTab: target });
+                        }}
+                        onJumpPurgeConfirm={() => {
+                          sessionStorage.setItem('cd_goto_purge_confirm', '1');
+                          const base = `${window.location.pathname}${window.location.search}`;
+                          window.history.replaceState(null, '', `${base}#recycle-purge-confirm`);
+                          focusRecyclePurgeConfirm();
+                          sessionStorage.removeItem('cd_goto_purge_confirm');
                         }}
                       />
                     </>

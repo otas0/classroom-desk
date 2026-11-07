@@ -225,9 +225,13 @@ export function PacksPanel({
           type="button"
           disabled={!ocrDraft}
           onClick={() => {
+            if (!onGoSession) {
+              setMsg('无上课权限，无法送到快发题');
+              return;
+            }
             persistDraft(ocrDraft);
             setMsg('已写入上课快发题草稿');
-            onGoSession?.();
+            onGoSession();
           }}
         >
           送到快发题
@@ -245,7 +249,11 @@ export function PacksPanel({
         disabled={ocrBusy}
       />
 
-      {msg ? <p className="hint">{msg}</p> : null}
+      {msg ? (
+        <p className={msg.includes('无上课权限') ? 'error' : 'hint'} role="status">
+          {msg}
+        </p>
+      ) : null}
     </section>
   );
 }

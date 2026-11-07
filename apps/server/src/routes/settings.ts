@@ -34,6 +34,8 @@ import {
   consumeRestoreConfirmCode,
   issueRestoreConfirmCode,
 } from '../services/restoreConfirm.js';
+import { notifyRestoreConfirm } from '../services/notifyEmail.js';
+import { pruneOldSetupExes } from './upgrades.js';
 import { getExtraWeakPasswords, setExtraWeakPasswords } from '../services/weakPasswords.js';
 import { nowIso } from '../utils/id.js';
 
@@ -88,7 +90,18 @@ settingsRouter.get('/api/v1/settings', requireAuth, requireRoles('teacher', 'adm
     ),
     recycleUrgentDays: Number(getSetting(db, 'recycle_urgent_days') ?? RECYCLE_URGENT_DAYS),
     fleetDriftSnapshotMinutes: Number(getSetting(db, 'fleet_drift_snapshot_minutes') ?? 5),
+    fleetDriftSnapshotLastAt:
+      (
+        db
+          .prepare(
+            `SELECT created_at AS createdAt FROM teacher_audit_log
+             WHERE action = 'fleet.drift_snapshot'
+             ORDER BY created_at DESC LIMIT 1`,
+          )
+          .get() as { createdAt?: string } | undefined
+      )?.createdAt ?? null,
     upgradesKeepCount: Number(getSetting(db, 'upgrades_keep_count') ?? 3),
+    restoreConfirmEmail: getSetting(db, 'restore_confirm_email') ?? '',
     hasBackupEncryptPassphrase: Boolean((getSetting(db, 'backup_encrypt_passphrase') ?? '').trim()),
     projectionHighContrast: (getSetting(db, 'projection_high_contrast') ?? '0') === '1',
     classroomApiBase: getSetting(db, 'classroom_api_base') ?? '',
@@ -197,16 +210,41 @@ settingsRouter.patch('/api/v1/settings', requireAuth, requireRoles('teacher', 'a
     ).run(String(Math.trunc(mins)));
   }
 
+  let upgradesPruned: string[] | null = null;
   if (req.body?.upgradesKeepCount != null) {
     const n = Number(req.body.upgradesKeepCount);
     if (!Number.isFinite(n) || n < 1 || n > 20) {
       res.status(400).json({ error: 'invalid_upgrades_keep', message: '升级包保留须为 1–20 份' });
       return;
     }
+    const keep = Math.trunc(n);
     db.prepare(
       `INSERT INTO settings (key, value) VALUES ('upgrades_keep_count', ?)
        ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
-    ).run(String(Math.trunc(n)));
+    ).run(String(keep));
+    upgradesPruned = pruneOldSetupExes(keep);
+    writeAudit({
+      actorUserId: req.user?.id,
+      actorRole: req.user?.role,
+      action: 'upgrades.keep_prune',
+      detail: { keep, pruned: upgradesPruned },
+      clientIp: req.ip,
+    });
+  }
+
+  if (req.body?.restoreConfirmEmail !== undefined) {
+    const email = String(req.body.restoreConfirmEmail ?? '').trim();
+    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      res.status(400).json({
+        error: 'invalid_restore_confirm_email',
+        message: '恢复确认邮箱格式不正确',
+      });
+      return;
+    }
+    db.prepare(
+      `INSERT INTO settings (key, value) VALUES ('restore_confirm_email', ?)
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+    ).run(email);
   }
 
   if (req.body?.recycleUrgentDays != null) {
@@ -319,7 +357,11 @@ settingsRouter.patch('/api/v1/settings', requireAuth, requireRoles('teacher', 'a
     );
   }
 
-  res.json({ ok: true, ...getClientExitLockState(db) });
+  res.json({
+    ok: true,
+    ...getClientExitLockState(db),
+    ...(upgradesPruned ? { pruned: upgradesPruned } : {}),
+  });
 });
 
 settingsRouter.get('/api/v1/exit-lock/stream', (_req, res) => {
@@ -386,7 +428,7 @@ settingsRouter.post(
   '/api/v1/settings/backup-restore-preview',
   requireAuth,
   requireRoles('teacher', 'admin'),
-  (req: AuthedRequest, res) => {
+  async (req: AuthedRequest, res) => {
     const fileName = path.basename(String(req.body?.fileName ?? ''));
     const passphrase = String(req.body?.passphrase ?? '');
     const commit = req.body?.commit === true;
@@ -474,6 +516,12 @@ settingsRouter.post(
         sha256: hash,
         fileName,
       });
+      const delivery = await notifyRestoreConfirm({
+        to: getSetting(openDb(), 'restore_confirm_email'),
+        code: confirmCode,
+        sha256: hash,
+        fileName,
+      });
       res.json({
         ok: true,
         committed: false,
@@ -481,9 +529,11 @@ settingsRouter.post(
         liveDb: live,
         sha256: hash,
         confirmCode,
+        emailDelivered: delivery.emailDelivered,
+        mailtoUrl: delivery.mailtoUrl,
         checklist,
         message:
-          '已准备恢复文件。请抄下六位确认码，确认哈希后带 confirmCode 请求 commit:true（或按清单手动替换）。',
+          '已准备恢复文件。确认码已签发一次（剪贴板或邮件），确认哈希后带 confirmCode 请求 commit:true（或按清单手动替换）。',
       });
     } catch (e) {
       res.status(400).json({

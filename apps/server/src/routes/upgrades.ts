@@ -121,10 +121,16 @@ upgradesRouter.post(
 const KEEP_SETUP = Number(process.env.CLASSROOM_DESK_UPGRADES_KEEP ?? 3);
 
 /** Keep newest N Setup*.exe (+ paired .sha256); delete older. */
-function pruneOldSetupExes(keep = KEEP_SETUP): string[] {
+export function pruneOldSetupExes(keep = KEEP_SETUP): string[] {
   const dir = upgradesDir();
-  const exes = fs
-    .readdirSync(dir)
+  let names: string[];
+  try {
+    if (!fs.existsSync(dir)) return [];
+    names = fs.readdirSync(dir);
+  } catch {
+    return [];
+  }
+  const exes = names
     .filter((n) => /\.exe$/i.test(n) && (/Setup/i.test(n) || /ClassroomDesk/i.test(n)))
     .map((name) => {
       const full = path.join(dir, name);

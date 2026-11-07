@@ -414,7 +414,7 @@ export function App() {
                   setError('请先登录，登录后将打开「设置」更换解除码。');
                 }}
               >
-                登录后去设置更换
+                去设置更换解除码
               </button>
             </p>
           </div>
@@ -659,7 +659,10 @@ export function App() {
                 {prepTab === 'seats' && <SeatMapPanel classId={classId} />}
                 {prepTab === 'ops' && <OpsDashboard />}
                 {prepTab === 'packs' && (
-                  <PacksPanel classId={classId} onGoSession={() => setTab('session')} />
+                  <PacksPanel
+                    classId={classId}
+                    onGoSession={isAssistant() ? undefined : () => setTab('session')}
+                  />
                 )}
                 {prepTab === 'exports' && <ExportsPanel classId={classId} />}
                 {prepTab === 'messages' && messagesEnabled && (

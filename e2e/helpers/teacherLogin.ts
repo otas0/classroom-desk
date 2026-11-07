@@ -50,7 +50,7 @@ export async function loginTeacherUi(page: Page, password: string): Promise<void
   if (await loginHeading.isVisible()) {
     await page.getByLabel('用户名').fill(TEACHER_USER);
     await page.getByLabel('密码').fill(password);
-    await page.getByRole('button', { name: '登录' }).click();
+    await page.getByRole('button', { name: '登录', exact: true }).click();
   }
 
   const passwordGate = page.getByText('请先修改个人密码');

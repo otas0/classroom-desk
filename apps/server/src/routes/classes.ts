@@ -14,6 +14,7 @@ import {
 import { chunkIds, parseIdList, sqlInPlaceholders } from '../utils/bulkIds.js';
 import { newClassCode, newId, nowIso } from '../utils/id.js';
 import { paramId } from '../utils/params.js';
+import { purgeChunkSize } from '../utils/purgeChunk.js';
 
 export const classesRouter = Router();
 
@@ -1009,8 +1010,8 @@ classesRouter.post(
         .all(classId) as Array<{ id: string }>
     ).map((r) => r.id);
     let purged = 0;
-    const CHUNK = 100;
     const total = ids.length;
+    const CHUNK = purgeChunkSize(total);
     const chunks = chunkIds(ids, CHUNK);
 
     if (stream) {

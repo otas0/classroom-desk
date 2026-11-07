@@ -17,15 +17,17 @@
 
 - 助教 grants e2e：跨班导出 403、有 grant 加分 201；空表 legacy「全班可导出」首次勾选迁移提示
 - 抢答 WS：`?token=` JWT + 角色校验；e2e 无 token 失败 / 有 token 收快照
-- 座位：同班学生唯一索引；409 toast + 拖拽失败回滚动画
-- OCR 草稿 `sessionStorage` →「送到快发题」并切到上课 tab
-- 家长 PDF：优先 `apps/server/assets/fonts` 预置 Noto Sans SC（`npm run fonts:cjk`），失败回退 ASCII；Release 构建前预拉字体
-- 恢复向导：六位确认码仅剪贴板/邮件一次（页面与 placeholder 不回显）+ 审计 `backup.restore_commit`
-- 升级包：删除 / 校验 sha256；保留份数可在设置 UI 配置
-- 离线队列：条数/体积上限；折叠侧栏与答题 tab 全局「补 N」徽标（不依赖打开答题页）
-- `fleet.drift_snapshot` 间隔可配置（分钟，0=关）
+- 座位：同班学生唯一索引；409 toast + 拖拽失败回滚后强制 `load()` 刷新座位图
+- OCR 草稿 `sessionStorage` →「送到快发题」；无上课权限时明确 toast（不静默失败）
+- 家长 PDF：优先 `apps/server/assets/fonts` 预置 Noto Sans SC（`npm run fonts:cjk`），失败回退 ASCII；部署文档强制离线前执行
+- 恢复向导：六位确认码仅剪贴板/邮件一次（页面与 placeholder 不回显）+ `restoreConfirmEmail` / webhook mailto 联调 + 审计 `backup.restore_commit`
+- 升级包：保留份数变更后立即 `prune` + 审计 `upgrades.keep_prune`
+- 离线队列：全局「补 N」徽标跳到待补交并一键 `cd-flush-offline-queue` 重试
+- `fleet.drift_snapshot` 间隔可配置；设置页展示间隔与上次快照时间
 - 投影色盲预设：Okabe–Ito / 蓝橙 / 灰阶
-- purge：dry-run 预览写入审计 `recycle.purge_preview` 后再确认执行
+- purge：dry-run 审计 `recycle.purge_preview` 可「跳转清理确认」；大表清空走 `purgeChunk`
+- grants 空表迁移确认列出将失去导出的班级
+- e2e：修 permissions-doc / homework-points / point-request / setup-identity / q-recycle-purge；入库 assistants-sse 等规格
 
 ### 安装包
 

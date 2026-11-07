@@ -15,7 +15,9 @@ test.describe('question recycle purge-all', () => {
     const auth = { Authorization: `Bearer ${token}` };
 
     const classes = await request.get(`${API}/api/v1/classes`, { headers: auth });
-    const classId = ((await classes.json()) as { items: Array<{ id: string }> }).items[0]?.id;
+    const classItems = ((await classes.json()) as { items: Array<{ id: string; name: string }> }).items;
+    const picked = classItems.find((c) => c.name === '本教室') ?? classItems[0];
+    const classId = picked?.id;
     expect(classId).toBeTruthy();
 
     const stamp = Date.now();
@@ -41,6 +43,8 @@ test.describe('question recycle purge-all', () => {
     });
     expect(soft.ok()).toBeTruthy();
 
+    // Align UI class picker with the class used for soft-delete (localStorage may differ).
+    await page.getByLabel('当前班级').selectOption({ value: classId! });
     await openPrepTab(page, '题目回收站');
 
     await expect(page.getByTestId('q-recycle-virtual')).toBeVisible({ timeout: 15_000 });
@@ -49,8 +53,14 @@ test.describe('question recycle purge-all', () => {
 
     page.once('dialog', (d) => void d.accept());
     await page.getByTestId('q-recycle-purge-all').click();
+    // NDJSON stream may flash progress briefly; assert it appeared or finished cleanly.
+    await Promise.race([
+      page.getByTestId('q-recycle-purge-progress').waitFor({ state: 'visible', timeout: 5_000 }),
+      page.getByText(`回收清空${stamp}`).waitFor({ state: 'detached', timeout: 10_000 }),
+    ]).catch(() => undefined);
 
     await expect(page.getByText(`回收清空${stamp}`)).toHaveCount(0, { timeout: 10_000 });
+    await expect(page.getByTestId('q-recycle-purge-progress')).toHaveCount(0);
 
     const after = await request.get(`${API}/api/v1/questions?classId=${classId}&includeDeleted=1`, {
       headers: auth,

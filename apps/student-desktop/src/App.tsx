@@ -538,7 +538,10 @@ export function App() {
                   className="badge clickable"
                   data-no-drag
                   aria-label={`待补交 ${offlineQueueCount}`}
-                  onClick={() => void expandTo('quiz')}
+                  onClick={() => {
+                    requestOfflineQueueFlush();
+                    void expandTo('quiz');
+                  }}
                 >
                   补{offlineQueueCount}
                 </button>
@@ -784,7 +787,10 @@ export function App() {
                 key={item.id}
                 type="button"
                 className={tab === item.id ? 'tab active' : 'tab'}
-                onClick={() => setTab(item.id)}
+                onClick={() => {
+                  setTab(item.id);
+                  if (item.id === 'quiz') requestOfflineQueueFlush();
+                }}
               >
                 {item.label}
                 {item.id === 'quiz' && openQuizCount > 0 ? (
@@ -1829,6 +1835,14 @@ function playNewQuestionChime() {
   }
 }
 
+/** Set before QuizTab mounts so a badge click still flushes after expand/tab switch. */
+let offlineFlushPending = false;
+
+function requestOfflineQueueFlush() {
+  offlineFlushPending = true;
+  window.dispatchEvent(new CustomEvent('cd-flush-offline-queue'));
+}
+
 function optionQuestionSig(q: Record<string, unknown>): string {
   const opts = (q.options as Array<{ id?: string; label?: string; content?: string }>) ?? [];
   return `${String(q.stem ?? '')}|${opts
@@ -1986,11 +2000,25 @@ function QuizTab({
     }
   }
 
+  const flushOfflineQueueRef = useRef(flushOfflineQueue);
+  flushOfflineQueueRef.current = flushOfflineQueue;
+
   useEffect(() => {
     syncQueueCount();
-    void flushOfflineQueue().catch(() => undefined);
+    if (!offlineFlushPending) void flushOfflineQueue().catch(() => undefined);
     const t = window.setInterval(() => void flushOfflineQueue().catch(() => undefined), 12_000);
     return () => window.clearInterval(t);
+  }, []);
+
+  useEffect(() => {
+    const run = () => {
+      offlineFlushPending = false;
+      void flushOfflineQueueRef.current(true).catch((e) => setQueueFail(String(e)));
+    };
+    const onFlush = () => run();
+    window.addEventListener('cd-flush-offline-queue', onFlush);
+    if (offlineFlushPending) run();
+    return () => window.removeEventListener('cd-flush-offline-queue', onFlush);
   }, []);
 
   async function answer(id: string, payload: unknown) {

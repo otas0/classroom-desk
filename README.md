@@ -11,7 +11,7 @@
 
 | 角色 | 怎么装 |
 |---|---|
-| 教师机 | `git clone` → `npm install` → `build:teacher` → 按本教室改 Windows 固定 IP 脚本 → `npm run start:server` → `/admin/` |
+| 教师机 | `git clone` → `npm install` → **`npm run fonts:cjk`** → `build:teacher` → 按本教室改 Windows 固定 IP 脚本 → `npm run start:server` → `/admin/` |
 | 学生机 | [Releases](https://github.com/otas0/classroom-desk/releases) 下 `ClassroomDesk-Setup-*.exe`；安装后首次引导填服务器/机位并校验 `/health`（也可手写 `config.json`）→ 浏览器可先验 `/ready` |
 | 发版 | `git tag v0.1.2 && git push origin v0.1.2` → Actions `Release` 挂 exe（无证书则为未签名包） |
 
@@ -62,6 +62,8 @@ npm run start --workspace=@classroom-desk/server
 ```
 
 校内部署建议：教师机/教室服务器跑 API；学生端通过局域网访问；反向代理可加 TLS，但勿把密钥提交进 git。
+
+**家长 PDF / 离线部署（硬步骤）：** 第一次生成家长 PDF，或离线部署（教师机不能临时下载字体）之前，必须先执行 `npm run fonts:cjk`，确认 `apps/server/assets/fonts/` 里已有 `NotoSansSC-VF.ttf`（或 `NotoSansSC-Regular.otf`）。字体文件不进 git；未执行时中文家长 PDF 会回退 ASCII。
 
 ## 安装与运行
 
@@ -116,6 +118,12 @@ npm run dist:win
 网络 / AP 隔离排查：[docs/NETWORK.md](docs/NETWORK.md)。
 
 ### 教师后台生产托管
+
+第一次家长 PDF 或离线部署前，先拉中文字体（硬步骤，见上）：
+
+```bash
+npm run fonts:cjk
+```
 
 ```bash
 npm run build:teacher

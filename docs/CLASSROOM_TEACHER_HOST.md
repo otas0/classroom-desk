@@ -30,8 +30,11 @@
 ```powershell
 cd C:\classroom-desk
 npm install
+npm run fonts:cjk
 npm run build:teacher
 ```
+
+**硬步骤：** 第一次家长 PDF 或离线部署（U 盘 / 无外网）之前必须跑 `npm run fonts:cjk`，使 `NotoSansSC` 落到 `apps/server/assets/fonts/`。字体不进 git；未执行时中文 PDF 回退 ASCII。
 
 ### 2. 放行防火墙 + 查看本机 IP
 

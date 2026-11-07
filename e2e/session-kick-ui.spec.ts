@@ -74,10 +74,17 @@ test.describe('session_kicked student UI', () => {
     // refreshMe runs on interval; poll up to ~15s
     await expect(toast).toBeVisible({ timeout: 20_000 });
     await expect(toast).toContainText(/账号已下线|重新选择身份/);
+    await expect(page.getByTestId('toast-dismiss')).toBeVisible();
+    await page.getByTestId('toast-dismiss').click();
+    await expect(toast).toHaveCount(0);
 
     await expect(page.getByRole('heading', { name: /你是谁|更换身份/ })).toBeVisible({
       timeout: 15_000,
     });
+    await expect(page.getByTestId('session-ended-banner')).toBeVisible();
+    await page.getByTestId('session-ended-dismiss').click();
+    await expect(page.getByTestId('session-ended-banner')).toHaveCount(0);
+
     await page.screenshot({
       path: 'test-results/session-kicked-select-identity.png',
       fullPage: true,

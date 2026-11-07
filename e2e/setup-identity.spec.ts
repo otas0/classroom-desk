@@ -51,7 +51,7 @@ test('teacher checklist path and classId copy when student web is absent', async
     ).toBeVisible();
   }
 
-  await page.getByRole('button', { name: '指派学生机' }).click();
+  await page.locator('aside').getByRole('button', { name: '指派学生机', exact: true }).click();
   await expect(page.getByRole('heading', { name: '上课前指派学生机' })).toBeVisible();
   await expect(page.getByRole('button', { name: '复制 classId' })).toBeVisible();
   await expect(page.getByText('classId', { exact: true }).first()).toBeVisible();

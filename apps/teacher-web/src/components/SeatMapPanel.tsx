@@ -135,6 +135,7 @@ export function SeatMapPanel({ classId }: { classId: string }) {
     } catch (e) {
       setItems(before);
       flashShake([a, b], e instanceof Error ? e.message : '换座失败，已回滚');
+      await load();
     }
   }
 

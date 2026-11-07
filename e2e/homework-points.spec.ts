@@ -1,38 +1,42 @@
 import { expect, test } from '@playwright/test';
+import { ensureTeacherPasswordReady, TEACHER_USER } from './helpers/teacherLogin';
+import { loginTeacherWeb } from './helpers/teacherWebLogin';
 
 const API = process.env.API_BASE ?? 'http://127.0.0.1:8787';
-const TEACHER_WEB = process.env.TEACHER_WEB ?? 'http://localhost:5174';
 
 test.describe('quiz + teacher UI', () => {
   test('teacher publishes question and student answers; admin shows 发题', async ({ request, page }) => {
+    const password = await ensureTeacherPasswordReady(request);
     const login = await request.post(`${API}/api/v1/auth/login`, {
-      data: { username: 'teacher', password: 'TeacherPass123' },
+      data: { username: TEACHER_USER, password },
     });
     expect(login.ok()).toBeTruthy();
     const { token } = (await login.json()) as { token: string };
+    const auth = { Authorization: `Bearer ${token}` };
 
-    const classes = await request.get(`${API}/api/v1/classes`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    const classId = ((await classes.json()) as { items: Array<{ id: string }> }).items[0]?.id;
+    const classes = await request.get(`${API}/api/v1/classes`, { headers: auth });
+    const items = ((await classes.json()) as { items: Array<{ id: string; name: string }> }).items;
+    const classId =
+      items.find((c) => c.name === '本教室')?.id ?? items[0]?.id;
+    expect(classId).toBeTruthy();
 
-    const name = `QZ-${Date.now()}`;
-    await request.post(`${API}/api/v1/classes/${classId}/students/import`, {
-      headers: { Authorization: `Bearer ${token}` },
-      data: { csv: `${name},Z${Date.now()}` },
+    const stamp = Date.now();
+    const name = `QZ-${stamp}`;
+    const created = await request.post(`${API}/api/v1/classes/${classId}/students`, {
+      headers: auth,
+      data: { displayName: name, studentNo: `Z${stamp}` },
     });
-    const roster = await request.get(`${API}/api/v1/classes/${classId}/roster`);
-    const student = ((await roster.json()) as { items: Array<{ id: string; displayName: string }> }).items.find(
-      (s) => s.displayName === name,
-    );
+    expect(created.ok()).toBeTruthy();
+    const studentId = ((await created.json()) as { id: string }).id;
 
     const select = await request.post(`${API}/api/v1/auth/student-select`, {
-      data: { classId, studentId: student!.id },
+      data: { classId, studentId },
     });
+    expect(select.ok()).toBeTruthy();
     const { token: studentToken } = (await select.json()) as { token: string };
 
     const create = await request.post(`${API}/api/v1/questions`, {
-      headers: { Authorization: `Bearer ${token}` },
+      headers: auth,
       data: {
         classId,
         title: 'E2E判断',
@@ -63,14 +67,17 @@ test.describe('quiz + teacher UI', () => {
     expect(((await ans.json()) as { isCorrect: boolean }).isCorrect).toBeTruthy();
 
     const stats = await request.get(`${API}/api/v1/questions/${questionId}/stats`, {
-      headers: { Authorization: `Bearer ${token}` },
+      headers: auth,
     });
     expect(stats.ok()).toBeTruthy();
 
-    await page.goto(TEACHER_WEB);
-    await page.getByLabel('用户名').fill('teacher');
-    await page.getByLabel('密码').fill('TeacherPass123');
-    await page.getByRole('button', { name: '登录' }).click();
-    await expect(page.getByRole('button', { name: '发题/正确率', exact: true })).toBeVisible();
+    await loginTeacherWeb(page, request);
+    const prep = page.locator('aside').getByRole('button', { name: '备课', exact: true });
+    await expect(prep).toBeVisible({ timeout: 15_000 });
+    await prep.click();
+    await expect(page.locator('.prep-subnav').getByRole('button', { name: '发题', exact: true })).toBeVisible({
+      timeout: 15_000,
+    });
   });
 });
+

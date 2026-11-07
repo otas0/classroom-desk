@@ -13,7 +13,7 @@
 
 | 角色 | 做什么 |
 |------|--------|
-| 教师机 | `git clone` → 安装依赖 → 固定 IP（可选）→ 放行防火墙 → 启动服务 → 浏览器开 `/admin/` |
+| 教师机 | `git clone` → 安装依赖 → **`npm run fonts:cjk`** → 固定 IP（可选）→ 放行防火墙 → 启动服务 → 浏览器开 `/admin/` |
 | 学生机 | 下载 Release 的 `ClassroomDesk-Setup-*.exe` → 写入 `config.json` → 浏览器先验 `/ready` → 开客户端 |
 
 未签名安装包：Windows SmartScreen →「更多信息」→「仍要运行」。说明见 [SMARTSCREEN.md](./SMARTSCREEN.md)。
@@ -48,10 +48,13 @@ cd C:\
 git clone https://github.com/otas0/classroom-desk.git
 cd C:\classroom-desk
 npm install
+npm run fonts:cjk
 npm run build:teacher
 ```
 
-macOS / Linux 同样：`git clone` → `npm install` → `npm run build:teacher`。
+**硬步骤：** `npm run fonts:cjk` 必须在第一次家长 PDF 或离线部署之前执行，让 `NotoSansSC-VF.ttf`（或 `NotoSansSC-Regular.otf`）落到 `apps/server/assets/fonts/`。字体不进 git；跳过则中文家长 PDF 回退 ASCII，离线机房也无法临时下载。
+
+macOS / Linux 同样：`git clone` → `npm install` → `npm run fonts:cjk` → `npm run build:teacher`。
 
 ### 2. 环境变量
 
@@ -158,6 +161,7 @@ npm run dist:win
 
 ## C. 验收清单（任意机房）
 
+- [ ] 已执行 `npm run fonts:cjk`，`apps/server/assets/fonts/` 内有 NotoSansSC（第一次家长 PDF / 离线部署之前）  
 - [ ] `/health` 的 `lanIps` 含学生机能访问的教师机 IP  
 - [ ] 学生浏览器能打开 `/ready`  
 - [ ] 学生客户端名单来自真实导入，无预填假名  
@@ -175,6 +179,7 @@ npm run dist:win
 cd C:\classroom-desk
 git pull
 npm install
+npm run fonts:cjk
 npm run build:teacher
 # 重启服务或注销再登录以触发自启任务
 ```

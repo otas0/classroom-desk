@@ -1,37 +1,34 @@
 import { expect, test } from '@playwright/test';
+import { ensureTeacherPasswordReady, TEACHER_USER } from './helpers/teacherLogin';
 
 const API = process.env.API_BASE ?? 'http://127.0.0.1:8787';
 
 test('roster select → point request → teacher confirm', async ({ request }) => {
+  const password = await ensureTeacherPasswordReady(request);
   const login = await request.post(`${API}/api/v1/auth/login`, {
-    data: { username: 'teacher', password: 'TeacherPass123' },
+    data: { username: TEACHER_USER, password },
   });
   expect(login.ok()).toBeTruthy();
   const { token } = (await login.json()) as { token: string };
+  const auth = { Authorization: `Bearer ${token}` };
 
-  const classes = await request.get(`${API}/api/v1/classes`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
+  const classes = await request.get(`${API}/api/v1/classes`, { headers: auth });
   expect(classes.ok()).toBeTruthy();
-  const classId = ((await classes.json()) as { items: Array<{ id: string }> }).items[0]?.id;
+  const items = ((await classes.json()) as { items: Array<{ id: string; name: string }> }).items;
+  const classId = items.find((c) => c.name === '本教室')?.id ?? items[0]?.id;
   expect(classId).toBeTruthy();
 
-  const name = `PR-${Date.now()}`;
-  const imp = await request.post(`${API}/api/v1/classes/${classId}/students/import`, {
-    headers: { Authorization: `Bearer ${token}` },
-    data: { csv: `姓名,学号\n${name},S${Date.now()}` },
+  const stamp = Date.now();
+  const name = `PR-${stamp}`;
+  const created = await request.post(`${API}/api/v1/classes/${classId}/students`, {
+    headers: auth,
+    data: { displayName: name, studentNo: `S${stamp}` },
   });
-  expect(imp.ok()).toBeTruthy();
-
-  const roster = await request.get(`${API}/api/v1/classes/${classId}/roster`);
-  expect(roster.ok()).toBeTruthy();
-  const student = ((await roster.json()) as { items: Array<{ id: string; displayName: string }> }).items.find(
-    (s) => s.displayName === name,
-  );
-  expect(student).toBeTruthy();
+  expect(created.ok()).toBeTruthy();
+  const studentId = ((await created.json()) as { id: string }).id;
 
   const select = await request.post(`${API}/api/v1/auth/student-select`, {
-    data: { classId, studentId: student!.id },
+    data: { classId, studentId },
   });
   expect(select.ok()).toBeTruthy();
   const joined = (await select.json()) as {
@@ -47,7 +44,7 @@ test('roster select → point request → teacher confirm', async ({ request }) 
   const reqBody = (await create.json()) as { id: string };
 
   const confirm = await request.post(`${API}/api/v1/point-requests/${reqBody.id}/confirm`, {
-    headers: { Authorization: `Bearer ${token}` },
+    headers: auth,
     data: {},
   });
   expect(confirm.ok()).toBeTruthy();

@@ -24,7 +24,7 @@ export async function loginTeacherWeb(
   if (await loginHeading.isVisible()) {
     await page.getByLabel('用户名').fill(TEACHER_USER);
     await page.getByLabel('密码').fill(password);
-    await page.getByRole('button', { name: '登录' }).click();
+    await page.getByRole('button', { name: '登录', exact: true }).click();
   }
 
   const forceGate = page.getByText('必须先改成个人密码才能使用其它功能');
@@ -48,7 +48,7 @@ export async function loginStaffWeb(
   await page.goto(TEACHER_WEB);
   await page.getByLabel('用户名').fill(username);
   await page.getByLabel('密码').fill(password);
-  await page.getByRole('button', { name: '登录' }).click();
+  await page.getByRole('button', { name: '登录', exact: true }).click();
 
   const forceGate = page.getByText('必须先改成个人密码才能使用其它功能');
   const attendance = page.getByRole('heading', { name: '出勤报表' });

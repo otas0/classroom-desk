@@ -7,6 +7,7 @@ import { chunkIds, parseIdList, sqlInPlaceholders } from '../utils/bulkIds.js';
 import { newId, nowIso } from '../utils/id.js';
 import { toCsv } from '../utils/csv.js';
 import { paramId } from '../utils/params.js';
+import { purgeChunkSize } from '../utils/purgeChunk.js';
 import { recycleTiming } from '../utils/recycleRetention.js';
 
 export const questionsRouter = Router();
@@ -657,8 +658,8 @@ questionsRouter.post(
         .all(classId) as Array<{ id: string }>
     ).map((r) => r.id);
     let purged = 0;
-    const CHUNK = 100;
     const total = ids.length;
+    const CHUNK = purgeChunkSize(total);
     const chunks = chunkIds(ids, CHUNK);
 
     if (stream) {
