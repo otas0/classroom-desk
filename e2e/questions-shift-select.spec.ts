@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { openPrepTab } from './helpers/navPrep';
+import { openPrepTab, selectTeacherClass } from './helpers/navPrep';
 import { loginTeacherWeb } from './helpers/teacherWebLogin';
 
 const API = process.env.API_BASE ?? 'http://127.0.0.1:8787';
@@ -17,6 +17,8 @@ test.describe('questions Shift multi-select', () => {
     const classes = await request.get(`${API}/api/v1/classes`, { headers: auth });
     const classId = ((await classes.json()) as { items: Array<{ id: string }> }).items[0]?.id;
     expect(classId).toBeTruthy();
+
+    await selectTeacherClass(page, classId!);
 
     const stamp = Date.now();
     const ids: string[] = [];
@@ -38,6 +40,7 @@ test.describe('questions Shift multi-select', () => {
       ids.push(((await created.json()) as { id: string }).id);
     }
 
+    // Re-enter tab after API seed so list reloads for the selected class.
     await openPrepTab(page, '发题');
     await expect(page.getByText(`连选${stamp}-0`)).toBeVisible({ timeout: 15_000 });
 

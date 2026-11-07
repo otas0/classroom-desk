@@ -44,6 +44,7 @@ npm run prepare:live -- --apiBase http://192.168.x.x:8787 --className 高一(3)�
 - [ ] 重新锁定后无法关闭  
 - [ ] 解除码可退；错码限流；审计中文标签含「轮换解除码」；CSV 当前页/全部；超期横幅可点「去设置」  
 - [ ] Assigned Access 路径 `C:\Program Files\Classroom Desk\Classroom Desk.exe` + 任务管理器负向（`C2-taskmgr-deny.mp4`）  
-- [ ] （可选）试验组 Intune HideTaskManager；DevTools 关 WS 见 toast「实时通道已切到备用」  
+- [ ] （可选）试验组 Intune HideTaskManager；填 `C2-intune-version.txt`（含 Setup 0.1.7）
+- [ ] 实机 Electron DevTools 关 `/exit-lock/ws` → toast「实时通道已切到备用」+ SSE  
 
 网络不通先查 [NETWORK.md](./NETWORK.md)。

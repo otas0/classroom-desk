@@ -20,7 +20,6 @@ function backdateUnlockCodeSetAt() {
     `INSERT INTO settings (key, value) VALUES ('exit_unlock_code_rotate_days', '7')
      ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
   ).run();
-  // Ensure a code hash exists so rotationDue is true
   const has = db.prepare(`SELECT value FROM settings WHERE key = 'exit_unlock_code_hash'`).get() as
     | { value: string }
     | undefined;
@@ -30,13 +29,17 @@ function backdateUnlockCodeSetAt() {
        ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
     ).run();
   }
+  try {
+    db.exec('PRAGMA wal_checkpoint(TRUNCATE)');
+  } catch {
+    /* ignore if not WAL */
+  }
   db.close();
 }
 
 test.describe('exit-lock rotation banner', () => {
   test('login banner deep-links to settings exit-lock', async ({ page, request }) => {
     const password = await ensureTeacherPasswordReady(request);
-    // Ensure code exists via API then backdate on disk
     const login = await request.post(`${API}/api/v1/auth/login`, {
       data: { username: TEACHER_USER, password },
     });
@@ -48,16 +51,28 @@ test.describe('exit-lock rotation banner', () => {
     });
     backdateUnlockCodeSetAt();
 
+    // Confirm API sees rotation before UI (retry briefly for WAL visibility).
+    let due = false;
+    for (let i = 0; i < 10; i++) {
+      const pub = await request.get(`${API}/api/v1/settings/public`);
+      const body = (await pub.json()) as { exitUnlockCodeRotationDue?: boolean };
+      if (body.exitUnlockCodeRotationDue) {
+        due = true;
+        break;
+      }
+      await new Promise((r) => setTimeout(r, 200));
+    }
+    expect(due).toBeTruthy();
+
     await page.goto(`${TEACHER_WEB}/`);
     const banner = page.getByRole('status').filter({ hasText: /解除码已使用/ });
     await expect(banner).toBeVisible({ timeout: 15_000 });
-    await page.getByRole('button', { name: '登录后去设置更换' }).click();
+    await page.getByRole('button', { name: '去设置更换解除码' }).click();
 
     await page.getByLabel('用户名').fill(TEACHER_USER);
     await page.getByLabel('密码').fill(password);
     await page.getByRole('button', { name: '登录', exact: true }).click();
 
-    // Password gate if forced
     const gate = page.getByText('请先修改个人密码');
     const exitLock = page.locator('#exit-lock-settings');
     await gate.or(exitLock).waitFor({ state: 'visible', timeout: 20_000 });

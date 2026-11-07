@@ -181,9 +181,12 @@ npm run smoke:dev-stack-api-restart
 - Artifact 上传名：`classroom-desk-windows-setup`（含 `.exe` + `.sha256`，保留 30 天）— **不是** git 里的 `artifacts/` 目录。
 - 命名对照见 [ARTIFACTS.md](./ARTIFACTS.md)。
 
-### Electron DevTools · 关 WS 对照 toast
+### Electron DevTools · 关 WS 对照 toast（实机）
 
-1. `FORCE_ELECTRON=1` 或安装态打开学生端，连上 API。
-2. DevTools → Network → WS → `/api/v1/exit-lock/ws` → Close frame。
-3. 期望 toast：`实时通道已切到备用（WebSocket 关闭）`（或「断开」）；随后 EventSource `/exit-lock/stream`。
-4. 自动化：`e2e/exit-lock-toast.spec.ts`（`ELECTRON_OFF=1` Vite）。
+样机装 `ClassroomDesk-Setup-0.1.7.exe`（或同版本 Artifact）后：
+
+1. 学生端连上 API；确认标题栏已锁定 / WS 已连。
+2. DevTools（`Ctrl+Shift+I`）→ Network → WS → `/api/v1/exit-lock/ws` → 右键 **Close**（只关该帧）。
+3. 对照 toast：`实时通道已切到备用（WebSocket 关闭）`（或「断开」）；Network 随后出现 EventSource `/api/v1/exit-lock/stream`。
+4. （可选）教师「批量允许关闭」→ 标题栏仍应秒级变为可退出。
+5. 自动化对照：`e2e/exit-lock-toast.spec.ts`（`ELECTRON_OFF=1` Vite）；不能替代本条实机。

@@ -193,13 +193,12 @@ jobs:
             e2e/session-kick-ui.spec.ts \
             e2e/audit-detail.spec.ts \
             e2e/audit-jump-highlight.spec.ts \
-            e2e/permissions-doc.spec.ts \
-            e2e/settings-health-alerts.spec.ts
+            e2e/permissions-doc.spec.ts
           code=$?
           {
             echo "### e2e suite: rbac"
             if [ "$code" -eq 0 ]; then
-              echo "- result: **passed** (rbac + SSE + session-kick + audit jump + settings-health + permissions; retries=1)"
+              echo "- result: **passed** (rbac + SSE + session-kick + audit jump + permissions; retries=1; settings-health stays in bulk gate)"
             else
               echo "- result: **failed** — suite=**e2e:rbac**"
             fi
@@ -303,3 +302,35 @@ jobs:
             apps/student-desktop/release/*.sha256
           if-no-files-found: error
           retention-days: 30
+
+  # Round-trip: download the Artifact we just uploaded and re-check exe↔.sha256.
+  windows-pack-verify-artifact:
+    runs-on: ubuntu-latest
+    needs: windows-pack
+    if: github.event_name == 'push'
+    steps:
+      - name: Download classroom-desk-windows-setup Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: classroom-desk-windows-setup
+          path: pack
+      - name: Verify exe SHA256 matches sidecar
+        run: |
+          set -euo pipefail
+          cd pack
+          shopt -s nullglob
+          exes=(ClassroomDesk-Setup-*.exe)
+          if [ "${#exes[@]}" -eq 0 ]; then
+            echo "no ClassroomDesk-Setup-*.exe in Artifact"
+            ls -la
+            exit 1
+          fi
+          for exe in "${exes[@]}"; do
+            side="${exe}.sha256"
+            test -f "$side" || { echo "missing sidecar $side"; exit 1; }
+            actual=$(sha256sum "$exe" | awk '{print $1}')
+            expected=$(awk '{print $1}' "$side")
+            echo "exe=$exe actual=$actual expected=$expected"
+            test "$actual" = "$expected"
+          done
+          echo "Artifact SHA256 OK (${#exes[@]} file(s))"

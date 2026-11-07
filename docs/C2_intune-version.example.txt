@@ -1,3 +1,4 @@
+ClassroomDesk-Setup 版本: 0.1.7（对照 Release tag v0.1.7 / Setup 文件名）
 Windows 版本/内部版本: 例如 24H2 (26100.xxxx)
 HideTaskManager: 是 / 否
 Intune 配置文件名: intune-student-kiosk.example.xml（或租户内实际名）

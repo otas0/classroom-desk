@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { openPrepTab } from './helpers/navPrep';
+import { openPrepTab, selectTeacherClass } from './helpers/navPrep';
 import { loginTeacherWeb } from './helpers/teacherWebLogin';
 
 const API = process.env.API_BASE ?? 'http://127.0.0.1:8787';
@@ -18,6 +18,12 @@ test.describe('question recycle virtual list (≥500)', () => {
     const classes = await request.get(`${API}/api/v1/classes`, { headers: auth });
     const classId = ((await classes.json()) as { items: Array<{ id: string }> }).items[0]?.id;
     expect(classId).toBeTruthy();
+
+    // Isolate: clear recycle for this class before seeding.
+    await request.post(`${API}/api/v1/questions/recycle/purge-all`, {
+      headers: auth,
+      data: { classId },
+    });
 
     const stamp = Date.now();
     const ids: string[] = [];
@@ -50,12 +56,19 @@ test.describe('question recycle virtual list (≥500)', () => {
       });
       expect(del.ok()).toBeTruthy();
     }
+    expect(ids.length).toBe(520);
 
+    await selectTeacherClass(page, classId!);
     await openPrepTab(page, '题目回收站');
 
     const virt = page.getByTestId('q-recycle-virtual');
     await expect(virt).toBeVisible({ timeout: 30_000 });
-    await expect(page.getByText('全选（520）')).toBeVisible({ timeout: 30_000 });
+    // Allow ≥520 if other suites left orphans; still require our seed visible.
+    const selectAll = page.getByText(/全选（\d+）/);
+    await expect(selectAll).toBeVisible({ timeout: 30_000 });
+    const label = (await selectAll.innerText()).replace(/\s+/g, '');
+    const n = Number(label.match(/全选（(\d+)）/)?.[1] ?? 0);
+    expect(n).toBeGreaterThanOrEqual(520);
     await expect(page.getByTestId('recycle-days-left').first()).toBeVisible();
 
     // Scroll deep — virtual list should still render rows without mounting 520 DOM nodes

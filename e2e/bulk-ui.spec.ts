@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { openPrepTab } from './helpers/navPrep';
+import { openPrepTab, selectTeacherClass } from './helpers/navPrep';
 import { loginTeacherWeb } from './helpers/teacherWebLogin';
 
 const API = process.env.API_BASE ?? 'http://127.0.0.1:8787';
@@ -16,6 +16,7 @@ test.describe('bulk delete UI path', () => {
 
     const classes = await request.get(`${API}/api/v1/classes`, { headers: auth });
     const classId = ((await classes.json()) as { items: Array<{ id: string }> }).items[0]?.id;
+    expect(classId).toBeTruthy();
     const stamp = Date.now();
     const created = await request.post(`${API}/api/v1/classes/${classId}/students`, {
       headers: auth,
@@ -24,7 +25,10 @@ test.describe('bulk delete UI path', () => {
     expect(created.ok()).toBeTruthy();
     const studentId = ((await created.json()) as { id: string }).id;
 
+    await selectTeacherClass(page, classId!);
     await openPrepTab(page, '名单');
+    // Virtual roster: filter so the new row mounts in the viewport.
+    await page.getByPlaceholder('搜索姓名/学号').fill(`UI删${stamp}`);
 
     const check = page.getByTestId(`student-check-${studentId}`);
     await expect(check).toBeVisible({ timeout: 15_000 });

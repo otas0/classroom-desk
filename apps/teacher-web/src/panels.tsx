@@ -3071,6 +3071,7 @@ export function SettingsPanel({
     }> = [];
     let offset = 0;
     let total = Infinity;
+    setExitMsg('正在分页拉取全部 CSV…');
     while (offset < total) {
       const q = new URLSearchParams({
         limit: String(pageSize),
@@ -3088,6 +3089,8 @@ export function SettingsPanel({
       const items = body.items ?? [];
       total = Number(body.total ?? items.length);
       rows.push(...items);
+      const denom = Number.isFinite(total) && total > 0 ? total : Math.max(rows.length, 1);
+      setExitMsg(`导出进度 ${Math.min(rows.length, denom)} / ${denom}…`);
       if (!items.length) break;
       offset += items.length;
       if (offset > 50_000) {
@@ -3479,6 +3482,11 @@ export function SettingsPanel({
           <button type="button" onClick={() => void runDiag()}>
             一键检测 /health
           </button>
+          <p className="hint">
+            顶栏 /health 轮询：生产默认 30s，开发默认 8s。可在本机覆盖：
+            <code>localStorage.cd_health_poll_ms</code>（毫秒，3s–120s）或构建时{' '}
+            <code>VITE_HEALTH_POLL_MS</code>。
+          </p>
           {diag ? <p className="hint">{diag}</p> : null}
           {healthAlert && (healthAlert.exportTmpLeaked ?? 0) > 0 ? (
             <div className="error" data-testid="export-tmp-leak-alert" role="alert">

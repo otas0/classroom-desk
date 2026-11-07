@@ -34,6 +34,11 @@
 - purge dry-run 审计深链带 count/classId；>10k 自动 NDJSON 进度并记录 chunk 耗时
 - 升级 prune 列出已删文件名；离线「补 N」失败红徽标+错误摘要；OCR 无权限可「申请上课权限/复制草稿」
 - 设置：fleet.drift_snapshot「立即拍一次」；海报迁入 `docs/assets` + USB checklist
+- 设置页说明 /health 轮询默认（生产 30s / 开发 8s）与 `cd_health_poll_ms` 覆盖
+- 退出锁审计「导出全部 CSV」分页进度提示
+- e2e：班级选择对齐 + 名单搜索；轮换横幅按钮文案 + WAL checkpoint；回收站 ≥520
+- CI：`windows-pack-verify-artifact` 下载 Artifact 再校 SHA；e2e-rbac 去掉与 bulk 重复的 settings-health
+- 文档：Artifact 版本 ↔ tag 对照；C2 / DevTools 实机步骤对齐 0.1.7
 
 ### 安装包
 
