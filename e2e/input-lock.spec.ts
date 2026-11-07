@@ -677,9 +677,10 @@ test.describe('physical input lock', () => {
     // Force purge path via public GET (same as student poll)
     await request.get(`${API}/api/v1/settings/public`);
     await expect(student.getByTestId('input-lock-banner')).toHaveCount(0, { timeout: 20_000 });
-    await expect(student.getByTestId('app-toast')).toContainText('课次结束，输入锁已解除', {
-      timeout: 12_000,
-    });
+    await expect(student.getByTestId('input-lock-ttl-cleared-toast')).toContainText(
+      '课次结束，输入锁已解除',
+      { timeout: 12_000 },
+    );
     await student.close();
   });
 
@@ -723,9 +724,10 @@ test.describe('physical input lock', () => {
     const t0 = Date.now();
     // public GET purges + broadcastInputLock → student SSE should toast without waiting 8s poll
     await request.get(`${API}/api/v1/settings/public`);
-    await expect(student.getByTestId('app-toast')).toContainText('课次结束，输入锁已解除', {
-      timeout: 4_000,
-    });
+    await expect(student.getByTestId('input-lock-ttl-cleared-toast')).toContainText(
+      '课次结束，输入锁已解除',
+      { timeout: 4_000 },
+    );
     expect(Date.now() - t0).toBeLessThan(7_000);
     await student.close();
   });

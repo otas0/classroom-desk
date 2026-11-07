@@ -103,9 +103,10 @@ GitHub → **Settings → Secrets and variables → Actions** → New repository
 
 Release job `record-artifacts` 失败时 `POST` JSON（`text` / `tag` / `runId`）。未配置则跳过，不影响发版。PR 上 `flake-pr-comment.yml` 会自动贴 `check:nightly-flake --md` 看板。
 
-#### 失败路径验证（不必真发坏 tag）
+#### 失败路径验证（Issue + 频道双触达）
 
-1. 先在本机用同一 Webhook URL 干跑（不写进 git）：
+1. GitHub → Settings → Secrets → Actions 写入 `CLASSROOM_DESK_OPS_WEBHOOK`（Slack Incoming / 飞书自定义机器人）。
+2. 本机干跑（不写进 git）：
 
 ```bash
 export CLASSROOM_DESK_OPS_WEBHOOK='https://hooks.slack.com/services/…'  # 或飞书
@@ -113,5 +114,8 @@ npm run ops:webhook-dry-run
 # 期望频道出现 [classroom-desk] ops webhook dry-run …
 ```
 
-2. 或在 Actions 里临时改 `release.yml` 的 `record-artifacts` 步强制 `exit 1`（仅验证分支），确认 Issue + webhook 双触达后再还原。  
-3. 正式发版失败时：检查 Release run 日志里 `ops webhook failed` warning；频道应有 `Release record-artifacts failed for <tag>`。
+3. **双触达**：在验证分支临时让 `release.yml` → `record-artifacts` 失败（或手工触发会走到失败分支的路径）→ 应同时看到  
+   - GitHub Issue（labels `release`/`artifacts`）  
+   - 频道 POST（`Release record-artifacts failed for <tag>`）  
+   验完即还原；正式发版失败时同样双触达。  
+4. 未配置 secret 时 webhook 跳过，Issue 仍应创建。

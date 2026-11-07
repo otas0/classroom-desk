@@ -1334,7 +1334,9 @@ export function App() {
                 ? 'account-deleted-toast'
                 : /向教师申请解除/.test(toast)
                   ? 'exit-lock-blocked-toast'
-                  : 'app-toast'
+                  : /课次结束，输入锁已解除/.test(toast)
+                    ? 'input-lock-ttl-cleared-toast'
+                    : 'app-toast'
           }
           role="status"
           aria-live="assertive"

@@ -142,6 +142,7 @@ export function HardeningHealthPanel({ classId }: { classId: string }) {
       exportedAt: new Date().toISOString(),
       desktopAppPath: 'C:\\Program Files\\Classroom Desk\\Classroom Desk.exe',
       accountHint: 'StudentKiosk',
+      // Keep keys/wording aligned with docs/assigned-access-checklist.example.json
       blockedAppsHint: [
         'Taskmgr.exe',
         'cmd.exe',
@@ -149,10 +150,11 @@ export function HardeningHealthPanel({ classId }: { classId: string }) {
         'regedit.exe',
         'msedge.exe',
         'chrome.exe',
+        'explorer.exe (shell replace via AA — do not dual-run)',
       ],
       intuneProfiles: [
-        'docs/intune-student-kiosk.example.xml',
-        'docs/intune-student-kiosk.rollback.xml',
+        'docs/intune-student-kiosk.example.xml (HideTaskManager + USB deny write/execute)',
+        'docs/intune-student-kiosk.rollback.xml (trial-group rollback)',
       ],
       health: health
         ? {
@@ -178,13 +180,14 @@ export function HardeningHealthPanel({ classId }: { classId: string }) {
         })),
       },
       watchdog: {
-        allowed: 'MDM / Assigned Access restart or documented Startup folder for Classroom Desk only',
+        allowed:
+          'MDM / Assigned Access restart policy or documented Startup folder for Classroom Desk only',
         forbidden: 'Hidden Run key, silent persistence, antivirus evasion',
       },
       verify: [
-        'Alt+Tab / Win key blocked or ineffective under Assigned Access',
+        'Alt+Tab / Win key blocked or ineffective under AA',
         'Task Manager end-task denied',
-        'USB write denied on Intune trial devices',
+        'USB write denied on trial devices',
       ],
     };
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });

@@ -63,6 +63,11 @@ cp -f "$ROOT/docs/C2_EVIDENCE_ARCHIVE.md" "$DEST/C2_EVIDENCE_ARCHIVE.md"
 if [[ -f "$ROOT/docs/SAMPLE_MACHINE_OPS.md" ]]; then
   cp -f "$ROOT/docs/SAMPLE_MACHINE_OPS.md" "$DEST/SAMPLE_MACHINE_OPS.md"
 fi
+# 联调旁注表（AA / Intune / 证据目录 / 回滚 XML）— 进 U 盘必带
+cp -f "$ROOT/docs/LOCAL_USB_CHECKLIST.md" "$DEST/LOCAL_USB_CHECKLIST.md"
+cp -f "$ROOT/docs/intune-student-kiosk.example.xml" "$DEST/intune-student-kiosk.example.xml"
+cp -f "$ROOT/docs/intune-student-kiosk.rollback.xml" "$DEST/intune-student-kiosk.rollback.xml"
+cp -f "$ROOT/docs/assigned-access-checklist.example.json" "$DEST/assigned-access-checklist.example.json"
 if [[ -f "$ROOT/artifacts/C2-intune-version.txt" ]]; then
   cp -f "$ROOT/artifacts/C2-intune-version.txt" "$DEST/C2-intune-version.txt"
 elif [[ -f "$ROOT/docs/C2_intune-version.example.txt" ]]; then
@@ -75,9 +80,10 @@ Setup: ClassroomDesk-Setup-${VERSION}.exe
 SHA256: $ACTUAL
 1. Install exe on student PCs; place config.json from prepare:live / pack-classroom-config.
 2. Teacher: open http://$IP:8787/ready from a student browser.
-3. C2 evidence: follow SAMPLE_MACHINE_OPS.md / C2_EVIDENCE_ARCHIVE.md; fill C2-intune-version.txt after Intune sync.
-4. 打印 C2-PRINT-CHECKLIST.txt：含「物理输入锁须告知学生」勾选。
-5. 若有 SEAT-MAP-ID-SHEET.html：浏览器打开后打印（seat_map.id 主键对照；空座/已排均可扫码）。
+3. C2 evidence: follow SAMPLE_MACHINE_OPS.md / C2_EVIDENCE_ARCHIVE.md / LOCAL_USB_CHECKLIST.md（联调旁注表）；fill C2-intune-version.txt after Intune sync.
+4. 试验组 Intune：用 intune-student-kiosk.example.xml；结束用 intune-student-kiosk.rollback.xml。
+5. 打印 C2-PRINT-CHECKLIST.txt：含「物理输入锁须告知学生」勾选。
+6. 若有 SEAT-MAP-ID-SHEET.html：浏览器打开后打印（seat_map.id 主键对照；空座/已排均可扫码）。
 EOF
 
 # Printable one-pager for sample machine (Chinese checklist).

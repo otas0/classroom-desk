@@ -1,5 +1,5 @@
 {
-  "$schemaComment": "Classroom Desk Assigned Access 导出样例 — 教师后台「导出 AA 清单」生成同结构文件",
+  "$schemaComment": "Classroom Desk Assigned Access 导出样例 — 须与教师「加固体检 → 导出 Assigned Access 清单」JSON 字段对齐（presence/health 仅导出时附加）",
   "productName": "Classroom Desk",
   "desktopAppPath": "C:\\Program Files\\Classroom Desk\\Classroom Desk.exe",
   "accountHint": "StudentKiosk",

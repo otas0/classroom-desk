@@ -439,10 +439,25 @@ async function main() {
     if (!setCode.res.ok || !setCode.json?.hasExitUnlockCode) fail('exitLock.setCode', setCode.text);
     else ok('exitLock.setCode', 'hasExitUnlockCode');
 
-    const rotateCode = await req('PATCH', '/api/v1/settings', {
+    // First set stamps code_set_at; rotate enforces EXIT_UNLOCK_ROTATE_MIN_SEC (30).
+    let rotateCode = await req('PATCH', '/api/v1/settings', {
       token: teacherToken,
       body: { exitUnlockCode: 'ExitLock99b' },
     });
+    if (
+      !rotateCode.res.ok &&
+      rotateCode.json?.error === 'exit_unlock_rotate_too_soon'
+    ) {
+      const waitSec = Math.min(
+        35,
+        Math.max(1, Number(rotateCode.json?.retryAfterSec) || 30),
+      );
+      await new Promise((r) => setTimeout(r, waitSec * 1000));
+      rotateCode = await req('PATCH', '/api/v1/settings', {
+        token: teacherToken,
+        body: { exitUnlockCode: 'ExitLock99b' },
+      });
+    }
     if (!rotateCode.res.ok) fail('exitLock.rotateCode', rotateCode.text);
     else {
       const rotEv = await req('GET', '/api/v1/settings/exit-lock-events?kind=code_rotated&limit=5', {

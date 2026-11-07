@@ -5,7 +5,66 @@ import { TEACHER_USER } from './helpers/teacherLogin';
 
 const API = process.env.API_BASE ?? 'http://127.0.0.1:8787';
 
+/** Parallel suites afterEach clearAll — re-lock and open unlock modal with retries. */
+async function openUnlockConfirmWithRetry(
+  page: import('@playwright/test').Page,
+  request: import('@playwright/test').APIRequestContext,
+  auth: { Authorization: string },
+  classId: string,
+  seatIds: string[],
+  expectClearCount: number,
+) {
+  const body = page.getByTestId('seat-batch-lock-confirm-body');
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    await request.patch(`${API}/api/v1/settings`, {
+      headers: auth,
+      data: {
+        inputLock: {
+          classId,
+          seatIds,
+          keyboard: true,
+          mouse: true,
+          voice: false,
+          camera: false,
+        },
+      },
+    });
+    // Confirm public store sees bySeat locks before clicking UI.
+    await expect
+      .poll(
+        async () => {
+          const pub = await request.get(
+            `${API}/api/v1/settings/public?classId=${encodeURIComponent(classId)}`,
+          );
+          const j = (await pub.json()) as { inputLockStore?: { bySeat?: Record<string, unknown> } };
+          const prefix = `${classId}:`;
+          const locked = Object.keys(j.inputLockStore?.bySeat ?? {}).filter((k) =>
+            k.startsWith(prefix),
+          );
+          return locked.length;
+        },
+        { timeout: 8_000 },
+      )
+      .toBe(seatIds.length);
+
+    await page.getByTestId('seat-unlock-all').click();
+    try {
+      await expect(body).toBeVisible({ timeout: 5_000 });
+      await expect(body).toContainText(new RegExp(`清除 ${expectClearCount} 个已上锁机位`));
+      return body;
+    } catch {
+      if (attempt === 3) throw new Error(`unlock ConfirmModal missing after ${attempt} re-locks`);
+      // Modal may no-op with「没有已上锁」if clearAll raced — retry.
+      await page.keyboard.press('Escape').catch(() => undefined);
+    }
+  }
+  return body;
+}
+
 test.describe('seat map batch lock ConfirmModal', () => {
+  // Reduce cross-worker clearAll races on shared settings store.
+  test.describe.configure({ mode: 'serial' });
+
   test.afterEach(async ({ request }) => {
     const { ensureTeacherPasswordReady } = await import('./helpers/teacherLogin');
     const password = await ensureTeacherPasswordReady(request);
@@ -76,43 +135,13 @@ test.describe('seat map batch lock ConfirmModal', () => {
     });
     const seats = await request.get(`${API}/api/v1/classes/${classId}/seats`, { headers: auth });
     const ids = ((await seats.json()) as { items: Array<{ id: string }> }).items.map((s) => s.id);
-    // Lock only 2 of 3
-    await request.patch(`${API}/api/v1/settings`, {
-      headers: auth,
-      data: {
-        inputLock: {
-          classId,
-          seatIds: ids.slice(0, 2),
-          keyboard: true,
-          mouse: true,
-          voice: false,
-          camera: false,
-        },
-      },
-    });
 
     await page.reload({ waitUntil: 'domcontentloaded' });
     await selectTeacherClass(page, classId);
     await openPrepTab(page, '座位图');
     await expect(page.locator('.seat-grid .seat-cell')).toHaveCount(3, { timeout: 15_000 });
-    // Re-apply locks immediately before unlock (parallel suites may clearAll).
-    await request.patch(`${API}/api/v1/settings`, {
-      headers: auth,
-      data: {
-        inputLock: {
-          classId,
-          seatIds: ids.slice(0, 2),
-          keyboard: true,
-          mouse: true,
-          voice: false,
-          camera: false,
-        },
-      },
-    });
-    await page.getByTestId('seat-unlock-all').click();
-    const body = page.getByTestId('seat-batch-lock-confirm-body');
-    await expect(body).toBeVisible({ timeout: 8_000 });
-    await expect(body).toContainText(/清除 2 个已上锁机位/);
+
+    const body = await openUnlockConfirmWithRetry(page, request, auth, classId, ids.slice(0, 2), 2);
     const labels = page.getByTestId('seat-batch-unlock-labels');
     await expect(labels).toBeVisible();
     await expect(labels.locator('li')).toHaveCount(2);
@@ -148,22 +177,9 @@ test.describe('seat map batch lock ConfirmModal', () => {
     await page.reload({ waitUntil: 'domcontentloaded' });
     await selectTeacherClass(page, classId);
     await openPrepTab(page, '座位图');
-    await request.patch(`${API}/api/v1/settings`, {
-      headers: auth,
-      data: {
-        inputLock: {
-          classId,
-          seatIds: lockIds,
-          keyboard: true,
-          mouse: true,
-          voice: false,
-          camera: false,
-        },
-      },
-    });
-    await page.getByTestId('seat-unlock-all').click();
-    const body = page.getByTestId('seat-batch-lock-confirm-body');
-    await expect(body).toBeVisible({ timeout: 8_000 });
+    await expect(page.locator('.seat-grid .seat-cell')).toHaveCount(8, { timeout: 15_000 });
+
+    await openUnlockConfirmWithRetry(page, request, auth, classId, lockIds, 6);
     await expect(page.getByTestId('seat-batch-unlock-total')).toContainText('共 6');
     const labels = page.getByTestId('seat-batch-unlock-labels');
     await expect(labels.locator('li')).toHaveCount(5);

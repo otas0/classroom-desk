@@ -10,7 +10,7 @@
 
 满 7 绿**只认 `event=schedule`（cron）**；同日 `workflow_dispatch` 再跑绿**不凑数**。
 
-**禁止**为了「凑满 7」反复 `gh workflow run e2e-nightly.yml`：`dispatchStreak` 再高也不能删行。看板只等夜间 cron 自然连绿；手工 dispatch 仅用于修红复验。
+**禁止**为了「凑满 7」反复 `gh workflow run e2e-nightly.yml`：`dispatchStreak` 再高也不能删行。看板**只等**夜间 `schedule` 自然连绿；手工 dispatch 仅用于修红复验，**少开**。
 
 ```bash
 # 11-14 及以后核满再删本表 audit-jump 行

@@ -39,9 +39,9 @@ npm run init:c2-evidence
 
 ## 3. Intune 试验组
 
-1. 上传 [intune-student-kiosk.example.xml](./intune-student-kiosk.example.xml) → **仅**试验组 → 设备同步。  
-   试验结束撤回用 [intune-student-kiosk.rollback.xml](./intune-student-kiosk.rollback.xml)。  
-   Assigned Access 勾选参考 [assigned-access-checklist.example.json](./assigned-access-checklist.example.json)。
+1. **试验组**上传 [intune-student-kiosk.example.xml](./intune-student-kiosk.example.xml) → 设备同步（勿推全校）。  
+   **试验结束**必须下发 [intune-student-kiosk.rollback.xml](./intune-student-kiosk.rollback.xml) 撤回。  
+   Assigned Access：对照 [assigned-access-checklist.example.json](./assigned-access-checklist.example.json) 与教师「加固体检 → 导出 AA 清单」（字段已对齐）。USB 包已拷上述 XML/JSON + `LOCAL_USB_CHECKLIST.md`。
 2. 填满 `证据/C2-YYYYMMDD/C2-intune-version.txt`（模板 [C2_intune-version.example.txt](./C2_intune-version.example.txt)，含 **22H2 / 24H2** HideTaskManager + USB CSP 对照）。
 3. 截 `C2-intune-policy.png` 放入同一证据目录。
 4. 真机录屏 `C2-alttab-win.mp4`（替换 PLACEHOLDER）。本仓库 CI/macOS **无法代录**。
