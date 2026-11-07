@@ -3,6 +3,8 @@
  * Windows NSIS build helper.
  * With CSC_LINK → sign; without → signExecutable=false (avoid schema/CLI mangling).
  */
+import { createHash } from 'node:crypto';
+import fs from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
@@ -25,6 +27,18 @@ if (!hasCert) {
 
 const pack = spawnSync('npx', ebArgs, { cwd: pkgDir, stdio: 'inherit', shell: true, env: process.env });
 if (pack.status !== 0) process.exit(pack.status ?? 1);
+
+const releaseDir = path.join(pkgDir, 'release');
+if (fs.existsSync(releaseDir)) {
+  for (const name of fs.readdirSync(releaseDir)) {
+    if (!/ClassroomDesk.*\.exe$/i.test(name) || name.endsWith('.sha256')) continue;
+    const exe = path.join(releaseDir, name);
+    const hash = createHash('sha256').update(fs.readFileSync(exe)).digest('hex');
+    const side = `${exe}.sha256`;
+    fs.writeFileSync(side, `${hash}  ${name}\n`);
+    console.log(`[dist-win] wrote ${path.basename(side)}`);
+  }
+}
 
 const repoRoot = path.resolve(pkgDir, '../..');
 console.log('[dist-win] running verify:exit-lock-packaged …');
