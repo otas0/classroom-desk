@@ -306,9 +306,12 @@ export function App() {
     // Keep tip duration readable by restart handler via closure refresh each effect run
     (window as unknown as { __cdApiRestartTipMs?: number }).__cdApiRestartTipMs = tipMs;
     const t = window.setInterval(() => void pollHealth(), pollMs);
+    const onPollChanged = () => setHealthTick((n) => n + 1);
+    window.addEventListener('cd-health-poll-changed', onPollChanged);
     return () => {
       cancelled = true;
       window.clearInterval(t);
+      window.removeEventListener('cd-health-poll-changed', onPollChanged);
     };
   }, [tokenReady, healthTick, classId]);
 

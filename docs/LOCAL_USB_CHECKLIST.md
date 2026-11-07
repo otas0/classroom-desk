@@ -21,6 +21,13 @@ Get-FileHash -Algorithm SHA256 .\ClassroomDesk-Setup-0.1.7.exe
 
 版本↔tag 对照见 [ARTIFACTS.md](./ARTIFACTS.md)。C2 勾选见下文「C2」。
 
+一键组装 U 盘源目录（exe + sha + C2 清单 → `releases/<IP>/`）：
+
+```bash
+bash scripts/prepare-usb-pack.sh 192.168.x.x
+bash scripts/copy-usb-release.sh /Volumes/YOUR_USB 192.168.x.x
+```
+
 ## 原则
 
 - `apiBase=http://<教师机局域网IP>:8787`（写入 settings + 学生 `config.json`）  

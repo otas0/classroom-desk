@@ -59,6 +59,8 @@ const install = `
 学生机：下载本页 \`ClassroomDesk-Setup-*.exe\` + \`config.example.json\`。安装后可用首次引导或扫教师 QR 写入 \`apiBase\` / \`classId\`。禁止 127.0.0.1。
 
 未签名包：SmartScreen → 更多信息 → 仍要运行（[docs/SMARTSCREEN.md](https://github.com/otas0/classroom-desk/blob/${tag}/docs/SMARTSCREEN.md)）。
+
+**产物命名 / Artifact vs Release / 版本↔tag 对照表**：[docs/ARTIFACTS.md](https://github.com/otas0/classroom-desk/blob/${tag}/docs/ARTIFACTS.md)。
 `.trim();
 
 fs.writeFileSync(outPath, `${body.trim()}\n\n${install}\n`, 'utf8');
