@@ -44,7 +44,13 @@ export function LiveBoard({
   const [inputLockDetail, setInputLockDetail] = useState<{
     global: string;
     byClass: Array<{ classId: string; label: string }>;
-    bySeat: Array<{ key: string; classId: string; seatId: string; label: string }>;
+    bySeat: Array<{
+      key: string;
+      classId: string;
+      seatId: string;
+      seatLabel?: string;
+      label: string;
+    }>;
   } | null>(null);
   const [highContrast, setHighContrast] = useState(() => {
     try {
@@ -147,7 +153,13 @@ export function LiveBoard({
           inputLockSummary?: {
             global: string;
             byClass: Array<{ classId: string; label: string }>;
-            bySeat: Array<{ key: string; classId: string; seatId: string; label: string }>;
+            bySeat: Array<{
+              key: string;
+              classId: string;
+              seatId: string;
+              seatLabel?: string;
+              label: string;
+            }>;
           };
         }>(`/api/v1/settings/public?classId=${encodeURIComponent(classId)}`);
         if (cancelled) return;
@@ -352,7 +364,9 @@ export function LiveBoard({
                   ))}
                   {inputLockDetail.bySeat.map((s) => (
                     <li key={s.key}>
-                      机位 {s.seatId}（班 {s.classId.slice(0, 8)}…）：{s.label}
+                      机位 {s.seatLabel || s.seatId}
+                      {s.seatLabel ? `（id ${s.seatId.slice(0, 8)}…）` : ''}
+                      （班 {s.classId.slice(0, 8)}…）：{s.label}
                     </li>
                   ))}
                 </ul>

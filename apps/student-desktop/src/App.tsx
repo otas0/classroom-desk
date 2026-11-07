@@ -122,7 +122,10 @@ export function App() {
   const [raiseHandBusy, setRaiseHandBusy] = useState(false);
   const inputLockToastAtRef = useRef(0);
   const knownQuestionIdsRef = useRef(new Set<string>());
-  /** Presence client id (stable) + seat map id/label from /auth/me — no teacher hand-fill needed. */
+  /**
+   * Seat-scope keys for bySeat resolve: current seat_map.id + label, plus machine clientId
+   * (only matches locks keyed by clientId — not seat_map.id after 换人同座).
+   */
   const [lockSeatIds, setLockSeatIds] = useState<string[]>(() => {
     try {
       return [getOrCreatePresenceClientId()];
@@ -132,6 +135,8 @@ export function App() {
   });
   const lockSeatIdsRef = useRef(lockSeatIds);
   lockSeatIdsRef.current = lockSeatIds;
+  /** True when /auth/me reports a seat_map row for this student. */
+  const [hasSeatBinding, setHasSeatBinding] = useState(false);
 
   const applyResolvedInputLock = useCallback(
     (store: InputLockStore | null, flat: unknown, cid: string, seatIds?: string[]) => {
@@ -498,28 +503,28 @@ export function App() {
       }>('/api/v1/auth/me');
       setUser(me.user);
       const presenceClientId = getOrCreatePresenceClientId();
-      // Prefer seat_map.id (stable physical seat) over presence/student ids for bySeat keys.
+      // Write/clear cd_seat_id on seat change so 换人同座 won't keep hitting the old seat lock.
       if (me.seat?.id) {
+        setHasSeatBinding(true);
         try {
           localStorage.setItem('cd_seat_id', me.seat.id);
           if (me.seat.label) localStorage.setItem('cd_seat_label', me.seat.label);
+          else localStorage.removeItem('cd_seat_label');
+        } catch {
+          /* ignore */
+        }
+      } else {
+        setHasSeatBinding(false);
+        try {
+          localStorage.removeItem('cd_seat_id');
+          localStorage.removeItem('cd_seat_label');
         } catch {
           /* ignore */
         }
       }
-      let cachedSeatId = '';
-      try {
-        cachedSeatId = localStorage.getItem('cd_seat_id')?.trim() || '';
-      } catch {
-        /* ignore */
-      }
-      const nextSeats = [
-        me.seat?.id,
-        cachedSeatId,
-        me.seat?.label,
-        presenceClientId,
-        me.user?.id,
-      ]
+      // bySeat: seat_map.id + label only (+ machine clientId for explicit machine-scoped locks).
+      // Never studentId — and never a stale cd_seat_id after unseat.
+      const nextSeats = [me.seat?.id, me.seat?.label, presenceClientId]
         .map((s) => String(s ?? '').trim())
         .filter(Boolean);
       setLockSeatIds([...new Set(nextSeats)]);
@@ -1150,6 +1155,11 @@ export function App() {
           <p>
             教师已启用物理输入锁：{inputLockSummary(inputLock) || '—'}。本应用内对应输入已禁用，请向教师申请解除。
           </p>
+          {!hasSeatBinding ? (
+            <p className="hint" data-testid="input-lock-unseated-note">
+              未绑定座位，仅全局/班级锁生效。
+            </p>
+          ) : null}
         </div>
       ) : null}
 

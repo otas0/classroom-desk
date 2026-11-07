@@ -2903,11 +2903,13 @@ export function SettingsPanel({
   const [inputLockScope, setInputLockScope] = useState<'global' | 'class' | 'seat'>('global');
   const [inputLockSeatId, setInputLockSeatId] = useState('');
   const [inputLockSeatOptions, setInputLockSeatOptions] = useState<
-    Array<{ value: string; label: string }>
+    Array<{ value: string; label: string; group: 'seated' | 'clientOnly' }>
   >([]);
   const [examModeBusy, setExamModeBusy] = useState(false);
   const [examModeSnapshot, setExamModeSnapshot] = useState(false);
   const [inputLockScopeLabel, setInputLockScopeLabel] = useState('全校全局');
+  /** Effective coverage from store summary (assistant badge). */
+  const [inputLockCoverage, setInputLockCoverage] = useState<'global' | 'class' | 'seat'>('global');
   const [exitEvents, setExitEvents] = useState<
     Array<{ id: string; kind: string; detail: string; createdAt: string; actorRole?: string | null }>
   >([]);
@@ -3036,6 +3038,11 @@ export function SettingsPanel({
         camera?: boolean;
       };
       examModeSnapshot?: boolean;
+      inputLockSummary?: {
+        global?: string;
+        byClass?: unknown[];
+        bySeat?: unknown[];
+      };
       backup?: {
         dir?: string;
         keep?: number;
@@ -3090,6 +3097,17 @@ export function SettingsPanel({
       });
     }
     setExamModeSnapshot(s.examModeSnapshot === true);
+    const sum = s.inputLockSummary;
+    if (sum?.bySeat && Array.isArray(sum.bySeat) && sum.bySeat.length > 0) {
+      setInputLockCoverage('seat');
+      setInputLockScopeLabel(`机位覆盖 ${sum.bySeat.length}`);
+    } else if (sum?.byClass && Array.isArray(sum.byClass) && sum.byClass.length > 0) {
+      setInputLockCoverage('class');
+      setInputLockScopeLabel(`班级覆盖 ${sum.byClass.length}`);
+    } else {
+      setInputLockCoverage('global');
+      setInputLockScopeLabel(sum?.global && sum.global !== '无' ? `全局 ${sum.global}` : '全校全局');
+    }
     const q = new URLSearchParams({
       limit: String(EXIT_PAGE_SIZE),
       offset: String(exitEventsPage * EXIT_PAGE_SIZE),
@@ -3116,10 +3134,10 @@ export function SettingsPanel({
             }>;
           }>(`/api/v1/presence/clients?classId=${encodeURIComponent(classId)}`),
           api<{
-            items: Array<{ id: string; label: string; displayName?: string | null }>;
+            items: Array<{ id: string; label: string; displayName?: string | null; studentId?: string | null }>;
           }>(`/api/v1/classes/${encodeURIComponent(classId)}/seats`),
         ]);
-        const opts: Array<{ value: string; label: string }> = [];
+        const opts: Array<{ value: string; label: string; group: 'seated' | 'clientOnly' }> = [];
         const seen = new Set<string>();
         // Prefer seat_map.id (physical seat) — teacher seat-scope PATCH keys by classId:seatId.
         for (const s of seats.items ?? []) {
@@ -3127,17 +3145,18 @@ export function SettingsPanel({
           seen.add(s.id);
           opts.push({
             value: s.id,
-            label: `座位 ${s.label || s.id}${s.displayName ? ` · ${s.displayName}` : ''}`,
+            group: 'seated',
+            label: `座位 ${s.label || s.id}${s.displayName ? ` · ${s.displayName}` : s.studentId ? '' : ' · 空座'}`,
           });
         }
         for (const p of presence.items ?? []) {
-          const value = (p.seatId || p.clientId || '').trim();
-          if (!value || seen.has(value)) continue;
-          seen.add(value);
-          const seatHint = p.seatLabel ? ` · ${p.seatLabel}` : '';
+          const cid = String(p.clientId ?? '').trim();
+          if (!cid || seen.has(cid) || p.seatId) continue;
+          seen.add(cid);
           opts.push({
-            value,
-            label: `${p.displayName || p.studentId}${seatHint}（${value.slice(0, 8)}…）`,
+            value: cid,
+            group: 'clientOnly',
+            label: `${p.displayName || p.studentId} · 仅 clientId（${cid.slice(0, 8)}…）`,
           });
         }
         setInputLockSeatOptions(opts);
@@ -5015,8 +5034,8 @@ export function SettingsPanel({
           ) : null}
           <h4 id="input-lock-settings">物理输入锁</h4>
           <p className="hint">
-            上课时可由教师关闭学生端键鼠点击、语音与摄像头采集。可按全局 / 当前班级 / 机位作用；学生端醒目提示。仅限制本应用，不能代替 Assigned
-            Access。须事先告知学生。
+            上课时可由教师关闭学生端键鼠点击、语音与摄像头采集。可按全局 / 当前班级 / 机位作用；学生端醒目提示。机位锁主键为座位图{' '}
+            <code>seat_map.id</code>（非学号）。仅限制本应用，不能代替 Assigned Access。须事先告知学生。
           </p>
           {isAssistant() ? (
             <div data-testid="input-lock-readonly">
@@ -5029,17 +5048,15 @@ export function SettingsPanel({
                 <span className="hint">作用范围</span>
                 <span
                   className="badge"
-                  data-testid={`input-lock-scope-badge-${inputLockScope}`}
+                  data-testid={`input-lock-scope-badge-${inputLockCoverage}`}
                   title={inputLockScopeLabel}
                 >
-                  {inputLockScope === 'global'
-                    ? '全局'
-                    : inputLockScope === 'class'
+                  {inputLockCoverage === 'seat'
+                    ? '机位'
+                    : inputLockCoverage === 'class'
                       ? '班级'
-                      : '机位'}
-                  {inputLockScope === 'seat' && inputLockSeatId
-                    ? ` · ${inputLockSeatId.slice(0, 12)}`
-                    : ''}
+                      : '全局'}
+                  {inputLockScopeLabel ? ` · ${inputLockScopeLabel}` : ''}
                 </span>
                 {examModeSnapshot ? (
                   <span className="badge" data-testid="exam-mode-snapshot-badge">
@@ -5077,12 +5094,25 @@ export function SettingsPanel({
                       }
                       onChange={(e) => setInputLockSeatId(e.target.value)}
                     >
-                      <option value="">选择在线学生 / 座位…</option>
-                      {inputLockSeatOptions.map((o) => (
-                        <option key={o.value} value={o.value}>
-                          {o.label}
-                        </option>
-                      ))}
+                      <option value="">选择座位 / 机位…</option>
+                      <optgroup label="已排座（seat_map.id）">
+                        {inputLockSeatOptions
+                          .filter((o) => o.group === 'seated')
+                          .map((o) => (
+                            <option key={o.value} value={o.value}>
+                              {o.label}
+                            </option>
+                          ))}
+                      </optgroup>
+                      <optgroup label="未排座 / 仅 clientId">
+                        {inputLockSeatOptions
+                          .filter((o) => o.group === 'clientOnly')
+                          .map((o) => (
+                            <option key={o.value} value={o.value}>
+                              {o.label}
+                            </option>
+                          ))}
+                      </optgroup>
                     </select>
                   </label>
                   <label>

@@ -24,6 +24,7 @@ import {
 } from '../services/exitLock.js';
 import {
   applyExamModeInputLock,
+  clearAllInputLocks,
   getInputLockStore,
   hasExamModeSnapshot,
   inputLockActive,
@@ -389,8 +390,17 @@ settingsRouter.patch('/api/v1/settings', requireAuth, requireRoles('teacher', 'a
       seatId?: string;
       clearClass?: boolean;
       clearSeat?: boolean;
+      clearAll?: boolean;
       scope?: 'global' | 'class' | 'seat';
     };
+    if (raw.clearAll === true) {
+      clearAllInputLocks(db, actor);
+      const state = getClientExitLockState(db);
+      broadcastExitLockPayload(state);
+      broadcastInputLock(db);
+      res.json({ ok: true, ...state, inputLockStore: getInputLockStore(db) });
+      return;
+    }
     const classId = String(raw.classId ?? req.body?.classId ?? '').trim();
     const seatId = String(raw.seatId ?? req.body?.seatId ?? '').trim();
     const scope = raw.scope ?? (seatId ? 'seat' : classId ? 'class' : 'global');

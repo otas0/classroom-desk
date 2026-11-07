@@ -171,12 +171,29 @@ export function setInputLockStore(
   upsertSetting(db, KEY_V1, JSON.stringify(store.global));
 
   const resolved = resolveInputLock(store, { classId, seatId });
+  let seatLabel: string | null = null;
+  if (classId && seatId) {
+    const row = db
+      .prepare(`SELECT label FROM seat_map WHERE class_id = ? AND id = ?`)
+      .get(classId, seatId) as { label?: string } | undefined;
+    seatLabel = row?.label?.trim() || null;
+  }
   const scope = seatId
-    ? `机位 ${classId}/${seatId}`
+    ? seatLabel
+      ? `机位 ${seatLabel}（id=${seatId}）`
+      : `机位 id=${seatId}`
     : classId
       ? `班级 ${classId}`
       : '全校全局';
   const detailZh = `物理输入锁（${scope}）：${inputLockFlagsLabel(resolved)}`;
+  const detailObj = {
+    scope: seatId ? 'seat' : classId ? 'class' : 'global',
+    classId: classId || null,
+    seatId: seatId || null,
+    seatLabel,
+    flags: resolved,
+    summary: detailZh,
+  };
 
   recordExitLockEvent(db, {
     kind: 'input_lock',
@@ -191,7 +208,7 @@ export function setInputLockStore(
       actorUserId: meta?.actorUserId,
       actorRole: meta?.actorRole,
       classId: classId || null,
-      detail: detailZh,
+      detail: JSON.stringify(detailObj),
       clientIp: meta?.clientIp,
     },
     db,
@@ -334,4 +351,36 @@ export function restoreExamModeInputLock(
 export function hasExamModeSnapshot(db: DatabaseSync): boolean {
   const raw = getSetting(db, KEY_EXAM_SNAP);
   return Boolean(raw && raw.trim());
+}
+
+/** Wipe global + byClass + bySeat (e2e / emergency unlock). */
+export function clearAllInputLocks(
+  db: DatabaseSync,
+  meta?: { actorUserId?: string; actorRole?: string; clientIp?: string },
+): InputLockStore {
+  const store = emptyInputLockStore();
+  upsertSetting(db, KEY_V2, JSON.stringify(store));
+  upsertSetting(db, KEY_V1, JSON.stringify(store.global));
+  recordExitLockEvent(db, {
+    kind: 'input_lock',
+    actorUserId: meta?.actorUserId,
+    actorRole: meta?.actorRole,
+    detail: '物理输入锁：已清空全部范围（全局/班级/机位）',
+    clientIp: meta?.clientIp,
+  });
+  writeAudit(
+    {
+      action: 'settings.input_lock',
+      actorUserId: meta?.actorUserId,
+      actorRole: meta?.actorRole,
+      classId: null,
+      detail: JSON.stringify({
+        scope: 'clear_all',
+        summary: '清空全部物理输入锁',
+      }),
+      clientIp: meta?.clientIp,
+    },
+    db,
+  );
+  return store;
 }

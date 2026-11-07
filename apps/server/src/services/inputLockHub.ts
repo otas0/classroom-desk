@@ -18,7 +18,13 @@ export type InputLockPayload = {
   summary: {
     global: string;
     byClass: Array<{ classId: string; label: string }>;
-    bySeat: Array<{ key: string; classId: string; seatId: string; label: string }>;
+    bySeat: Array<{
+      key: string;
+      classId: string;
+      seatId: string;
+      seatLabel: string;
+      label: string;
+    }>;
   };
 };
 
@@ -35,11 +41,22 @@ export function buildInputLockPayload(db: DatabaseSync): InputLockPayload {
     label: inputLockFlagsLabel(flags),
   }));
   const bySeat = Object.entries(store.bySeat).map(([key, flags]) => {
-    const [classId = '', seatId = ''] = key.split(':');
+    const colon = key.indexOf(':');
+    const classId = colon >= 0 ? key.slice(0, colon) : '';
+    const seatId = colon >= 0 ? key.slice(colon + 1) : key;
+    let seatLabel = '';
+    if (classId && seatId) {
+      const row = db
+        .prepare(`SELECT label FROM seat_map WHERE class_id = ? AND id = ?`)
+        .get(classId, seatId) as { label?: string } | undefined;
+      seatLabel = String(row?.label ?? '').trim();
+    }
     return {
       key,
       classId,
       seatId,
+      seatLabel,
+      /** Locked input kinds (键盘/…); seat display name is seatLabel. */
       label: inputLockFlagsLabel(flags),
     };
   });

@@ -123,26 +123,28 @@ JSON 片段（Intune「展台」或多应用 Assigned Access）：
 | 语音 | 拒绝 `getUserMedia(audio)` / SpeechRecognition；停掉已有 tracks |
 | 相机 | 拒绝 `getUserMedia(video)`；扫码失败文案引导粘贴 JSON |
 
-**作用范围**：全校全局 / 当前班级 / 班级+机位（座位或 presence 客户端 id）。  
-**考试模式**：一键键鼠语音相机全锁 + 退出重新锁定。  
-**投影大屏**：显示「全班输入锁」摘要条。
+**作用范围**：全校全局 / 当前班级 / 班级+机位（主键 `seat_map.id`；未排座机可选 presence `clientId`）。  
+**考试模式**：一键键鼠语音相机全锁 + 退出重新锁定；可解除并恢复进考前快照。  
+**投影大屏**：显示「全班输入锁」摘要 + 按班/机位明细（机位优先座位 label）。
 
 操作路径（文字示意，勿提交海报 PDF）：
 
 ```text
 备课 → 设置 → #input-lock-settings
-  ├─ 作用范围：全局 | 当前班级 | 机位
+  ├─ 作用范围：全局 | 当前班级 | 机位（seat_map.id）
   ├─ ☑ 禁止键盘 / 鼠标 / 语音 / 相机
-  ├─ [全部锁定] [全部解除] [一键考试模式]
-  └─ 退出锁定审计筛选「物理输入锁」可见中文标签
+  ├─ [全部锁定] [全部解除] [一键考试模式] [解除考试模式]
+  └─ 审计「物理输入锁」含座位 label + id；可跳转 #input-lock-settings
 ```
 
 - 输入锁实时通道：`GET /api/v1/input-lock/stream`（独立 SSE，避免 exit-lock 大包）；退出锁定仍走 `/exit-lock/ws` + SSE。  
 - 审计 kind=`input_lock` / `exam_mode` / `exam_mode_end`；教师操作审计可一键跳转 `#input-lock-settings`。  
-- 学生端启动绑定 `presenceClientId` + 座位图 id/label，机位粒度锁无需教师手填。  
+- **机位锁主键**：`seat_map.id`（`bySeat["${classId}:${seatId}"]`）。教师下拉优先座位图；`clientId` 仅用于未排座机位的机器锁。换人同座后旧生清掉 `cd_seat_id`，不会继续命中该座锁。  
+- 学生端绑定当前 `seat_map.id` + label，并上报稳定 `presenceClientId`（localStorage）；未排座横幅注明「仅全局/班级锁生效」。  
 - 考试模式保存进考前快照，可一键「解除考试模式」恢复。  
+- 断线对账 `POST /api/v1/auth/exit-lock-reconcile` 的 `clientId`：**机位/机器 id**（`cd_presence_client_id`），不是 classId、不是学号。  
 - **不做** OS 级键鼠钩子、隐蔽监控或对抗杀软；系统热键/其它进程仍依赖 Assigned Access。  
-- e2e：`e2e/input-lock.spec.ts`。手测多显示器 / 触控笔见 C2 打印表。
+- e2e：`e2e/input-lock.spec.ts`（含 seat_map 机位锁）。手测多显示器 / 触控笔见 C2 打印表。
 
 ### 验证打包安装态退出锁定（C2 · 须在 Windows 真机）
 

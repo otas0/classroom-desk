@@ -26,7 +26,7 @@ test.describe('physical input lock', () => {
     await request.patch(`${API}/api/v1/settings`, {
       headers: { Authorization: `Bearer ${token}` },
       data: {
-        inputLock: { keyboard: false, mouse: false, voice: false, camera: false },
+        inputLock: { clearAll: true },
       },
     });
   });
@@ -179,5 +179,140 @@ test.describe('physical input lock', () => {
     };
     expect(body.inputLockStore?.global?.keyboard).toBeTruthy();
     expect(body.inputLockSummary?.global).toMatch(/键盘/);
+  });
+
+  test('seat_map bind → lock by seat id → only that student banner', async ({ page, request }) => {
+    test.skip(!(await studentReachable()), 'student vite required');
+
+    const password = await ensureTeacherPasswordReady(request);
+    const login = await request.post(`${API}/api/v1/auth/login`, {
+      data: { username: TEACHER_USER, password },
+    });
+    expect(login.ok()).toBeTruthy();
+    const { token } = (await login.json()) as { token: string };
+    const auth = { Authorization: `Bearer ${token}` };
+
+    const stamp = Date.now();
+    const createdClass = await request.post(`${API}/api/v1/classes`, {
+      headers: auth,
+      data: { name: `SeatLock_${stamp}` },
+    });
+    expect(createdClass.ok()).toBeTruthy();
+    const classId = ((await createdClass.json()) as { id: string }).id;
+
+    const stuA = await request.post(`${API}/api/v1/classes/${classId}/students`, {
+      headers: auth,
+      data: { displayName: `座锁甲${stamp}`, studentNo: `SA${stamp % 100000}` },
+    });
+    const stuB = await request.post(`${API}/api/v1/classes/${classId}/students`, {
+      headers: auth,
+      data: { displayName: `座锁乙${stamp}`, studentNo: `SB${stamp % 100000}` },
+    });
+    expect(stuA.ok()).toBeTruthy();
+    expect(stuB.ok()).toBeTruthy();
+    const studentAId = ((await stuA.json()) as { id: string }).id;
+    const studentBId = ((await stuB.json()) as { id: string }).id;
+
+    const grid = await request.put(`${API}/api/v1/classes/${classId}/seats`, {
+      headers: auth,
+      data: { rows: 1, cols: 2 },
+    });
+    expect(grid.ok()).toBeTruthy();
+    const seatsRes = await request.get(`${API}/api/v1/classes/${classId}/seats`, { headers: auth });
+    const seats = ((await seatsRes.json()) as { items: Array<{ id: string; label: string }> }).items;
+    expect(seats.length).toBeGreaterThanOrEqual(2);
+    const seatA = seats[0]!;
+    const seatB = seats[1]!;
+
+    const bind = await request.patch(`${API}/api/v1/classes/${classId}/seats/${seatA.id}`, {
+      headers: auth,
+      data: { studentId: studentAId, label: `A-${stamp % 1000}` },
+    });
+    expect(bind.ok()).toBeTruthy();
+
+    const lock = await request.patch(`${API}/api/v1/settings`, {
+      headers: auth,
+      data: {
+        inputLock: {
+          scope: 'seat',
+          classId,
+          seatId: seatA.id,
+          keyboard: true,
+          mouse: false,
+          voice: false,
+          camera: false,
+        },
+      },
+    });
+    expect(lock.ok()).toBeTruthy();
+
+    const pubA = await request.get(
+      `${API}/api/v1/settings/public?classId=${encodeURIComponent(classId)}&seatId=${encodeURIComponent(seatA.id)}`,
+    );
+    const bodyA = (await pubA.json()) as { inputLock?: { keyboard?: boolean } };
+    expect(bodyA.inputLock?.keyboard).toBeTruthy();
+
+    const pubB = await request.get(
+      `${API}/api/v1/settings/public?classId=${encodeURIComponent(classId)}&seatId=${encodeURIComponent(seatB.id)}`,
+    );
+    const bodyB = (await pubB.json()) as { inputLock?: { keyboard?: boolean } };
+    expect(bodyB.inputLock?.keyboard).toBeFalsy();
+
+    // Audit detail includes seat label + id
+    const audit = await request.get(`${API}/api/v1/audit?limit=20`, { headers: auth });
+    if (audit.ok()) {
+      const items = ((await audit.json()) as { items: Array<{ action: string; detail: string }> })
+        .items;
+      const row = items.find((i) => i.action === 'settings.input_lock');
+      expect(row?.detail ?? '').toMatch(new RegExp(seatA.id));
+    }
+
+    const selA = await request.post(`${API}/api/v1/auth/student-select`, {
+      data: { classId, studentId: studentAId },
+    });
+    const selB = await request.post(`${API}/api/v1/auth/student-select`, {
+      data: { classId, studentId: studentBId },
+    });
+    expect(selA.ok()).toBeTruthy();
+    expect(selB.ok()).toBeTruthy();
+    const tokA = ((await selA.json()) as { token: string }).token;
+    const tokB = ((await selB.json()) as { token: string }).token;
+
+    const pageA = await page.context().newPage();
+    await pageA.addInitScript(
+      ({ apiBase, tok, seatId }) => {
+        localStorage.setItem('classroom-desk.api-base', apiBase);
+        localStorage.setItem('classroom-desk.token', tok);
+        localStorage.setItem('cd_seat_id', seatId);
+      },
+      { apiBase: API, tok: tokA, seatId: seatA.id },
+    );
+    await pageA.goto(`${STUDENT_WEB}/?e2e=1`, { waitUntil: 'domcontentloaded' });
+    await expect(pageA.getByTestId('input-lock-banner')).toBeVisible({ timeout: 15_000 });
+    await expect(pageA.getByTestId('input-lock-banner')).toContainText(/键盘/);
+
+    const pageB = await page.context().newPage();
+    await pageB.addInitScript(
+      ({ apiBase, tok }) => {
+        localStorage.setItem('classroom-desk.api-base', apiBase);
+        localStorage.setItem('classroom-desk.token', tok);
+        localStorage.removeItem('cd_seat_id');
+      },
+      { apiBase: API, tok: tokB },
+    );
+    await pageB.goto(`${STUDENT_WEB}/?e2e=1`, { waitUntil: 'domcontentloaded' });
+    // Unseated student: no seat-scoped banner; may show unseated note only if global/class lock on.
+    await expect(pageB.getByTestId('input-lock-banner')).toHaveCount(0, { timeout: 12_000 });
+
+    // 换人同座：unbind A → A's stale clientId must not keep seat lock (clears cd_seat_id on refresh).
+    await request.patch(`${API}/api/v1/classes/${classId}/seats/${seatA.id}`, {
+      headers: auth,
+      data: { studentId: null },
+    });
+    await pageA.reload({ waitUntil: 'domcontentloaded' });
+    await expect(pageA.getByTestId('input-lock-banner')).toHaveCount(0, { timeout: 15_000 });
+
+    await pageA.close();
+    await pageB.close();
   });
 });
