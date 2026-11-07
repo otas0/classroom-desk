@@ -27,7 +27,7 @@ npm run check:nightly-flake -- --md
 | `dispatchStreak` | 仅 `workflow_dispatch` 连续 success（参考，**勿用于删行**） |
 | `anyStreak` | 混跑连续 success（参考） |
 
-截至 2026-11-07：`cronStreak=0`（未到 11-14）；最近失败例 `42368488402`（多为 dispatch）。
+截至 2026-11-07（#3 已合 main）：`cronStreak=0`（未到 11-14；近期列表仍几乎全是 `workflow_dispatch`）。**合并后不要再手动 dispatch 凑数**——等夜间 `schedule` 自然连绿再盯 `cronStreak`。最近失败例 `42368488402`。
 
 ## 操作
 
