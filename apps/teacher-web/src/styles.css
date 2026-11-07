@@ -499,6 +499,34 @@ section label.choice input {
   opacity: 0.55;
 }
 
+.seat-cell.seat-shake {
+  animation: seat-shake 0.45s ease;
+  outline: 2px solid #b00020;
+}
+
+@keyframes seat-shake {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  20% {
+    transform: translateX(-4px);
+  }
+  40% {
+    transform: translateX(4px);
+  }
+  60% {
+    transform: translateX(-3px);
+  }
+  80% {
+    transform: translateX(3px);
+  }
+}
+
+.seat-toast {
+  margin: 8px 0;
+}
+
 .bar-track.thin {
   height: 10px;
   margin-top: 4px;
@@ -740,6 +768,40 @@ button.linkish {
   background: color-mix(in srgb, var(--accent, #1d4ed8) 12%, #fff);
   border: 1px solid color-mix(in srgb, var(--accent, #1d4ed8) 35%, #ccc);
   font-size: 13px;
+}
+
+.cd-audit-jump-hl {
+  outline: 2px solid #c2410c;
+  outline-offset: -2px;
+  background: color-mix(in srgb, #fdba74 35%, #fff) !important;
+  animation: cd-jump-pulse 1.2s ease-in-out 2;
+}
+
+@keyframes cd-jump-pulse {
+  0%,
+  100% {
+    box-shadow: none;
+  }
+  50% {
+    box-shadow: 0 0 0 3px color-mix(in srgb, #c2410c 40%, transparent);
+  }
+}
+
+.purge-progress {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0.35rem 0;
+  font-size: 13px;
+}
+
+.purge-progress-bar {
+  height: 8px;
+  min-width: 4px;
+  max-width: 12rem;
+  background: var(--accent, #1d4ed8);
+  border-radius: 2px;
+  transition: width 0.15s ease;
 }
 
 .question-item .choice {

@@ -87,6 +87,8 @@ settingsRouter.get('/api/v1/settings', requireAuth, requireRoles('teacher', 'adm
       getSetting(db, 'recycle_retention_days') ?? RECYCLE_RETENTION_DAYS,
     ),
     recycleUrgentDays: Number(getSetting(db, 'recycle_urgent_days') ?? RECYCLE_URGENT_DAYS),
+    fleetDriftSnapshotMinutes: Number(getSetting(db, 'fleet_drift_snapshot_minutes') ?? 5),
+    upgradesKeepCount: Number(getSetting(db, 'upgrades_keep_count') ?? 3),
     hasBackupEncryptPassphrase: Boolean((getSetting(db, 'backup_encrypt_passphrase') ?? '').trim()),
     projectionHighContrast: (getSetting(db, 'projection_high_contrast') ?? '0') === '1',
     classroomApiBase: getSetting(db, 'classroom_api_base') ?? '',
@@ -178,6 +180,33 @@ settingsRouter.patch('/api/v1/settings', requireAuth, requireRoles('teacher', 'a
       `INSERT INTO settings (key, value) VALUES ('recycle_retention_days', ?)
        ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
     ).run(String(Math.trunc(days)));
+  }
+
+  if (req.body?.fleetDriftSnapshotMinutes != null) {
+    const mins = Number(req.body.fleetDriftSnapshotMinutes);
+    if (!Number.isFinite(mins) || mins < 0 || mins > 1440) {
+      res.status(400).json({
+        error: 'invalid_drift_minutes',
+        message: '漂移快照间隔须为 0–1440 分钟（0=关闭）',
+      });
+      return;
+    }
+    db.prepare(
+      `INSERT INTO settings (key, value) VALUES ('fleet_drift_snapshot_minutes', ?)
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+    ).run(String(Math.trunc(mins)));
+  }
+
+  if (req.body?.upgradesKeepCount != null) {
+    const n = Number(req.body.upgradesKeepCount);
+    if (!Number.isFinite(n) || n < 1 || n > 20) {
+      res.status(400).json({ error: 'invalid_upgrades_keep', message: '升级包保留须为 1–20 份' });
+      return;
+    }
+    db.prepare(
+      `INSERT INTO settings (key, value) VALUES ('upgrades_keep_count', ?)
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+    ).run(String(Math.trunc(n)));
   }
 
   if (req.body?.recycleUrgentDays != null) {
@@ -473,6 +502,12 @@ settingsRouter.post(
     const dryRun = req.body?.dryRun === true || String(req.query.dryRun ?? '') === '1';
     if (dryRun) {
       const preview = previewPurgeExpiredSoftDeletes(openDb());
+      writeAudit({
+        actorUserId: req.user!.id,
+        actorRole: req.user!.role,
+        action: 'recycle.purge_preview',
+        detail: preview,
+      });
       res.json({
         ok: true,
         ...preview,

@@ -62,6 +62,7 @@ export function App() {
   const [unread, setUnread] = useState(0);
   const [offline, setOffline] = useState(false);
   const [toast, setToast] = useState('');
+  const [sessionEndedBanner, setSessionEndedBanner] = useState('');
   const [error, setError] = useState('');
   const [ready, setReady] = useState(false);
   const [healthOk, setHealthOk] = useState<boolean | null>(null);
@@ -69,6 +70,7 @@ export function App() {
   const [expectedClientVersion, setExpectedClientVersion] = useState('');
   const [newQuizPulse, setNewQuizPulse] = useState(false);
   const [openQuizCount, setOpenQuizCount] = useState(0);
+  const [offlineQueueCount, setOfflineQueueCount] = useState(0);
   const [pendingIdentity, setPendingIdentity] = useState<RosterRow | null>(null);
   const [switchIdentity, setSwitchIdentity] = useState(false);
   const [selecting, setSelecting] = useState(false);
@@ -265,7 +267,8 @@ export function App() {
           setToken(null);
           const msg = e instanceof Error ? e.message : '请重新选择身份';
           setToast(msg);
-          // Keep kick/delete toast visible longer so students notice before re-selecting.
+          setSessionEndedBanner(msg);
+          // Auto-hide floating toast; banner on 选人页 stays until「知道了」.
           window.setTimeout(() => setToast(''), 6500);
         }
         setUser(null);
@@ -716,6 +719,8 @@ export function App() {
               className={className}
               classId={classId}
               error={error}
+              sessionEndedBanner={sessionEndedBanner}
+              onDismissSessionBanner={() => setSessionEndedBanner('')}
               pending={pendingIdentity}
               selecting={selecting}
               switching={switchIdentity}
@@ -748,9 +753,16 @@ export function App() {
                 onClick={() => setTab(item.id)}
               >
                 {item.label}
-                {item.id === 'quiz' && openQuizCount > 0 ? (
-                  <span className="badge" aria-label={`未答 ${openQuizCount}`}>
-                    {openQuizCount}
+                {item.id === 'quiz' && (openQuizCount > 0 || offlineQueueCount > 0) ? (
+                  <span
+                    className="badge"
+                    aria-label={
+                      offlineQueueCount > 0
+                        ? `未答 ${openQuizCount}，待补交 ${offlineQueueCount}`
+                        : `未答 ${openQuizCount}`
+                    }
+                  >
+                    {offlineQueueCount > 0 ? `补${offlineQueueCount}` : openQuizCount}
                   </span>
                 ) : null}
                 {item.id === 'messages' && unread > 0 ? <span className="badge">{unread}</span> : null}
@@ -773,6 +785,7 @@ export function App() {
               <QuizTab
                 onAnswered={showToast}
                 onOpenCount={setOpenQuizCount}
+                onQueueCount={setOfflineQueueCount}
                 confirmSubmit={quizConfirmSubmit}
               />
             )}
@@ -813,7 +826,15 @@ export function App() {
           role="status"
           aria-live="assertive"
         >
-          {toast}
+          <span>{toast}</span>
+          <button
+            type="button"
+            className="toast-dismiss"
+            data-testid="toast-dismiss"
+            onClick={() => setToast('')}
+          >
+            知道了
+          </button>
         </div>
       ) : null}
     </div>
@@ -1082,6 +1103,8 @@ function IdentityGate({
   className,
   classId,
   error,
+  sessionEndedBanner,
+  onDismissSessionBanner,
   pending,
   selecting,
   switching,
@@ -1096,6 +1119,8 @@ function IdentityGate({
   className: string;
   classId: string;
   error: string;
+  sessionEndedBanner?: string;
+  onDismissSessionBanner?: () => void;
   pending: RosterRow | null;
   selecting: boolean;
   switching: boolean;
@@ -1132,6 +1157,19 @@ function IdentityGate({
             ? '点自己的姓名，再点确认'
             : '本机还没有班级，请老师先配置'}
       </p>
+      {sessionEndedBanner ? (
+        <div className="session-ended-banner" data-testid="session-ended-banner" role="alert">
+          <span>{sessionEndedBanner}</span>
+          <button
+            type="button"
+            className="secondary"
+            data-testid="session-ended-dismiss"
+            onClick={() => onDismissSessionBanner?.()}
+          >
+            知道了
+          </button>
+        </div>
+      ) : null}
       {error ? <p className="error">{error}</p> : null}
       <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="搜索姓名或学号" />
       {pending ? (
@@ -1766,10 +1804,12 @@ function optionQuestionSig(q: Record<string, unknown>): string {
 function QuizTab({
   onAnswered,
   onOpenCount,
+  onQueueCount,
   confirmSubmit = true,
 }: {
   onAnswered: (msg: string) => void;
   onOpenCount: (count: number) => void;
+  onQueueCount?: (count: number) => void;
   confirmSubmit?: boolean;
 }) {
   const [items, setItems] = useState<Array<Record<string, unknown>>>([]);
@@ -1810,8 +1850,14 @@ function QuizTab({
   }
 
   function syncQueueCount() {
-    setQueueCount(readOfflineQueue().length);
+    const n = readOfflineQueue().length;
+    setQueueCount(n);
+    onQueueCount?.(n);
   }
+
+  useEffect(() => {
+    syncQueueCount();
+  }, []);
 
   async function load() {
     setErr('');

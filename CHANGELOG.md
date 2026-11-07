@@ -1,22 +1,10 @@
 # Classroom Desk 更新日志
 
-## Unreleased
-
-- 助教 grants e2e：跨班导出 403、有 grant 加分 201
-- 抢答 WS：`?token=` JWT + teacher/admin/assistant 角色校验
-- 座位：同班学生唯一索引；绑座冲突提示（一人一座）
-- OCR 草稿 `sessionStorage` 打通 Packs → 上课快发题
-- 家长 PDF：嵌入开源 Noto Sans SC 子集（失败回退 ASCII）
-- 恢复向导：六位二次确认码 + 审计 `backup.restore_commit`
-- 升级包：删除 / 校验 sha256 / 保留最新 N 份 Setup.exe
-- 离线队列：条数与体积上限，淘汰最旧
-- 调度 `fleet.drift_snapshot`（约 5 分钟）充实漂移趋势
-- 投影色盲预设：Okabe–Ito / 蓝橙 / 灰阶
-- purge：先 dry-run 预览再确认执行
-
 ## v0.1.7 — 2026-11-07
 
-退出锁定运维与验收 hardening：
+退出锁定运维 hardening，并合并助教授权/抢答鉴权/座位/PDF/恢复向导等课堂运维补强。
+
+### 退出锁与审计
 
 - 教师审计：`code_rotated` 中文标签；CSV「导出当前页 / 导出全部」（>500 条截断确认）
 - 登录/侧栏解除码超期横幅「去设置更换」深链；助教只读审计、隐藏轮换操作
@@ -25,9 +13,26 @@
 - CI：`verify:exit-lock-audit`；e2e 拉起 `ELECTRON_OFF=1` 学生 Vite；修 `auditRetry` 空库 migrate
 - 联调口令漂移：`TEACHER_PASSWORD=… node scripts/ensure-teacher.mjs`
 
+### 授权 / 上课 / 运维
+
+- 助教 grants e2e：跨班导出 403、有 grant 加分 201；空表 legacy「全班可导出」首次勾选迁移提示
+- 抢答 WS：`?token=` JWT + 角色校验；e2e 无 token 失败 / 有 token 收快照
+- 座位：同班学生唯一索引；409 toast + 拖拽失败回滚动画
+- OCR 草稿 `sessionStorage` →「送到快发题」并切到上课 tab
+- 家长 PDF：优先 `apps/server/assets/fonts` 预置 Noto Sans SC（`npm run fonts:cjk`），失败回退 ASCII
+- 恢复向导：六位确认码剪贴板一次复制（不回显 placeholder）+ 审计 `backup.restore_commit`
+- 升级包：删除 / 校验 sha256；保留份数可在设置 UI 配置
+- 离线队列：条数/体积上限；侧栏答题徽标显示待补交
+- `fleet.drift_snapshot` 间隔可配置（分钟，0=关）
+- 投影色盲预设：Okabe–Ito / 蓝橙 / 灰阶
+- purge：dry-run 预览写入审计 `recycle.purge_preview` 后再确认执行
+
 ### 安装包
 
-- 包版本已 bump 至 `0.1.7`；发版：`git tag v0.1.7 && git push origin v0.1.7` → Release / Artifact `classroom-desk-windows-setup`（见 [ARTIFACTS.md](./docs/ARTIFACTS.md)）
+- `ClassroomDesk-Setup-0.1.7.exe` + `.sha256` + `config.example.json`（由 tag `v0.1.7` Release workflow 产出）
+- 服务端部署建议：`npm run fonts:cjk` 预拉 CJK 字体到 `apps/server/assets/fonts/`
+
+---
 
 ## v0.1.6 — 2026-11-07
 

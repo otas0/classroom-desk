@@ -14,7 +14,7 @@ import { listPresenceClients } from '../services/presenceHub.js';
 import { nowIso } from '../utils/id.js';
 
 let timer: NodeJS.Timeout | null = null;
-let driftTick = 0;
+let lastDriftSnapshotAt = 0;
 
 function autoCloseQuestions(): number {
   const db = openDb();
@@ -83,10 +83,12 @@ export function startCleanupScheduler(): void {
         );
       }
       maybeDailyBackup();
-      // Every ~5 min (10 × 30s): fleet.drift_snapshot for ops driftTrend charts
-      driftTick += 1;
-      if (driftTick >= 10) {
-        driftTick = 0;
+      const driftMins = Math.max(
+        0,
+        Math.min(1440, Math.trunc(Number(getSetting(db, 'fleet_drift_snapshot_minutes') ?? 5) || 0)),
+      );
+      if (driftMins > 0 && Date.now() - lastDriftSnapshotAt >= driftMins * 60_000) {
+        lastDriftSnapshotAt = Date.now();
         try {
           const expected = packageVersion();
           const classes = db.prepare(`SELECT id FROM classes`).all() as Array<{ id: string }>;
@@ -109,6 +111,7 @@ export function startCleanupScheduler(): void {
               driftCount: driftClients,
               driftRate: onlineTotal > 0 ? driftClients / onlineTotal : 0,
               classCount: classes.length,
+              intervalMinutes: driftMins,
             },
           });
         } catch (e) {

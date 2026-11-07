@@ -31,6 +31,10 @@ const DEFAULT_SETTINGS: Record<string, string> = {
   lan_upgrade_base: '',
   /** Projection high-contrast default for new projection sessions (0/1). */
   projection_high_contrast: '0',
+  /** Minutes between fleet.drift_snapshot audit rows (0=off). Default 5. */
+  fleet_drift_snapshot_minutes: '5',
+  /** How many Setup*.exe to keep under /upgrades (1–20). */
+  upgrades_keep_count: '3',
 };
 
 export function migrate(database?: DatabaseSync): DatabaseSync {

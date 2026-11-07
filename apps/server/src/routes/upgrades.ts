@@ -101,7 +101,8 @@ upgradesRouter.post(
       const hash = createHash('sha256').update(fs.readFileSync(file.path)).digest('hex');
       sha256Name = `${file.filename}.sha256`;
       fs.writeFileSync(path.join(upgradesDir(), sha256Name), `${hash}  ${file.filename}\n`, 'utf8');
-      pruned = pruneOldSetupExes(3);
+      const keep = Number(getSetting(openDb(), 'upgrades_keep_count') ?? process.env.CLASSROOM_DESK_UPGRADES_KEEP ?? 3);
+      pruned = pruneOldSetupExes(Number.isFinite(keep) ? Math.max(1, Math.min(20, Math.trunc(keep))) : 3);
     }
     res.status(201).json({
       ok: true,

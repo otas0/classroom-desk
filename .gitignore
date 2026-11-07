@@ -31,3 +31,6 @@ apps/student-desktop/.electron-off
 docs/CLASSROOM_IDENTITY.md
 data/
 RELEASE_NOTES.md
+apps/server/assets/fonts/*.ttf
+apps/server/assets/fonts/*.otf
+!apps/server/assets/fonts/README.md

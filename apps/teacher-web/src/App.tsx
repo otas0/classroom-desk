@@ -658,7 +658,9 @@ export function App() {
                 {prepTab === 'presence' && <PresenceClients classId={classId} />}
                 {prepTab === 'seats' && <SeatMapPanel classId={classId} />}
                 {prepTab === 'ops' && <OpsDashboard />}
-                {prepTab === 'packs' && <PacksPanel classId={classId} />}
+                {prepTab === 'packs' && (
+                  <PacksPanel classId={classId} onGoSession={() => setTab('session')} />
+                )}
                 {prepTab === 'exports' && <ExportsPanel classId={classId} />}
                 {prepTab === 'messages' && messagesEnabled && (
                   <MessagesPanel classId={classId} onEnabledChange={setMessagesEnabled} />

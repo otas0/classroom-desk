@@ -30,7 +30,8 @@
 - 学生被软删除后，名单与 `/roster` 不再出现。
 - 未过期学生 JWT 在下次鉴权时返回 `401 account_deleted`，须重新选人。
 - 软删同时写入 `session_kicks` 并清 presence，客户端心跳会强制下线。
-- 回收站默认保留 7 天（列表展示剩余天数），到期由调度器硬删（级联清除关联记录）。
+- 回收站默认保留 **7 天**（`RECYCLE_RETENTION_DAYS` / `recycle_retention_days`，与 `@classroom-desk/shared` 一致；教师设置页不得默认写成 30）。列表展示剩余天数；剩余 ≤ `recycle_urgent_days`（默认 1）时醒目高亮。到期由调度器硬删（级联清除关联记录）。
+- 旧助教在迁移 `assistant_password_ok_backfill_v1` 时批量 `password_ok=1`，避免升级后全员被首次改密闸拦截；新创建助教仍为 `password_ok=0`。
 
 ## 创建助教
 

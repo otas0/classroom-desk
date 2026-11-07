@@ -20,9 +20,11 @@ export function SeatMapPanel({ classId }: { classId: string }) {
   const [cols, setCols] = useState(6);
   const [roster, setRoster] = useState<Roster[]>([]);
   const [msg, setMsg] = useState('');
+  const [errToast, setErrToast] = useState('');
   const [offlineBound, setOfflineBound] = useState(0);
   const [selected, setSelected] = useState<string | null>(null);
   const [dragId, setDragId] = useState<string | null>(null);
+  const [shakeIds, setShakeIds] = useState<string[]>([]);
 
   async function load() {
     if (!classId) {
@@ -57,6 +59,13 @@ export function SeatMapPanel({ classId }: { classId: string }) {
     return () => window.clearInterval(t);
   }, [classId]);
 
+  function flashShake(ids: string[], toast: string) {
+    setShakeIds(ids);
+    setErrToast(toast);
+    window.setTimeout(() => setShakeIds([]), 600);
+    window.setTimeout(() => setErrToast(''), 4000);
+  }
+
   async function ensureGrid() {
     await api(`/api/v1/classes/${classId}/seats`, {
       method: 'PUT',
@@ -67,27 +76,66 @@ export function SeatMapPanel({ classId }: { classId: string }) {
   }
 
   async function bind(seatId: string, studentId: string | null) {
-    const r = await api<{ message?: string; clearedFromLabel?: string | null }>(
-      `/api/v1/classes/${classId}/seats/${seatId}`,
-      {
-        method: 'PATCH',
-        body: JSON.stringify({ studentId }),
-      },
-    );
-    setSelected(null);
-    if (r.message) setMsg(r.message);
-    else if (r.clearedFromLabel) setMsg(`已从 ${r.clearedFromLabel} 移开（同班一人一座）`);
-    await load();
+    try {
+      const r = await api<{ message?: string; clearedFromLabel?: string | null }>(
+        `/api/v1/classes/${classId}/seats/${seatId}`,
+        {
+          method: 'PATCH',
+          body: JSON.stringify({ studentId }),
+        },
+      );
+      setSelected(null);
+      if (r.message) setMsg(r.message);
+      else if (r.clearedFromLabel) setMsg(`已从 ${r.clearedFromLabel} 移开（同班一人一座）`);
+      await load();
+    } catch (e) {
+      const text = e instanceof Error ? e.message : String(e);
+      flashShake([seatId], /already_seated|一人一座|其它座位|409|conflict/i.test(text) ? text : `绑座失败：${text}`);
+      await load();
+    }
   }
 
   async function swapSeats(a: string, b: string) {
-    await api(`/api/v1/classes/${classId}/seats/swap`, {
-      method: 'POST',
-      body: JSON.stringify({ seatIdA: a, seatIdB: b }),
+    const before = items;
+    // Optimistic visual swap
+    setItems((prev) => {
+      const sa = prev.find((x) => x.id === a);
+      const sb = prev.find((x) => x.id === b);
+      if (!sa || !sb) return prev;
+      return prev.map((x) => {
+        if (x.id === a) {
+          return {
+            ...x,
+            studentId: sb.studentId,
+            displayName: sb.displayName,
+            studentNo: sb.studentNo,
+            online: sb.online,
+          };
+        }
+        if (x.id === b) {
+          return {
+            ...x,
+            studentId: sa.studentId,
+            displayName: sa.displayName,
+            studentNo: sa.studentNo,
+            online: sa.online,
+          };
+        }
+        return x;
+      });
     });
-    setMsg('已换座');
-    setSelected(null);
-    await load();
+    try {
+      await api(`/api/v1/classes/${classId}/seats/swap`, {
+        method: 'POST',
+        body: JSON.stringify({ seatIdA: a, seatIdB: b }),
+      });
+      setMsg('已换座');
+      setSelected(null);
+      await load();
+    } catch (e) {
+      setItems(before);
+      flashShake([a, b], e instanceof Error ? e.message : '换座失败，已回滚');
+    }
   }
 
   async function snakeFill() {
@@ -110,7 +158,7 @@ export function SeatMapPanel({ classId }: { classId: string }) {
       <h2>座位图</h2>
       <p className="hint">
         拖拽座位互换；或按学号蛇形落座（奇偶行反向）。绿=在线，红框=已绑定未上线。未上线绑定{' '}
-        {offlineBound} 个。
+        {offlineBound} 个。同班一人一座。
       </p>
       {!classId ? <p className="hint">请先选择班级</p> : null}
       <div className="row">
@@ -137,13 +185,18 @@ export function SeatMapPanel({ classId }: { classId: string }) {
         </button>
       </div>
       {msg ? <p className="hint">{msg}</p> : null}
+      {errToast ? (
+        <p className="error seat-toast" role="alert">
+          {errToast}
+        </p>
+      ) : null}
       <div className="seat-grid" style={gridStyle}>
         {items.map((s) => (
           <button
             key={s.id}
             type="button"
             draggable
-            className={`seat-cell${s.online ? ' online' : ''}${s.studentId && !s.online ? ' offline-bound' : ''}${selected === s.id ? ' selected' : ''}${dragId === s.id ? ' dragging' : ''}`}
+            className={`seat-cell${s.online ? ' online' : ''}${s.studentId && !s.online ? ' offline-bound' : ''}${selected === s.id ? ' selected' : ''}${dragId === s.id ? ' dragging' : ''}${shakeIds.includes(s.id) ? ' seat-shake' : ''}`}
             onClick={() => setSelected(s.id)}
             onDragStart={(e) => {
               setDragId(s.id);
@@ -160,7 +213,7 @@ export function SeatMapPanel({ classId }: { classId: string }) {
               const from = e.dataTransfer.getData('text/seat-id') || dragId;
               setDragId(null);
               if (!from || from === s.id) return;
-              void swapSeats(from, s.id).catch((err) => setMsg(String(err)));
+              void swapSeats(from, s.id);
             }}
             title={`${s.label} · 拖到其它座位换座`}
           >
@@ -180,7 +233,7 @@ export function SeatMapPanel({ classId }: { classId: string }) {
               defaultValue=""
               onChange={(e) => {
                 const v = e.target.value;
-                void bind(selected, v || null).catch((err) => setMsg(String(err)));
+                void bind(selected, v || null);
               }}
             >
               <option value="">（清空）</option>

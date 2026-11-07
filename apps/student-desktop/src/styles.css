@@ -374,6 +374,21 @@ textarea {
   text-align: center;
   z-index: 30;
   animation: toast-in 180ms ease-out;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.toast-dismiss {
+  flex: 0 0 auto;
+  border: 1px solid rgba(255, 255, 255, 0.55);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  padding: 0.25rem 0.65rem;
+  cursor: pointer;
 }
 
 .toast-session-ended {
@@ -382,6 +397,20 @@ textarea {
   font-weight: 700;
   font-size: 14px;
   padding: 12px 14px;
+}
+
+.session-ended-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin: 0.5rem 0 0.75rem;
+  padding: 0.65rem 0.75rem;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  color: #7f1d1d;
+  font-size: 14px;
+  font-weight: 600;
 }
 
 @keyframes toast-in {

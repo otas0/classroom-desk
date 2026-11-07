@@ -39,7 +39,8 @@ export function assistantsSnapshot(): AssistantsPayload {
 }
 
 export function broadcastAssistantsUpdated() {
-  const line = `data: ${JSON.stringify(assistantsSnapshot())}\n\n`;
+  const payload = JSON.stringify(assistantsSnapshot());
+  const line = `event: assistants.updated\ndata: ${payload}\n\n`;
   for (const sub of sseClients) {
     try {
       sub.res.write(line);
@@ -57,7 +58,8 @@ export function addAssistantsSseClient(res: Response) {
   res.flushHeaders?.();
   const sub: Sub = { res };
   sseClients.add(sub);
-  res.write(`data: ${JSON.stringify(assistantsSnapshot())}\n\n`);
+  const snap = JSON.stringify(assistantsSnapshot());
+  res.write(`event: assistants.updated\ndata: ${snap}\n\n`);
   const heartbeat = setInterval(() => {
     try {
       res.write(`: ping\n\n`);

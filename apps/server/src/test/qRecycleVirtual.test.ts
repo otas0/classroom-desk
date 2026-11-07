@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { closeDb, openDb, withTransaction } from '../db/client.js';
+import { closeDb, withTransaction } from '../db/client.js';
 import { migrate } from '../db/migrate.js';
 import { newId, nowIso } from '../utils/id.js';
 import { recycleTiming } from '../utils/recycleRetention.js';

@@ -643,6 +643,10 @@ questionsRouter.post(
       res.status(400).json({ error: 'class_id_required', message: '缺少班级' });
       return;
     }
+    const stream =
+      String(req.query.stream ?? '') === '1' ||
+      String(req.body?.stream ?? '') === '1' ||
+      String(req.headers.accept ?? '').includes('application/x-ndjson');
     const db = openDb();
     const ids = (
       db
@@ -654,22 +658,47 @@ questionsRouter.post(
     ).map((r) => r.id);
     let purged = 0;
     const CHUNK = 100;
-    for (const chunk of chunkIds(ids, CHUNK)) {
+    const total = ids.length;
+    const chunks = chunkIds(ids, CHUNK);
+
+    if (stream) {
+      res.setHeader('Content-Type', 'application/x-ndjson; charset=utf-8');
+      res.setHeader('Cache-Control', 'no-cache');
+      res.write(
+        `${JSON.stringify({ type: 'progress', purged: 0, total, pct: total ? 0 : 100, done: false })}\n`,
+      );
+    }
+
+    for (const chunk of chunks) {
       withTransaction(db, () => {
         const ph = sqlInPlaceholders(chunk.length);
         const info = db.prepare(`DELETE FROM questions WHERE id IN (${ph})`).run(...chunk);
         purged += Number(info.changes ?? 0);
       });
+      if (stream) {
+        const pct = total ? Math.min(100, Math.round((purged / total) * 100)) : 100;
+        res.write(
+          `${JSON.stringify({ type: 'progress', purged, total, pct, done: false })}\n`,
+        );
+      }
     }
     writeAudit({
       actorUserId: req.user?.id,
       actorRole: req.user?.role,
       action: 'questions.recycle_purge_all',
       classId,
-      detail: { purged, chunks: Math.ceil(ids.length / CHUNK) },
+      detail: { purged, chunks: chunks.length },
       clientIp: req.ip,
     });
-    res.json({ ok: true, purged, message: `已永久清空题目回收站 ${purged} 题` });
+    const message = `已永久清空题目回收站 ${purged} 题`;
+    if (stream) {
+      res.write(
+        `${JSON.stringify({ type: 'done', ok: true, purged, total, pct: 100, done: true, message })}\n`,
+      );
+      res.end();
+      return;
+    }
+    res.json({ ok: true, purged, message });
   },
 );
 

@@ -1,4 +1,12 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type UIEvent } from 'react';
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type KeyboardEvent,
+  type UIEvent,
+} from 'react';
 import { API_BASE, api, getToken } from './api';
 import { AuditDetail } from './AuditDetail';
 import { canBulkDelete, canWriteClass, isAssistant } from './authRole';
@@ -10,10 +18,13 @@ import {
   isRecycleUrgent,
   RECYCLE_DAYS_LEFT_TESTID,
   RECYCLE_RETENTION_DAYS,
+  RECYCLE_URGENT_DAYS,
   recycleDaysLeft,
 } from './recycleRetention';
 import { useToast } from './toast';
 import { permissionsDocHref } from './permissionsHref';
+import { useListSelection } from './useListSelection';
+import { streamPurgeAll } from './ndjsonPurge';
 import {
   IMPORT_ERROR_ZH,
   POINT_REASON_CHIPS,
@@ -66,6 +77,9 @@ export function RosterPanel({
   const allowDelete = canBulkDelete();
   const allowWrite = canWriteClass();
   const rosterAnchorId = useRef<string | null>(null);
+  const rosterFocusIndex = useRef(0);
+  const [jumpIds, setJumpIds] = useState<Set<string>>(new Set());
+  const [urgentDays, setUrgentDays] = useState(RECYCLE_URGENT_DAYS);
   const ROSTER_ROW_H = 44;
   const ROSTER_VIEW_H = 420;
 
@@ -156,6 +170,23 @@ export function RosterPanel({
     setShowRecycle(false);
     setRecycle([]);
     setRosterScrollTop(0);
+    try {
+      const raw = sessionStorage.getItem('cd_audit_jump_ids');
+      if (raw) {
+        const ids = JSON.parse(raw) as string[];
+        if (Array.isArray(ids) && ids.length) {
+          setJumpIds(new Set(ids.map(String)));
+          sessionStorage.removeItem('cd_audit_jump_ids');
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+    void api<{ recycleUrgentDays?: number }>('/api/v1/settings')
+      .then((s) => {
+        if (s.recycleUrgentDays != null) setUrgentDays(Number(s.recycleUrgentDays));
+      })
+      .catch(() => undefined);
   }, [classId]);
 
   const rosterVirtual = useMemo(() => {
@@ -524,7 +555,7 @@ export function RosterPanel({
       </div>
       {selectedIds.size > 0 ? (
         <div className="selection-sticky" data-testid="roster-selection-sticky">
-          已选 {selectedIds.size} 人 · Shift+点击可连选
+          已选 {selectedIds.size} 人 · Shift+点击连选 · ↑↓ / Space 多选
         </div>
       ) : null}
       <div className="row" style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 4 }}>
@@ -539,7 +570,73 @@ export function RosterPanel({
         className="roster-virtual"
         style={{ height: ROSTER_VIEW_H }}
         data-testid="roster-virtual"
+        tabIndex={0}
+        role="listbox"
+        aria-multiselectable
+        aria-label="学生名单，可用方向键与空格多选"
         onScroll={(e: UIEvent<HTMLDivElement>) => setRosterScrollTop(e.currentTarget.scrollTop)}
+        onKeyDown={(e) => {
+          const ordered = filteredStudents.map((row) => String(row.id));
+          if (!ordered.length) return;
+          if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+            e.preventDefault();
+            const next = Math.min(
+              ordered.length - 1,
+              Math.max(0, rosterFocusIndex.current + (e.key === 'ArrowDown' ? 1 : -1)),
+            );
+            rosterFocusIndex.current = next;
+            const id = ordered[next]!;
+            if (e.shiftKey) {
+              if (!rosterAnchorId.current) rosterAnchorId.current = id;
+              const a = ordered.indexOf(rosterAnchorId.current);
+              const b = next;
+              if (a >= 0) {
+                const [lo, hi] = a < b ? [a, b] : [b, a];
+                setSelectedIds((prev) => {
+                  const nextSet = new Set(prev);
+                  for (let k = lo; k <= hi; k++) nextSet.add(ordered[k]!);
+                  return nextSet;
+                });
+              }
+            } else {
+              rosterAnchorId.current = id;
+            }
+            (
+              document.querySelector(`[data-row-id="${CSS.escape(id)}"]`) as HTMLElement | null
+            )?.focus();
+            return;
+          }
+          if (e.key === ' ' || e.key === 'Spacebar') {
+            e.preventDefault();
+            const id = ordered[rosterFocusIndex.current];
+            if (!id) return;
+            const on = !selectedIds.has(id);
+            if (e.shiftKey && rosterAnchorId.current) {
+              const a = ordered.indexOf(rosterAnchorId.current);
+              const b = ordered.indexOf(id);
+              if (a >= 0 && b >= 0) {
+                const [lo, hi] = a < b ? [a, b] : [b, a];
+                setSelectedIds((prev) => {
+                  const next = new Set(prev);
+                  for (let k = lo; k <= hi; k++) {
+                    const rid = ordered[k]!;
+                    if (on) next.add(rid);
+                    else next.delete(rid);
+                  }
+                  return next;
+                });
+                return;
+              }
+            }
+            rosterAnchorId.current = id;
+            setSelectedIds((prev) => {
+              const next = new Set(prev);
+              if (on) next.add(id);
+              else next.delete(id);
+              return next;
+            });
+          }
+        }}
       >
         <div className="roster-virtual-inner" style={{ height: rosterVirtual.totalH }}>
           {filteredStudents.slice(rosterVirtual.start, rosterVirtual.end).map((s, i) => {
@@ -550,6 +647,7 @@ export function RosterPanel({
                 classId={classId}
                 student={s}
                 style={{ top: idx * ROSTER_ROW_H, height: ROSTER_ROW_H } as CSSProperties}
+                jumpHighlight={jumpIds.has(String(s.id))}
                 selected={selectedIds.has(String(s.id))}
                 onSelectChange={(id, on, opts) => {
                   const ordered = filteredStudents.map((row) => String(row.id));
@@ -697,9 +795,14 @@ export function RosterPanel({
                         return;
                       }
                       try {
-                        const r = await api<{ message?: string }>(
+                        const r = await streamPurgeAll(
                           `/api/v1/classes/${classId}/students/recycle/purge-all`,
-                          { method: 'POST', body: '{}' },
+                          {},
+                          (p) => {
+                            if (!p.done) {
+                              toast.ok(`清空中 ${p.purged}/${p.total}（${p.pct}%）`);
+                            }
+                          },
                         );
                         toast.ok(r.message ?? '已清空');
                         await loadRecycle();
@@ -716,7 +819,11 @@ export function RosterPanel({
             {recycle.length === 0 ? <p className="hint">回收站为空</p> : null}
             <ul className="question-list">
               {recycle.map((s) => (
-                <li key={String(s.id)} className="question-item">
+                <li
+                  key={String(s.id)}
+                  className={`question-item${jumpIds.has(String(s.id)) ? ' cd-audit-jump-hl' : ''}`}
+                  data-row-id={String(s.id)}
+                >
                   <span className="title">
                     {String(s.displayName)}
                     {s.studentNo ? ` · ${String(s.studentNo)}` : ''}
@@ -727,7 +834,7 @@ export function RosterPanel({
                       const label = formatRecycleDaysLeft(days);
                       return label ? (
                         <span
-                          className={`days-left${isRecycleUrgent(days) ? ' days-left-urgent' : ''}`}
+                          className={`days-left${isRecycleUrgent(days, urgentDays) ? ' days-left-urgent' : ''}`}
                           data-testid={RECYCLE_DAYS_LEFT_TESTID}
                         >
                           {' '}
@@ -796,6 +903,7 @@ export function StudentRow({
   classId,
   student,
   selected,
+  jumpHighlight = false,
   onSelectChange,
   onChanged,
   onRemoved,
@@ -807,6 +915,7 @@ export function StudentRow({
   classId: string;
   student: Record<string, unknown>;
   selected?: boolean;
+  jumpHighlight?: boolean;
   onSelectChange?: (id: string, selected: boolean, opts?: { shift?: boolean }) => void;
   onChanged: () => void;
   onRemoved?: () => void;
@@ -886,7 +995,13 @@ export function StudentRow({
   }
 
   return (
-    <div className="roster-virtual-row" style={style} data-testid={`student-row-${id}`}>
+    <div
+      className={`roster-virtual-row${jumpHighlight ? ' cd-audit-jump-hl' : ''}`}
+      style={style}
+      data-testid={`student-row-${id}`}
+      data-row-id={id}
+      tabIndex={-1}
+    >
       <input
         type="checkbox"
         checked={Boolean(selected)}
@@ -977,6 +1092,9 @@ export function QuestionsPanel({ classId }: { classId: string }) {
   const [bulkQBusy, setBulkQBusy] = useState(false);
   const [bulkClosesAt, setBulkClosesAt] = useState('');
   const [qScrollTop, setQScrollTop] = useState(0);
+  const [jumpIds, setJumpIds] = useState<Set<string>>(new Set());
+  const qAnchorId = useRef<string | null>(null);
+  const qFocusIndex = useRef(0);
   const toast = useToast();
   const allowDelete = canBulkDelete();
   const allowWrite = canWriteClass();
@@ -1063,6 +1181,18 @@ export function QuestionsPanel({ classId }: { classId: string }) {
 
   useEffect(() => {
     void load().catch(() => setItems([]));
+    try {
+      const raw = sessionStorage.getItem('cd_audit_jump_ids');
+      if (raw) {
+        const ids = JSON.parse(raw) as string[];
+        if (Array.isArray(ids) && ids.length) {
+          setJumpIds(new Set(ids.map(String)));
+          sessionStorage.removeItem('cd_audit_jump_ids');
+        }
+      }
+    } catch {
+      /* ignore */
+    }
   }, [classId, showArchived]);
 
   const qVirtual = useMemo(() => {
@@ -1071,6 +1201,64 @@ export function QuestionsPanel({ classId }: { classId: string }) {
     const end = Math.min(items.length, start + visible);
     return { start, end, totalH: items.length * Q_ROW_H };
   }, [items.length, qScrollTop]);
+
+  const orderedQIds = useMemo(() => items.map((q) => String(q.id)), [items]);
+
+  function toggleQSelect(id: string, on: boolean, shift?: boolean) {
+    if (shift && qAnchorId.current) {
+      const a = orderedQIds.indexOf(qAnchorId.current);
+      const b = orderedQIds.indexOf(id);
+      if (a >= 0 && b >= 0) {
+        const [lo, hi] = a < b ? [a, b] : [b, a];
+        setSelectedQIds((prev) => {
+          const next = new Set(prev);
+          for (let k = lo; k <= hi; k++) {
+            const rid = orderedQIds[k]!;
+            if (on) next.add(rid);
+            else next.delete(rid);
+          }
+          return next;
+        });
+        qFocusIndex.current = b;
+        return;
+      }
+    }
+    qAnchorId.current = id;
+    qFocusIndex.current = Math.max(0, orderedQIds.indexOf(id));
+    setSelectedQIds((prev) => {
+      const next = new Set(prev);
+      if (on) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  }
+
+  function onQuestionsKeyDown(e: KeyboardEvent<HTMLDivElement>) {
+    if (!orderedQIds.length) return;
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      const delta = e.key === 'ArrowDown' ? 1 : -1;
+      const next = Math.min(
+        orderedQIds.length - 1,
+        Math.max(0, qFocusIndex.current + delta),
+      );
+      qFocusIndex.current = next;
+      const id = orderedQIds[next]!;
+      if (e.shiftKey) toggleQSelect(id, true, true);
+      else qAnchorId.current = id;
+      const el = document.querySelector(
+        `[data-row-id="${CSS.escape(id)}"]`,
+      ) as HTMLElement | null;
+      el?.focus();
+      return;
+    }
+    if (e.key === ' ' || e.key === 'Spacebar') {
+      const id = orderedQIds[qFocusIndex.current];
+      if (!id) return;
+      e.preventDefault();
+      toggleQSelect(id, !selectedQIds.has(id), e.shiftKey);
+    }
+  }
 
   function applyTemplate(kind: 'bool' | 'blank') {
     setType(kind);
@@ -1517,11 +1705,21 @@ export function QuestionsPanel({ classId }: { classId: string }) {
         </button>
         {!allowDelete ? <span className="hint">助教不可删除/设截止</span> : null}
       </div>
+      {selectedQIds.size > 0 ? (
+        <div className="selection-sticky" data-testid="questions-selection-sticky">
+          已选 {selectedQIds.size} 题 · Shift+点击连选 · ↑↓ 移动 · Space 勾选
+        </div>
+      ) : null}
       {items.length === 0 ? <p className="hint">暂无题目</p> : null}
       <div
         className="q-virtual"
         style={{ height: Q_VIEW_H }}
+        tabIndex={0}
+        role="listbox"
+        aria-multiselectable
+        aria-label="发题列表，可用方向键与空格多选"
         onScroll={(e: UIEvent<HTMLDivElement>) => setQScrollTop(e.currentTarget.scrollTop)}
+        onKeyDown={onQuestionsKeyDown}
       >
         <div className="q-virtual-inner" style={{ height: qVirtual.totalH }}>
           {items.slice(qVirtual.start, qVirtual.end).map((q, i) => {
@@ -1533,16 +1731,19 @@ export function QuestionsPanel({ classId }: { classId: string }) {
           return (
             <div
               key={qid}
-              className={`q-virtual-row question-item${active ? ' active' : ''}`}
+              className={`q-virtual-row question-item${active ? ' active' : ''}${jumpIds.has(qid) ? ' cd-audit-jump-hl' : ''}`}
               style={{ top: idx * Q_ROW_H, height: Q_ROW_H }}
-              tabIndex={0}
-              role="button"
+              tabIndex={-1}
+              data-row-id={qid}
+              role="option"
+              aria-selected={selectedQIds.has(qid)}
               onClick={() => {
+                qFocusIndex.current = idx;
                 setEditingQuestion(q);
                 void showStats(qid, String(q.title));
               }}
               onKeyDown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') {
+                if (e.key === 'Enter') {
                   e.preventDefault();
                   setEditingQuestion(q);
                   void showStats(qid, String(q.title));
@@ -1553,13 +1754,13 @@ export function QuestionsPanel({ classId }: { classId: string }) {
                 <input
                   type="checkbox"
                   checked={selectedQIds.has(qid)}
+                  onClick={(e) => {
+                    if (!e.shiftKey) return;
+                    e.preventDefault();
+                    toggleQSelect(qid, !selectedQIds.has(qid), true);
+                  }}
                   onChange={(e) => {
-                    setSelectedQIds((prev) => {
-                      const next = new Set(prev);
-                      if (e.target.checked) next.add(qid);
-                      else next.delete(qid);
-                      return next;
-                    });
+                    toggleQSelect(qid, e.target.checked, false);
                   }}
                   aria-label={`选择 ${String(q.title)}`}
                 />
@@ -1703,26 +1904,46 @@ export function QuestionsPanel({ classId }: { classId: string }) {
 
 export function QuestionRecyclePanel({ classId }: { classId: string }) {
   const [items, setItems] = useState<Array<Record<string, unknown>>>([]);
-  const [selected, setSelected] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
+  const [purgePct, setPurgePct] = useState<number | null>(null);
   const [scrollTop, setScrollTop] = useState(0);
-  const qAnchorId = useRef<string | null>(null);
+  const [jumpIds, setJumpIds] = useState<Set<string>>(new Set());
+  const [urgentDays, setUrgentDays] = useState(RECYCLE_URGENT_DAYS);
   const toast = useToast();
   const allowDelete = canBulkDelete();
   const ROW_H = 44;
   const VIEW_H = 420;
+  const orderedIds = useMemo(() => items.map((q) => String(q.id)), [items]);
+  const { selected, setSelected, toggleOne, onKeyDown, clear } = useListSelection(orderedIds);
 
   async function load() {
     const r = await api<{ items: Array<Record<string, unknown>> }>(
       `/api/v1/questions?classId=${classId}&includeDeleted=1`,
     );
     setItems(r.items);
-    setSelected(new Set());
+    clear();
   }
 
   useEffect(() => {
     void load().catch(() => setItems([]));
     setScrollTop(0);
+    try {
+      const raw = sessionStorage.getItem('cd_audit_jump_ids');
+      if (raw) {
+        const ids = JSON.parse(raw) as string[];
+        if (Array.isArray(ids) && ids.length) {
+          setJumpIds(new Set(ids.map(String)));
+          sessionStorage.removeItem('cd_audit_jump_ids');
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+    void api<{ recycleUrgentDays?: number }>('/api/v1/settings')
+      .then((s) => {
+        if (s.recycleUrgentDays != null) setUrgentDays(Number(s.recycleUrgentDays));
+      })
+      .catch(() => undefined);
   }, [classId]);
 
   const virt = useMemo(() => {
@@ -1816,17 +2037,20 @@ export function QuestionRecyclePanel({ classId }: { classId: string }) {
             void (async () => {
               if (!window.confirm(`永久清空回收站 ${items.length} 道题？`)) return;
               setBusy(true);
+              setPurgePct(0);
               try {
-                const r = await api<{ message?: string }>('/api/v1/questions/recycle/purge-all', {
-                  method: 'POST',
-                  body: JSON.stringify({ classId }),
-                });
+                const r = await streamPurgeAll(
+                  '/api/v1/questions/recycle/purge-all',
+                  { classId },
+                  (p) => setPurgePct(p.pct),
+                );
                 toast.ok(r.message ?? '已清空');
                 await load();
               } catch (e) {
                 toast.err(e instanceof Error ? e.message : '清空失败');
               } finally {
                 setBusy(false);
+                setPurgePct(null);
               }
             })()
           }
@@ -1834,9 +2058,15 @@ export function QuestionRecyclePanel({ classId }: { classId: string }) {
           一键清空全部
         </button>
       </div>
+      {purgePct != null ? (
+        <div className="purge-progress" data-testid="q-recycle-purge-progress" role="progressbar" aria-valuenow={purgePct} aria-valuemin={0} aria-valuemax={100}>
+          <div className="purge-progress-bar" style={{ width: `${purgePct}%` }} />
+          <span>清空中 {purgePct}%</span>
+        </div>
+      ) : null}
       {selected.size > 0 ? (
         <div className="selection-sticky" data-testid="q-recycle-selection-sticky">
-          已选 {selected.size} 题 · Shift+点击可连选
+          已选 {selected.size} 题 · Shift+点击连选 · ↑↓ / Space 多选
         </div>
       ) : null}
       {items.length === 0 ? <p className="hint">回收站为空</p> : null}
@@ -1844,7 +2074,12 @@ export function QuestionRecyclePanel({ classId }: { classId: string }) {
         className="q-virtual"
         style={{ height: VIEW_H }}
         data-testid="q-recycle-virtual"
+        tabIndex={0}
+        role="listbox"
+        aria-multiselectable
+        aria-label="题目回收站列表"
         onScroll={(e: UIEvent<HTMLDivElement>) => setScrollTop(e.currentTarget.scrollTop)}
+        onKeyDown={(e) => onKeyDown(e)}
       >
         <div className="q-virtual-inner" style={{ height: virt.totalH }}>
           {items.slice(virt.start, virt.end).map((q, i) => {
@@ -1856,9 +2091,13 @@ export function QuestionRecyclePanel({ classId }: { classId: string }) {
             return (
               <div
                 key={qid}
-                className="q-virtual-row question-item"
+                className={`q-virtual-row question-item${jumpIds.has(qid) ? ' cd-audit-jump-hl' : ''}`}
                 style={{ top: idx * ROW_H, height: ROW_H }}
                 data-testid={`q-recycle-row-${qid}`}
+                data-row-id={qid}
+                tabIndex={-1}
+                role="option"
+                aria-selected={selected.has(qid)}
               >
                 <label className="choice">
                   <input
@@ -1867,42 +2106,9 @@ export function QuestionRecyclePanel({ classId }: { classId: string }) {
                     onClick={(e) => {
                       if (!e.shiftKey) return;
                       e.preventDefault();
-                      const ordered = items.map((row) => String(row.id));
-                      const on = !selected.has(qid);
-                      if (qAnchorId.current) {
-                        const a = ordered.indexOf(qAnchorId.current);
-                        const b = ordered.indexOf(qid);
-                        if (a >= 0 && b >= 0) {
-                          const [lo, hi] = a < b ? [a, b] : [b, a];
-                          setSelected((prev) => {
-                            const next = new Set(prev);
-                            for (let k = lo; k <= hi; k++) {
-                              const rid = ordered[k]!;
-                              if (on) next.add(rid);
-                              else next.delete(rid);
-                            }
-                            return next;
-                          });
-                          return;
-                        }
-                      }
-                      qAnchorId.current = qid;
-                      setSelected((prev) => {
-                        const next = new Set(prev);
-                        if (on) next.add(qid);
-                        else next.delete(qid);
-                        return next;
-                      });
+                      toggleOne(qid, !selected.has(qid), true);
                     }}
-                    onChange={(e) => {
-                      qAnchorId.current = qid;
-                      setSelected((prev) => {
-                        const next = new Set(prev);
-                        if (e.target.checked) next.add(qid);
-                        else next.delete(qid);
-                        return next;
-                      });
-                    }}
+                    onChange={(e) => toggleOne(qid, e.target.checked, false)}
                   />
                 </label>
                 <span className="title">
@@ -1910,7 +2116,7 @@ export function QuestionRecyclePanel({ classId }: { classId: string }) {
                   {q.deletedAt ? ` · ${String(q.deletedAt).slice(0, 19)}` : ''}
                   {daysLabel ? (
                     <span
-                      className={`days-left${isRecycleUrgent(days) ? ' days-left-urgent' : ''}`}
+                      className={`days-left${isRecycleUrgent(days, urgentDays) ? ' days-left-urgent' : ''}`}
                       data-testid={RECYCLE_DAYS_LEFT_TESTID}
                     >
                       {' '}
@@ -2740,7 +2946,14 @@ export function SettingsPanel({
   const [weakExtraDraft, setWeakExtraDraft] = useState('');
   const [readonlyAfterMins, setReadonlyAfterMins] = useState(5);
   const [backupDirPath, setBackupDirPath] = useState('');
-  const [recycleDays, setRecycleDays] = useState(30);
+  const [recycleDays, setRecycleDays] = useState(RECYCLE_RETENTION_DAYS);
+  const [recycleUrgentDays, setRecycleUrgentDays] = useState(RECYCLE_URGENT_DAYS);
+  const [healthAlert, setHealthAlert] = useState<{
+    exportTmpLeaked?: number;
+    auditRetryPending?: number;
+    auditRetryDegraded?: boolean;
+  } | null>(null);
+  const [flushMsg, setFlushMsg] = useState('');
   const [restoreFile, setRestoreFile] = useState('');
   const [restorePass, setRestorePass] = useState('');
   const [restoreChecklist, setRestoreChecklist] = useState<string[]>([]);
@@ -2753,7 +2966,10 @@ export function SettingsPanel({
   const [grantRows, setGrantRows] = useState<
     Array<{ classId: string; name: string; canExport: boolean; canAwardPoints: boolean }>
   >([]);
+  const [grantWasEmpty, setGrantWasEmpty] = useState(false);
   const [grantMsg, setGrantMsg] = useState('');
+  const [driftMins, setDriftMins] = useState(5);
+  const [upgradesKeep, setUpgradesKeep] = useState(3);
 
   async function loadAudit() {
     const q = new URLSearchParams({ limit: '80' });
@@ -2777,6 +2993,9 @@ export function SettingsPanel({
       liveboardReadonlyAfterMinutes?: number;
       weakTeacherPasswordsExtra?: string[];
       recycleRetentionDays?: number;
+      recycleUrgentDays?: number;
+      fleetDriftSnapshotMinutes?: number;
+      upgradesKeepCount?: number;
       clientExitAllowed?: boolean;
       clientExitUnlockUntil?: string | null;
       hasExitUnlockCode?: boolean;
@@ -2803,6 +3022,15 @@ export function SettingsPanel({
     }
     if (s.recycleRetentionDays != null && Number.isFinite(Number(s.recycleRetentionDays))) {
       setRecycleDays(Number(s.recycleRetentionDays));
+    }
+    if (s.fleetDriftSnapshotMinutes != null && Number.isFinite(Number(s.fleetDriftSnapshotMinutes))) {
+      setDriftMins(Number(s.fleetDriftSnapshotMinutes));
+    }
+    if (s.upgradesKeepCount != null && Number.isFinite(Number(s.upgradesKeepCount))) {
+      setUpgradesKeep(Number(s.upgradesKeepCount));
+    }
+    if (s.recycleUrgentDays != null && Number.isFinite(Number(s.recycleUrgentDays))) {
+      setRecycleUrgentDays(Number(s.recycleUrgentDays));
     }
     if (Array.isArray(s.weakTeacherPasswordsExtra)) {
       setWeakExtraDraft(s.weakTeacherPasswordsExtra.join('\n'));
@@ -2941,10 +3169,55 @@ export function SettingsPanel({
         ),
       )
       .catch(() => setUpgradeFiles([]));
-    const poll = window.setInterval(() => {
-      void loadAssistants().catch(() => undefined);
-    }, 5_000);
-    return () => window.clearInterval(poll);
+
+    const token = getToken() || '';
+    let es: EventSource | null = null;
+    if (token && typeof EventSource !== 'undefined') {
+      es = new EventSource(
+        `${API_BASE}/api/v1/auth/assistants/stream?token=${encodeURIComponent(token)}`,
+      );
+      es.addEventListener('assistants.updated', () => {
+        void loadAssistants().catch(() => undefined);
+      });
+      es.onmessage = () => {
+        void loadAssistants().catch(() => undefined);
+      };
+      es.onerror = () => {
+        /* browser will retry; fall back to one-shot reload */
+        void loadAssistants().catch(() => undefined);
+      };
+    }
+
+    async function pollHealthAlert() {
+      try {
+        const res = await fetch(`${API_BASE}/health`, { cache: 'no-store' });
+        const body = (await res.json()) as {
+          exportTmp?: { tmpLeaked?: number };
+          audit?: { retryQueueSize?: number; degraded?: boolean };
+        };
+        const leaked = Number(body.exportTmp?.tmpLeaked ?? 0);
+        const pending = Number(body.audit?.retryQueueSize ?? 0);
+        const degraded = Boolean(body.audit?.degraded);
+        if (leaked > 0 || pending > 0 || degraded) {
+          setHealthAlert({
+            exportTmpLeaked: leaked,
+            auditRetryPending: pending,
+            auditRetryDegraded: degraded,
+          });
+        } else {
+          setHealthAlert(null);
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+    void pollHealthAlert();
+    const healthPoll = window.setInterval(() => void pollHealthAlert(), 15_000);
+
+    return () => {
+      es?.close();
+      window.clearInterval(healthPoll);
+    };
   }, [exitKindFilter, exitEventsPage]);
 
   async function openAssistantGrants(assistantId: string) {
@@ -2956,6 +3229,8 @@ export function SettingsPanel({
       ),
       api<{ items: ClassItem[] }>('/api/v1/classes'),
     ]);
+    const wasEmpty = (gr.items ?? []).length === 0;
+    setGrantWasEmpty(wasEmpty);
     const byId = new Map(
       (gr.items ?? []).map((g) => [
         g.classId,
@@ -2973,6 +3248,11 @@ export function SettingsPanel({
         canAwardPoints: byId.get(c.id)?.canAwardPoints ?? false,
       })),
     );
+    if (wasEmpty) {
+      setGrantMsg(
+        '当前为空表：助教仍可全局只读导出。首次勾选并保存后将改为仅授权班级可导出/加分。',
+      );
+    }
   }
 
   async function saveAssistantGrants() {
@@ -2984,10 +3264,17 @@ export function SettingsPanel({
         canExport: r.canExport,
         canAwardPoints: r.canAwardPoints,
       }));
+    if (grantWasEmpty && grants.length > 0) {
+      const ok = window.confirm(
+        '即将离开「空表 = 全班可导出」的旧行为：保存后仅勾选班级可导出/加分，未勾选班级将无法导出。确定继续？',
+      );
+      if (!ok) return;
+    }
     await api(`/api/v1/auth/assistants/${grantEditId}/grants`, {
       method: 'PUT',
       body: JSON.stringify({ grants }),
     });
+    setGrantWasEmpty(grants.length === 0);
     setGrantMsg(
       grants.length === 0
         ? '已清空按班授权（助教恢复全局只读导出）'
@@ -3014,15 +3301,28 @@ export function SettingsPanel({
         lanIps?: string[];
         suggestedApiBase?: string;
         backup?: { latestAt?: string | null; lastError?: { message?: string } | null };
-        audit?: { lastError?: { message?: string } | null };
+        audit?: {
+          lastError?: { message?: string } | null;
+          retryQueueSize?: number;
+          degraded?: boolean;
+        };
+        exportTmp?: { tmpLeaked?: number };
       };
       const err = body.backup?.lastError;
       const auditErr = body.audit?.lastError;
+      const leaked = Number(body.exportTmp?.tmpLeaked ?? 0);
+      setHealthAlert({
+        exportTmpLeaked: leaked,
+        auditRetryPending: Number(body.audit?.retryQueueSize ?? 0),
+        auditRetryDegraded: Boolean(body.audit?.degraded),
+      });
       setDiag(
         body.ok
           ? `正常 ${ms}ms · LAN ${body.lanIps?.join(', ') || '—'} · ${body.suggestedApiBase ?? ''}${
               err ? ` · backupError：${err.message ?? JSON.stringify(err)}` : ''
-            }${auditErr ? ` · auditError：${auditErr.message}` : ' · 无 lastError'}`
+            }${auditErr ? ` · auditError：${auditErr.message}` : ' · 无 lastError'}${
+              leaked > 0 ? ` · exportTmp 泄漏 ${leaked}` : ''
+            }`
           : `失败 HTTP ${res.status}${auditErr ? ` · audit：${auditErr.message}` : ''}${
               err ? ` · backup：${err.message}` : ''
             }`,
@@ -3060,6 +3360,41 @@ export function SettingsPanel({
             一键检测 /health
           </button>
           {diag ? <p className="hint">{diag}</p> : null}
+          {healthAlert && (healthAlert.exportTmpLeaked ?? 0) > 0 ? (
+            <p className="error" data-testid="export-tmp-leak-alert" role="alert">
+              导出临时文件泄漏 {healthAlert.exportTmpLeaked} 个（/health.exportTmp.tmpLeaked）。请检查磁盘与导出流程，必要时重启服务。
+            </p>
+          ) : null}
+          {healthAlert &&
+          ((healthAlert.auditRetryPending ?? 0) > 0 || healthAlert.auditRetryDegraded) ? (
+            <div className="row" data-testid="audit-retry-flush-bar">
+              <p className="error" role="alert">
+                审计重试队列积压 {healthAlert.auditRetryPending ?? 0}
+                {healthAlert.auditRetryDegraded ? '（degraded）' : ''}
+              </p>
+              <button
+                type="button"
+                className="secondary"
+                data-testid="audit-retry-flush"
+                onClick={() =>
+                  void api<{ message?: string }>('/api/v1/ops/audit-retry/flush', {
+                    method: 'POST',
+                    body: '{}',
+                  })
+                    .then((r) => {
+                      setFlushMsg(r.message ?? '已 flush');
+                      void runDiag();
+                    })
+                    .catch((e) =>
+                      setFlushMsg(e instanceof Error ? e.message : 'flush 失败'),
+                    )
+                }
+              >
+                立即 flush 审计队列
+              </button>
+              {flushMsg ? <span className="hint">{flushMsg}</span> : null}
+            </div>
+          ) : null}
         </>
       ) : null}
 
@@ -3262,7 +3597,8 @@ export function SettingsPanel({
 
           <h3>数据保留 / 备份加密</h3>
           <p className="hint">
-            回收站按 recycle_retention_days 自动 purge；也可手动立即清理。备份 AES 口令生成 .enc。
+            回收站默认 {RECYCLE_RETENTION_DAYS} 天（与 @classroom-desk/shared · docs/PERMISSIONS.md 对齐）；
+            调度按 recycle_retention_days 自动 purge。即将到期高亮阈值默认 ≤{RECYCLE_URGENT_DAYS} 天。
           </p>
           <label>
             回收站保留天数
@@ -3273,13 +3609,37 @@ export function SettingsPanel({
               value={recycleDays}
               onChange={(e) => setRecycleDays(Number(e.target.value) || 1)}
               onBlur={() => {
-                const days = Math.max(1, Math.min(365, Math.trunc(recycleDays) || 30));
+                const days = Math.max(
+                  1,
+                  Math.min(365, Math.trunc(recycleDays) || RECYCLE_RETENTION_DAYS),
+                );
                 setRecycleDays(days);
                 void api('/api/v1/settings', {
                   method: 'PATCH',
                   body: JSON.stringify({ recycleRetentionDays: days }),
                 })
                   .then(() => setSaveMsg(`回收站保留 ${days} 天（调度按此 purge）`))
+                  .catch((err) => setSaveMsg(err instanceof Error ? err.message : '保存失败'));
+              }}
+            />
+          </label>
+          <label>
+            即将到期高亮（剩余天数 ≤）
+            <input
+              type="number"
+              min={0}
+              max={30}
+              data-testid="recycle-urgent-days"
+              value={recycleUrgentDays}
+              onChange={(e) => setRecycleUrgentDays(Number(e.target.value) || 0)}
+              onBlur={() => {
+                const days = Math.max(0, Math.min(30, Math.trunc(recycleUrgentDays) || 0));
+                setRecycleUrgentDays(days);
+                void api('/api/v1/settings', {
+                  method: 'PATCH',
+                  body: JSON.stringify({ recycleUrgentDays: days }),
+                })
+                  .then(() => setSaveMsg(`即将到期阈值：剩余 ≤${days} 天时醒目`))
                   .catch((err) => setSaveMsg(err instanceof Error ? err.message : '保存失败'));
               }}
             />
@@ -3389,7 +3749,7 @@ export function SettingsPanel({
                     setRestoreConfirmInput('');
                     setBackupMsg(
                       r.message
-                        ? `${r.message}${r.confirmCode ? ` · 确认码 ${r.confirmCode}` : ''} → ${r.restoredPath}`
+                        ? `${r.message}${r.confirmCode ? ' · 请点「复制确认码」后粘贴' : ''} → ${r.restoredPath}`
                         : '已准备',
                     );
                   })
@@ -3436,12 +3796,42 @@ export function SettingsPanel({
           </div>
           {restoreSha ? <p className="hint">sha256={restoreSha}</p> : null}
           {restoreConfirmCode ? (
+            <div className="row">
+              <button
+                type="button"
+                className="secondary"
+                onClick={() => {
+                  void navigator.clipboard
+                    .writeText(restoreConfirmCode)
+                    .then(() => {
+                      setBackupMsg('确认码已复制到剪贴板（仅此一次显示机会，请粘贴到下方）');
+                      setRestoreConfirmCode('');
+                    })
+                    .catch(() => {
+                      setBackupMsg(`请手动抄写确认码：${restoreConfirmCode}`);
+                      setRestoreConfirmCode('');
+                    });
+                }}
+              >
+                复制确认码（一次）
+              </button>
+              <label>
+                粘贴二次确认码
+                <input
+                  value={restoreConfirmInput}
+                  onChange={(e) => setRestoreConfirmInput(e.target.value)}
+                  placeholder="六位数字"
+                  autoComplete="one-time-code"
+                />
+              </label>
+            </div>
+          ) : restoreSha ? (
             <label>
-              二次确认码（校验步骤下发，10 分钟有效）
+              粘贴二次确认码
               <input
                 value={restoreConfirmInput}
                 onChange={(e) => setRestoreConfirmInput(e.target.value)}
-                placeholder={restoreConfirmCode}
+                placeholder="六位数字（先点校验并复制）"
                 autoComplete="one-time-code"
               />
             </label>
@@ -3454,8 +3844,50 @@ export function SettingsPanel({
             </ol>
           ) : null}
 
+          <h3>运维调度</h3>
+          <label>
+            漂移快照间隔（分钟，0=关闭）
+            <input
+              type="number"
+              min={0}
+              max={1440}
+              value={driftMins}
+              onChange={(e) => setDriftMins(Number(e.target.value) || 0)}
+              onBlur={() => {
+                const mins = Math.max(0, Math.min(1440, Math.trunc(driftMins) || 0));
+                setDriftMins(mins);
+                void api('/api/v1/settings', {
+                  method: 'PATCH',
+                  body: JSON.stringify({ fleetDriftSnapshotMinutes: mins }),
+                })
+                  .then(() => setSaveMsg(`漂移快照间隔 ${mins} 分钟`))
+                  .catch((e) => setSaveMsg(e instanceof Error ? e.message : '保存失败'));
+              }}
+            />
+          </label>
+          <label>
+            升级包保留份数（1–20）
+            <input
+              type="number"
+              min={1}
+              max={20}
+              value={upgradesKeep}
+              onChange={(e) => setUpgradesKeep(Number(e.target.value) || 1)}
+              onBlur={() => {
+                const n = Math.max(1, Math.min(20, Math.trunc(upgradesKeep) || 3));
+                setUpgradesKeep(n);
+                void api('/api/v1/settings', {
+                  method: 'PATCH',
+                  body: JSON.stringify({ upgradesKeepCount: n }),
+                })
+                  .then(() => setSaveMsg(`升级包保留最新 ${n} 份`))
+                  .catch((e) => setSaveMsg(e instanceof Error ? e.message : '保存失败'));
+              }}
+            />
+          </label>
+
           <h3>LAN 升级包（Setup.exe）</h3>
-          <p className="hint">上传到服务器 /upgrades；.exe 自动配对生成 .sha256。</p>
+          <p className="hint">上传到服务器 /upgrades；.exe 自动配对生成 .sha256；超出保留份数自动删旧。</p>
           <label className="secondary" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             上传 Setup.exe
             <input

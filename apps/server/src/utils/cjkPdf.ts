@@ -1,22 +1,49 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { PDFDocument, rgb } from 'pdf-lib';
 import { getDataDir } from '../db/client.js';
 import { buildSimpleTablePdf } from './simplePdf.js';
 
 const FONT_URLS = [
-  // Open-source CJK (SIL OFL): Noto Sans SC via jsDelivr (googlefonts/noto-cjk)
-  'https://cdn.jsdelivr.net/gh/googlefonts/noto-cjk@main/Sans/OTF/SimplifiedChinese/NotoSansSC-Regular.otf',
+  'https://cdn.jsdelivr.net/gh/googlefonts/noto-cjk@main/Sans/Variable/TTF/Subset/NotoSansSC-VF.ttf',
 ];
 
-function fontCachePath(): string {
+const BUNDLE_CANDIDATES = [
+  'NotoSansSC-VF.ttf',
+  'NotoSansSC-Regular.otf',
+  'NotoSansSC-Regular.ttf',
+];
+
+function bundledFontPath(): string | null {
+  const assetsDir = path.join(path.dirname(fileURLToPath(import.meta.url)), '../../assets/fonts');
+  for (const name of BUNDLE_CANDIDATES) {
+    const p = path.join(assetsDir, name);
+    try {
+      if (fs.existsSync(p) && fs.statSync(p).size > 10_000) return p;
+    } catch {
+      /* next */
+    }
+  }
+  return null;
+}
+
+function cacheFontPath(): string {
   const env = process.env.CLASSROOM_DESK_CJK_FONT?.trim();
   if (env) return path.resolve(env);
-  return path.join(getDataDir(), 'fonts', 'NotoSansSC-Regular.otf');
+  return path.join(getDataDir(), 'fonts', 'NotoSansSC-VF.ttf');
 }
 
 async function ensureCjkFont(): Promise<Buffer | null> {
-  const dest = fontCachePath();
+  const bundled = bundledFontPath();
+  if (bundled) {
+    try {
+      return fs.readFileSync(bundled);
+    } catch {
+      /* fall through */
+    }
+  }
+  const dest = cacheFontPath();
   try {
     if (fs.existsSync(dest) && fs.statSync(dest).size > 10_000) {
       return fs.readFileSync(dest);
@@ -28,11 +55,20 @@ async function ensureCjkFont(): Promise<Buffer | null> {
   fs.mkdirSync(path.dirname(dest), { recursive: true });
   for (const url of FONT_URLS) {
     try {
-      const res = await fetch(url, { signal: AbortSignal.timeout(60_000) });
+      const res = await fetch(url, { signal: AbortSignal.timeout(90_000) });
       if (!res.ok) continue;
       const buf = Buffer.from(await res.arrayBuffer());
       if (buf.length < 10_000) continue;
       fs.writeFileSync(dest, buf);
+      // Also copy into bundle dir when writable (dev / first-run seed)
+      try {
+        const assetsDir = path.join(path.dirname(fileURLToPath(import.meta.url)), '../../assets/fonts');
+        fs.mkdirSync(assetsDir, { recursive: true });
+        const seed = path.join(assetsDir, 'NotoSansSC-VF.ttf');
+        if (!fs.existsSync(seed)) fs.copyFileSync(dest, seed);
+      } catch {
+        /* ignore */
+      }
       return buf;
     } catch {
       /* try next */

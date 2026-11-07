@@ -21,7 +21,13 @@ async function loadTesseract(): Promise<{
   };
 }
 
-export function PacksPanel({ classId }: { classId: string }) {
+export function PacksPanel({
+  classId,
+  onGoSession,
+}: {
+  classId: string;
+  onGoSession?: () => void;
+}) {
   const [msg, setMsg] = useState('');
   const [month, setMonth] = useState(
     `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`,
@@ -220,7 +226,8 @@ export function PacksPanel({ classId }: { classId: string }) {
           disabled={!ocrDraft}
           onClick={() => {
             persistDraft(ocrDraft);
-            setMsg('已写入上课快发题草稿（打开「上课」页自动填入）');
+            setMsg('已写入上课快发题草稿');
+            onGoSession?.();
           }}
         >
           送到快发题

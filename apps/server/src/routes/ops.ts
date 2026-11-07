@@ -4,6 +4,7 @@ import path from 'node:path';
 import { getDataDir, openDb } from '../db/client.js';
 import { getSetting } from '../db/migrate.js';
 import { requireAuth, requireRoles, type AuthedRequest } from '../middleware/auth.js';
+import { auditRetryHealth, flushAuditRetryQueue } from '../services/auditRetry.js';
 import { getBackupStatus } from '../services/backup.js';
 import { listPresenceClients } from '../services/presenceHub.js';
 import { summarizeDurations } from '../utils/percentile.js';
@@ -200,6 +201,25 @@ opsRouter.get(
         files: upgradeFiles,
       },
       classes: byClass,
+    });
+  },
+);
+
+/** Manually drain audit retry JSONL queue (teacher settings / health bypass). */
+opsRouter.post(
+  '/api/v1/ops/audit-retry/flush',
+  requireAuth,
+  requireRoles('teacher', 'admin'),
+  (_req: AuthedRequest, res) => {
+    const before = auditRetryHealth();
+    const result = flushAuditRetryQueue();
+    const after = auditRetryHealth();
+    res.json({
+      ok: true,
+      before,
+      result,
+      after,
+      message: `已重试写入 ${result.flushed} 条，剩余 ${result.remaining}，放弃 ${result.failed}`,
     });
   },
 );
