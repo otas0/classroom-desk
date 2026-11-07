@@ -50,10 +50,16 @@ test.describe('audit jump highlight', () => {
     await openPrepTab(page, '设置');
     await expect(page.getByRole('heading', { name: /操作审计/ })).toBeVisible({ timeout: 15_000 });
 
-    // Scope audit to this class so `.first()` cannot hit another suite's soft-delete.
     const auditCard = page.locator('.card').filter({ has: page.getByRole('heading', { name: /操作审计/ }) });
-    await auditCard.locator('select').first().selectOption(classId);
-    const jump = auditCard.getByTestId('audit-jump-ids').filter({ hasText: '跳转题目回收站' });
+    // Class + action filters keep the list to this suite's soft-delete (shared CI DB).
+    await auditCard.locator('select').nth(0).selectOption(classId);
+    await auditCard.locator('select').nth(1).selectOption('questions.bulk_delete');
+    const jump = auditCard
+      .getByRole('listitem')
+      .filter({ hasText: 'questions.bulk_delete' })
+      .getByTestId('audit-jump-ids')
+      .filter({ hasText: '跳转题目回收站' })
+      .first();
     await expect(jump).toBeVisible({ timeout: 20_000 });
     await jump.click();
 
