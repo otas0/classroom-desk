@@ -2865,6 +2865,9 @@ export function SettingsPanel({
     camera: false,
   });
   const [inputLockBusy, setInputLockBusy] = useState(false);
+  const [inputLockScope, setInputLockScope] = useState<'global' | 'class' | 'seat'>('global');
+  const [inputLockSeatId, setInputLockSeatId] = useState('');
+  const [examModeBusy, setExamModeBusy] = useState(false);
   const [exitEvents, setExitEvents] = useState<
     Array<{ id: string; kind: string; detail: string; createdAt: string; actorRole?: string | null }>
   >([]);
@@ -3069,8 +3072,63 @@ export function SettingsPanel({
       code_set: '首次设置解除码',
       code_rotated: '轮换解除码',
       rate_config: '限流/轮换配置',
+      input_lock: '物理输入锁',
+      exam_mode: '考试模式',
+      client_reconcile: '断线对账冲突',
     };
     return map[kind] ? `${map[kind]}（${kind}）` : kind;
+  }
+
+  function auditActionLabel(action: string): string {
+    const map: Record<string, string> = {
+      'settings.input_lock': '物理输入锁变更',
+      'settings.exam_mode': '一键考试模式',
+      'session.raise_hand': '学生举手',
+    };
+    return map[action] ? `${map[action]}（${action}）` : action;
+  }
+
+  function currentTeacherClassId(): string {
+    return localStorage.getItem('cd_teacher_class_id')?.trim() || '';
+  }
+
+  function patchInputLock(next: typeof inputLock) {
+    setInputLock(next);
+    setInputLockBusy(true);
+    const classId = currentTeacherClassId();
+    const body: Record<string, unknown> = {
+      inputLock: {
+        ...next,
+        scope: inputLockScope,
+        classId: inputLockScope === 'global' ? undefined : classId || undefined,
+        seatId: inputLockScope === 'seat' ? inputLockSeatId.trim() || undefined : undefined,
+      },
+    };
+    void api<{ inputLock?: typeof inputLock }>('/api/v1/settings', {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    })
+      .then((r) => {
+        if (r.inputLock) {
+          setInputLock({
+            keyboard: Boolean(r.inputLock.keyboard),
+            mouse: Boolean(r.inputLock.mouse),
+            voice: Boolean(r.inputLock.voice),
+            camera: Boolean(r.inputLock.camera),
+          });
+        }
+        const scopeZh =
+          inputLockScope === 'seat'
+            ? '机位'
+            : inputLockScope === 'class'
+              ? '当前班级'
+              : '全局';
+        setExitMsg(`物理输入锁已更新（${scopeZh}，已推送到学生端）`);
+        void loadAudit().catch(() => undefined);
+        void refreshExitLock().catch(() => undefined);
+      })
+      .catch((err) => setExitMsg(err instanceof Error ? err.message : '输入锁保存失败'))
+      .finally(() => setInputLockBusy(false));
   }
 
   async function exportExitLockCsv(opts: { limit: number; offset: number; filename: string }) {
@@ -4814,7 +4872,8 @@ export function SettingsPanel({
           ) : null}
           <h4 id="input-lock-settings">物理输入锁</h4>
           <p className="hint">
-            上课时可由教师关闭学生端键鼠点击、语音与摄像头采集。学生端会显示醒目提示；仅限制本应用内输入，不能代替 Assigned Access。
+            上课时可由教师关闭学生端键鼠点击、语音与摄像头采集。可按全局 / 当前班级 / 机位作用；学生端醒目提示。仅限制本应用，不能代替 Assigned
+            Access。须事先告知学生。
           </p>
           {isAssistant() ? (
             <p className="hint" data-testid="input-lock-readonly">
@@ -4824,10 +4883,35 @@ export function SettingsPanel({
             </p>
           ) : (
             <div className="card" data-testid="input-lock-controls">
+              <label>
+                作用范围
+                <select
+                  data-testid="input-lock-scope"
+                  value={inputLockScope}
+                  onChange={(e) =>
+                    setInputLockScope(e.target.value as 'global' | 'class' | 'seat')
+                  }
+                >
+                  <option value="global">全校全局</option>
+                  <option value="class">当前班级</option>
+                  <option value="seat">当前班级 · 指定机位</option>
+                </select>
+              </label>
+              {inputLockScope === 'seat' ? (
+                <label>
+                  机位 / 客户端 ID
+                  <input
+                    data-testid="input-lock-seat-id"
+                    value={inputLockSeatId}
+                    onChange={(e) => setInputLockSeatId(e.target.value)}
+                    placeholder="如 presence 客户端 id 或座位号"
+                  />
+                </label>
+              ) : null}
               {(
                 [
                   ['keyboard', '禁止键盘输入'],
-                  ['mouse', '禁止鼠标/点击'],
+                  ['mouse', '禁止鼠标/点击（保留「向教师举手」）'],
                   ['voice', '禁止语音/麦克风'],
                   ['camera', '禁止相机'],
                 ] as const
@@ -4838,30 +4922,7 @@ export function SettingsPanel({
                     checked={inputLock[key]}
                     disabled={inputLockBusy}
                     data-testid={`input-lock-${key}`}
-                    onChange={(e) => {
-                      const next = { ...inputLock, [key]: e.target.checked };
-                      setInputLock(next);
-                      setInputLockBusy(true);
-                      void api<{ inputLock?: typeof inputLock }>('/api/v1/settings', {
-                        method: 'PATCH',
-                        body: JSON.stringify({ inputLock: next }),
-                      })
-                        .then((r) => {
-                          if (r.inputLock) {
-                            setInputLock({
-                              keyboard: Boolean(r.inputLock.keyboard),
-                              mouse: Boolean(r.inputLock.mouse),
-                              voice: Boolean(r.inputLock.voice),
-                              camera: Boolean(r.inputLock.camera),
-                            });
-                          }
-                          setExitMsg('物理输入锁已更新（已推送到学生端）');
-                        })
-                        .catch((err) =>
-                          setExitMsg(err instanceof Error ? err.message : '输入锁保存失败'),
-                        )
-                        .finally(() => setInputLockBusy(false));
-                    }}
+                    onChange={(e) => patchInputLock({ ...inputLock, [key]: e.target.checked })}
                   />
                   {label}
                 </label>
@@ -4872,30 +4933,14 @@ export function SettingsPanel({
                   className="secondary"
                   disabled={inputLockBusy}
                   data-testid="input-lock-all"
-                  onClick={() => {
-                    const next = {
+                  onClick={() =>
+                    patchInputLock({
                       keyboard: true,
                       mouse: true,
                       voice: true,
                       camera: true,
-                    };
-                    setInputLockBusy(true);
-                    void api<{ inputLock?: typeof inputLock }>('/api/v1/settings', {
-                      method: 'PATCH',
-                      body: JSON.stringify({ inputLock: next }),
                     })
-                      .then((r) => {
-                        setInputLock({
-                          keyboard: Boolean(r.inputLock?.keyboard),
-                          mouse: Boolean(r.inputLock?.mouse),
-                          voice: Boolean(r.inputLock?.voice),
-                          camera: Boolean(r.inputLock?.camera),
-                        });
-                        setExitMsg('已锁定全部物理输入');
-                      })
-                      .catch((e) => setExitMsg(e instanceof Error ? e.message : '失败'))
-                      .finally(() => setInputLockBusy(false));
-                  }}
+                  }
                 >
                   全部锁定
                 </button>
@@ -4904,32 +4949,54 @@ export function SettingsPanel({
                   className="secondary"
                   disabled={inputLockBusy}
                   data-testid="input-lock-none"
-                  onClick={() => {
-                    const next = {
+                  onClick={() =>
+                    patchInputLock({
                       keyboard: false,
                       mouse: false,
                       voice: false,
                       camera: false,
-                    };
-                    setInputLockBusy(true);
-                    void api<{ inputLock?: typeof inputLock }>('/api/v1/settings', {
-                      method: 'PATCH',
-                      body: JSON.stringify({ inputLock: next }),
                     })
-                      .then((r) => {
-                        setInputLock({
-                          keyboard: Boolean(r.inputLock?.keyboard),
-                          mouse: Boolean(r.inputLock?.mouse),
-                          voice: Boolean(r.inputLock?.voice),
-                          camera: Boolean(r.inputLock?.camera),
-                        });
-                        setExitMsg('已解除全部物理输入锁');
-                      })
-                      .catch((e) => setExitMsg(e instanceof Error ? e.message : '失败'))
-                      .finally(() => setInputLockBusy(false));
-                  }}
+                  }
                 >
                   全部解除
+                </button>
+                <button
+                  type="button"
+                  disabled={examModeBusy || inputLockBusy}
+                  data-testid="exam-mode-btn"
+                  onClick={() => {
+                    if (
+                      !window.confirm(
+                        '开启考试模式？将锁定键鼠语音相机，并重新锁定学生端退出。',
+                      )
+                    ) {
+                      return;
+                    }
+                    setExamModeBusy(true);
+                    const classId = currentTeacherClassId();
+                    void api('/api/v1/settings', {
+                      method: 'PATCH',
+                      body: JSON.stringify({
+                        examMode: true,
+                        examModeClassId: inputLockScope === 'global' ? '' : classId,
+                      }),
+                    })
+                      .then(async () => {
+                        setInputLock({
+                          keyboard: true,
+                          mouse: true,
+                          voice: true,
+                          camera: true,
+                        });
+                        setExitMsg('考试模式已开启：输入全锁 + 退出锁定');
+                        await refreshExitLock().catch(() => undefined);
+                        await loadAudit().catch(() => undefined);
+                      })
+                      .catch((e) => setExitMsg(e instanceof Error ? e.message : '考试模式失败'))
+                      .finally(() => setExamModeBusy(false));
+                  }}
+                >
+                  {examModeBusy ? '开启中…' : '一键考试模式'}
                 </button>
               </div>
             </div>
@@ -5138,6 +5205,7 @@ export function SettingsPanel({
                 <option value="rate_config">限流/轮换配置</option>
                 <option value="client_reconcile">断线对账冲突</option>
                 <option value="input_lock">物理输入锁</option>
+                <option value="exam_mode">考试模式</option>
               </select>
             </label>
             <div className="row">
@@ -5322,7 +5390,7 @@ stateDiagram-v2
             <ul>
               {auditItems.map((a) => (
                 <li key={a.id}>
-                  {new Date(a.createdAt).toLocaleString()} · {a.action}
+                  {new Date(a.createdAt).toLocaleString()} · {auditActionLabel(a.action)}
                   {a.actorRole ? ` · ${a.actorRole}` : ''}
                   {a.detail ? (
                     <>

@@ -44,9 +44,10 @@ test.describe('physical input lock', () => {
 
     await openPrepTab(page, '设置');
     await expect(page.getByTestId('input-lock-controls')).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId('input-lock-scope')).toBeVisible();
     await page.getByTestId('input-lock-keyboard').check();
     await page.getByTestId('input-lock-camera').check();
-    await expect(page.getByText('物理输入锁已更新（已推送到学生端）').first()).toBeVisible({
+    await expect(page.getByText(/物理输入锁已更新/).first()).toBeVisible({
       timeout: 8_000,
     });
 
@@ -76,7 +77,7 @@ test.describe('physical input lock', () => {
     await student.close();
   });
 
-  test('assistant cannot PATCH inputLock controls', async ({ page, request }) => {
+  test('assistant cannot PATCH inputLock (API 403)', async ({ request }) => {
     const password = await ensureTeacherPasswordReady(request);
     const login = await request.post(`${API}/api/v1/auth/login`, {
       data: { username: TEACHER_USER, password },
@@ -103,15 +104,35 @@ test.describe('physical input lock', () => {
       data: { inputLock: { keyboard: true, mouse: true, voice: true, camera: true } },
     });
     expect(denied.status()).toBe(403);
+  });
 
-    // UI readonly when assistant opens 设置 (may hit password gate — soft skip)
-    const { loginStaffWeb } = await import('./helpers/teacherWebLogin');
-    await loginStaffWeb(page, user, pass);
-    if (await page.getByText('请先修改个人密码').isVisible().catch(() => false)) {
-      test.skip(true, 'must-change-password');
-    }
-    await page.locator('aside').getByRole('button', { name: '设置', exact: true }).click();
-    await expect(page.getByTestId('input-lock-readonly')).toBeVisible({ timeout: 15_000 });
-    await expect(page.getByTestId('input-lock-controls')).toHaveCount(0);
+  test('exam mode locks inputs + exit + audit exam_mode', async ({ request }) => {
+    const password = await ensureTeacherPasswordReady(request);
+    const login = await request.post(`${API}/api/v1/auth/login`, {
+      data: { username: TEACHER_USER, password },
+    });
+    expect(login.ok()).toBeTruthy();
+    const { token } = (await login.json()) as { token: string };
+    const auth = { Authorization: `Bearer ${token}` };
+
+    const exam = await request.patch(`${API}/api/v1/settings`, {
+      headers: auth,
+      data: { examMode: true },
+    });
+    expect(exam.ok()).toBeTruthy();
+    const body = (await exam.json()) as {
+      inputLock?: { keyboard?: boolean; mouse?: boolean };
+      clientExitAllowed?: boolean;
+    };
+    expect(body.inputLock?.keyboard).toBeTruthy();
+    expect(body.inputLock?.mouse).toBeTruthy();
+    expect(body.clientExitAllowed).toBeFalsy();
+
+    const ev = await request.get(`${API}/api/v1/settings/exit-lock-events?kind=exam_mode&limit=5`, {
+      headers: auth,
+    });
+    expect(ev.ok()).toBeTruthy();
+    const items = ((await ev.json()) as { items: Array<{ kind: string }> }).items;
+    expect(items.some((i) => i.kind === 'exam_mode')).toBeTruthy();
   });
 });

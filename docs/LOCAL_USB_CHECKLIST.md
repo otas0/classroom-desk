@@ -5,6 +5,22 @@
 
 建议目录：`releases/<教师机IP或教室代号>/`（exe 已 gitignore）。
 
+## 本批 0.1.7 安装包（USB）
+
+从 Release `v0.1.7` 或本地 `artifacts/windows-pack-check/` 拷入 U 盘目录：
+
+| 文件 | 校验 |
+|---|---|
+| `ClassroomDesk-Setup-0.1.7.exe` | SHA256 `992ee805ff2a8e92f66dfaee6d26068b29ac598d08082af0ebc399408f898b57` |
+| `ClassroomDesk-Setup-0.1.7.exe.sha256` | 第一列须与上表一致 |
+
+```powershell
+Get-FileHash -Algorithm SHA256 .\ClassroomDesk-Setup-0.1.7.exe
+# 期望：992ee805ff2a8e92f66dfaee6d26068b29ac598d08082af0ebc399408f898b57
+```
+
+版本↔tag 对照见 [ARTIFACTS.md](./ARTIFACTS.md)。C2 勾选见下文「C2」。
+
 ## 原则
 
 - `apiBase=http://<教师机局域网IP>:8787`（写入 settings + 学生 `config.json`）  
@@ -13,7 +29,8 @@
 
 ## 合规（强制）
 
-- [ ] **须学校 IT 知情**：已向机房/信息中心说明「学生端退出锁定 + Assigned Access / 组策略」方案，并确认可审计、可卸载策略路径（见 [EXIT_LOCK_MDM.md](./EXIT_LOCK_MDM.md)、[STUDENT_LOCK_HARDENING_PLAN.md](./STUDENT_LOCK_HARDENING_PLAN.md)）
+- [ ] **须学校 IT 知情**：已向机房/信息中心说明「学生端退出锁定 + Assigned Access / 组策略」方案，并确认可审计、可卸载策略路径（见 [EXIT_LOCK_MDM.md](./EXIT_LOCK_MDM.md)、[STUDENT_LOCK_HARDENING_PLAN.md](./STUDENT_LOCK_HARDENING_PLAN.md)）  
+- [ ] **物理输入锁须告知学生**：启用键鼠/语音/相机锁或「考试模式」前，已当面或投影说明用途与解除方式（学生端有醒目横幅；鼠标锁时仍可「向教师举手」）
 
 清库重生（改成自己的 IP / 班名）：
 
@@ -41,6 +58,7 @@ npm run prepare:live -- --apiBase http://192.168.x.x:8787 --className 高一(3)�
 
 ## C2. 锁退出（须 Windows 真机）
 
+操作员一页纸：[SAMPLE_MACHINE_OPS.md](./SAMPLE_MACHINE_OPS.md)。  
 详见 [EXIT_LOCK_MDM.md](./EXIT_LOCK_MDM.md)（C2 证据表 + Assigned Access 真实 NSIS 路径 + Intune XML [`intune-student-kiosk.example.xml`](./intune-student-kiosk.example.xml)）。  
 静态检查（CI / `dist:win`）：`npm run verify:exit-lock-packaged`（`REQUIRE_WIN_EXE=1` 无 exe 硬失败；Artifact 保留 30 天）。
 

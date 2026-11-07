@@ -22,9 +22,15 @@ import {
   setExitUnlockCode,
   setExitUnlockRateConfig,
 } from '../services/exitLock.js';
-import { setInputLockFlags, type InputLockFlags } from '../services/inputLock.js';
-import { addExitLockSseClient } from '../services/exitLockHub.js';
-import { broadcastExitLockPayload } from '../services/exitLockHub.js';
+import {
+  applyExamModeInputLock,
+  getInputLockStore,
+  inputLockActive,
+  resolveInputLock,
+  setInputLockStore,
+  type InputLockFlags,
+} from '../services/inputLock.js';
+import { addExitLockSseClient, broadcastExitLockPayload } from '../services/exitLockHub.js';
 import { previewPurgeExpiredSoftDeletes, purgeExpiredSoftDeletes, writeAudit } from '../services/audit.js';
 import { toCsv } from '../utils/csv.js';
 import {
@@ -43,9 +49,16 @@ import { nowIso } from '../utils/id.js';
 
 export const settingsRouter = Router();
 
-settingsRouter.get('/api/v1/settings/public', (_req, res) => {
+settingsRouter.get('/api/v1/settings/public', (req, res) => {
   const db = openDb();
   const exit = getClientExitLockState(db);
+  const classId = String(req.query.classId ?? '').trim();
+  const seatId = String(req.query.seatId ?? '').trim();
+  const store = getInputLockStore(db);
+  const resolved = resolveInputLock(store, {
+    classId: classId || null,
+    seatId: seatId || null,
+  });
   res.json({
     noticeText: getSetting(db, 'notice_text') ?? APP_NOTICE,
     attendanceNoticeText: getSetting(db, 'attendance_notice_text') ?? ATTENDANCE_NOTICE,
@@ -62,8 +75,9 @@ settingsRouter.get('/api/v1/settings/public', (_req, res) => {
     exitUnlockCodeRotationDue: exit.exitUnlockCodeRotationDue,
     exitUnlockCodeAgeDays: exit.exitUnlockCodeAgeDays,
     exitUnlockCodeRotateDays: exit.exitUnlockCodeRotateDays,
-    inputLock: exit.inputLock,
-    inputLockActive: exit.inputLockActive,
+    inputLock: resolved,
+    inputLockStore: store,
+    inputLockActive: inputLockActive(resolved),
   });
 });
 
@@ -326,16 +340,42 @@ settingsRouter.patch('/api/v1/settings', requireAuth, requireRoles('teacher', 'a
     return;
   }
 
-  /** Physical input lock on student desktop (visible kiosk control, not OS malware). */
+  /** One-click exam mode: full input lock + exit relock. */
+  if (req.body?.examMode === true) {
+    const classId = String(req.body?.examModeClassId ?? req.body?.classId ?? '').trim();
+    applyExamModeInputLock(db, { classId: classId || null }, actor);
+    relockClientExit(db, actor);
+    const state = getClientExitLockState(db);
+    broadcastExitLockPayload(state);
+    res.json({ ok: true, examMode: true, ...state });
+    return;
+  }
+
+  /** Physical input lock (global / class / seat). Visible kiosk control, not OS malware. */
   if (req.body?.inputLock != null && typeof req.body.inputLock === 'object') {
-    const raw = req.body.inputLock as Partial<InputLockFlags>;
-    setInputLockFlags(
+    const raw = req.body.inputLock as Partial<InputLockFlags> & {
+      classId?: string;
+      seatId?: string;
+      clearClass?: boolean;
+      clearSeat?: boolean;
+      scope?: 'global' | 'class' | 'seat';
+    };
+    const classId = String(raw.classId ?? req.body?.classId ?? '').trim();
+    const seatId = String(raw.seatId ?? req.body?.seatId ?? '').trim();
+    const scope = raw.scope ?? (seatId ? 'seat' : classId ? 'class' : 'global');
+    setInputLockStore(
       db,
       {
-        keyboard: raw.keyboard,
-        mouse: raw.mouse,
-        voice: raw.voice,
-        camera: raw.camera,
+        classId: scope === 'global' ? null : classId || null,
+        seatId: scope === 'seat' ? seatId || null : null,
+        flags: {
+          keyboard: raw.keyboard,
+          mouse: raw.mouse,
+          voice: raw.voice,
+          camera: raw.camera,
+        },
+        clearClass: raw.clearClass === true,
+        clearSeat: raw.clearSeat === true,
       },
       actor,
     );

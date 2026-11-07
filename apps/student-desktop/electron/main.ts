@@ -272,3 +272,23 @@ ipcMain.handle('kiosk:get-hardening', () => {
   }
   return { hardened: false, reason: 'windows_no_assigned_access_signal' as const };
 });
+
+/**
+ * Align with renderer mouse input-lock overlay:
+ * never click-through; keep always-on-top so the lock surface receives events.
+ */
+ipcMain.handle('lock:set-input-mouse-locked', (_event, locked: boolean) => {
+  if (!mainWindow || mainWindow.isDestroyed()) return { ok: false };
+  try {
+    // Never click-through while app is open; lock overlay must receive events.
+    mainWindow.setIgnoreMouseEvents(false);
+    mainWindow.setAlwaysOnTop(true);
+    if (locked) {
+      mainWindow.show();
+      mainWindow.focus();
+    }
+    return { ok: true, mouseLocked: Boolean(locked) };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : 'set_failed' };
+  }
+});

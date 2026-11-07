@@ -161,6 +161,35 @@ sessionLiveRouter.post(
   },
 );
 
+/** Student raise-hand while mouse input-lock is on (whitelist escape hatch). */
+sessionLiveRouter.post(
+  '/api/v1/session/raise-hand',
+  requireAuth,
+  requireRoles('student'),
+  (req: AuthedRequest, res) => {
+    const classId = req.user?.classId;
+    if (!classId) {
+      res.status(400).json({ error: 'class_required', message: '本机未指派班级' });
+      return;
+    }
+    const db = openDb();
+    writeAudit(
+      {
+        action: 'session.raise_hand',
+        actorUserId: req.user?.id,
+        actorRole: 'student',
+        classId,
+        detail: `${req.user?.displayName ?? req.user?.id} 举手求助`,
+        clientIp: String(req.headers['x-forwarded-for'] ?? req.socket.remoteAddress ?? '')
+          .split(',')[0]
+          .trim(),
+      },
+      db,
+    );
+    res.json({ ok: true, message: '已向教师举手' });
+  },
+);
+
 sessionLiveRouter.post(
   '/api/v1/session/buzz/award-winner',
   requireAuth,

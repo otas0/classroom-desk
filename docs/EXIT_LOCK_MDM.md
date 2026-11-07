@@ -119,11 +119,25 @@ JSON 片段（Intune「展台」或多应用 Assigned Access）：
 | 开关 | 学生端行为 |
 |------|------------|
 | 键盘 | 捕获阶段拦截 keydown/keyup（本窗口） |
-| 鼠标/点击 | 拦截 pointer/click + 半透明遮罩 |
-| 语音 | 拒绝 `getUserMedia(audio)` / SpeechRecognition |
-| 相机 | 拒绝 `getUserMedia(video)` |
+| 鼠标/点击 | 拦截 pointer/click + 半透明遮罩；**白名单**保留「向教师举手」 |
+| 语音 | 拒绝 `getUserMedia(audio)` / SpeechRecognition；停掉已有 tracks |
+| 相机 | 拒绝 `getUserMedia(video)`；扫码失败文案引导粘贴 JSON |
 
-- 实时推送走现有 `/exit-lock/ws` + SSE；审计 kind=`input_lock`。  
+**作用范围**：全校全局 / 当前班级 / 班级+机位（座位或 presence 客户端 id）。  
+**考试模式**：一键键鼠语音相机全锁 + 退出重新锁定。  
+**投影大屏**：显示「全班输入锁」摘要条。
+
+操作路径（文字示意，勿提交海报 PDF）：
+
+```text
+备课 → 设置 → #input-lock-settings
+  ├─ 作用范围：全局 | 当前班级 | 机位
+  ├─ ☑ 禁止键盘 / 鼠标 / 语音 / 相机
+  ├─ [全部锁定] [全部解除] [一键考试模式]
+  └─ 退出锁定审计筛选「物理输入锁」可见中文标签
+```
+
+- 实时推送走现有 `/exit-lock/ws` + SSE；审计 kind=`input_lock` / `exam_mode`，教师操作审计 `settings.input_lock`。  
 - **不做** OS 级键鼠钩子、隐蔽监控或对抗杀软；系统热键/其它进程仍依赖 Assigned Access。  
 - e2e：`e2e/input-lock.spec.ts`。
 

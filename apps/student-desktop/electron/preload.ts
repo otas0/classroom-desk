@@ -28,6 +28,7 @@ export type StudentDesktopAPI = {
   grantExitAndQuit: () => Promise<boolean>;
   onBlockedClose: (cb: () => void) => () => void;
   getKioskHardening: () => Promise<KioskHardening>;
+  setInputMouseLocked: (locked: boolean) => Promise<{ ok: boolean; mouseLocked?: boolean; error?: string }>;
 };
 
 const api: StudentDesktopAPI = {
@@ -50,6 +51,7 @@ const api: StudentDesktopAPI = {
     return () => ipcRenderer.removeListener('lock:blocked-close', handler);
   },
   getKioskHardening: () => ipcRenderer.invoke('kiosk:get-hardening'),
+  setInputMouseLocked: (locked) => ipcRenderer.invoke('lock:set-input-mouse-locked', locked),
 };
 
 contextBridge.exposeInMainWorld('classroomDesk', api);

@@ -7,6 +7,12 @@ export type InputLockFlags = {
   camera: boolean;
 };
 
+export type InputLockStore = {
+  global: InputLockFlags;
+  byClass: Record<string, InputLockFlags>;
+  bySeat: Record<string, InputLockFlags>;
+};
+
 export const EMPTY_INPUT_LOCK: InputLockFlags = {
   keyboard: false,
   mouse: false,
@@ -25,6 +31,40 @@ export function normalizeInputLock(raw: unknown): InputLockFlags {
   };
 }
 
+export function normalizeInputLockStore(raw: unknown): InputLockStore {
+  if (!raw || typeof raw !== 'object') {
+    return { global: { ...EMPTY_INPUT_LOCK }, byClass: {}, bySeat: {} };
+  }
+  const o = raw as Partial<InputLockStore>;
+  const byClass: Record<string, InputLockFlags> = {};
+  for (const [k, v] of Object.entries(o.byClass ?? {})) byClass[k] = normalizeInputLock(v);
+  const bySeat: Record<string, InputLockFlags> = {};
+  for (const [k, v] of Object.entries(o.bySeat ?? {})) bySeat[k] = normalizeInputLock(v);
+  return {
+    global: normalizeInputLock(o.global),
+    byClass,
+    bySeat,
+  };
+}
+
+export function resolveInputLockClient(
+  store: InputLockStore | null | undefined,
+  flat: InputLockFlags | null | undefined,
+  opts: { classId?: string; seatId?: string },
+): InputLockFlags {
+  if (store) {
+    const classId = String(opts.classId ?? '').trim();
+    const seatId = String(opts.seatId ?? '').trim();
+    if (classId && seatId) {
+      const sk = `${classId}:${seatId}`;
+      if (store.bySeat[sk]) return { ...store.bySeat[sk]! };
+    }
+    if (classId && store.byClass[classId]) return { ...store.byClass[classId]! };
+    return { ...store.global };
+  }
+  return normalizeInputLock(flat);
+}
+
 export function inputLockSummary(flags: InputLockFlags): string {
   const parts: string[] = [];
   if (flags.keyboard) parts.push('键盘');
@@ -36,6 +76,27 @@ export function inputLockSummary(flags: InputLockFlags): string {
 
 export function anyInputLocked(flags: InputLockFlags): boolean {
   return flags.keyboard || flags.mouse || flags.voice || flags.camera;
+}
+
+export function stopAllMediaTracks(): void {
+  try {
+    document.querySelectorAll('video, audio').forEach((el) => {
+      const media = el as HTMLMediaElement & { srcObject?: MediaStream | null };
+      const stream = media.srcObject;
+      if (stream && typeof stream.getTracks === 'function') {
+        stream.getTracks().forEach((t) => {
+          try {
+            t.stop();
+          } catch {
+            /* ignore */
+          }
+        });
+      }
+      media.srcObject = null;
+    });
+  } catch {
+    /* ignore */
+  }
 }
 
 type MediaConstraint = MediaStreamConstraints | boolean | undefined;
@@ -52,9 +113,14 @@ function wantsVideo(c: MediaConstraint): boolean {
   return Boolean((c as MediaStreamConstraints).video);
 }
 
+function isWhitelistedTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof Element)) return false;
+  return Boolean(target.closest('[data-cd-input-allow]'));
+}
+
 /**
  * Install capture-phase blockers + getUserMedia guard.
- * Returns cleanup. Re-call when flags change (cleanup first).
+ * Mouse lock allows clicks on `[data-cd-input-allow]` (e.g. 向教师举手).
  */
 export function installInputLockGuards(
   flags: InputLockFlags,
@@ -64,6 +130,7 @@ export function installInputLockGuards(
 
   if (flags.keyboard) {
     const block = (e: Event) => {
+      if (isWhitelistedTarget(e.target)) return;
       e.preventDefault();
       e.stopPropagation();
       onBlocked?.('keyboard');
@@ -76,6 +143,7 @@ export function installInputLockGuards(
 
   if (flags.mouse) {
     const block = (e: Event) => {
+      if (isWhitelistedTarget(e.target)) return;
       e.preventDefault();
       e.stopPropagation();
       onBlocked?.('mouse');
@@ -98,19 +166,24 @@ export function installInputLockGuards(
   }
 
   if (flags.voice || flags.camera) {
+    stopAllMediaTracks();
     const md = navigator.mediaDevices;
     if (md?.getUserMedia) {
       const original = md.getUserMedia.bind(md);
       md.getUserMedia = (constraints?: MediaStreamConstraints) => {
         if (flags.camera && wantsVideo(constraints?.video)) {
           onBlocked?.('camera');
-          return Promise.reject(new DOMException('相机已被教师锁定', 'NotAllowedError'));
+          return Promise.reject(
+            new DOMException(
+              '教师已锁定相机，无法打开摄像头。扫码请改用粘贴 JSON，或请教师解除相机锁。',
+              'NotAllowedError',
+            ),
+          );
         }
         if (flags.voice && wantsAudio(constraints?.audio)) {
           onBlocked?.('voice');
-          return Promise.reject(new DOMException('麦克风已被教师锁定', 'NotAllowedError'));
+          return Promise.reject(new DOMException('教师已锁定麦克风/语音输入', 'NotAllowedError'));
         }
-        // Strip locked channels from mixed constraints
         const next: MediaStreamConstraints = { ...(constraints ?? {}) };
         if (flags.camera) next.video = false;
         if (flags.voice) next.audio = false;
@@ -123,17 +196,8 @@ export function installInputLockGuards(
         md.getUserMedia = original;
       });
     }
-
-    // Stop live tracks when locking media
-    try {
-      // Best-effort: pages holding streams should also react to flag change
-      void navigator.mediaDevices?.enumerateDevices?.();
-    } catch {
-      /* ignore */
-    }
   }
 
-  // Web Speech API
   if (flags.voice) {
     const w = window as unknown as {
       SpeechRecognition?: new () => { abort: () => void; stop: () => void };

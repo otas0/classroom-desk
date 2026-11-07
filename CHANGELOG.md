@@ -48,6 +48,7 @@
 - 计划：`docs/STUDENT_LOCK_HARDENING_PLAN.md`（合法 kiosk，拒绝隐蔽木马式植入）
 - P0：关窗/Alt+F4 toast「向教师申请解除」+ e2e；断线锁态缓存对账 `client_reconcile`；错码剩余次数/冷却；批量解锁 ConfirmModal（班级+机位）；未加固可关闭提示；助教只读轮换；C2 证据表；smoke 含原 quarantine 五条；SETUP/USB「须学校 IT 知情」；nightly quarantine count=0 文案；`docs/P0_SPRINT_ISSUES.md`
 - 物理输入锁：教师可关学生端键盘/鼠标/语音/相机（可见横幅 + WS 推送；助教只读；`e2e/input-lock.spec.ts`）
+- 输入锁增强：班级/机位粒度、考试模式、举手白名单、相机扫码文案、stop MediaStream、投影摘要、审计中文标签、Electron 不 click-through
 
 ### 安装包
 

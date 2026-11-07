@@ -39,6 +39,7 @@ export function LiveBoard({
   const [autoReadonlyMins, setAutoReadonlyMins] = useState(5);
   const [sessionStartAt, setSessionStartAt] = useState<string | null>(null);
   const [autoReadonlyHint, setAutoReadonlyHint] = useState('');
+  const [inputLockSummary, setInputLockSummary] = useState('');
   const [highContrast, setHighContrast] = useState(() => {
     try {
       return localStorage.getItem('cd_liveboard_hc') === '1';
@@ -119,6 +120,46 @@ export function LiveBoard({
       cancelled = true;
     };
   }, [classId, projection]);
+
+  useEffect(() => {
+    if (!projection || !classId) {
+      setInputLockSummary('');
+      return;
+    }
+    let cancelled = false;
+    async function loadInputLock() {
+      try {
+        const s = await api<{
+          inputLock?: {
+            keyboard?: boolean;
+            mouse?: boolean;
+            voice?: boolean;
+            camera?: boolean;
+          };
+          inputLockActive?: boolean;
+        }>(`/api/v1/settings/public?classId=${encodeURIComponent(classId)}`);
+        if (cancelled) return;
+        if (!s.inputLockActive) {
+          setInputLockSummary('物理输入锁：未启用');
+          return;
+        }
+        const parts: string[] = [];
+        if (s.inputLock?.keyboard) parts.push('键盘');
+        if (s.inputLock?.mouse) parts.push('鼠标');
+        if (s.inputLock?.voice) parts.push('语音');
+        if (s.inputLock?.camera) parts.push('相机');
+        setInputLockSummary(`全班输入锁：已锁 ${parts.join('、') || '—'}`);
+      } catch {
+        if (!cancelled) setInputLockSummary('');
+      }
+    }
+    void loadInputLock();
+    const t = window.setInterval(() => void loadInputLock(), 5000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(t);
+    };
+  }, [projection, classId]);
 
   useEffect(() => {
     if (!projection) {
@@ -258,6 +299,11 @@ export function LiveBoard({
       style={barStyle}
     >
       <h2>大屏答题态势</h2>
+      {projection && inputLockSummary ? (
+        <p className="hint" data-testid="projection-input-lock-summary" role="status">
+          {inputLockSummary}
+        </p>
+      ) : null}
       {projection ? (
         <div className="row">
           <button type="button" className="secondary" onClick={() => onExitProjection?.()}>

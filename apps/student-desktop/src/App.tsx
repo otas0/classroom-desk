@@ -23,7 +23,10 @@ import {
   installInputLockGuards,
   inputLockSummary,
   normalizeInputLock,
+  normalizeInputLockStore,
+  resolveInputLockClient,
   type InputLockFlags,
+  type InputLockStore,
 } from './inputLock';
 declare const __APP_VERSION__: string;
 const CLIENT_VERSION = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.0.0';
@@ -114,8 +117,26 @@ export function App() {
   const [nowTick, setNowTick] = useState(() => Date.now());
   const [hardeningTip, setHardeningTip] = useState(false);
   const [inputLock, setInputLock] = useState<InputLockFlags>(EMPTY_INPUT_LOCK);
+  const [inputLockStore, setInputLockStore] = useState<InputLockStore | null>(null);
+  const [raiseHandBusy, setRaiseHandBusy] = useState(false);
   const inputLockToastAtRef = useRef(0);
   const knownQuestionIdsRef = useRef(new Set<string>());
+  const seatIdForLock = ''; // optional future: bind from presence/seat map
+
+  const applyResolvedInputLock = useCallback(
+    (store: InputLockStore | null, flat: unknown, cid: string) => {
+      if (store) setInputLockStore(store);
+      const resolved = resolveInputLockClient(store, normalizeInputLock(flat), {
+        classId: cid,
+        seatId: seatIdForLock,
+      });
+      setInputLock(resolved);
+      if (window.classroomDesk?.setInputMouseLocked) {
+        void window.classroomDesk.setInputMouseLocked(resolved.mouse);
+      }
+    },
+    [],
+  );
 
   const showToast = useCallback((msg: string) => {
     setToast(msg);
@@ -284,8 +305,10 @@ export function App() {
       try {
         const data = typeof raw === 'string' ? JSON.parse(raw) : raw;
         if (!data || data.type !== 'exit_lock') return;
-        if (data.inputLock != null) {
-          setInputLock(normalizeInputLock(data.inputLock));
+        if (data.inputLockStore != null) {
+          applyResolvedInputLock(normalizeInputLockStore(data.inputLockStore), data.inputLock, classId);
+        } else if (data.inputLock != null) {
+          applyResolvedInputLock(null, data.inputLock, classId);
         }
         void applyServerExitLock(
           data.clientExitAllowed === true,
@@ -352,7 +375,7 @@ export function App() {
       }
       es?.close();
     };
-  }, [ready, healthOk, applyServerExitLock, showToast]);
+  }, [ready, healthOk, applyServerExitLock, applyResolvedInputLock, showToast, classId]);
 
   const announceNewQuestions = useCallback(
     (items: Array<Record<string, unknown>>) => {
@@ -392,16 +415,24 @@ export function App() {
 
   const refreshMe = useCallback(async () => {
     try {
+      const q = classId ? `?classId=${encodeURIComponent(classId)}` : '';
       const pub = await api<{
         messagesEnabled?: boolean;
         quizConfirmSubmit?: boolean;
         clientExitAllowed?: boolean;
         clientExitUnlockUntil?: string | null;
         inputLock?: InputLockFlags;
-      }>('/api/v1/settings/public');
+        inputLockStore?: InputLockStore;
+      }>(`/api/v1/settings/public${q}`);
       setMessagesEnabled(pub.messagesEnabled !== false);
       setQuizConfirmSubmit(pub.quizConfirmSubmit !== false);
-      if (pub.inputLock != null) setInputLock(normalizeInputLock(pub.inputLock));
+      if (pub.inputLockStore != null || pub.inputLock != null) {
+        applyResolvedInputLock(
+          pub.inputLockStore ? normalizeInputLockStore(pub.inputLockStore) : null,
+          pub.inputLock,
+          classId,
+        );
+      }
       await applyServerExitLock(
         pub.clientExitAllowed === true,
         pub.clientExitUnlockUntil ?? null,
@@ -417,6 +448,13 @@ export function App() {
       if (me.class) {
         setClassName(me.class.name);
         setClassId(me.class.id);
+        if (pub.inputLockStore != null || pub.inputLock != null) {
+          applyResolvedInputLock(
+            pub.inputLockStore ? normalizeInputLockStore(pub.inputLockStore) : null,
+            pub.inputLock,
+            me.class.id,
+          );
+        }
       }
       try {
         await api('/api/v1/presence/heartbeat', {
@@ -446,7 +484,7 @@ export function App() {
         setUser(null);
       }
     }
-  }, [applyServerExitLock]);
+  }, [applyServerExitLock, applyResolvedInputLock, classId]);
 
   const probeHealth = useCallback(async () => {
     const base = getApiBase();
@@ -1036,11 +1074,32 @@ export function App() {
       ) : null}
 
       {inputLock.mouse ? (
-        <div
-          className="input-lock-overlay"
-          data-testid="input-lock-mouse-overlay"
-          aria-hidden="true"
-        />
+        <>
+          <div
+            className="input-lock-overlay"
+            data-testid="input-lock-mouse-overlay"
+            aria-hidden="true"
+          />
+          <button
+            type="button"
+            className="input-lock-raise-hand"
+            data-cd-input-allow="raise-hand"
+            data-testid="input-lock-raise-hand"
+            disabled={raiseHandBusy || !getToken()}
+            onClick={() => {
+              setRaiseHandBusy(true);
+              void api<{ message?: string }>('/api/v1/session/raise-hand', {
+                method: 'POST',
+                body: '{}',
+              })
+                .then((r) => showToast(r.message ?? '已向教师举手'))
+                .catch((e) => showToast(e instanceof Error ? e.message : '举手失败'))
+                .finally(() => setRaiseHandBusy(false));
+            }}
+          >
+            {raiseHandBusy ? '发送中…' : '向教师举手'}
+          </button>
+        </>
       ) : null}
 
       {hardeningTip ? (
@@ -1189,7 +1248,14 @@ function FirstRunSetup({
         }, 400);
       }, 50);
     } catch (e) {
-      setMsg(e instanceof Error ? `无法打开摄像头：${e.message} — 可改用粘贴 JSON` : '无法打开摄像头');
+      const raw = e instanceof Error ? e.message : '';
+      if (/教师已锁定相机|相机已被教师|NotAllowedError|Permission denied/i.test(raw)) {
+        setMsg(
+          '教师已锁定相机，无法扫码指派。请改用下方「粘贴 JSON」完成配置，或请教师在设置中解除「禁止相机」。',
+        );
+      } else {
+        setMsg(raw ? `无法打开摄像头：${raw} — 可改用粘贴 JSON` : '无法打开摄像头');
+      }
       setShowPaste(true);
       stopScan();
     }

@@ -22,9 +22,10 @@
 
 部署退出锁定 / Assigned Access 前：
 
-- [ ] **须学校 IT 知情**：已告知机房或信息中心本方案为合法课堂 kiosk（解除码 + 批量解锁 + 可选 Assigned Access），无隐蔽监控；文档见 [EXIT_LOCK_MDM.md](./EXIT_LOCK_MDM.md)、[STUDENT_LOCK_HARDENING_PLAN.md](./STUDENT_LOCK_HARDENING_PLAN.md)。
+- [ ] **须学校 IT 知情**：已告知机房或信息中心本方案为合法课堂 kiosk（解除码 + 批量解锁 + 可选 Assigned Access），无隐蔽监控；文档见 [EXIT_LOCK_MDM.md](./EXIT_LOCK_MDM.md)、[STUDENT_LOCK_HARDENING_PLAN.md](./STUDENT_LOCK_HARDENING_PLAN.md)。  
+- [ ] **物理输入锁须告知学生**：正式使用键鼠/语音/相机锁或考试模式前，已向学生说明（见 [EXIT_LOCK_MDM.md](./EXIT_LOCK_MDM.md)「物理输入锁」）。
 
-未勾选不得在正式机房开启退出锁定。
+未勾选不得在正式机房开启退出锁定 / 物理输入锁。
 
 ---
 
