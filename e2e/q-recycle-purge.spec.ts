@@ -50,9 +50,12 @@ test.describe('question recycle purge-all', () => {
     await expect(page.locator('aside select').first()).toBeVisible({ timeout: 20_000 });
     await selectTeacherClass(page, classId);
     await openPrepTab(page, '题目回收站');
+    await expect(page.getByRole('heading', { name: '题目回收站' })).toBeVisible({ timeout: 15_000 });
+    // Re-pin class after tab mount (loadClasses / preferClassroomId can briefly snap back).
+    await selectTeacherClass(page, classId);
 
     await expect(page.getByTestId('q-recycle-virtual')).toBeVisible({ timeout: 15_000 });
-    await expect(page.getByText(`回收清空${stamp}`)).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByText(`回收清空${stamp}`)).toBeVisible({ timeout: 20_000 });
     await expect(page.getByTestId('recycle-days-left').first()).toBeVisible();
 
     page.once('dialog', (d) => void d.accept());

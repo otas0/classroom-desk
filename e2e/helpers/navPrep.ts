@@ -7,8 +7,20 @@ const API = process.env.API_BASE ?? 'http://127.0.0.1:8787';
 export async function selectTeacherClass(page: Page, classId: string): Promise<void> {
   const sel = page.locator('aside select').first();
   await expect(sel).toBeVisible({ timeout: 15_000 });
+  // Wait until SPA class list includes the API-created id (reload races loadClasses).
+  await expect
+    .poll(
+      async () =>
+        sel.locator('option').evaluateAll((os, id) => os.some((o) => (o as HTMLOptionElement).value === id), classId),
+      { timeout: 20_000 },
+    )
+    .toBe(true);
   await sel.selectOption(classId);
   await expect(sel).toHaveValue(classId, { timeout: 10_000 });
+  // PreferClassroomId may re-apply when loadClasses settles; settle then re-assert.
+  await expect
+    .poll(async () => sel.inputValue(), { timeout: 10_000 })
+    .toBe(classId);
 }
 
 /**
