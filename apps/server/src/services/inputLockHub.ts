@@ -17,10 +17,11 @@ export type InputLockPayload = {
   inputLockActive: boolean;
   summary: {
     global: string;
-    byClass: Array<{ classId: string; label: string }>;
+    byClass: Array<{ classId: string; className: string; label: string }>;
     bySeat: Array<{
       key: string;
       classId: string;
+      className: string;
       seatId: string;
       seatLabel: string;
       label: string;
@@ -33,13 +34,25 @@ type Sub = { res: Response };
 const sseClients = new Set<Sub>();
 let lastPayload: InputLockPayload | null = null;
 
+function classDisplayName(db: DatabaseSync, classId: string): string {
+  if (!classId) return '';
+  const row = db.prepare(`SELECT name FROM classes WHERE id = ?`).get(classId) as
+    | { name?: string }
+    | undefined;
+  return String(row?.name ?? '').trim();
+}
+
 export function buildInputLockPayload(db: DatabaseSync): InputLockPayload {
   const store = getInputLockStore(db);
   const inputLock = resolveInputLock(store);
-  const byClass = Object.entries(store.byClass).map(([classId, flags]) => ({
-    classId,
-    label: inputLockFlagsLabel(flags),
-  }));
+  const byClass = Object.entries(store.byClass).map(([classId, flags]) => {
+    const className = classDisplayName(db, classId);
+    return {
+      classId,
+      className,
+      label: inputLockFlagsLabel(flags),
+    };
+  });
   const bySeat = Object.entries(store.bySeat).map(([key, flags]) => {
     const colon = key.indexOf(':');
     const classId = colon >= 0 ? key.slice(0, colon) : '';
@@ -51,9 +64,11 @@ export function buildInputLockPayload(db: DatabaseSync): InputLockPayload {
         .get(classId, seatId) as { label?: string } | undefined;
       seatLabel = String(row?.label ?? '').trim();
     }
+    const className = classDisplayName(db, classId);
     return {
       key,
       classId,
+      className,
       seatId,
       seatLabel,
       /** Locked input kinds (键盘/…); seat display name is seatLabel. */

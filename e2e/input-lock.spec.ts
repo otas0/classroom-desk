@@ -181,6 +181,68 @@ test.describe('physical input lock', () => {
     expect(body.inputLockSummary?.global).toMatch(/键盘/);
   });
 
+  test('unseated + global lock → banner + input-lock-unseated-note', async ({ page, request }) => {
+    test.skip(!(await studentReachable()), 'student vite required');
+
+    const password = await ensureTeacherPasswordReady(request);
+    const login = await request.post(`${API}/api/v1/auth/login`, {
+      data: { username: TEACHER_USER, password },
+    });
+    expect(login.ok()).toBeTruthy();
+    const { token } = (await login.json()) as { token: string };
+    const auth = { Authorization: `Bearer ${token}` };
+
+    const stamp = Date.now();
+    const createdClass = await request.post(`${API}/api/v1/classes`, {
+      headers: auth,
+      data: { name: `UnseatLock_${stamp}` },
+    });
+    expect(createdClass.ok()).toBeTruthy();
+    const classId = ((await createdClass.json()) as { id: string }).id;
+    const stu = await request.post(`${API}/api/v1/classes/${classId}/students`, {
+      headers: auth,
+      data: { displayName: `未排座${stamp}`, studentNo: `U${stamp % 100000}` },
+    });
+    expect(stu.ok()).toBeTruthy();
+    const studentId = ((await stu.json()) as { id: string }).id;
+
+    const lock = await request.patch(`${API}/api/v1/settings`, {
+      headers: auth,
+      data: {
+        inputLock: {
+          scope: 'global',
+          keyboard: true,
+          mouse: false,
+          voice: false,
+          camera: false,
+        },
+      },
+    });
+    expect(lock.ok()).toBeTruthy();
+
+    const sel = await request.post(`${API}/api/v1/auth/student-select`, {
+      data: { classId, studentId },
+    });
+    expect(sel.ok()).toBeTruthy();
+    const tok = ((await sel.json()) as { token: string }).token;
+
+    const student = await page.context().newPage();
+    await student.addInitScript(
+      ({ apiBase, tok }) => {
+        localStorage.setItem('classroom-desk.api-base', apiBase);
+        localStorage.setItem('classroom-desk.token', tok);
+        localStorage.removeItem('cd_seat_id');
+        localStorage.removeItem('cd_seat_label');
+      },
+      { apiBase: API, tok },
+    );
+    await student.goto(`${STUDENT_WEB}/?e2e=1`, { waitUntil: 'domcontentloaded' });
+    await expect(student.getByTestId('input-lock-banner')).toBeVisible({ timeout: 15_000 });
+    await expect(student.getByTestId('input-lock-unseated-note')).toBeVisible({ timeout: 10_000 });
+    await expect(student.getByTestId('input-lock-unseated-note')).toContainText(/本机未排座/);
+    await student.close();
+  });
+
   test('seat_map bind → lock by seat id → only that student banner', async ({ page, request }) => {
     test.skip(!(await studentReachable()), 'student vite required');
 

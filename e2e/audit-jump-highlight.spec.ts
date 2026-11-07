@@ -64,10 +64,11 @@ test.describe('audit jump highlight', () => {
     await jump.click();
 
     await expect(page.getByRole('heading', { name: '题目回收站' })).toBeVisible({
-      timeout: 20_000,
+      timeout: 25_000,
     });
     const row = page.locator(`[data-row-id="${qid}"]`);
-    await expect(row).toBeVisible({ timeout: 20_000 });
-    await expect(row).toHaveClass(/cd-audit-jump-hl/, { timeout: 15_000 });
+    await expect(row).toBeVisible({ timeout: 25_000 });
+    // Highlight is applied after mount-once consume; allow slow CI first paint.
+    await expect(row).toHaveClass(/cd-audit-jump-hl/, { timeout: 20_000 });
   });
 });

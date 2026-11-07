@@ -18,7 +18,7 @@ function scheduleClear() {
       /* ignore */
     }
     clearTimer = null;
-  }, 12_000);
+  }, 20_000); // hard-reload + recycle list fetch on slow CI first paint
 }
 
 export function stashAuditJumpIds(ids: string[], openRecycle = false) {

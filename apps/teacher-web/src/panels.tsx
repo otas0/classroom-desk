@@ -3480,6 +3480,64 @@ export function SettingsPanel({
     }
     connectAssistantsSse();
 
+    // Assistant coverage badge: subscribe /input-lock/stream (not only refreshExitLock poll).
+    let inputLockEs: EventSource | null = null;
+    function applyInputLockCoverage(summary: {
+      global?: string;
+      byClass?: unknown[];
+      bySeat?: unknown[];
+    } | null | undefined) {
+      if (!summary) return;
+      if (Array.isArray(summary.bySeat) && summary.bySeat.length > 0) {
+        setInputLockCoverage('seat');
+        setInputLockScopeLabel(`机位覆盖 ${summary.bySeat.length}`);
+      } else if (Array.isArray(summary.byClass) && summary.byClass.length > 0) {
+        setInputLockCoverage('class');
+        setInputLockScopeLabel(`班级覆盖 ${summary.byClass.length}`);
+      } else {
+        setInputLockCoverage('global');
+        setInputLockScopeLabel(
+          summary.global && summary.global !== '无' ? `全局 ${summary.global}` : '全校全局',
+        );
+      }
+    }
+    function connectInputLockSse() {
+      if (cancelled || typeof EventSource === 'undefined') return;
+      try {
+        inputLockEs?.close();
+      } catch {
+        /* ignore */
+      }
+      inputLockEs = new EventSource(`${API_BASE}/api/v1/input-lock/stream`);
+      const onLock = (ev: MessageEvent) => {
+        try {
+          const data = JSON.parse(String(ev.data)) as {
+            type?: string;
+            inputLock?: typeof inputLock;
+            summary?: {
+              global?: string;
+              byClass?: unknown[];
+              bySeat?: unknown[];
+            };
+          };
+          if (data.inputLock) {
+            setInputLock({
+              keyboard: Boolean(data.inputLock.keyboard),
+              mouse: Boolean(data.inputLock.mouse),
+              voice: Boolean(data.inputLock.voice),
+              camera: Boolean(data.inputLock.camera),
+            });
+          }
+          applyInputLockCoverage(data.summary);
+        } catch {
+          /* ignore */
+        }
+      };
+      inputLockEs.addEventListener('input_lock', onLock as EventListener);
+      inputLockEs.onmessage = onLock;
+    }
+    connectInputLockSse();
+
     async function pollHealthAlert() {
       try {
         const res = await fetch(`${API_BASE}/health`, { cache: 'no-store' });
@@ -3511,6 +3569,11 @@ export function SettingsPanel({
       cancelled = true;
       try {
         es?.close();
+      } catch {
+        /* ignore */
+      }
+      try {
+        inputLockEs?.close();
       } catch {
         /* ignore */
       }
@@ -5124,6 +5187,12 @@ export function SettingsPanel({
                       placeholder="通常从上方选择即可"
                     />
                   </label>
+                  {inputLockSeatId.trim() ? (
+                    <p className="hint" data-testid="input-lock-seat-id-readonly">
+                      当前选中 seat_map.id（只读核对）：
+                      <code>{inputLockSeatId.trim()}</code>
+                    </p>
+                  ) : null}
                 </>
               ) : null}
               {(
@@ -5167,14 +5236,38 @@ export function SettingsPanel({
                   className="secondary"
                   disabled={inputLockBusy}
                   data-testid="input-lock-none"
-                  onClick={() =>
-                    patchInputLock({
-                      keyboard: false,
-                      mouse: false,
-                      voice: false,
-                      camera: false,
+                  title="清空全局 / 班级 / 机位全部物理输入锁"
+                  onClick={() => {
+                    if (
+                      !window.confirm(
+                        '全部解除将清空全局、班级与机位范围的全部物理输入锁，确认？',
+                      )
+                    ) {
+                      return;
+                    }
+                    setInputLockBusy(true);
+                    void api<{ inputLock?: typeof inputLock }>('/api/v1/settings', {
+                      method: 'PATCH',
+                      body: JSON.stringify({ inputLock: { clearAll: true } }),
                     })
-                  }
+                      .then((r) => {
+                        setInputLock({
+                          keyboard: Boolean(r.inputLock?.keyboard),
+                          mouse: Boolean(r.inputLock?.mouse),
+                          voice: Boolean(r.inputLock?.voice),
+                          camera: Boolean(r.inputLock?.camera),
+                        });
+                        setInputLockCoverage('global');
+                        setInputLockScopeLabel('全校全局');
+                        setExitMsg('已全部解除物理输入锁（清空全局/班级/机位）');
+                        void loadAudit().catch(() => undefined);
+                        void refreshExitLock().catch(() => undefined);
+                      })
+                      .catch((err) =>
+                        setExitMsg(err instanceof Error ? err.message : '全部解除失败'),
+                      )
+                      .finally(() => setInputLockBusy(false));
+                  }}
                 >
                   全部解除
                 </button>

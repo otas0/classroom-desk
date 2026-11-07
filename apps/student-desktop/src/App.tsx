@@ -645,6 +645,65 @@ export function App() {
     return () => window.clearInterval(t);
   }, [refreshMe]);
 
+  // Seat rebind SSE — avoid waiting for /auth/me poll after teacher seat change.
+  useEffect(() => {
+    if (!ready || healthOk === false || !user?.id) return;
+    const base = getApiBase().replace(/\/$/, '');
+    if (!base) return;
+    const qs = classId ? `?classId=${encodeURIComponent(classId)}` : '';
+    const es = new EventSource(`${base}/api/v1/seat-bind/stream${qs}`);
+    const onBind = (ev: MessageEvent) => {
+      try {
+        const data = JSON.parse(String(ev.data)) as {
+          type?: string;
+          classId?: string;
+          reloadAll?: boolean;
+          changes?: Array<{ studentId: string; seat: { id: string; label: string } | null }>;
+        };
+        if (data.type !== 'seat_bind') return;
+        if (data.classId && classId && data.classId !== classId) return;
+        if (data.reloadAll) {
+          void refreshMe();
+          return;
+        }
+        const mine = (data.changes ?? []).find((c) => c.studentId === user.id);
+        if (!mine) return;
+        if (mine.seat?.id) {
+          setHasSeatBinding(true);
+          try {
+            localStorage.setItem('cd_seat_id', mine.seat.id);
+            if (mine.seat.label) localStorage.setItem('cd_seat_label', mine.seat.label);
+          } catch {
+            /* ignore */
+          }
+          const presenceClientId = getOrCreatePresenceClientId();
+          const nextSeats = [mine.seat.id, mine.seat.label, presenceClientId]
+            .map((s) => String(s ?? '').trim())
+            .filter(Boolean);
+          setLockSeatIds([...new Set(nextSeats)]);
+        } else {
+          setHasSeatBinding(false);
+          try {
+            localStorage.removeItem('cd_seat_id');
+            localStorage.removeItem('cd_seat_label');
+          } catch {
+            /* ignore */
+          }
+          const presenceClientId = getOrCreatePresenceClientId();
+          setLockSeatIds(presenceClientId ? [presenceClientId] : []);
+        }
+        void refreshMe();
+      } catch {
+        /* ignore */
+      }
+    };
+    es.addEventListener('seat_bind', onBind as EventListener);
+    es.onmessage = onBind;
+    return () => {
+      es.close();
+    };
+  }, [ready, healthOk, user?.id, classId, refreshMe]);
+
   useEffect(() => {
     if (!user) return;
     let cancelled = false;
@@ -1157,7 +1216,7 @@ export function App() {
           </p>
           {!hasSeatBinding ? (
             <p className="hint" data-testid="input-lock-unseated-note">
-              未绑定座位，仅全局/班级锁生效。
+              本机未排座，座锁未生效。
             </p>
           ) : null}
         </div>

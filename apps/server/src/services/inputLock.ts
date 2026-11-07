@@ -172,6 +172,13 @@ export function setInputLockStore(
 
   const resolved = resolveInputLock(store, { classId, seatId });
   let seatLabel: string | null = null;
+  let className: string | null = null;
+  if (classId) {
+    const cls = db.prepare(`SELECT name FROM classes WHERE id = ?`).get(classId) as
+      | { name?: string }
+      | undefined;
+    className = String(cls?.name ?? '').trim() || null;
+  }
   if (classId && seatId) {
     const row = db
       .prepare(`SELECT label FROM seat_map WHERE class_id = ? AND id = ?`)
@@ -183,12 +190,13 @@ export function setInputLockStore(
       ? `机位 ${seatLabel}（id=${seatId}）`
       : `机位 id=${seatId}`
     : classId
-      ? `班级 ${classId}`
+      ? `班级 ${className || classId}`
       : '全校全局';
   const detailZh = `物理输入锁（${scope}）：${inputLockFlagsLabel(resolved)}`;
   const detailObj = {
     scope: seatId ? 'seat' : classId ? 'class' : 'global',
     classId: classId || null,
+    className,
     seatId: seatId || null,
     seatLabel,
     flags: resolved,

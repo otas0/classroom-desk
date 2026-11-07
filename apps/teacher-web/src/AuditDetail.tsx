@@ -71,11 +71,29 @@ export function AuditDetail({
   }
   const obj = parsed as Record<string, unknown>;
   const ids = Array.isArray(obj.ids) ? (obj.ids as unknown[]).map(String) : null;
-  const summary = Object.entries(obj)
-    .filter(([k]) => k !== 'ids' && k !== 'byClass')
+  const seatLabel =
+    typeof obj.seatLabel === 'string' && obj.seatLabel.trim() ? obj.seatLabel.trim() : '';
+  const seatId = typeof obj.seatId === 'string' && obj.seatId.trim() ? obj.seatId.trim() : '';
+  const className =
+    typeof obj.className === 'string' && obj.className.trim() ? obj.className.trim() : '';
+  const humanSummary =
+    typeof obj.summary === 'string' && obj.summary.trim() ? obj.summary.trim() : '';
+  const seatReadable = seatLabel
+    ? `座位 ${seatLabel}${seatId ? `（id ${seatId}）` : ''}`
+    : '';
+  const classReadable = className ? `班级 ${className}` : '';
+  const kvSummary = Object.entries(obj)
+    .filter(
+      ([k]) =>
+        !['ids', 'byClass', 'summary', 'seatLabel', 'seatId', 'className', 'flags'].includes(k),
+    )
     .map(([k, v]) => `${k}=${typeof v === 'string' ? v : JSON.stringify(v)}`)
-    .slice(0, 4)
+    .slice(0, 3)
     .join(' · ');
+  const summary =
+    humanSummary ||
+    [seatReadable, classReadable, kvSummary].filter(Boolean).join(' · ') ||
+    '详情';
   const target = auditJumpTarget(action, obj);
   const purgeMeta = readPurgeJump(obj);
   const purgeJump =
@@ -96,9 +114,21 @@ export function AuditDetail({
       </>
     ) : null;
 
+  const restAfterSeat =
+    humanSummary || [classReadable, kvSummary].filter(Boolean).join(' · ') || '';
+
   return (
     <span className="audit-detail">
-      {summary || '详情'}
+      {seatReadable ? (
+        <>
+          <span className="hint" data-testid="audit-seat-label">
+            {seatReadable}
+          </span>
+          {restAfterSeat ? ` · ${restAfterSeat}` : ''}
+        </>
+      ) : (
+        summary || '详情'
+      )}
       {purgeJump}
       {ids && ids.length ? (
         <>

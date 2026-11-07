@@ -43,10 +43,11 @@ export function LiveBoard({
   const [inputLockDetailOpen, setInputLockDetailOpen] = useState(false);
   const [inputLockDetail, setInputLockDetail] = useState<{
     global: string;
-    byClass: Array<{ classId: string; label: string }>;
+    byClass: Array<{ classId: string; className?: string; label: string }>;
     bySeat: Array<{
       key: string;
       classId: string;
+      className?: string;
       seatId: string;
       seatLabel?: string;
       label: string;
@@ -152,10 +153,11 @@ export function LiveBoard({
           inputLockActive?: boolean;
           inputLockSummary?: {
             global: string;
-            byClass: Array<{ classId: string; label: string }>;
+            byClass: Array<{ classId: string; className?: string; label: string }>;
             bySeat: Array<{
               key: string;
               classId: string;
+              className?: string;
               seatId: string;
               seatLabel?: string;
               label: string;
@@ -359,14 +361,14 @@ export function LiveBoard({
                   <li>全局：{inputLockDetail.global || '无'}</li>
                   {inputLockDetail.byClass.map((c) => (
                     <li key={c.classId}>
-                      班级 {c.classId.slice(0, 8)}…：{c.label}
+                      班级 {c.className || c.classId}：{c.label}
                     </li>
                   ))}
                   {inputLockDetail.bySeat.map((s) => (
                     <li key={s.key}>
                       机位 {s.seatLabel || s.seatId}
                       {s.seatLabel ? `（id ${s.seatId.slice(0, 8)}…）` : ''}
-                      （班 {s.classId.slice(0, 8)}…）：{s.label}
+                      （班 {s.className || s.classId}）：{s.label}
                     </li>
                   ))}
                 </ul>

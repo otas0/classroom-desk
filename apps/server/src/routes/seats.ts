@@ -2,9 +2,16 @@ import { Router } from 'express';
 import { openDb } from '../db/client.js';
 import { requireAuth, requireRoles, type AuthedRequest } from '../middleware/auth.js';
 import { listPresenceClients } from '../services/presenceHub.js';
+import { addSeatBindSseClient, broadcastSeatBind } from '../services/seatBindHub.js';
 import { newId } from '../utils/id.js';
 
 export const seatsRouter = Router();
+
+/** Student SSE: seat rebind without waiting for /auth/me poll. Optional ?classId=. */
+seatsRouter.get('/api/v1/seat-bind/stream', (req, res) => {
+  const classId = String(req.query.classId ?? '').trim() || undefined;
+  addSeatBindSseClient(res, classId);
+});
 
 const ONLINE_MS = 90_000;
 
@@ -109,6 +116,11 @@ seatsRouter.put(
         }
       }
     }
+    try {
+      broadcastSeatBind({ classId, changes: [], reloadAll: true });
+    } catch {
+      /* ignore */
+    }
     res.json({ ok: true });
   },
 );
@@ -139,6 +151,24 @@ seatsRouter.post(
     }
     db.prepare(`UPDATE seat_map SET student_id = ? WHERE id = ?`).run(sb.studentId, sa.id);
     db.prepare(`UPDATE seat_map SET student_id = ? WHERE id = ?`).run(sa.studentId, sb.id);
+    const changes: Array<{ studentId: string; seat: { id: string; label: string } | null }> = [];
+    for (const row of [
+      db.prepare(`SELECT id, label, student_id AS studentId FROM seat_map WHERE id = ?`).get(sa.id) as
+        | { id: string; label: string; studentId: string | null }
+        | undefined,
+      db.prepare(`SELECT id, label, student_id AS studentId FROM seat_map WHERE id = ?`).get(sb.id) as
+        | { id: string; label: string; studentId: string | null }
+        | undefined,
+    ]) {
+      if (row?.studentId) {
+        changes.push({ studentId: row.studentId, seat: { id: row.id, label: row.label } });
+      }
+    }
+    try {
+      broadcastSeatBind({ classId, changes, reloadAll: true });
+    } catch {
+      /* ignore */
+    }
     res.json({ ok: true });
   },
 );
@@ -182,6 +212,11 @@ seatsRouter.post(
       upd.run(students[i].id, ordered[i].id);
       n++;
     }
+    try {
+      broadcastSeatBind({ classId, changes: [], reloadAll: true });
+    } catch {
+      /* ignore */
+    }
     res.json({ ok: true, seated: n, seats: ordered.length, roster: students.length });
   },
 );
@@ -207,6 +242,10 @@ seatsRouter.patch(
     if (req.body?.studentId !== undefined) {
       const sid = req.body.studentId ? String(req.body.studentId) : null;
       let clearedFrom: { id: string; label: string } | null = null;
+      const prevOccupant = db
+        .prepare(`SELECT student_id AS studentId FROM seat_map WHERE id = ?`)
+        .get(seatId) as { studentId: string | null } | undefined;
+      const previousStudentId = prevOccupant?.studentId ? String(prevOccupant.studentId) : null;
       if (sid) {
         const stu = db
           .prepare(
@@ -243,6 +282,24 @@ seatsRouter.patch(
           return;
         }
         throw e;
+      }
+      const seatRow = db
+        .prepare(`SELECT id, label FROM seat_map WHERE id = ?`)
+        .get(seatId) as { id: string; label: string };
+      const changes: Array<{ studentId: string; seat: { id: string; label: string } | null }> = [];
+      if (previousStudentId && previousStudentId !== sid) {
+        changes.push({ studentId: previousStudentId, seat: null });
+      }
+      if (sid) {
+        changes.push({
+          studentId: sid,
+          seat: { id: seatRow.id, label: seatRow.label },
+        });
+      }
+      try {
+        broadcastSeatBind({ classId, changes });
+      } catch {
+        /* ignore */
       }
       res.json({
         ok: true,

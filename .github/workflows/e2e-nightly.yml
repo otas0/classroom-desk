@@ -5,6 +5,12 @@ on:
     # 16:30 UTC ≈ 00:30 Asia/Shanghai
     - cron: '30 16 * * *'
   workflow_dispatch:
+    inputs:
+      verify_issues_write:
+        description: 'Dry-run: fail a job to verify issues:write can open/comment an Issue'
+        required: false
+        type: boolean
+        default: false
 
 # issues:write required for failure → open/comment Issue (default GITHUB_TOKEN was 403).
 permissions:
@@ -13,6 +19,51 @@ permissions:
   actions: read
 
 jobs:
+  # Manual-only ACL check: intentional fail → Open Issue step (issues:write).
+  issues-write-dry-run:
+    if: github.event_name == 'workflow_dispatch' && inputs.verify_issues_write == true
+    runs-on: ubuntu-latest
+    steps:
+      - name: Intentional fail (dry-run)
+        run: |
+          echo "Dry-run: forcing failure so the Issue notify step exercises issues:write"
+          exit 1
+      - name: Open GitHub Issue on failure
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const title = `Nightly issues:write dry-run (${context.runId})`;
+            const body = [
+              `**Workflow:** ${context.workflow}`,
+              `**Run:** ${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`,
+              `**Commit:** ${context.sha}`,
+              '',
+              'Temporary dry-run from `e2e-nightly.yml` (`verify_issues_write`). Safe to close.',
+            ].join('\n');
+            await core.summary.addHeading('issues:write dry-run').addRaw(body.replace(/\n/g, '  \n')).write();
+            try {
+              const created = await github.rest.issues.create({
+                owner,
+                repo,
+                title,
+                body,
+                labels: ['nightly-e2e'],
+              });
+              core.info(`Opened #${created.data.number}`);
+            } catch (e) {
+              core.warning(`create with label failed (${e.message}); retrying bare`);
+              const created = await github.rest.issues.create({
+                owner,
+                repo,
+                title,
+                body,
+              });
+              core.info(`Opened #${created.data.number} (no labels)`);
+            }
+
   # Zero-retry canary: audit-jump must pass without CD_E2E_RETRIES masking flakes.
   audit-jump-smoke:
     runs-on: ubuntu-latest
