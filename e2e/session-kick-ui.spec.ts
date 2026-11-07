@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { createDedicatedClass } from './helpers/navPrep';
 import { ensureTeacherPasswordReady } from './helpers/teacherLogin';
 
 const API = process.env.API_BASE ?? 'http://127.0.0.1:8787';
@@ -14,11 +15,7 @@ test.describe('session_kicked student UI', () => {
     const { token } = (await login.json()) as { token: string };
     const auth = { Authorization: `Bearer ${token}` };
 
-    const classes = await request.get(`${API}/api/v1/classes`, { headers: auth });
-    const classId = ((await classes.json()) as { items: Array<{ id: string }> }).items[0]?.id;
-    expect(classId).toBeTruthy();
-
-    const stamp = Date.now();
+    const { classId, stamp } = await createDedicatedClass(request, auth, 'KickUi');
     const created = await request.post(`${API}/api/v1/classes/${classId}/students`, {
       headers: auth,
       data: { displayName: `踢线UI${stamp}`, studentNo: `KU${stamp}` },

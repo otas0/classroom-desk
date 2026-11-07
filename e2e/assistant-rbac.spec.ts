@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { createDedicatedClass } from './helpers/navPrep';
 import { ensureTeacherPasswordReady } from './helpers/teacherLogin';
 import { loginStaffWeb } from './helpers/teacherWebLogin';
 
@@ -152,11 +153,7 @@ test.describe('assistant RBAC', () => {
     request,
   }) => {
     const auth = await teacherAuth(request);
-    const classes = await request.get(`${API}/api/v1/classes`, { headers: auth });
-    const classId = ((await classes.json()) as { items: Array<{ id: string }> }).items[0]?.id;
-    expect(classId).toBeTruthy();
-
-    const stamp = Date.now();
+    const { classId, stamp } = await createDedicatedClass(request, auth, 'AsstQ');
     const q = await request.post(`${API}/api/v1/questions`, {
       headers: auth,
       data: {

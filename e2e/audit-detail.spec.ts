@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { openPrepTab } from './helpers/navPrep';
+import { createDedicatedClass, openPrepTab, selectTeacherClass } from './helpers/navPrep';
 import { loginTeacherWeb } from './helpers/teacherWebLogin';
 
 const API = process.env.API_BASE ?? 'http://127.0.0.1:8787';
@@ -14,11 +14,7 @@ test.describe('audit detail JSON fold', () => {
     const { token } = (await login.json()) as { token: string };
     const auth = { Authorization: `Bearer ${token}` };
 
-    const classes = await request.get(`${API}/api/v1/classes`, { headers: auth });
-    const classId = ((await classes.json()) as { items: Array<{ id: string }> }).items[0]?.id;
-    expect(classId).toBeTruthy();
-
-    const stamp = Date.now();
+    const { classId, stamp } = await createDedicatedClass(request, auth, 'AuditDet');
     const ids: string[] = [];
     for (let i = 0; i < 12; i++) {
       const r = await request.post(`${API}/api/v1/classes/${classId}/students`, {
@@ -35,6 +31,9 @@ test.describe('audit detail JSON fold', () => {
     });
     expect(soft.ok()).toBeTruthy();
 
+    await page.reload();
+    await expect(page.locator('aside select').first()).toBeVisible({ timeout: 20_000 });
+    await selectTeacherClass(page, classId);
     await openPrepTab(page, '设置');
     await expect(page.getByRole('heading', { name: /操作审计/ })).toBeVisible({ timeout: 15_000 });
 

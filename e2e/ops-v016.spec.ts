@@ -2,6 +2,7 @@
  * Presence SSE + classroom readiness audit + ops dashboard readiness stats.
  */
 import { expect, test } from '@playwright/test';
+import { createDedicatedClass } from './helpers/navPrep';
 import { ensureTeacherPasswordReady, TEACHER_USER } from './helpers/teacherLogin';
 
 const API = process.env.API_BASE ?? 'http://127.0.0.1:8787';
@@ -19,10 +20,7 @@ test('presence SSE hello + classroom_ready duration in ops readiness', async ({ 
   const password = await ensureTeacherPasswordReady(request);
   const { Authorization, token } = await authHeaders(request, password);
 
-  const classes = await request.get(`${API}/api/v1/classes`, { headers: { Authorization } });
-  expect(classes.ok()).toBeTruthy();
-  const classId = ((await classes.json()) as { items: Array<{ id: string }> }).items[0]?.id;
-  expect(classId).toBeTruthy();
+  const { classId } = await createDedicatedClass(request, { Authorization }, 'OpsReady');
 
   // Seed CTA → ready funnel with known duration
   await request.post(`${API}/api/v1/audit/events`, {
@@ -96,8 +94,7 @@ test('presence SSE hello + classroom_ready duration in ops readiness', async ({ 
 test('session reset + random-call + seat grid', async ({ request }) => {
   const password = await ensureTeacherPasswordReady(request);
   const { Authorization } = await authHeaders(request, password);
-  const classes = await request.get(`${API}/api/v1/classes`, { headers: { Authorization } });
-  const classId = ((await classes.json()) as { items: Array<{ id: string }> }).items[0]?.id;
+  const { classId } = await createDedicatedClass(request, { Authorization }, 'OpsSeat');
 
   const seats = await request.put(`${API}/api/v1/classes/${classId}/seats`, {
     headers: { Authorization },

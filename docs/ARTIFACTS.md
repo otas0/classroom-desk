@@ -34,3 +34,13 @@ Get-FileHash -Algorithm SHA256 .\ClassroomDesk-Setup-*.exe
 ```
 
 `npm run verify:exit-lock-packaged` 在找到 exe+sidecar 时会比对哈希；`REQUIRE_WIN_EXE=1` 时无 sidecar 亦失败。
+
+## CI 墙钟基线（e2e-bulk）
+
+| 日期 | 提交线 | job | Playwright bulk | teacher dist |
+|---|---|---|---|---|
+| 2026-11-07 | `8d60e7d` 隔离 bulk 共享班后 | ≈52s | ≈15s | **Download ≈1s**（复用 server artifact；旧路径 Build ≈5s） |
+
+若 `q-recycle-purge` 再红：先查 `selectTeacherClass` / `loadClasses` 竞态（专用班 option 未就绪或 preferClassroomId 抢回「本教室」）。
+
+下个 Release tag：`scripts/extract-release-notes.mjs` 已在安装说明末自动附 [ARTIFACTS.md](./ARTIFACTS.md) 链接；发版后核对 Release body。

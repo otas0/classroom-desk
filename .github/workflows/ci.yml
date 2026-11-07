@@ -138,6 +138,7 @@ jobs:
             else
               echo "- result: **failed** — suite=**bulk gate**"
             fi
+            echo "- baseline (2026-11-07 green): job ≈52s, Playwright ≈15s, **Download teacher dist ≈1s** (vs prior Build ≈5s)"
           } >> "$GITHUB_STEP_SUMMARY"
           exit $code
       - name: Summarize settings-save-msg DOM on failure

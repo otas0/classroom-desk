@@ -69,7 +69,16 @@ npm run copy:usb -- /Volumes/YOUR_USB <IP>
 
 样机安装后再次 `Get-FileHash` 对照 `992ee805ff2a8e92f66dfaee6d26068b29ac598d08082af0ebc399408f898b57`。
 
-## 6. 教师端手测（可与样机并行）
+## 6. 教师端手测（可与样机并行；亦须能打开该班教师 Web）
 
 1. 设置 → 退出锁审计 →「导出全部 CSV」→「取消导出」→「下载已拉取部分」应产出 partial CSV。
 2. 设置 → `/health` 轮询间隔：改毫秒并失焦 → 只读「当前生效间隔」与顶栏轮询节奏一致；「恢复默认」后只读回到默认源。
+
+## 7. 操作员勾选（教室网）
+
+- [ ] `artifacts/C2-intune-version.txt` 填满 + `C2-intune-policy.png`
+- [ ] DevTools 关 `/exit-lock/ws` → toast + SSE
+- [ ] `C2-narrator.mp4` / `C2-taskmgr-deny.mp4` / `C2-titlebar.png`
+- [ ] U 盘仅 0.1.7，样机 `Get-FileHash` = `992ee805…898b57`
+- [ ] CSV「下载已拉取部分」
+- [ ] 健康轮询「当前生效间隔」

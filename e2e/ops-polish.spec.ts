@@ -3,6 +3,7 @@
  * multi-choice reject when zero correct options.
  */
 import { expect, test } from '@playwright/test';
+import { createDedicatedClass } from './helpers/navPrep';
 import { ensureTeacherPasswordReady, TEACHER_USER } from './helpers/teacherLogin';
 
 const API = process.env.API_BASE ?? 'http://127.0.0.1:8787';
@@ -21,11 +22,7 @@ test('attendance stats session filter + CSV export', async ({ request }) => {
   const password = await ensureTeacherPasswordReady(request);
   const headers = await authHeaders(request, password);
 
-  const classes = await request.get(`${API}/api/v1/classes`, { headers });
-  expect(classes.ok()).toBeTruthy();
-  const classList = (await classes.json()) as { items: Array<{ id: string }> };
-  expect(classList.items.length).toBeGreaterThan(0);
-  const classId = classList.items[0].id;
+  const { classId } = await createDedicatedClass(request, headers, 'OpsAtt');
 
   const month = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`;
   const sess = await request.post(`${API}/api/v1/attendance/sessions`, {
@@ -86,8 +83,7 @@ test('quiz confirm submit toggle via settings', async ({ request }) => {
 test('multi question with zero correct options is rejected', async ({ request }) => {
   const password = await ensureTeacherPasswordReady(request);
   const headers = await authHeaders(request, password);
-  const classes = await request.get(`${API}/api/v1/classes`, { headers });
-  const classId = ((await classes.json()) as { items: Array<{ id: string }> }).items[0].id;
+  const { classId } = await createDedicatedClass(request, headers, 'OpsMulti');
 
   const bad = await request.post(`${API}/api/v1/questions`, {
     headers,

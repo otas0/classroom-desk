@@ -2,6 +2,7 @@
  * Buzz WebSocket: JWT required; authenticated clients receive buzz snapshot.
  */
 import { expect, test } from '@playwright/test';
+import { createDedicatedClass } from './helpers/navPrep';
 import { ensureTeacherPasswordReady, TEACHER_USER } from './helpers/teacherLogin';
 
 const API = process.env.API_BASE ?? 'http://127.0.0.1:8787';
@@ -51,14 +52,12 @@ test('buzz WS rejects missing token', async ({ request }) => {
     data: { username: TEACHER_USER, password },
   });
   expect(login.ok()).toBeTruthy();
-  const classes = await request.get(`${API}/api/v1/classes`, {
-    headers: { Authorization: `Bearer ${((await login.json()) as { token: string }).token}` },
-  });
-  const classId = ((await classes.json()) as { items: Array<{ id: string }> }).items[0]?.id;
-  expect(classId).toBeTruthy();
+  const token = ((await login.json()) as { token: string }).token;
+  const auth = { Authorization: `Bearer ${token}` };
+  const { classId } = await createDedicatedClass(request, auth, 'BuzzNoTok');
 
   const { messages, closeCode } = await openWs(
-    wsUrl(`/api/v1/session/buzz/ws?classId=${encodeURIComponent(classId!)}`),
+    wsUrl(`/api/v1/session/buzz/ws?classId=${encodeURIComponent(classId)}`),
   );
   expect(messages.length).toBe(0);
   // Browser WebSocket maps HTTP 401 upgrade failure to abnormal close (1006) or early close
@@ -72,14 +71,11 @@ test('buzz WS with token receives snapshot', async ({ request }) => {
   });
   expect(login.ok()).toBeTruthy();
   const token = ((await login.json()) as { token: string }).token;
-  const classes = await request.get(`${API}/api/v1/classes`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  const classId = ((await classes.json()) as { items: Array<{ id: string }> }).items[0]?.id;
-  expect(classId).toBeTruthy();
+  const auth = { Authorization: `Bearer ${token}` };
+  const { classId } = await createDedicatedClass(request, auth, 'BuzzTok');
 
   const url = wsUrl(
-    `/api/v1/session/buzz/ws?classId=${encodeURIComponent(classId!)}&token=${encodeURIComponent(token)}`,
+    `/api/v1/session/buzz/ws?classId=${encodeURIComponent(classId)}&token=${encodeURIComponent(token)}`,
   );
   const snapshot = await new Promise<Record<string, unknown>>((resolve, reject) => {
     const ws = new WebSocket(url);

@@ -3,6 +3,7 @@
  * scan-assign audit event — complements ops-polish in bulk gate.
  */
 import { expect, test } from '@playwright/test';
+import { createDedicatedClass } from './helpers/navPrep';
 import { ensureTeacherPasswordReady, TEACHER_USER } from './helpers/teacherLogin';
 
 const API = process.env.API_BASE ?? 'http://127.0.0.1:8787';
@@ -54,10 +55,7 @@ test('attendance-absent export with leave/late columns + xlsx', async ({ request
   const password = await ensureTeacherPasswordReady(request);
   const headers = await authHeaders(request, password);
 
-  const classes = await request.get(`${API}/api/v1/classes`, { headers });
-  expect(classes.ok()).toBeTruthy();
-  const classId = ((await classes.json()) as { items: Array<{ id: string }> }).items[0]?.id;
-  expect(classId).toBeTruthy();
+  const { classId } = await createDedicatedClass(request, headers, 'OpsAbs');
 
   const sess = await request.post(`${API}/api/v1/attendance/sessions`, {
     headers,
@@ -91,9 +89,7 @@ test('scan_assign_cta audit event + ops-polish attendance still wired', async ({
   const password = await ensureTeacherPasswordReady(request);
   const headers = await authHeaders(request, password);
 
-  const classes = await request.get(`${API}/api/v1/classes`, { headers });
-  const classId = ((await classes.json()) as { items: Array<{ id: string }> }).items[0]?.id;
-  expect(classId).toBeTruthy();
+  const { classId } = await createDedicatedClass(request, headers, 'OpsScan');
 
   const ev = await request.post(`${API}/api/v1/audit/events`, {
     headers,
