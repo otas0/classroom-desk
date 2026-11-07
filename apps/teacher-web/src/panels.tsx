@@ -3842,8 +3842,9 @@ export function SettingsPanel({
               data-testid="recycle-urgent-days"
               value={recycleUrgentDays}
               onChange={(e) => setRecycleUrgentDays(Number(e.target.value) || 0)}
-              onBlur={() => {
-                const days = Math.max(0, Math.min(30, Math.trunc(recycleUrgentDays) || 0));
+              onBlur={(e) => {
+                // Read from the input — avoid stale state if blur races ahead of onChange re-render.
+                const days = Math.max(0, Math.min(30, Math.trunc(Number(e.currentTarget.value)) || 0));
                 setRecycleUrgentDays(days);
                 void api('/api/v1/settings', {
                   method: 'PATCH',
@@ -3854,6 +3855,11 @@ export function SettingsPanel({
               }}
             />
           </label>
+          {saveMsg.includes('即将到期阈值') ? (
+            <p className="hint" data-testid="recycle-urgent-save-msg">
+              {saveMsg}
+            </p>
+          ) : null}
           {purgeJumpHint ? (
             <p
               className={/无已过期|无过期/.test(purgeJumpHint) ? 'error' : 'hint'}

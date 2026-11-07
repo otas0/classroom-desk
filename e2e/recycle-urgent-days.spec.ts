@@ -63,10 +63,9 @@ test.describe('recycle_urgent_days setting', () => {
     const input = page.getByTestId('recycle-urgent-days');
     await expect(input).toBeVisible({ timeout: 15_000 });
     await input.fill('0');
-    await input.blur();
-    await expect(
-      page.getByTestId('settings-save-msg').filter({ hasText: /即将到期阈值/ }).first(),
-    ).toBeVisible({ timeout: 8_000 });
+    await input.press('Tab');
+    await expect(page.getByTestId('recycle-urgent-save-msg')).toBeVisible({ timeout: 8_000 });
+    await expect(page.getByTestId('recycle-urgent-save-msg')).toContainText(/即将到期阈值/);
 
     await openPrepTab(page, '题目回收站');
     await expect(page.getByText(`紧急阈值${stamp}`)).toBeVisible({ timeout: 15_000 });
