@@ -13,6 +13,8 @@ export async function notifyRestoreConfirm(opts: {
   code: string;
   sha256: string;
   fileName: string;
+  /** Override webhook fetch timeout (ms). Default 8000. */
+  timeoutMs?: number;
 }): Promise<RestoreConfirmDelivery> {
   const to = String(opts.to ?? '').trim();
   const payload = {
@@ -24,12 +26,13 @@ export async function notifyRestoreConfirm(opts: {
   };
   const webhook = process.env.CLASSROOM_DESK_EMAIL_WEBHOOK?.trim();
   if (webhook) {
+    const timeoutMs = Math.max(50, Math.min(30_000, Number(opts.timeoutMs) || 8_000));
     try {
       const res = await fetch(webhook, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(payload),
-        signal: AbortSignal.timeout(8_000),
+        signal: AbortSignal.timeout(timeoutMs),
       });
       return { emailDelivered: res.ok, mailtoUrl: null };
     } catch {

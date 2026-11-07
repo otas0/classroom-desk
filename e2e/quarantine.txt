@@ -1,0 +1,3 @@
+# One Playwright file path per line to skip in nightly/CI full suite.
+# Lines starting with # are comments. Empty = nothing quarantined.
+# After nightly flake triage, move chronic flakes here and open a fix issue.

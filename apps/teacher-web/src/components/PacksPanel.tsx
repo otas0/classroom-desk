@@ -240,6 +240,32 @@ export function PacksPanel({
           清空
         </button>
       </div>
+      {!onGoSession && ocrDraft.trim() ? (
+        <div className="row" data-testid="ocr-no-session-actions">
+          <button
+            type="button"
+            className="secondary"
+            onClick={() =>
+              void navigator.clipboard.writeText(ocrDraft).then(() => setMsg('草稿已复制（可粘贴给任课教师）'))
+            }
+          >
+            复制草稿
+          </button>
+          <button
+            type="button"
+            className="secondary"
+            onClick={() => {
+              const text =
+                '请开通上课权限，以便我将 OCR 草稿送到「快速发题」。班级可在教师后台「按班授权」外另开通上课入口。';
+              void navigator.clipboard.writeText(text).then(() =>
+                setMsg('已复制申请文案，请发给任课教师开通上课权限'),
+              );
+            }}
+          >
+            申请上课权限
+          </button>
+        </div>
+      ) : null}
       <textarea
         rows={8}
         value={ocrDraft}
@@ -250,7 +276,7 @@ export function PacksPanel({
       />
 
       {msg ? (
-        <p className={msg.includes('无上课权限') ? 'error' : 'hint'} role="status">
+        <p className={msg.includes('无上课权限') || msg.includes('申请文案') ? 'error' : 'hint'} role="status">
           {msg}
         </p>
       ) : null}

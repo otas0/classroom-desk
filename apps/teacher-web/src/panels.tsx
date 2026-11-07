@@ -1,10 +1,8 @@
 import {
   useEffect,
   useMemo,
-  useRef,
   useState,
   type CSSProperties,
-  type KeyboardEvent,
   type UIEvent,
 } from 'react';
 import { API_BASE, api, getToken } from './api';
@@ -25,6 +23,11 @@ import { useToast } from './toast';
 import { permissionsDocHref } from './permissionsHref';
 import { useListSelection } from './useListSelection';
 import { streamPurgeAll } from './ndjsonPurge';
+import {
+  consumeAuditJumpIds,
+  consumeAuditJumpOpenRecycle,
+  stashAuditJumpIds,
+} from './auditJumpStorage';
 import {
   IMPORT_ERROR_ZH,
   POINT_REASON_CHIPS,
@@ -107,6 +110,15 @@ export function RosterPanel({
     onKeyDown: onRosterKeyDown,
   } = useListSelection(orderedRosterIds);
 
+  function ensureRosterVisible(index: number) {
+    const top = index * ROSTER_ROW_H;
+    const viewBottom = rosterScrollTop + ROSTER_VIEW_H;
+    if (top < rosterScrollTop) setRosterScrollTop(Math.max(0, top - ROSTER_ROW_H));
+    else if (top + ROSTER_ROW_H > viewBottom) {
+      setRosterScrollTop(top + ROSTER_ROW_H - ROSTER_VIEW_H + ROSTER_ROW_H);
+    }
+  }
+
   async function loadStudents() {
     if (!classId) return;
     const r = await api<{ items: Array<Record<string, unknown>> }>(`/api/v1/classes/${classId}/students`);
@@ -181,22 +193,11 @@ export function RosterPanel({
     setShowRecycle(false);
     setRecycle([]);
     setRosterScrollTop(0);
-    try {
-      const raw = sessionStorage.getItem('cd_audit_jump_ids');
-      if (raw) {
-        const ids = JSON.parse(raw) as string[];
-        if (Array.isArray(ids) && ids.length) {
-          setJumpIds(new Set(ids.map(String)));
-          sessionStorage.removeItem('cd_audit_jump_ids');
-        }
-      }
-      if (sessionStorage.getItem('cd_audit_jump_open_recycle') === '1') {
-        sessionStorage.removeItem('cd_audit_jump_open_recycle');
-        setShowRecycle(true);
-        void loadRecycle().catch(() => setRecycle([]));
-      }
-    } catch {
-      /* ignore */
+    const ids = consumeAuditJumpIds();
+    if (ids.length) setJumpIds(new Set(ids));
+    if (consumeAuditJumpOpenRecycle()) {
+      setShowRecycle(true);
+      void loadRecycle().catch(() => setRecycle([]));
     }
     void api<{ recycleUrgentDays?: number }>('/api/v1/settings')
       .then((s) => {
@@ -211,6 +212,30 @@ export function RosterPanel({
     const end = Math.min(filteredStudents.length, start + visible);
     return { start, end, totalH: filteredStudents.length * ROSTER_ROW_H };
   }, [filteredStudents.length, rosterScrollTop]);
+
+  useEffect(() => {
+    if (!jumpIds.size) return;
+    if (showRecycle && recycle.length) {
+      const first = recycle.findIndex((s) => jumpIds.has(String(s.id)));
+      if (first >= 0) {
+        const t = window.setTimeout(() => {
+          document
+            .querySelector(`[data-row-id="${CSS.escape(String(recycle[first]!.id))}"]`)
+            ?.scrollIntoView({ block: 'nearest' });
+        }, 80);
+        return () => window.clearTimeout(t);
+      }
+    }
+    const first = filteredStudents.findIndex((s) => jumpIds.has(String(s.id)));
+    if (first < 0) return;
+    setRosterScrollTop(Math.max(0, first * ROSTER_ROW_H - ROSTER_VIEW_H / 3));
+    const t = window.setTimeout(() => {
+      document
+        .querySelector(`[data-row-id="${CSS.escape(String(filteredStudents[first]!.id))}"]`)
+        ?.scrollIntoView({ block: 'nearest' });
+    }, 80);
+    return () => window.clearTimeout(t);
+  }, [jumpIds, filteredStudents, showRecycle, recycle]);
 
   async function confirmBeforeImport(): Promise<boolean> {
     try {
@@ -591,7 +616,9 @@ export function RosterPanel({
         aria-multiselectable
         aria-label="学生名单，可用方向键与空格多选"
         onScroll={(e: UIEvent<HTMLDivElement>) => setRosterScrollTop(e.currentTarget.scrollTop)}
-        onKeyDown={(e) => onRosterKeyDown(e)}
+        onKeyDown={(e) =>
+          onRosterKeyDown(e, { ensureVisible: (index) => ensureRosterVisible(index) })
+        }
       >
         <div className="roster-virtual-inner" style={{ height: rosterVirtual.totalH }}>
           {filteredStudents.slice(rosterVirtual.start, rosterVirtual.end).map((s, i) => {
@@ -1019,18 +1046,24 @@ export function QuestionsPanel({ classId }: { classId: string }) {
     options: Array<{ label: string; content: string; chosenCount: number }>;
   } | null>(null);
   const [editingQuestion, setEditingQuestion] = useState<Record<string, unknown> | null>(null);
-  const [selectedQIds, setSelectedQIds] = useState<Set<string>>(new Set());
   const [bulkQBusy, setBulkQBusy] = useState(false);
   const [bulkClosesAt, setBulkClosesAt] = useState('');
   const [qScrollTop, setQScrollTop] = useState(0);
   const [jumpIds, setJumpIds] = useState<Set<string>>(new Set());
-  const qAnchorId = useRef<string | null>(null);
-  const qFocusIndex = useRef(0);
   const toast = useToast();
   const allowDelete = canBulkDelete();
   const allowWrite = canWriteClass();
   const Q_ROW_H = 48;
   const Q_VIEW_H = 420;
+  const orderedQIds = useMemo(() => items.map((q) => String(q.id)), [items]);
+  const {
+    selected: selectedQIds,
+    setSelected: setSelectedQIds,
+    clear: clearQSelection,
+    toggleOne: toggleQSelect,
+    onKeyDown: onQuestionsKeyDown,
+    focusIndex: qFocusIndex,
+  } = useListSelection(orderedQIds);
 
   async function load() {
     const q = showArchived ? '&includeArchived=1' : '';
@@ -1038,7 +1071,7 @@ export function QuestionsPanel({ classId }: { classId: string }) {
       `/api/v1/questions?classId=${classId}${q}`,
     );
     setItems(r.items);
-    setSelectedQIds(new Set());
+    clearQSelection();
   }
 
   async function bulkQuestions(
@@ -1112,18 +1145,8 @@ export function QuestionsPanel({ classId }: { classId: string }) {
 
   useEffect(() => {
     void load().catch(() => setItems([]));
-    try {
-      const raw = sessionStorage.getItem('cd_audit_jump_ids');
-      if (raw) {
-        const ids = JSON.parse(raw) as string[];
-        if (Array.isArray(ids) && ids.length) {
-          setJumpIds(new Set(ids.map(String)));
-          sessionStorage.removeItem('cd_audit_jump_ids');
-        }
-      }
-    } catch {
-      /* ignore */
-    }
+    const ids = consumeAuditJumpIds();
+    if (ids.length) setJumpIds(new Set(ids));
   }, [classId, showArchived]);
 
   const qVirtual = useMemo(() => {
@@ -1133,62 +1156,25 @@ export function QuestionsPanel({ classId }: { classId: string }) {
     return { start, end, totalH: items.length * Q_ROW_H };
   }, [items.length, qScrollTop]);
 
-  const orderedQIds = useMemo(() => items.map((q) => String(q.id)), [items]);
+  useEffect(() => {
+    if (!jumpIds.size || !items.length) return;
+    const first = items.findIndex((q) => jumpIds.has(String(q.id)));
+    if (first < 0) return;
+    setQScrollTop(Math.max(0, first * Q_ROW_H - Q_VIEW_H / 3));
+    const t = window.setTimeout(() => {
+      const id = String(items[first]!.id);
+      document.querySelector(`[data-row-id="${CSS.escape(id)}"]`)?.scrollIntoView({
+        block: 'nearest',
+      });
+    }, 50);
+    return () => window.clearTimeout(t);
+  }, [jumpIds, items]);
 
-  function toggleQSelect(id: string, on: boolean, shift?: boolean) {
-    if (shift && qAnchorId.current) {
-      const a = orderedQIds.indexOf(qAnchorId.current);
-      const b = orderedQIds.indexOf(id);
-      if (a >= 0 && b >= 0) {
-        const [lo, hi] = a < b ? [a, b] : [b, a];
-        setSelectedQIds((prev) => {
-          const next = new Set(prev);
-          for (let k = lo; k <= hi; k++) {
-            const rid = orderedQIds[k]!;
-            if (on) next.add(rid);
-            else next.delete(rid);
-          }
-          return next;
-        });
-        qFocusIndex.current = b;
-        return;
-      }
-    }
-    qAnchorId.current = id;
-    qFocusIndex.current = Math.max(0, orderedQIds.indexOf(id));
-    setSelectedQIds((prev) => {
-      const next = new Set(prev);
-      if (on) next.add(id);
-      else next.delete(id);
-      return next;
-    });
-  }
-
-  function onQuestionsKeyDown(e: KeyboardEvent<HTMLDivElement>) {
-    if (!orderedQIds.length) return;
-    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-      e.preventDefault();
-      const delta = e.key === 'ArrowDown' ? 1 : -1;
-      const next = Math.min(
-        orderedQIds.length - 1,
-        Math.max(0, qFocusIndex.current + delta),
-      );
-      qFocusIndex.current = next;
-      const id = orderedQIds[next]!;
-      if (e.shiftKey) toggleQSelect(id, true, true);
-      else qAnchorId.current = id;
-      const el = document.querySelector(
-        `[data-row-id="${CSS.escape(id)}"]`,
-      ) as HTMLElement | null;
-      el?.focus();
-      return;
-    }
-    if (e.key === ' ' || e.key === 'Spacebar') {
-      const id = orderedQIds[qFocusIndex.current];
-      if (!id) return;
-      e.preventDefault();
-      toggleQSelect(id, !selectedQIds.has(id), e.shiftKey);
-    }
+  function ensureQVisible(index: number) {
+    const top = index * Q_ROW_H;
+    const viewBottom = qScrollTop + Q_VIEW_H;
+    if (top < qScrollTop) setQScrollTop(Math.max(0, top - Q_ROW_H));
+    else if (top + Q_ROW_H > viewBottom) setQScrollTop(top + Q_ROW_H - Q_VIEW_H + Q_ROW_H);
   }
 
   function applyTemplate(kind: 'bool' | 'blank') {
@@ -1650,7 +1636,18 @@ export function QuestionsPanel({ classId }: { classId: string }) {
         aria-multiselectable
         aria-label="发题列表，可用方向键与空格多选"
         onScroll={(e: UIEvent<HTMLDivElement>) => setQScrollTop(e.currentTarget.scrollTop)}
-        onKeyDown={onQuestionsKeyDown}
+        onKeyDown={(e) =>
+          onQuestionsKeyDown(e, {
+            ensureVisible: (index) => ensureQVisible(index),
+            onActivate: (id) => {
+              const q = items.find((row) => String(row.id) === id);
+              if (q) {
+                setEditingQuestion(q);
+                void showStats(id, String(q.title));
+              }
+            },
+          })
+        }
       >
         <div className="q-virtual-inner" style={{ height: qVirtual.totalH }}>
           {items.slice(qVirtual.start, qVirtual.end).map((q, i) => {
@@ -1858,18 +1855,8 @@ export function QuestionRecyclePanel({ classId }: { classId: string }) {
   useEffect(() => {
     void load().catch(() => setItems([]));
     setScrollTop(0);
-    try {
-      const raw = sessionStorage.getItem('cd_audit_jump_ids');
-      if (raw) {
-        const ids = JSON.parse(raw) as string[];
-        if (Array.isArray(ids) && ids.length) {
-          setJumpIds(new Set(ids.map(String)));
-          sessionStorage.removeItem('cd_audit_jump_ids');
-        }
-      }
-    } catch {
-      /* ignore */
-    }
+    const ids = consumeAuditJumpIds();
+    if (ids.length) setJumpIds(new Set(ids));
     void api<{ recycleUrgentDays?: number }>('/api/v1/settings')
       .then((s) => {
         if (s.recycleUrgentDays != null) setUrgentDays(Number(s.recycleUrgentDays));
@@ -1883,6 +1870,19 @@ export function QuestionRecyclePanel({ classId }: { classId: string }) {
     const end = Math.min(items.length, start + visible);
     return { start, end, totalH: items.length * ROW_H };
   }, [items.length, scrollTop]);
+
+  useEffect(() => {
+    if (!jumpIds.size || !items.length) return;
+    const first = items.findIndex((q) => jumpIds.has(String(q.id)));
+    if (first < 0) return;
+    setScrollTop(Math.max(0, first * ROW_H - VIEW_H / 3));
+    const t = window.setTimeout(() => {
+      document
+        .querySelector(`[data-row-id="${CSS.escape(String(items[first]!.id))}"]`)
+        ?.scrollIntoView({ block: 'nearest' });
+    }, 50);
+    return () => window.clearTimeout(t);
+  }, [jumpIds, items]);
 
   async function run(action: 'restore' | 'purge', ids: string[]) {
     if (!ids.length || !allowDelete) return;
@@ -2010,7 +2010,18 @@ export function QuestionRecyclePanel({ classId }: { classId: string }) {
         aria-multiselectable
         aria-label="题目回收站列表"
         onScroll={(e: UIEvent<HTMLDivElement>) => setScrollTop(e.currentTarget.scrollTop)}
-        onKeyDown={(e) => onKeyDown(e)}
+        onKeyDown={(e) =>
+          onKeyDown(e, {
+            ensureVisible: (index) => {
+              const top = index * ROW_H;
+              const viewBottom = scrollTop + VIEW_H;
+              if (top < scrollTop) setScrollTop(Math.max(0, top - ROW_H));
+              else if (top + ROW_H > viewBottom) {
+                setScrollTop(top + ROW_H - VIEW_H + ROW_H);
+              }
+            },
+          })
+        }
       >
         <div className="q-virtual-inner" style={{ height: virt.totalH }}>
           {items.slice(virt.start, virt.end).map((q, i) => {
@@ -2881,9 +2892,12 @@ export function SettingsPanel({
   const [recycleUrgentDays, setRecycleUrgentDays] = useState(RECYCLE_URGENT_DAYS);
   const [healthAlert, setHealthAlert] = useState<{
     exportTmpLeaked?: number;
+    exportTmpDir?: string;
     auditRetryPending?: number;
     auditRetryDegraded?: boolean;
   } | null>(null);
+  const [assistantsLiveMode, setAssistantsLiveMode] = useState<'sse' | 'poll'>('sse');
+  const [exportTmpMsg, setExportTmpMsg] = useState('');
   const [flushMsg, setFlushMsg] = useState('');
   const [restoreFile, setRestoreFile] = useState('');
   const [restorePass, setRestorePass] = useState('');
@@ -2902,9 +2916,15 @@ export function SettingsPanel({
   >([]);
   const [grantWasEmpty, setGrantWasEmpty] = useState(false);
   const [grantMsg, setGrantMsg] = useState('');
+  const [grantMigrateOpen, setGrantMigrateOpen] = useState(false);
+  const [grantMigrateBusy, setGrantMigrateBusy] = useState(false);
+  const [grantLoseNames, setGrantLoseNames] = useState<string[]>([]);
   const [driftMins, setDriftMins] = useState(5);
   const [driftLastAt, setDriftLastAt] = useState<string | null>(null);
+  const [driftSnapBusy, setDriftSnapBusy] = useState(false);
   const [upgradesKeep, setUpgradesKeep] = useState(3);
+  const [prunedFiles, setPrunedFiles] = useState<string[]>([]);
+  const [purgeJumpHint, setPurgeJumpHint] = useState('');
 
   async function loadAudit() {
     const q = new URLSearchParams({ limit: '80' });
@@ -3126,6 +3146,7 @@ export function SettingsPanel({
 
     function startPollFallback() {
       if (pollTimer != null || cancelled) return;
+      setAssistantsLiveMode('poll');
       pollTimer = window.setInterval(() => {
         void loadAssistants().catch(() => undefined);
       }, 8_000);
@@ -3148,6 +3169,7 @@ export function SettingsPanel({
         failStreak = 0;
         backoffMs = 1000;
         stopPoll();
+        setAssistantsLiveMode('sse');
         void loadAssistants().catch(() => undefined);
       };
       es.addEventListener('assistants.updated', onUpdated);
@@ -3155,6 +3177,7 @@ export function SettingsPanel({
         failStreak = 0;
         backoffMs = 1000;
         stopPoll();
+        setAssistantsLiveMode('sse');
       };
       es.onerror = () => {
         failStreak += 1;
@@ -3177,7 +3200,7 @@ export function SettingsPanel({
       try {
         const res = await fetch(`${API_BASE}/health`, { cache: 'no-store' });
         const body = (await res.json()) as {
-          exportTmp?: { tmpLeaked?: number };
+          exportTmp?: { tmpLeaked?: number; tmpDir?: string };
           audit?: { retryQueueSize?: number; degraded?: boolean };
         };
         const leaked = Number(body.exportTmp?.tmpLeaked ?? 0);
@@ -3186,6 +3209,7 @@ export function SettingsPanel({
         if (leaked > 0 || pending > 0 || degraded) {
           setHealthAlert({
             exportTmpLeaked: leaked,
+            exportTmpDir: body.exportTmp?.tmpDir,
             auditRetryPending: pending,
             auditRetryDegraded: degraded,
           });
@@ -3272,7 +3296,7 @@ export function SettingsPanel({
     );
   }
 
-  async function saveAssistantGrants() {
+  async function commitAssistantGrants() {
     if (!grantEditId) return;
     const grants = grantRows
       .filter((r) => r.canExport || r.canAwardPoints)
@@ -3281,14 +3305,6 @@ export function SettingsPanel({
         canExport: r.canExport,
         canAwardPoints: r.canAwardPoints,
       }));
-    if (grantWasEmpty && grants.length > 0) {
-      const lose = classesLosingExport(grantRows);
-      const listed = lose.length ? lose.join('、') : '（无）';
-      const ok = window.confirm(
-        `即将离开「空表 = 全班可导出」的旧行为：保存后仅勾选了「可导出」的班级可以导出。\n将失去导出的班级（未勾选可导出）：${listed}\n确定继续？`,
-      );
-      if (!ok) return;
-    }
     await api(`/api/v1/auth/assistants/${grantEditId}/grants`, {
       method: 'PUT',
       body: JSON.stringify({ grants }),
@@ -3301,6 +3317,23 @@ export function SettingsPanel({
     );
   }
 
+  async function saveAssistantGrants() {
+    if (!grantEditId) return;
+    const grants = grantRows
+      .filter((r) => r.canExport || r.canAwardPoints)
+      .map((r) => ({
+        classId: r.classId,
+        canExport: r.canExport,
+        canAwardPoints: r.canAwardPoints,
+      }));
+    if (grantWasEmpty && grants.length > 0) {
+      setGrantLoseNames(classesLosingExport(grantRows));
+      setGrantMigrateOpen(true);
+      return;
+    }
+    await commitAssistantGrants();
+  }
+
   useEffect(() => {
     void loadAudit().catch(() => undefined);
   }, [auditClassId, auditAction]);
@@ -3310,11 +3343,28 @@ export function SettingsPanel({
     return () => window.clearInterval(t);
   }, []);
 
-  function focusRecyclePurgeConfirm() {
+  function focusRecyclePurgeConfirm(meta?: {
+    classId?: string | null;
+    count?: number | null;
+    students?: number | null;
+    questions?: number | null;
+  }) {
+    if (meta?.classId) {
+      localStorage.setItem('cd_teacher_class_id', meta.classId);
+      window.dispatchEvent(
+        new CustomEvent('cd-select-class', { detail: { classId: meta.classId } }),
+      );
+    }
+    const parts: string[] = [];
+    if (meta?.count != null) parts.push(`预览共 ${meta.count} 条`);
+    if (meta?.students != null) parts.push(`学生 ${meta.students}`);
+    if (meta?.questions != null) parts.push(`题目 ${meta.questions}`);
+    if (meta?.classId) parts.push(`班级已选中`);
+    setPurgeJumpHint(parts.join(' · '));
     const el = document.getElementById('recycle-purge-confirm');
     if (!el) {
       setSaveMsg('当前账号看不到回收站清理确认');
-      if (window.location.hash === '#recycle-purge-confirm') {
+      if (window.location.hash.startsWith('#recycle-purge-confirm')) {
         window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}`);
       }
       return;
@@ -3328,13 +3378,35 @@ export function SettingsPanel({
 
   useEffect(() => {
     const flagged = sessionStorage.getItem('cd_goto_purge_confirm') === '1';
-    const hashed = window.location.hash === '#recycle-purge-confirm';
+    const hash = window.location.hash || '';
+    const hashed = hash.startsWith('#recycle-purge-confirm');
     if (!flagged && !hashed) return;
     sessionStorage.removeItem('cd_goto_purge_confirm');
+    let meta: {
+      classId?: string | null;
+      count?: number | null;
+      students?: number | null;
+      questions?: number | null;
+    } = {};
+    try {
+      const raw = sessionStorage.getItem('cd_purge_jump');
+      if (raw) meta = JSON.parse(raw) as typeof meta;
+      sessionStorage.removeItem('cd_purge_jump');
+    } catch {
+      /* ignore */
+    }
     if (hashed) {
+      const qIdx = hash.indexOf('?');
+      if (qIdx >= 0) {
+        const q = new URLSearchParams(hash.slice(qIdx + 1));
+        if (q.get('classId')) meta.classId = q.get('classId');
+        if (q.get('count')) meta.count = Number(q.get('count'));
+        if (q.get('students')) meta.students = Number(q.get('students'));
+        if (q.get('questions')) meta.questions = Number(q.get('questions'));
+      }
       window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}`);
     }
-    const t = window.setTimeout(() => focusRecyclePurgeConfirm(), 80);
+    const t = window.setTimeout(() => focusRecyclePurgeConfirm(meta), 80);
     return () => window.clearTimeout(t);
   }, []);
 
@@ -3353,13 +3425,14 @@ export function SettingsPanel({
           retryQueueSize?: number;
           degraded?: boolean;
         };
-        exportTmp?: { tmpLeaked?: number };
+        exportTmp?: { tmpLeaked?: number; tmpDir?: string };
       };
       const err = body.backup?.lastError;
       const auditErr = body.audit?.lastError;
       const leaked = Number(body.exportTmp?.tmpLeaked ?? 0);
       setHealthAlert({
         exportTmpLeaked: leaked,
+        exportTmpDir: body.exportTmp?.tmpDir,
         auditRetryPending: Number(body.audit?.retryQueueSize ?? 0),
         auditRetryDegraded: Boolean(body.audit?.degraded),
       });
@@ -3408,8 +3481,58 @@ export function SettingsPanel({
           </button>
           {diag ? <p className="hint">{diag}</p> : null}
           {healthAlert && (healthAlert.exportTmpLeaked ?? 0) > 0 ? (
-            <p className="error" data-testid="export-tmp-leak-alert" role="alert">
-              导出临时文件泄漏 {healthAlert.exportTmpLeaked} 个（/health.exportTmp.tmpLeaked）。请检查磁盘与导出流程，必要时重启服务。
+            <div className="error" data-testid="export-tmp-leak-alert" role="alert">
+              <p>
+                导出临时文件泄漏 {healthAlert.exportTmpLeaked} 个（/health.exportTmp.tmpLeaked）。
+                {healthAlert.exportTmpDir ? (
+                  <>
+                    {' '}
+                    目录：<code data-testid="export-tmp-dir">{healthAlert.exportTmpDir}</code>
+                  </>
+                ) : null}
+              </p>
+              <div className="row">
+                <button
+                  type="button"
+                  className="secondary"
+                  data-testid="export-tmp-copy-dir"
+                  onClick={() => {
+                    const dir = healthAlert.exportTmpDir ?? '';
+                    if (!dir) return;
+                    void navigator.clipboard?.writeText(dir).then(
+                      () => setExportTmpMsg('已复制临时目录路径（请在教师机访达/资源管理器打开）'),
+                      () => setExportTmpMsg(dir),
+                    );
+                  }}
+                >
+                  复制临时目录路径
+                </button>
+                <button
+                  type="button"
+                  className="secondary"
+                  data-testid="export-tmp-cleanup"
+                  onClick={() =>
+                    void api<{ message?: string }>('/api/v1/ops/export-tmp/cleanup', {
+                      method: 'POST',
+                      body: '{}',
+                    })
+                      .then((r) => {
+                        setExportTmpMsg(r.message ?? '已清理');
+                        void runDiag();
+                      })
+                      .catch((e) =>
+                        setExportTmpMsg(e instanceof Error ? e.message : '清理失败'),
+                      )
+                  }
+                >
+                  一键清理泄漏临时文件
+                </button>
+              </div>
+            </div>
+          ) : null}
+          {exportTmpMsg ? (
+            <p className="hint" data-testid="export-tmp-cleanup-msg" role="status">
+              {exportTmpMsg}
             </p>
           ) : null}
           {healthAlert &&
@@ -3439,8 +3562,12 @@ export function SettingsPanel({
               >
                 立即 flush 审计队列
               </button>
-              {flushMsg ? <span className="hint">{flushMsg}</span> : null}
             </div>
+          ) : null}
+          {flushMsg ? (
+            <p className="hint" data-testid="audit-retry-flush-msg" role="status">
+              {flushMsg}
+            </p>
           ) : null}
         </>
       ) : null}
@@ -3699,6 +3826,11 @@ export function SettingsPanel({
               }}
             />
           </label>
+          {purgeJumpHint ? (
+            <p className="hint" data-testid="purge-jump-hint">
+              审计跳转：{purgeJumpHint}
+            </p>
+          ) : null}
           <div className="row" id="recycle-purge-confirm" data-testid="recycle-purge-confirm">
             <button
               type="button"
@@ -3989,10 +4121,34 @@ export function SettingsPanel({
               }}
             />
           </label>
-          <p className="hint" data-testid="fleet-drift-snapshot-last">
-            上次 fleet.drift_snapshot：
-            {driftLastAt ? new Date(driftLastAt).toLocaleString() : '尚无'}
-          </p>
+          <div className="row">
+            <p className="hint" data-testid="fleet-drift-snapshot-last" style={{ margin: 0 }}>
+              上次 fleet.drift_snapshot：
+              {driftLastAt ? new Date(driftLastAt).toLocaleString() : '尚无'}
+            </p>
+            <button
+              type="button"
+              className="secondary"
+              data-testid="fleet-drift-snapshot-now"
+              disabled={driftSnapBusy}
+              onClick={() => {
+                setDriftSnapBusy(true);
+                void api<{ at?: string; message?: string }>('/api/v1/ops/fleet-drift-snapshot', {
+                  method: 'POST',
+                  body: '{}',
+                })
+                  .then((r) => {
+                    if (r.at) setDriftLastAt(r.at);
+                    else setDriftLastAt(new Date().toISOString());
+                    setSaveMsg(r.message ?? '已拍漂移快照');
+                  })
+                  .catch((e) => setSaveMsg(e instanceof Error ? e.message : '快照失败'))
+                  .finally(() => setDriftSnapBusy(false));
+              }}
+            >
+              {driftSnapBusy ? '拍摄中…' : '立即拍一次'}
+            </button>
+          </div>
           <label>
             升级包保留份数（1–20）
             <input
@@ -4008,19 +4164,31 @@ export function SettingsPanel({
                   method: 'PATCH',
                   body: JSON.stringify({ upgradesKeepCount: n }),
                 })
-                  .then((r) =>
+                  .then((r) => {
+                    const pruned = Array.isArray(r.pruned) ? r.pruned : [];
+                    setPrunedFiles(pruned);
                     setSaveMsg(
                       `升级包保留最新 ${n} 份${
-                        Array.isArray(r.pruned) && r.pruned.length
-                          ? `，已清理 ${r.pruned.length} 个旧文件`
-                          : ''
+                        pruned.length ? `，已清理 ${pruned.length} 个旧文件` : ''
                       }`,
-                    ),
-                  )
+                    );
+                  })
                   .catch((e) => setSaveMsg(e instanceof Error ? e.message : '保存失败'));
               }}
             />
           </label>
+          {prunedFiles.length ? (
+            <div data-testid="upgrades-pruned-list">
+              <p className="hint">本次已删旧包：</p>
+              <ul className="hint">
+                {prunedFiles.map((f) => (
+                  <li key={f}>
+                    <code>{f}</code>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
 
           <h3>LAN 升级包（Setup.exe）</h3>
           <p className="hint">上传到服务器 /upgrades；.exe 自动配对生成 .sha256；超出保留份数自动删旧。</p>
@@ -4224,6 +4392,15 @@ export function SettingsPanel({
 
           <div className="card">
             <h3>创建助教账号</h3>
+            {assistantsLiveMode === 'poll' ? (
+              <p className="hint" data-testid="assistants-sse-fallback-badge" role="status">
+                实时通道降级为轮询（弱网/SSE 断开，恢复后自动切回）
+              </p>
+            ) : (
+              <p className="hint" data-testid="assistants-sse-live-badge">
+                助教列表：SSE 实时推送
+              </p>
+            )}
             <p className="hint">助教可登录后台只读导出/出勤，不可批量删除。详见 docs/PERMISSIONS.md。</p>
             <label>
               用户名
@@ -4286,6 +4463,7 @@ export function SettingsPanel({
                         <button
                           type="button"
                           className="secondary"
+                          data-testid={`assistant-enable-${a.username}`}
                           onClick={() =>
                             void api(`/api/v1/auth/assistants/${a.id}/enable`, {
                               method: 'POST',
@@ -4304,6 +4482,7 @@ export function SettingsPanel({
                         <button
                           type="button"
                           className="secondary"
+                          data-testid={`assistant-disable-${a.username}`}
                           onClick={() =>
                             void api(`/api/v1/auth/assistants/${a.id}/disable`, {
                               method: 'POST',
@@ -4830,17 +5009,33 @@ stateDiagram-v2
                         action={a.action}
                         onJumpIds={({ target, ids, action }) => {
                           if (a.classId) localStorage.setItem('cd_teacher_class_id', String(a.classId));
-                          sessionStorage.setItem('cd_audit_jump_ids', JSON.stringify(ids));
-                          if (/soft_delete|bulk_soft/i.test(action)) {
-                            sessionStorage.setItem('cd_audit_jump_open_recycle', '1');
-                          }
-                          hardReloadTeacherNav({ tab: 'prep', prepTab: target });
+                          const openRecycle =
+                            /soft_delete|bulk_soft/i.test(action) ||
+                            target === 'q-recycle' ||
+                            /delete|purge/i.test(action);
+                          stashAuditJumpIds(ids, openRecycle);
+                          hardReloadTeacherNav({
+                            tab: 'prep',
+                            prepTab: target,
+                            classId: a.classId ? String(a.classId) : undefined,
+                          });
                         }}
-                        onJumpPurgeConfirm={() => {
+                        onJumpPurgeConfirm={(jump) => {
                           sessionStorage.setItem('cd_goto_purge_confirm', '1');
+                          sessionStorage.setItem('cd_purge_jump', JSON.stringify(jump));
+                          const q = new URLSearchParams();
+                          if (jump.classId) q.set('classId', jump.classId);
+                          if (jump.count != null) q.set('count', String(jump.count));
+                          if (jump.students != null) q.set('students', String(jump.students));
+                          if (jump.questions != null) q.set('questions', String(jump.questions));
+                          const qs = q.toString();
                           const base = `${window.location.pathname}${window.location.search}`;
-                          window.history.replaceState(null, '', `${base}#recycle-purge-confirm`);
-                          focusRecyclePurgeConfirm();
+                          window.history.replaceState(
+                            null,
+                            '',
+                            `${base}#recycle-purge-confirm${qs ? `?${qs}` : ''}`,
+                          );
+                          focusRecyclePurgeConfirm(jump);
                           sessionStorage.removeItem('cd_goto_purge_confirm');
                         }}
                       />
@@ -4868,6 +5063,41 @@ stateDiagram-v2
           ) : null}
         </>
       )}
+      <ConfirmModal
+        open={grantMigrateOpen}
+        title="离开「空表 = 全班可导出」"
+        busy={grantMigrateBusy}
+        confirmLabel="确定保存"
+        body={
+          <div data-testid="grants-migrate-confirm">
+            <p>
+              保存后仅勾选了「可导出」的班级可以导出。将失去导出的班级（未勾选可导出）：
+            </p>
+            {grantLoseNames.length === 0 ? (
+              <p className="hint">（无 — 所有班级都已勾选可导出）</p>
+            ) : (
+              <ul className="grants-lose-list" data-testid="grants-lose-list">
+                {grantLoseNames.map((name) => (
+                  <li key={name}>{name}</li>
+                ))}
+              </ul>
+            )}
+          </div>
+        }
+        onCancel={() => {
+          if (grantMigrateBusy) return;
+          setGrantMigrateOpen(false);
+        }}
+        onConfirm={() => {
+          setGrantMigrateBusy(true);
+          void commitAssistantGrants()
+            .then(() => {
+              setGrantMigrateOpen(false);
+            })
+            .catch((e) => setGrantMsg(e instanceof Error ? e.message : '保存失败'))
+            .finally(() => setGrantMigrateBusy(false));
+        }}
+      />
     </section>
   );
 }

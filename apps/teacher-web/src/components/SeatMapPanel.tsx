@@ -14,6 +14,25 @@ type Seat = {
 
 type Roster = { id: string; displayName: string; studentNo: string | null };
 
+function seatFailMessage(err: unknown, kind: 'bind' | 'swap'): string {
+  const text = err instanceof Error ? err.message : String(err);
+  const conflict = /already_seated|一人一座|其它座位|student_already|409|conflict|UNIQUE|unique/i.test(
+    text,
+  );
+  const network =
+    /network|fetch|Failed to fetch|断线|offline|ECONNREFUSED|超时|timeout|http_5\d\d|TypeError/i.test(
+      text,
+    );
+  if (kind === 'swap') {
+    if (conflict) return `换座冲突：${text}（已回滚本地预览）`;
+    if (network) return `换座网络失败：${text}（已回滚，请检查教师机连接后重试）`;
+    return `换座失败：${text}（已回滚）`;
+  }
+  if (conflict) return text;
+  if (network) return `绑座网络失败：${text}`;
+  return `绑座失败：${text}`;
+}
+
 export function SeatMapPanel({ classId }: { classId: string }) {
   const [items, setItems] = useState<Seat[]>([]);
   const [rows, setRows] = useState(5);
@@ -89,8 +108,7 @@ export function SeatMapPanel({ classId }: { classId: string }) {
       else if (r.clearedFromLabel) setMsg(`已从 ${r.clearedFromLabel} 移开（同班一人一座）`);
       await load();
     } catch (e) {
-      const text = e instanceof Error ? e.message : String(e);
-      flashShake([seatId], /already_seated|一人一座|其它座位|409|conflict/i.test(text) ? text : `绑座失败：${text}`);
+      flashShake([seatId], seatFailMessage(e, 'bind'));
       await load();
     }
   }
@@ -134,7 +152,7 @@ export function SeatMapPanel({ classId }: { classId: string }) {
       await load();
     } catch (e) {
       setItems(before);
-      flashShake([a, b], e instanceof Error ? e.message : '换座失败，已回滚');
+      flashShake([a, b], seatFailMessage(e, 'swap'));
       await load();
     }
   }

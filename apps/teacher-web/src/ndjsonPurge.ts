@@ -8,7 +8,22 @@ export type PurgeProgress = {
   message?: string;
 };
 
-/** POST with Accept: NDJSON; invoke onProgress for each chunk line. */
+function parseProgressLine(trimmed: string): PurgeProgress | null {
+  try {
+    const row = JSON.parse(trimmed) as PurgeProgress & { type?: string; ok?: boolean };
+    return {
+      purged: Number(row.purged ?? 0),
+      total: Number(row.total ?? 0),
+      pct: Number(row.pct ?? 0),
+      done: Boolean(row.done || row.type === 'done'),
+      message: row.message,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** POST with Accept: NDJSON; stream lines via ReadableStream (no full-body buffer). */
 export async function streamPurgeAll(
   path: string,
   body: Record<string, unknown>,
@@ -34,23 +49,49 @@ export async function streamPurgeAll(
     }
     throw new Error(msg);
   }
-  const text = await res.text();
+
   let last: PurgeProgress = { purged: 0, total: 0, pct: 0, done: false };
-  for (const line of text.split('\n')) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-    try {
-      const row = JSON.parse(trimmed) as PurgeProgress & { type?: string; ok?: boolean };
-      last = {
-        purged: Number(row.purged ?? 0),
-        total: Number(row.total ?? 0),
-        pct: Number(row.pct ?? 0),
-        done: Boolean(row.done || row.type === 'done'),
-        message: row.message,
-      };
+  const reader = res.body?.getReader();
+  if (!reader) {
+    // Fallback if body missing (rare)
+    const text = await res.text();
+    for (const line of text.split('\n')) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      const p = parseProgressLine(trimmed);
+      if (p) {
+        last = p;
+        onProgress(last);
+      }
+    }
+    return last;
+  }
+
+  const decoder = new TextDecoder();
+  let buf = '';
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buf += decoder.decode(value, { stream: true });
+    let nl: number;
+    while ((nl = buf.indexOf('\n')) >= 0) {
+      const line = buf.slice(0, nl);
+      buf = buf.slice(nl + 1);
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      const p = parseProgressLine(trimmed);
+      if (p) {
+        last = p;
+        onProgress(last);
+      }
+    }
+  }
+  const tail = buf.trim();
+  if (tail) {
+    const p = parseProgressLine(tail);
+    if (p) {
+      last = p;
       onProgress(last);
-    } catch {
-      /* skip bad line */
     }
   }
   return last;

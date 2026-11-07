@@ -338,6 +338,26 @@ textarea {
   line-height: 16px;
 }
 
+.badge.badge-fail {
+  background: #8b1a1a;
+  border: 1px solid #8b1a1a;
+}
+
+.offline-err-chip {
+  display: inline-block;
+  margin-left: 4px;
+  max-width: 9rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10px;
+  line-height: 16px;
+  color: #8b1a1a;
+  border: 1px solid #8b1a1a;
+  padding: 0 4px;
+  background: #fff;
+}
+
 .lock-badge {
   display: inline-block;
   margin-left: 6px;

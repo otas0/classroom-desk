@@ -326,6 +326,15 @@ export function App() {
   }, [classId]);
 
   useEffect(() => {
+    const onSel = (e: Event) => {
+      const id = (e as CustomEvent<{ classId?: string }>).detail?.classId;
+      if (typeof id === 'string' && id.trim()) setClassId(id.trim());
+    };
+    window.addEventListener('cd-select-class', onSel);
+    return () => window.removeEventListener('cd-select-class', onSel);
+  }, []);
+
+  useEffect(() => {
     if (!messagesEnabled && prepTab === 'messages') {
       setPrepTab(isAssistant() ? 'attendance' : 'roster');
     }

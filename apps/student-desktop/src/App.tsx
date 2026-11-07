@@ -71,6 +71,13 @@ export function App() {
   const [newQuizPulse, setNewQuizPulse] = useState(false);
   const [openQuizCount, setOpenQuizCount] = useState(0);
   const [offlineQueueCount, setOfflineQueueCount] = useState(0);
+  const [offlineFlushErr, setOfflineFlushErr] = useState(() => {
+    try {
+      return localStorage.getItem('cd_offline_flush_err') ?? '';
+    } catch {
+      return '';
+    }
+  });
   const [pendingIdentity, setPendingIdentity] = useState<RosterRow | null>(null);
 
   /** Global offline-answer queue length (sidebar badge; not only QuizTab). */
@@ -78,6 +85,7 @@ export function App() {
     try {
       const q = JSON.parse(localStorage.getItem('cd_offline_answers') || '[]') as unknown;
       setOfflineQueueCount(Array.isArray(q) ? q.length : 0);
+      setOfflineFlushErr(localStorage.getItem('cd_offline_flush_err') ?? '');
     } catch {
       setOfflineQueueCount(0);
     }
@@ -121,12 +129,21 @@ export function App() {
   useEffect(() => {
     refreshOfflineQueueCount();
     const onStorage = (ev: StorageEvent) => {
-      if (ev.key === 'cd_offline_answers' || ev.key == null) refreshOfflineQueueCount();
+      if (
+        ev.key === 'cd_offline_answers' ||
+        ev.key === 'cd_offline_flush_err' ||
+        ev.key == null
+      ) {
+        refreshOfflineQueueCount();
+      }
     };
+    const onLocal = () => refreshOfflineQueueCount();
     window.addEventListener('storage', onStorage);
+    window.addEventListener('cd-offline-queue-changed', onLocal);
     const t = window.setInterval(refreshOfflineQueueCount, 4000);
     return () => {
       window.removeEventListener('storage', onStorage);
+      window.removeEventListener('cd-offline-queue-changed', onLocal);
       window.clearInterval(t);
     };
   }, [refreshOfflineQueueCount]);
@@ -535,9 +552,15 @@ export function App() {
               {offlineQueueCount > 0 ? (
                 <button
                   type="button"
-                  className="badge clickable"
+                  className={`badge clickable${offlineFlushErr ? ' badge-fail' : ''}`}
                   data-no-drag
-                  aria-label={`待补交 ${offlineQueueCount}`}
+                  data-testid="offline-queue-badge"
+                  title={offlineFlushErr || `待补交 ${offlineQueueCount}`}
+                  aria-label={
+                    offlineFlushErr
+                      ? `待补交 ${offlineQueueCount}，最近失败：${offlineFlushErr}`
+                      : `待补交 ${offlineQueueCount}`
+                  }
                   onClick={() => {
                     requestOfflineQueueFlush();
                     void expandTo('quiz');
@@ -545,6 +568,11 @@ export function App() {
                 >
                   补{offlineQueueCount}
                 </button>
+              ) : null}
+              {offlineFlushErr && offlineQueueCount > 0 ? (
+                <span className="offline-err-chip" data-no-drag title={offlineFlushErr}>
+                  {offlineFlushErr.length > 18 ? `${offlineFlushErr.slice(0, 18)}…` : offlineFlushErr}
+                </span>
               ) : null}
               {unread > 0 && messagesEnabled ? (
                 <button
@@ -802,7 +830,15 @@ export function App() {
                   </span>
                 ) : null}
                 {item.id === 'quiz' && offlineQueueCount > 0 ? (
-                  <span className="badge" aria-label={`待补交 ${offlineQueueCount}`}>
+                  <span
+                    className={`badge${offlineFlushErr ? ' badge-fail' : ''}`}
+                    title={offlineFlushErr || undefined}
+                    aria-label={
+                      offlineFlushErr
+                        ? `待补交 ${offlineQueueCount}，最近失败：${offlineFlushErr}`
+                        : `待补交 ${offlineQueueCount}`
+                    }
+                  >
                     补{offlineQueueCount}
                   </span>
                 ) : null}
@@ -1875,6 +1911,17 @@ function QuizTab({
   const OFFLINE_QUEUE_MAX_ITEMS = 40;
   const OFFLINE_QUEUE_MAX_CHARS = 120_000;
 
+  function setFlushErr(msg: string) {
+    try {
+      if (msg) localStorage.setItem('cd_offline_flush_err', msg);
+      else localStorage.removeItem('cd_offline_flush_err');
+    } catch {
+      /* ignore */
+    }
+    setQueueFail(msg);
+    window.dispatchEvent(new CustomEvent('cd-offline-queue-changed'));
+  }
+
   function readOfflineQueue(): Array<{ questionId: string; answerPayload: unknown; queuedAt: string }> {
     try {
       return JSON.parse(localStorage.getItem('cd_offline_answers') || '[]') as Array<{
@@ -1965,7 +2012,8 @@ function QuizTab({
     const queue = readOfflineQueue();
     if (!queue.length) {
       setQueueCount(0);
-      if (manual) setQueueFail('');
+      onQueueCount?.(0);
+      if (manual) setFlushErr('');
       return;
     }
     const remain: typeof queue = [];
@@ -1987,10 +2035,11 @@ function QuizTab({
     }
     writeOfflineQueue(remain);
     setQueueCount(remain.length);
+    onQueueCount?.(remain.length);
     if (remain.length && (manual || lastErr)) {
-      setQueueFail(lastErr || `仍有 ${remain.length} 条待补交`);
+      setFlushErr(lastErr || `仍有 ${remain.length} 条待补交`);
     } else {
-      setQueueFail('');
+      setFlushErr('');
     }
     if (queue.length !== remain.length) {
       onAnswered(`已补交 ${queue.length - remain.length} 题（标补交）`);
@@ -2013,7 +2062,7 @@ function QuizTab({
   useEffect(() => {
     const run = () => {
       offlineFlushPending = false;
-      void flushOfflineQueueRef.current(true).catch((e) => setQueueFail(String(e)));
+      void flushOfflineQueueRef.current(true).catch((e) => setFlushErr(String(e)));
     };
     const onFlush = () => run();
     window.addEventListener('cd-flush-offline-queue', onFlush);
@@ -2090,7 +2139,7 @@ function QuizTab({
             type="button"
             className="secondary"
             style={{ marginLeft: 8 }}
-            onClick={() => void flushOfflineQueue(true).catch((e) => setQueueFail(String(e)))}
+            onClick={() => void flushOfflineQueue(true).catch((e) => setFlushErr(String(e)))}
           >
             立即重试
           </button>

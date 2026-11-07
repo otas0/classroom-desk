@@ -31,13 +31,26 @@ test.describe('assistants SSE list refresh', () => {
 
     await expect(page.getByTestId(`assistant-row-${user}`)).toBeVisible({ timeout: 12_000 });
     await expect(page.getByTestId(`assistant-row-${user}`)).not.toContainText('已停用');
+    await expect(page.getByTestId('assistants-sse-live-badge').or(page.getByTestId('assistants-sse-fallback-badge'))).toBeVisible();
 
-    const disabled = await request.post(`${API}/api/v1/auth/assistants/${id}/disable`, {
+    // UI path: 停用 button (also exercises SSE refresh after mutation from same tab)
+    await page.getByTestId(`assistant-disable-${user}`).click();
+    await expect(page.getByTestId(`assistant-row-${user}`)).toContainText('已停用', {
+      timeout: 12_000,
+    });
+
+    // API re-enable then UI still syncs via SSE if another tab mutated — disable via API again
+    await request.post(`${API}/api/v1/auth/assistants/${id}/enable`, {
       headers: auth,
       data: {},
     });
-    expect(disabled.ok()).toBeTruthy();
-
+    await expect(page.getByTestId(`assistant-row-${user}`)).not.toContainText('已停用', {
+      timeout: 12_000,
+    });
+    await request.post(`${API}/api/v1/auth/assistants/${id}/disable`, {
+      headers: auth,
+      data: {},
+    });
     await expect(page.getByTestId(`assistant-row-${user}`)).toContainText('已停用', {
       timeout: 12_000,
     });

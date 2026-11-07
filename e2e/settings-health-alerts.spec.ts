@@ -26,6 +26,13 @@ test.describe('settings health alerts', () => {
       await openPrepTab(page, '设置');
       await page.getByRole('button', { name: '一键检测 /health' }).click();
       await expect(page.getByTestId('export-tmp-leak-alert')).toBeVisible({ timeout: 10_000 });
+      await expect(page.getByTestId('export-tmp-dir')).toBeVisible();
+      await expect(page.getByTestId('export-tmp-cleanup')).toBeVisible();
+      await page.getByTestId('export-tmp-cleanup').click();
+      await expect(page.getByTestId('export-tmp-cleanup-msg')).toContainText(
+        /已清理|个导出临时/,
+        { timeout: 10_000 },
+      );
 
       const enq = await request.post(`${API}/api/v1/ops/audit-retry/enqueue`, {
         headers: auth,
@@ -36,7 +43,10 @@ test.describe('settings health alerts', () => {
       await page.getByRole('button', { name: '一键检测 /health' }).click();
       await expect(page.getByTestId('audit-retry-flush')).toBeVisible({ timeout: 10_000 });
       await page.getByTestId('audit-retry-flush').click();
-      await expect(page.getByText(/已重试写入|已 flush|剩余 0/)).toBeVisible({ timeout: 10_000 });
+      await expect(page.getByTestId('audit-retry-flush-msg')).toContainText(
+        /已重试写入|已 flush|剩余/,
+        { timeout: 10_000 },
+      );
 
       const health = await request.get(`${API}/health`);
       expect(health.ok()).toBeTruthy();

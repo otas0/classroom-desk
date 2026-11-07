@@ -9,10 +9,19 @@ Auth: `Authorization: Bearer <jwt>`（除注明公开接口外）
 
 | Method | Path | Auth | 说明 |
 |---|---|---|---|
-| GET | `/health` | 无 | 服务与数据库健康检查 |
+| GET | `/health` | 无 | 服务与数据库健康检查；含 `exportTmp`（`tmpLeaked`/`tmpDir`）、`audit.retryQueueSize`/`degraded` |
 | GET | `/api/v1/settings/public` | 无 | 告知文案、TTL、每日清空时刻；含 `clientExitAllowed` / `clientExitUnlockUntil` |
-| GET | `/api/v1/settings` | 教师 | 完整设置（含退出锁定状态） |
-| PATCH | `/api/v1/settings` | 教师 | `pointRequestTtlMinutes`；`clientExitUnlockMinutes` 批量解除；`clientExitRelock`；`exitUnlockCode`；清空时刻只读 |
+| GET | `/api/v1/settings` | 教师 | 完整设置（含退出锁定状态、`recycleRetentionDays`、`recycleUrgentDays`） |
+| PATCH | `/api/v1/settings` | 教师 | `pointRequestTtlMinutes`；`clientExitUnlockMinutes` 批量解除；`clientExitRelock`；`exitUnlockCode`；`recycleRetentionDays`；`recycleUrgentDays`；清空时刻只读 |
+
+## Ops（教师运维）
+
+| Method | Path | Auth | 说明 |
+|---|---|---|---|
+| POST | `/api/v1/ops/audit-retry/enqueue` | 教师/管理员 | 向审计重试 JSONL 队列塞入 1 条；写审计 `ops.audit_retry_enqueue` |
+| POST | `/api/v1/ops/audit-retry/flush` | 教师/管理员 | 立即 drain 重试队列；返回 `before`/`result`/`after`；写审计 `ops.audit_retry_flush` |
+| GET | `/api/v1/ops/export-tmp` | 教师/管理员 | 导出临时目录统计（同 `/health.exportTmp`） |
+| POST | `/api/v1/ops/export-tmp/cleanup` | 教师/管理员 | 删除 `os.tmpdir()` 中年龄 ≥30s 的 `cd-export-*`；写审计 `ops.export_tmp_cleanup` |
 
 ## Auth
 

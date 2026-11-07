@@ -18,11 +18,21 @@ export type AuditAction =
   | 'students.recycle_restore_all'
   | 'students.recycle_purge_all'
   | 'questions.bulk'
+  | 'questions.bulk_delete'
+  | 'questions.bulk_purge'
+  | 'questions.bulk_restore'
+  | 'questions.bulk_close'
+  | 'questions.bulk_reopen'
+  | 'questions.bulk_archive'
+  | 'questions.bulk_unarchive'
+  | 'questions.bulk_set_closes_at'
   | 'questions.soft_delete'
   | 'questions.restore'
   | 'questions.purge'
   | 'questions.recycle_restore_all'
   | 'questions.recycle_purge_all'
+  | 'ops.settings_migrate'
+  | 'ops.export_tmp_cleanup'
   | 'auth.create_assistant'
   | 'auth.disable_assistant'
   | 'auth.enable_assistant'
@@ -133,9 +143,13 @@ export function previewPurgeExpiredSoftDeletes(
 ): {
   students: number;
   questions: number;
+  count: number;
   retentionDays: number;
   cutoff: string;
   dryRun: true;
+  /** Class with the most expired soft-deletes (for audit deep-link). */
+  classId: string | null;
+  byClass: Array<{ classId: string; name: string; students: number; questions: number; count: number }>;
 } {
   const days = resolveRetentionDays(db, retentionDays);
   const cutoff = recyclePurgeCutoffIso(Date.now(), days);
@@ -162,7 +176,56 @@ export function previewPurgeExpiredSoftDeletes(
         .get(cutoff) as { n: number }
     ).n,
   );
-  return { students, questions, retentionDays: days, cutoff, dryRun: true };
+  const classRows = db
+    .prepare(`SELECT id, name FROM classes ORDER BY created_at DESC`)
+    .all() as Array<{ id: string; name: string }>;
+  const byClass: Array<{
+    classId: string;
+    name: string;
+    students: number;
+    questions: number;
+    count: number;
+  }> = [];
+  for (const c of classRows) {
+    const s = Number(
+      (
+        db
+          .prepare(
+            `SELECT COUNT(*) AS n FROM users
+             WHERE role = 'student' AND class_id = ?
+               AND deleted_at IS NOT NULL AND deleted_at != ''
+               AND deleted_at < ?`,
+          )
+          .get(c.id, cutoff) as { n: number }
+      ).n,
+    );
+    const q = Number(
+      (
+        db
+          .prepare(
+            `SELECT COUNT(*) AS n FROM questions
+             WHERE class_id = ?
+               AND deleted_at IS NOT NULL AND deleted_at != ''
+               AND deleted_at < ?`,
+          )
+          .get(c.id, cutoff) as { n: number }
+      ).n,
+    );
+    if (s + q > 0) {
+      byClass.push({ classId: c.id, name: c.name, students: s, questions: q, count: s + q });
+    }
+  }
+  byClass.sort((a, b) => b.count - a.count);
+  return {
+    students,
+    questions,
+    count: students + questions,
+    retentionDays: days,
+    cutoff,
+    dryRun: true,
+    classId: byClass[0]?.classId ?? null,
+    byClass,
+  };
 }
 
 export function purgeExpiredSoftDeletes(

@@ -109,6 +109,9 @@ jobs:
             e2e/bulk-ui.spec.ts \
             e2e/bulk-ops.spec.ts \
             e2e/q-recycle-purge.spec.ts \
+            e2e/questions-shift-select.spec.ts \
+            e2e/settings-health-alerts.spec.ts \
+            e2e/recycle-urgent-days.spec.ts \
             e2e/ops-polish.spec.ts \
             e2e/ops-v015.spec.ts \
             e2e/ops-v016.spec.ts
@@ -116,7 +119,7 @@ jobs:
           {
             echo "### e2e suite: bulk gate"
             if [ "$code" -eq 0 ]; then
-              echo "- result: **passed** (bulk + ops-polish + ops-v015 + ops-v016)"
+              echo "- result: **passed** (bulk + shift/sticky + health + urgent + ops)"
             else
               echo "- result: **failed** — suite=**bulk gate**"
             fi
@@ -184,16 +187,19 @@ jobs:
           # keep retries scoped to rbac/session-kick which hit auth races more often.
           npx playwright test --retries=1 \
             e2e/assistant-rbac.spec.ts \
+            e2e/assistants-sse.spec.ts \
             e2e/buzz-ws.spec.ts \
             e2e/session-kick.spec.ts \
             e2e/session-kick-ui.spec.ts \
             e2e/audit-detail.spec.ts \
-            e2e/permissions-doc.spec.ts
+            e2e/audit-jump-highlight.spec.ts \
+            e2e/permissions-doc.spec.ts \
+            e2e/settings-health-alerts.spec.ts
           code=$?
           {
             echo "### e2e suite: rbac"
             if [ "$code" -eq 0 ]; then
-              echo "- result: **passed** (assistant-rbac + buzz-ws + session-kick + audit-detail + permissions-doc; retries=1)"
+              echo "- result: **passed** (rbac + SSE + session-kick + audit jump + settings-health + permissions; retries=1)"
             else
               echo "- result: **failed** — suite=**e2e:rbac**"
             fi
@@ -218,76 +224,7 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
-  # Full Playwright suite moved to .github/workflows/e2e-nightly.yml (cron + workflow_dispatch).
-
-  e2e-full:
-    runs-on: ubuntu-latest
-    needs: [e2e-bulk, e2e-rbac]
-    env:
-      PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/.pw-browsers
-      API_BASE: http://127.0.0.1:8787
-      TEACHER_WEB: http://localhost:5174
-      STUDENT_WEB: http://127.0.0.1:5173
-    steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
-        with:
-          node-version: '24'
-          cache: npm
-      - name: Cache Playwright browsers
-        uses: actions/cache@v4
-        with:
-          path: ${{ github.workspace }}/.pw-browsers
-          key: pw-chromium-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
-          restore-keys: |
-            pw-chromium-${{ runner.os }}-
-      - name: Install
-        run: npm install
-      - name: Install Playwright
-        run: npx playwright install --with-deps chromium
-      - name: Build teacher SPA for /admin deep-link e2e
-        run: npm run build:teacher
-      - name: Start API + teacher web + student vite
-        run: |
-          JWT_SECRET=ci-secret-not-for-prod \
-          ADMIN_PASSWORD=AdminPass123 \
-          TEACHER_PASSWORD=TeacherPass123 \
-          DEFAULT_CLASS_CODE=DEMO01 \
-          npm run start --workspace=@classroom-desk/server &
-          npm run dev:teacher &
-          ELECTRON_OFF=1 npm run dev --workspace=@classroom-desk/student-desktop &
-          for i in $(seq 1 40); do
-            curl -fsS http://127.0.0.1:8787/health >/dev/null && \
-            curl -fsS http://127.0.0.1:5174/ >/dev/null && \
-            curl -fsS http://127.0.0.1:5173/ >/dev/null && \
-            curl -fsS -o /dev/null -w '%{http_code}' http://127.0.0.1:8787/admin/assignments | grep -q 200 && break
-            sleep 1
-          done
-      - name: Playwright e2e (full suite)
-        id: full_suite
-        run: |
-          set +e
-          npx playwright test
-          code=$?
-          {
-            echo "### e2e suite: full"
-            if [ "$code" -eq 0 ]; then
-              echo "- result: **passed** (full Playwright suite)"
-            else
-              echo "- result: **failed** — suite=**full suite** (prior gates may have passed)"
-            fi
-          } >> "$GITHUB_STEP_SUMMARY"
-          exit $code
-      - name: Upload Playwright traces (full suite failure)
-        if: failure() && steps.full_suite.outcome == 'failure'
-        uses: actions/upload-artifact@v4
-        with:
-          name: playwright-traces-full-suite
-          path: |
-            test-results/**
-            playwright-report/**
-          if-no-files-found: ignore
-          retention-days: 14
+  # Full Playwright suite: .github/workflows/e2e-nightly.yml (cron + workflow_dispatch + Issue on fail).
 
   windows-pack:
     runs-on: windows-latest

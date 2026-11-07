@@ -7,7 +7,11 @@ import { chunkIds, parseIdList, sqlInPlaceholders } from '../utils/bulkIds.js';
 import { newId, nowIso } from '../utils/id.js';
 import { toCsv } from '../utils/csv.js';
 import { paramId } from '../utils/params.js';
-import { purgeChunkSize } from '../utils/purgeChunk.js';
+import {
+  PURGE_CHUNK_SLOW_MS,
+  PURGE_STREAM_HINT_MIN,
+  purgeChunkSize,
+} from '../utils/purgeChunk.js';
 import { recycleTiming } from '../utils/recycleRetention.js';
 
 export const questionsRouter = Router();
@@ -578,10 +582,28 @@ questionsRouter.post(
       unarchive: '恢复上线',
       set_closes_at: closesAt ? '设置截止' : '清空截止',
     };
+    const auditAction =
+      action === 'delete'
+        ? 'questions.bulk_delete'
+        : action === 'purge'
+          ? 'questions.bulk_purge'
+          : action === 'restore'
+            ? 'questions.bulk_restore'
+            : action === 'close'
+              ? 'questions.bulk_close'
+              : action === 'reopen'
+                ? 'questions.bulk_reopen'
+                : action === 'archive'
+                  ? 'questions.bulk_archive'
+                  : action === 'unarchive'
+                    ? 'questions.bulk_unarchive'
+                    : action === 'set_closes_at'
+                      ? 'questions.bulk_set_closes_at'
+                      : 'questions.bulk';
     writeAudit({
       actorUserId: req.user?.id,
       actorRole: req.user?.role,
-      action: 'questions.bulk',
+      action: auditAction,
       classId,
       detail: { action, ids, affected, closesAt },
       clientIp: req.ip,
@@ -661,45 +683,102 @@ questionsRouter.post(
     const total = ids.length;
     const CHUNK = purgeChunkSize(total);
     const chunks = chunkIds(ids, CHUNK);
+    const preferStream = total >= PURGE_STREAM_HINT_MIN;
+    const useStream = stream || preferStream;
+    const t0 = Date.now();
+    let maxChunkMs = 0;
+    let slowChunks = 0;
 
-    if (stream) {
+    if (useStream) {
       res.setHeader('Content-Type', 'application/x-ndjson; charset=utf-8');
       res.setHeader('Cache-Control', 'no-cache');
       res.write(
-        `${JSON.stringify({ type: 'progress', purged: 0, total, pct: total ? 0 : 100, done: false })}\n`,
+        `${JSON.stringify({
+          type: 'progress',
+          purged: 0,
+          total,
+          pct: total ? 0 : 100,
+          done: false,
+          preferStream,
+        })}\n`,
       );
     }
 
     for (const chunk of chunks) {
+      const c0 = Date.now();
       withTransaction(db, () => {
         const ph = sqlInPlaceholders(chunk.length);
         const info = db.prepare(`DELETE FROM questions WHERE id IN (${ph})`).run(...chunk);
         purged += Number(info.changes ?? 0);
       });
-      if (stream) {
+      const chunkMs = Date.now() - c0;
+      if (chunkMs > maxChunkMs) maxChunkMs = chunkMs;
+      if (chunkMs >= PURGE_CHUNK_SLOW_MS) {
+        slowChunks += 1;
+        console.warn(
+          `[purge] questions chunk slow ${chunkMs}ms size=${chunk.length} class=${classId}`,
+        );
+      }
+      if (useStream) {
         const pct = total ? Math.min(100, Math.round((purged / total) * 100)) : 100;
         res.write(
-          `${JSON.stringify({ type: 'progress', purged, total, pct, done: false })}\n`,
+          `${JSON.stringify({
+            type: 'progress',
+            purged,
+            total,
+            pct,
+            done: false,
+            chunkMs,
+            maxChunkMs,
+          })}\n`,
         );
       }
     }
+    const durationMs = Date.now() - t0;
     writeAudit({
       actorUserId: req.user?.id,
       actorRole: req.user?.role,
       action: 'questions.recycle_purge_all',
       classId,
-      detail: { purged, chunks: chunks.length },
+      detail: {
+        purged,
+        chunks: chunks.length,
+        chunkSize: CHUNK,
+        durationMs,
+        maxChunkMs,
+        slowChunks,
+        preferStream,
+      },
       clientIp: req.ip,
     });
-    const message = `已永久清空题目回收站 ${purged} 题`;
-    if (stream) {
+    const message = `已永久清空题目回收站 ${purged} 题（${durationMs}ms）`;
+    if (useStream) {
       res.write(
-        `${JSON.stringify({ type: 'done', ok: true, purged, total, pct: 100, done: true, message })}\n`,
+        `${JSON.stringify({
+          type: 'done',
+          ok: true,
+          purged,
+          total,
+          pct: 100,
+          done: true,
+          message,
+          durationMs,
+          maxChunkMs,
+          slowChunks,
+        })}\n`,
       );
       res.end();
       return;
     }
-    res.json({ ok: true, purged, message });
+    res.json({
+      ok: true,
+      purged,
+      message,
+      durationMs,
+      maxChunkMs,
+      slowChunks,
+      preferStream,
+    });
   },
 );
 

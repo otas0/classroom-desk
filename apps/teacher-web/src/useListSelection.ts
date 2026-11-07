@@ -1,5 +1,11 @@
 import { useCallback, useRef, useState, type KeyboardEvent } from 'react';
 
+export type ListSelectionOpts = {
+  onActivate?: (id: string) => void;
+  /** Called when focus moves (↑↓); parent should scroll virtual list so row is mounted. */
+  ensureVisible?: (index: number, id: string) => void;
+};
+
 /** Checkbox + Shift-range + keyboard ↑↓/Space selection for virtual lists. */
 export function useListSelection(orderedIds: string[]) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -40,8 +46,25 @@ export function useListSelection(orderedIds: string[]) {
     });
   }, [orderedIds]);
 
+  const focusRow = useCallback(
+    (index: number, opts?: ListSelectionOpts) => {
+      const id = orderedIds[index];
+      if (!id) return;
+      focusIndex.current = index;
+      opts?.ensureVisible?.(index, id);
+      requestAnimationFrame(() => {
+        const el = document.querySelector(
+          `[data-row-id="${CSS.escape(id)}"]`,
+        ) as HTMLElement | null;
+        el?.focus();
+        el?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+      });
+    },
+    [orderedIds],
+  );
+
   const onKeyDown = useCallback(
-    (e: KeyboardEvent, opts?: { onActivate?: (id: string) => void }) => {
+    (e: KeyboardEvent, opts?: ListSelectionOpts) => {
       if (!orderedIds.length) return;
       if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
         e.preventDefault();
@@ -50,17 +73,13 @@ export function useListSelection(orderedIds: string[]) {
           orderedIds.length - 1,
           Math.max(0, focusIndex.current + delta),
         );
-        focusIndex.current = next;
         const id = orderedIds[next]!;
         if (e.shiftKey) {
           toggleOne(id, true, true);
         } else {
           anchorId.current = id;
         }
-        const el = document.querySelector(
-          `[data-row-id="${CSS.escape(id)}"]`,
-        ) as HTMLElement | null;
-        el?.focus();
+        focusRow(next, opts);
         return;
       }
       if (e.key === ' ' || e.key === 'Spacebar') {
@@ -76,8 +95,17 @@ export function useListSelection(orderedIds: string[]) {
         if (id) opts?.onActivate?.(id);
       }
     },
-    [orderedIds, selected, toggleOne],
+    [orderedIds, selected, toggleOne, focusRow],
   );
 
-  return { selected, setSelected, clear, toggleOne, onKeyDown, focusIndex, anchorId };
+  return {
+    selected,
+    setSelected,
+    clear,
+    toggleOne,
+    onKeyDown,
+    focusIndex,
+    anchorId,
+    focusRow,
+  };
 }

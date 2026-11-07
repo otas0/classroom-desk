@@ -682,6 +682,15 @@ section label.choice input {
   margin-bottom: 1rem;
 }
 
+.grants-lose-list {
+  max-height: min(40vh, 280px);
+  overflow: auto;
+  margin: 0.5rem 0 0;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--line-soft);
+  list-style: disc inside;
+}
+
 .modal-body p {
   margin: 0.35rem 0;
 }

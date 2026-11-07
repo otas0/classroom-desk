@@ -6,11 +6,10 @@ import {
   shouldRunDailyCleanup,
 } from '../services/cleanup.js';
 import { openScheduledAttendanceSessions } from '../services/attendanceSchedule.js';
-import { packageVersion } from '../routes/health.js';
-import { purgeExpiredSoftDeletes, writeAudit } from '../services/audit.js';
+import { purgeExpiredSoftDeletes } from '../services/audit.js';
 import { flushAuditRetryQueue } from '../services/auditRetry.js';
 import { runDbBackup, shouldRunDailyBackup } from '../services/backup.js';
-import { listPresenceClients } from '../services/presenceHub.js';
+import { takeFleetDriftSnapshot } from '../services/fleetDrift.js';
 import { nowIso } from '../utils/id.js';
 
 let timer: NodeJS.Timeout | null = null;
@@ -90,30 +89,7 @@ export function startCleanupScheduler(): void {
       if (driftMins > 0 && Date.now() - lastDriftSnapshotAt >= driftMins * 60_000) {
         lastDriftSnapshotAt = Date.now();
         try {
-          const expected = packageVersion();
-          const classes = db.prepare(`SELECT id FROM classes`).all() as Array<{ id: string }>;
-          let onlineTotal = 0;
-          let driftClients = 0;
-          for (const c of classes) {
-            const clients = listPresenceClients(c.id, 90_000);
-            onlineTotal += clients.length;
-            driftClients += clients.filter(
-              (x) => x.clientVersion && expected && x.clientVersion !== expected,
-            ).length;
-          }
-          writeAudit({
-            actorUserId: null,
-            actorRole: 'system',
-            action: 'fleet.drift_snapshot',
-            detail: {
-              expectedVersion: expected,
-              onlineTotal,
-              driftCount: driftClients,
-              driftRate: onlineTotal > 0 ? driftClients / onlineTotal : 0,
-              classCount: classes.length,
-              intervalMinutes: driftMins,
-            },
-          });
+          takeFleetDriftSnapshot({ intervalMinutes: driftMins });
         } catch (e) {
           console.error('[scheduler] drift snapshot failed', e);
         }
@@ -133,4 +109,9 @@ export function stopCleanupScheduler(): void {
     clearInterval(timer);
     timer = null;
   }
+}
+
+/** Mark scheduler drift clock so a manual snapshot does not double-fire immediately. */
+export function markFleetDriftSnapshotTaken(): void {
+  lastDriftSnapshotAt = Date.now();
 }

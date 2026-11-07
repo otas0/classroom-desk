@@ -83,6 +83,7 @@ function run() {
     assert.equal(purgeChunkSize(600), 150);
     assert.equal(purgeChunkSize(2500), 200);
     assert.equal(purgeChunkSize(6000), 250);
+    assert.equal(purgeChunkSize(12_000), 200);
 
     console.log(`purgeAllStress.test.ts ok (N=${N}, chunks=${chunks.length}, chunk=${CHUNK})`);
   } finally {

@@ -556,12 +556,22 @@ settingsRouter.post(
         actorUserId: req.user!.id,
         actorRole: req.user!.role,
         action: 'recycle.purge_preview',
-        detail: preview,
+        classId: preview.classId,
+        detail: {
+          students: preview.students,
+          questions: preview.questions,
+          count: preview.count,
+          classId: preview.classId,
+          byClass: preview.byClass.slice(0, 20),
+          retentionDays: preview.retentionDays,
+          cutoff: preview.cutoff,
+          dryRun: true,
+        },
       });
       res.json({
         ok: true,
         ...preview,
-        message: `预览：将硬删学生 ${preview.students} · 题目 ${preview.questions}（保留 ${preview.retentionDays} 天，cutoff ${preview.cutoff}）`,
+        message: `预览：将硬删学生 ${preview.students} · 题目 ${preview.questions}（共 ${preview.count}，保留 ${preview.retentionDays} 天，cutoff ${preview.cutoff}）`,
       });
       return;
     }

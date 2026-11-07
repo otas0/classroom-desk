@@ -13,8 +13,11 @@ import {
 import { getBackupStatus } from '../services/backup.js';
 import { listPresenceClients } from '../services/presenceHub.js';
 import { summarizeDurations } from '../utils/percentile.js';
+import { cleanupExportTemps, exportTempStats } from '../utils/exportTempTracker.js';
 import { nowIso } from '../utils/id.js';
 import { packageVersion } from '../routes/health.js';
+import { takeFleetDriftSnapshot } from '../services/fleetDrift.js';
+import { markFleetDriftSnapshotTaken } from '../jobs/scheduler.js';
 
 export const opsRouter = Router();
 
@@ -212,6 +215,39 @@ opsRouter.get(
   },
 );
 
+/** Export temp dir path + leak stats (settings alert). */
+opsRouter.get(
+  '/api/v1/ops/export-tmp',
+  requireAuth,
+  requireRoles('teacher', 'admin'),
+  (_req: AuthedRequest, res) => {
+    res.json({ ok: true, ...exportTempStats() });
+  },
+);
+
+/** Remove stale cd-export-* files in os.tmpdir. */
+opsRouter.post(
+  '/api/v1/ops/export-tmp/cleanup',
+  requireAuth,
+  requireRoles('teacher', 'admin'),
+  (req: AuthedRequest, res) => {
+    const result = cleanupExportTemps();
+    writeAudit({
+      actorUserId: req.user?.id,
+      actorRole: req.user?.role,
+      action: 'ops.export_tmp_cleanup',
+      detail: result,
+      clientIp: req.ip,
+    });
+    res.json({
+      ok: true,
+      ...result,
+      after: exportTempStats(),
+      message: `已清理 ${result.removed} 个导出临时文件${result.failed ? `，失败 ${result.failed}` : ''}`,
+    });
+  },
+);
+
 /** Seed one retry-queue row (settings flush UI / e2e). */
 opsRouter.post(
   '/api/v1/ops/audit-retry/enqueue',
@@ -240,6 +276,25 @@ opsRouter.post(
       clientIp: req.ip,
     });
     res.json({ ok: true, health: auditRetryHealth(), message: '已写入审计重试队列 1 条' });
+  },
+);
+
+/** Manual fleet.drift_snapshot for settings 联调. */
+opsRouter.post(
+  '/api/v1/ops/fleet-drift-snapshot',
+  requireAuth,
+  requireRoles('teacher', 'admin'),
+  (req: AuthedRequest, res) => {
+    const snap = takeFleetDriftSnapshot({
+      actorUserId: req.user?.id ?? null,
+      actorRole: req.user?.role ?? 'teacher',
+    });
+    markFleetDriftSnapshotTaken();
+    res.json({
+      ok: true,
+      ...snap,
+      message: `已写入 fleet.drift_snapshot · 在线 ${snap.onlineTotal} · 漂移 ${snap.driftCount}`,
+    });
   },
 );
 

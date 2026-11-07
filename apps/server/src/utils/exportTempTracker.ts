@@ -18,22 +18,19 @@ export type ExportTempStats = {
   trackedOpen: number;
   tmpLeaked: number;
   tmpLeakedSample: string[];
+  tmpDir: string;
 };
 
-/** Count cd-export-* files left in os.tmpdir (possible leaks if >0 after requests settle). */
-export function exportTempStats(): ExportTempStats {
-  let tmpLeaked = 0;
-  const sample: string[] = [];
+function listLeakedExportTemps(minAgeMs = 30_000): string[] {
+  const leaked: string[] = [];
   try {
     for (const name of fs.readdirSync(os.tmpdir())) {
       if (!name.startsWith(PREFIX)) continue;
       const full = path.join(os.tmpdir(), name);
       try {
         const st = fs.statSync(full);
-        // Ignore brand-new files (<30s) that may still be in flight
-        if (Date.now() - st.mtimeMs < 30_000) continue;
-        tmpLeaked += 1;
-        if (sample.length < 5) sample.push(name);
+        if (Date.now() - st.mtimeMs < minAgeMs) continue;
+        leaked.push(full);
       } catch {
         /* gone */
       }
@@ -41,9 +38,40 @@ export function exportTempStats(): ExportTempStats {
   } catch {
     /* tmp unreadable */
   }
+  return leaked;
+}
+
+/** Count cd-export-* files left in os.tmpdir (possible leaks if >0 after requests settle). */
+export function exportTempStats(): ExportTempStats {
+  const leaked = listLeakedExportTemps();
   return {
     trackedOpen: tracked.size,
-    tmpLeaked,
-    tmpLeakedSample: sample,
+    tmpLeaked: leaked.length,
+    tmpLeakedSample: leaked.slice(0, 5).map((p) => path.basename(p)),
+    tmpDir: os.tmpdir(),
   };
+}
+
+/** Unlink stale cd-export-* files (age ≥ minAgeMs). Does not touch in-flight tracked paths younger than threshold. */
+export function cleanupExportTemps(minAgeMs = 30_000): {
+  removed: number;
+  failed: number;
+  tmpDir: string;
+  removedSample: string[];
+} {
+  const leaked = listLeakedExportTemps(minAgeMs);
+  let removed = 0;
+  let failed = 0;
+  const removedSample: string[] = [];
+  for (const full of leaked) {
+    try {
+      fs.unlinkSync(full);
+      untrackExportTemp(full);
+      removed += 1;
+      if (removedSample.length < 8) removedSample.push(path.basename(full));
+    } catch {
+      failed += 1;
+    }
+  }
+  return { removed, failed, tmpDir: os.tmpdir(), removedSample };
 }

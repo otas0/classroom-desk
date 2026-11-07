@@ -3,6 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { DatabaseSync } from 'node:sqlite';
 import { RECYCLE_RETENTION_DAYS, RECYCLE_URGENT_DAYS } from '@classroom-desk/shared';
+import { newId, nowIso } from '../utils/id.js';
 import { openDb, withTransaction } from './client.js';
 
 const DEFAULT_SETTINGS: Record<string, string> = {
@@ -240,9 +241,11 @@ function backfillAssistantPasswordOk(conn: DatabaseSync): void {
  */
 function alignLegacyRecycleRetention30to7(conn: DatabaseSync): void {
   if (getSetting(conn, 'recycle_retention_align_shared_v1') === '1') return;
+  let migratedFrom: string | null = null;
   withTransaction(conn, () => {
     const cur = getSetting(conn, 'recycle_retention_days');
     if (cur === '30') {
+      migratedFrom = '30';
       conn
         .prepare(
           `INSERT INTO settings (key, value) VALUES ('recycle_retention_days', ?)
@@ -257,6 +260,28 @@ function alignLegacyRecycleRetention30to7(conn: DatabaseSync): void {
       )
       .run();
   });
+  if (migratedFrom) {
+    try {
+      conn
+        .prepare(
+          `INSERT INTO teacher_audit_log
+             (id, actor_user_id, actor_role, action, class_id, detail, client_ip, created_at)
+           VALUES (?, NULL, 'system', 'ops.settings_migrate', NULL, ?, NULL, ?)`,
+        )
+        .run(
+          newId(),
+          JSON.stringify({
+            key: 'recycle_retention_days',
+            from: migratedFrom,
+            to: String(RECYCLE_RETENTION_DAYS),
+            flag: 'recycle_retention_align_shared_v1',
+          }),
+          nowIso(),
+        );
+    } catch {
+      /* audit table may be mid-migrate; non-fatal */
+    }
+  }
 }
 
 export function getSetting(conn: DatabaseSync, key: string): string | null {

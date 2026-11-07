@@ -28,6 +28,12 @@
 - purge：dry-run 审计 `recycle.purge_preview` 可「跳转清理确认」；大表清空走 `purgeChunk`
 - grants 空表迁移确认列出将失去导出的班级
 - e2e：修 permissions-doc / homework-points / point-request / setup-identity / q-recycle-purge；入库 assistants-sse 等规格
+- e2e smoke：assistants-sse / audit-jump / settings-health 入 rbac gate；nightly retries=1 + `e2e/quarantine.txt`
+- 恢复确认邮件：`CLASSROOM_DESK_EMAIL_WEBHOOK` 集成测试（200 / 超时）
+- 座位换座：409 冲突 vs 网络错误分文案；grants 迁移确认可滚动班级列表
+- purge dry-run 审计深链带 count/classId；>10k 自动 NDJSON 进度并记录 chunk 耗时
+- 升级 prune 列出已删文件名；离线「补 N」失败红徽标+错误摘要；OCR 无权限可「申请上课权限/复制草稿」
+- 设置：fleet.drift_snapshot「立即拍一次」；海报迁入 `docs/assets` + USB checklist
 
 ### 安装包
 

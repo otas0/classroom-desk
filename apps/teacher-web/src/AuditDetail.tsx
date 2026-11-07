@@ -10,13 +10,26 @@ function tryParse(detail: string): unknown {
 
 export type AuditJumpTarget = 'roster' | 'questions' | 'q-recycle';
 
+export type PurgeConfirmJump = {
+  classId: string | null;
+  count: number | null;
+  students: number | null;
+  questions: number | null;
+};
+
 export function auditJumpTarget(
   action: string | null | undefined,
   detailObj?: Record<string, unknown> | null,
 ): AuditJumpTarget | null {
   const a = String(action ?? '');
   if (a.startsWith('students.')) return 'roster';
-  if (a.includes('recycle') && a.startsWith('questions.')) return 'q-recycle';
+  if (
+    a === 'questions.bulk_delete' ||
+    a === 'questions.bulk_purge' ||
+    (a.includes('recycle') && a.startsWith('questions.'))
+  ) {
+    return 'q-recycle';
+  }
   if (a === 'questions.bulk') {
     const bulkAction = String(detailObj?.action ?? '');
     if (bulkAction === 'delete' || bulkAction === 'purge') return 'q-recycle';
@@ -24,6 +37,20 @@ export function auditJumpTarget(
   }
   if (a.startsWith('questions.')) return 'questions';
   return null;
+}
+
+function readPurgeJump(obj: Record<string, unknown>): PurgeConfirmJump {
+  const classId =
+    typeof obj.classId === 'string' && obj.classId.trim() ? obj.classId.trim() : null;
+  const students = typeof obj.students === 'number' ? obj.students : null;
+  const questions = typeof obj.questions === 'number' ? obj.questions : null;
+  const count =
+    typeof obj.count === 'number'
+      ? obj.count
+      : students != null || questions != null
+        ? (students ?? 0) + (questions ?? 0)
+        : null;
+  return { classId, count, students, questions };
 }
 
 export function AuditDetail({
@@ -35,7 +62,7 @@ export function AuditDetail({
   detail: string;
   action?: string | null;
   onJumpIds?: (opts: { ids: string[]; target: AuditJumpTarget; action: string }) => void;
-  onJumpPurgeConfirm?: () => void;
+  onJumpPurgeConfirm?: (jump: PurgeConfirmJump) => void;
 }) {
   const [open, setOpen] = useState(false);
   const parsed = tryParse(detail);
@@ -45,11 +72,12 @@ export function AuditDetail({
   const obj = parsed as Record<string, unknown>;
   const ids = Array.isArray(obj.ids) ? (obj.ids as unknown[]).map(String) : null;
   const summary = Object.entries(obj)
-    .filter(([k]) => k !== 'ids')
+    .filter(([k]) => k !== 'ids' && k !== 'byClass')
     .map(([k, v]) => `${k}=${typeof v === 'string' ? v : JSON.stringify(v)}`)
     .slice(0, 4)
     .join(' · ');
   const target = auditJumpTarget(action, obj);
+  const purgeMeta = readPurgeJump(obj);
   const purgeJump =
     String(action ?? '') === 'recycle.purge_preview' && onJumpPurgeConfirm ? (
       <>
@@ -58,9 +86,12 @@ export function AuditDetail({
           type="button"
           className="linkish"
           data-testid="audit-jump-purge-confirm"
-          onClick={() => onJumpPurgeConfirm()}
+          data-purge-count={purgeMeta.count ?? ''}
+          data-purge-class={purgeMeta.classId ?? ''}
+          onClick={() => onJumpPurgeConfirm(purgeMeta)}
         >
           跳转清理确认
+          {purgeMeta.count != null ? `（${purgeMeta.count}）` : ''}
         </button>
       </>
     ) : null;

@@ -27,6 +27,14 @@ function run() {
     const db2 = openDb();
     assert.equal(getSetting(db2, 'recycle_retention_days'), String(RECYCLE_RETENTION_DAYS));
     assert.equal(getSetting(db2, 'recycle_retention_align_shared_v1'), '1');
+    const mig = db2
+      .prepare(
+        `SELECT action, detail FROM teacher_audit_log WHERE action = 'ops.settings_migrate' ORDER BY created_at DESC LIMIT 1`,
+      )
+      .get() as { action: string; detail: string } | undefined;
+    assert.ok(mig, 'expected ops.settings_migrate audit row');
+    assert.match(mig!.detail, /recycle_retention_days/);
+    assert.match(mig!.detail, /"from":"30"/);
 
     // Custom 14 must not be rewritten on second migrate
     db2
