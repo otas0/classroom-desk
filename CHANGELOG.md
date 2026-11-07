@@ -43,6 +43,7 @@
 - e2e：解除码轮换用 API `exitUnlockCodeSetAt`（禁 WAL 直写竞态）；回收站全选 poll；班级 select 校验 value
 - 设置：webhookError toast；purge 空状态「去改保留天数」；换座成功清 shake；nightly summary 打印 quarantine 条数
 - 计划：`docs/STUDENT_LOCK_HARDENING_PLAN.md`（合法 kiosk，拒绝隐蔽木马式植入）
+- P0：关窗/Alt+F4 toast「向教师申请解除」+ e2e；断线锁态缓存对账 `client_reconcile`；错码剩余次数/冷却；批量解锁 ConfirmModal（班级+机位）；未加固可关闭提示；助教只读轮换；C2 证据表；smoke 含原 quarantine 五条；SETUP/USB「须学校 IT 知情」；nightly quarantine count=0 文案；`docs/P0_SPRINT_ISSUES.md`
 
 ### 安装包
 

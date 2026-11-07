@@ -274,7 +274,13 @@ function getBucket(key: string): AttemptBucket {
 export function getExitUnlockRateLimit(
   db: DatabaseSync,
   clientKey: string,
-): { limited: boolean; retryAfterSec: number; failsInWindow: number } {
+): {
+  limited: boolean;
+  retryAfterSec: number;
+  failsInWindow: number;
+  remainingAttempts: number;
+  maxFails: number;
+} {
   const cfg = getExitUnlockRateConfig(db);
   const windowMs = cfg.exitUnlockWindowMinutes * 60_000;
   const now = Date.now();
@@ -284,10 +290,18 @@ export function getExitUnlockRateLimit(
       limited: true,
       retryAfterSec: Math.ceil((b.lockedUntil - now) / 1000),
       failsInWindow: b.fails.length,
+      remainingAttempts: 0,
+      maxFails: cfg.exitUnlockMaxFails,
     };
   }
   b.fails = b.fails.filter((t) => now - t < windowMs);
-  return { limited: false, retryAfterSec: 0, failsInWindow: b.fails.length };
+  return {
+    limited: false,
+    retryAfterSec: 0,
+    failsInWindow: b.fails.length,
+    remainingAttempts: Math.max(0, cfg.exitUnlockMaxFails - b.fails.length),
+    maxFails: cfg.exitUnlockMaxFails,
+  };
 }
 
 function noteExitUnlockFailure(
@@ -319,9 +333,18 @@ export async function attemptExitUnlock(
   meta?: { clientIp?: string | null },
 ): Promise<
   | { ok: true }
-  | { ok: false; error: string; message: string; status: number; retryAfterSec?: number }
+  | {
+      ok: false;
+      error: string;
+      message: string;
+      status: number;
+      retryAfterSec?: number;
+      remainingAttempts?: number;
+      maxFails?: number;
+    }
 > {
   const clientKey = String(meta?.clientIp ?? 'unknown');
+  const cfg = getExitUnlockRateConfig(db);
   const rl = getExitUnlockRateLimit(db, clientKey);
   if (rl.limited) {
     recordExitLockEvent(db, {
@@ -335,12 +358,21 @@ export async function attemptExitUnlock(
       message: `尝试过多，请 ${rl.retryAfterSec} 秒后再试`,
       status: 429,
       retryAfterSec: rl.retryAfterSec,
+      remainingAttempts: 0,
+      maxFails: cfg.exitUnlockMaxFails,
     };
   }
 
   const trimmed = String(code ?? '').trim();
   if (!trimmed) {
-    return { ok: false, error: 'password_required', message: '请输入解除码', status: 400 };
+    return {
+      ok: false,
+      error: 'password_required',
+      message: '请输入解除码',
+      status: 400,
+      remainingAttempts: rl.remainingAttempts,
+      maxFails: cfg.exitUnlockMaxFails,
+    };
   }
 
   const codeHash = getSetting(db, KEY_CODE_HASH);
@@ -350,9 +382,12 @@ export async function attemptExitUnlock(
 
   if (!matched) {
     const after = noteExitUnlockFailure(db, clientKey);
+    const afterRl = getExitUnlockRateLimit(db, clientKey);
     recordExitLockEvent(db, {
       kind: after.limited ? 'code_rate_limited' : 'code_fail',
-      detail: after.limited ? `lockoutSec=${after.retryAfterSec}` : 'invalid_code',
+      detail: after.limited
+        ? `lockoutSec=${after.retryAfterSec}`
+        : `invalid_code;remaining=${afterRl.remainingAttempts}`,
       clientIp: meta?.clientIp,
     });
     if (after.limited) {
@@ -362,9 +397,18 @@ export async function attemptExitUnlock(
         message: `尝试过多，请 ${after.retryAfterSec} 秒后再试`,
         status: 429,
         retryAfterSec: after.retryAfterSec,
+        remainingAttempts: 0,
+        maxFails: cfg.exitUnlockMaxFails,
       };
     }
-    return { ok: false, error: 'invalid_exit_unlock_code', message: '解除码错误', status: 401 };
+    return {
+      ok: false,
+      error: 'invalid_exit_unlock_code',
+      message: `解除码错误（还可试 ${afterRl.remainingAttempts} 次）`,
+      status: 401,
+      remainingAttempts: afterRl.remainingAttempts,
+      maxFails: cfg.exitUnlockMaxFails,
+    };
   }
 
   clearExitUnlockFailures(clientKey);
@@ -374,6 +418,32 @@ export async function attemptExitUnlock(
     clientIp: meta?.clientIp,
   });
   return { ok: true };
+}
+
+/** Student reports local cache vs server after reconnect; always trusts server and audits conflicts. */
+export function reconcileClientExitLockCache(
+  db: DatabaseSync,
+  local: { allowed: boolean; until?: string | null },
+  meta?: { clientIp?: string | null; clientId?: string | null },
+) {
+  const server = getClientExitLockState(db);
+  const conflict =
+    Boolean(local.allowed) !== server.clientExitAllowed ||
+    String(local.until ?? '') !== String(server.clientExitUnlockUntil ?? '');
+  if (conflict) {
+    recordExitLockEvent(db, {
+      kind: 'client_reconcile',
+      detail: JSON.stringify({
+        localAllowed: Boolean(local.allowed),
+        localUntil: local.until ?? null,
+        serverAllowed: server.clientExitAllowed,
+        serverUntil: server.clientExitUnlockUntil,
+        clientId: meta?.clientId ?? null,
+      }),
+      clientIp: meta?.clientIp,
+    });
+  }
+  return { conflict, ...server };
 }
 
 export async function verifyExitUnlockCode(db: DatabaseSync, code: string): Promise<boolean> {

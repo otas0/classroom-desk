@@ -21,6 +21,7 @@ import { allWeakPasswords, isWeakTeacherPassword } from '../services/weakPasswor
 import { requireAuth, requireRoles, type AuthedRequest } from '../middleware/auth.js';
 import { config } from '../config.js';
 import { newId, nowIso } from '../utils/id.js';
+import { reconcileClientExitLockCache } from '../services/exitLock.js';
 
 export const authRouter = Router();
 
@@ -147,10 +148,41 @@ authRouter.post('/api/v1/auth/exit-unlock', async (req, res) => {
       error: result.error,
       message: result.message,
       retryAfterSec: result.retryAfterSec,
+      remainingAttempts: result.remainingAttempts,
+      maxFails: result.maxFails,
     });
     return;
   }
   res.json({ ok: true, allowExit: true });
+});
+
+/**
+ * After reconnect: student posts local exit-lock cache; server is authority.
+ * Conflicts are written to exit_lock_events (kind=client_reconcile).
+ */
+authRouter.post('/api/v1/auth/exit-lock-reconcile', (req, res) => {
+  const clientIp = String(req.headers['x-forwarded-for'] ?? req.socket.remoteAddress ?? '')
+    .split(',')[0]
+    .trim();
+  const localAllowed = Boolean(req.body?.allowed ?? req.body?.localAllowed);
+  const localUntil =
+    req.body?.until != null
+      ? String(req.body.until)
+      : req.body?.localUntil != null
+        ? String(req.body.localUntil)
+        : null;
+  const clientId = req.body?.clientId != null ? String(req.body.clientId).slice(0, 80) : null;
+  const r = reconcileClientExitLockCache(
+    openDb(),
+    { allowed: localAllowed, until: localUntil },
+    { clientIp, clientId },
+  );
+  res.json({
+    ok: true,
+    conflict: r.conflict,
+    clientExitAllowed: r.clientExitAllowed,
+    clientExitUnlockUntil: r.clientExitUnlockUntil,
+  });
 });
 
 authRouter.get('/api/v1/auth/me', requireAuth, (req: AuthedRequest, res) => {

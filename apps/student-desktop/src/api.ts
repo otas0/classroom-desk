@@ -47,6 +47,33 @@ export class ApiOfflineError extends Error {
   }
 }
 
+export class ApiError extends Error {
+  error?: string;
+  status: number;
+  retryAfterSec?: number;
+  remainingAttempts?: number;
+  maxFails?: number;
+
+  constructor(
+    message: string,
+    opts: {
+      error?: string;
+      status: number;
+      retryAfterSec?: number;
+      remainingAttempts?: number;
+      maxFails?: number;
+    },
+  ) {
+    super(message);
+    this.name = 'ApiError';
+    this.error = opts.error;
+    this.status = opts.status;
+    this.retryAfterSec = opts.retryAfterSec;
+    this.remainingAttempts = opts.remainingAttempts;
+    this.maxFails = opts.maxFails;
+  }
+}
+
 export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers);
   headers.set('Content-Type', 'application/json');
@@ -62,8 +89,20 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
 
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    const body = data as { error?: string; message?: string };
-    throw new Error(body.message || zhError(body.error) || `请求失败（${res.status}）`);
+    const body = data as {
+      error?: string;
+      message?: string;
+      retryAfterSec?: number;
+      remainingAttempts?: number;
+      maxFails?: number;
+    };
+    throw new ApiError(body.message || zhError(body.error) || `请求失败（${res.status}）`, {
+      error: body.error,
+      status: res.status,
+      retryAfterSec: body.retryAfterSec,
+      remainingAttempts: body.remainingAttempts,
+      maxFails: body.maxFails,
+    });
   }
   return data as T;
 }

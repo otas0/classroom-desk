@@ -256,3 +256,19 @@ ipcMain.handle('config:set', (_event, patch: { apiBase?: string; classId?: strin
     classId: patch?.classId != null ? String(patch.classId) : undefined,
   });
 });
+
+/**
+ * Soft Assigned Access / kiosk signal (ethical, visible tip only).
+ * - CD_ASSIGNED_ACCESS=1 → hardened
+ * - non-Windows → no nag (hardened=true)
+ * - Windows → hardened=false unless env set (IT configures Assigned Access separately)
+ */
+ipcMain.handle('kiosk:get-hardening', () => {
+  if (process.env.CD_ASSIGNED_ACCESS === '1') {
+    return { hardened: true, reason: 'env_assigned_access' as const };
+  }
+  if (process.platform !== 'win32') {
+    return { hardened: true, reason: 'non_windows' as const };
+  }
+  return { hardened: false, reason: 'windows_no_assigned_access_signal' as const };
+});

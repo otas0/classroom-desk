@@ -11,6 +11,10 @@
 - 名单/题目/留言：**禁止预填假名**；空库显示空状态；仅真实导入与真实发题  
 - 未签名包：SmartScreen 步骤见 [SMARTSCREEN.md](./SMARTSCREEN.md)
 
+## 合规（强制）
+
+- [ ] **须学校 IT 知情**：已向机房/信息中心说明「学生端退出锁定 + Assigned Access / 组策略」方案，并确认可审计、可卸载策略路径（见 [EXIT_LOCK_MDM.md](./EXIT_LOCK_MDM.md)、[STUDENT_LOCK_HARDENING_PLAN.md](./STUDENT_LOCK_HARDENING_PLAN.md)）
+
 清库重生（改成自己的 IP / 班名）：
 
 ```bash
@@ -40,7 +44,7 @@ npm run prepare:live -- --apiBase http://192.168.x.x:8787 --className 高一(3)�
 详见 [EXIT_LOCK_MDM.md](./EXIT_LOCK_MDM.md)（C2 证据表 + Assigned Access 真实 NSIS 路径 + Intune XML [`intune-student-kiosk.example.xml`](./intune-student-kiosk.example.xml)）。  
 静态检查（CI / `dist:win`）：`npm run verify:exit-lock-packaged`（`REQUIRE_WIN_EXE=1` 无 exe 硬失败；Artifact 保留 30 天）。
 
-- [ ] 标题栏「已锁定」+ 讲述人 10s（`C2-narrator.mp4`）；关窗 / Alt+F4 无效  
+- [ ] 标题栏「已锁定」+ 讲述人 10s（`C2-narrator.mp4`）；关窗 / Alt+F4 无效并 toast「向教师申请解除」  
 - [ ] 教师批量解除二次确认后，学生秒级「可退出 m:ss」并可关  
 - [ ] 重新锁定后无法关闭  
 - [ ] 解除码可退；错码限流；审计中文标签含「轮换解除码」；CSV 当前页/全部；超期横幅可点「去设置」  

@@ -7,6 +7,11 @@ export type ExitLockState = {
   allowStudentExitEnv?: boolean;
 };
 
+export type KioskHardening = {
+  hardened: boolean;
+  reason: string;
+};
+
 export type StudentDesktopAPI = {
   toggleCollapse: () => Promise<boolean>;
   getCollapsed: () => Promise<boolean>;
@@ -22,6 +27,7 @@ export type StudentDesktopAPI = {
   setExitAllowed: (allowed: boolean) => Promise<ExitLockState>;
   grantExitAndQuit: () => Promise<boolean>;
   onBlockedClose: (cb: () => void) => () => void;
+  getKioskHardening: () => Promise<KioskHardening>;
 };
 
 const api: StudentDesktopAPI = {
@@ -43,6 +49,7 @@ const api: StudentDesktopAPI = {
     ipcRenderer.on('lock:blocked-close', handler);
     return () => ipcRenderer.removeListener('lock:blocked-close', handler);
   },
+  getKioskHardening: () => ipcRenderer.invoke('kiosk:get-hardening'),
 };
 
 contextBridge.exposeInMainWorld('classroomDesk', api);

@@ -57,25 +57,30 @@ jobs:
         run: |
           set +e
           echo "### Quarantine (skipped in nightly)" >> "$GITHUB_STEP_SUMMARY"
+          QCOUNT=0
           if [ -f e2e/quarantine.txt ]; then
             mapfile -t QLINES < <(grep -vE '^\s*(#|$)' e2e/quarantine.txt || true)
-            echo "- count: **${#QLINES[@]}**" >> "$GITHUB_STEP_SUMMARY"
-            if [ "${#QLINES[@]}" -eq 0 ]; then
-              echo "- (empty)" >> "$GITHUB_STEP_SUMMARY"
+            QCOUNT=${#QLINES[@]}
+            echo "- count: **${QCOUNT}**" >> "$GITHUB_STEP_SUMMARY"
+            if [ "$QCOUNT" -eq 0 ]; then
+              echo "- status: **empty (expected 0)** — all former flakes cleared" >> "$GITHUB_STEP_SUMMARY"
             else
+              echo "- status: **non-zero** — nightly still skips these; prefer fix+clear" >> "$GITHUB_STEP_SUMMARY"
               printf '%s\n' "${QLINES[@]}" | sed 's/^/- /' >> "$GITHUB_STEP_SUMMARY"
             fi
           else
-            echo "- count: **0** (no quarantine.txt)" >> "$GITHUB_STEP_SUMMARY"
+            echo "- count: **0**" >> "$GITHUB_STEP_SUMMARY"
+            echo "- status: **empty (expected 0)** — no quarantine.txt" >> "$GITHUB_STEP_SUMMARY"
           fi
           npx playwright test
           code=$?
           {
             echo "### e2e suite: full (nightly)"
+            echo "- quarantine_count: **${QCOUNT}** (target **0**)"
             if [ "$code" -eq 0 ]; then
               echo "- result: **passed** (CD_E2E_RETRIES=1, quarantine on)"
             else
-              echo "- result: **failed** — add chronic flakes to e2e/quarantine.txt"
+              echo "- result: **failed** — add chronic flakes to e2e/quarantine.txt only as last resort"
               echo "- tip: CD_E2E_INCLUDE_QUARANTINE=1 forces quarantined specs"
             fi
           } >> "$GITHUB_STEP_SUMMARY"

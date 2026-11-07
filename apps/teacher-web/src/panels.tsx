@@ -2842,6 +2842,13 @@ export function SettingsPanel({
   const [exitMinutes, setExitMinutes] = useState(15);
   const [exitCodeDraft, setExitCodeDraft] = useState('');
   const [exitMsg, setExitMsg] = useState('');
+  const [bulkUnlockOpen, setBulkUnlockOpen] = useState(false);
+  const [bulkUnlockBusy, setBulkUnlockBusy] = useState(false);
+  const [bulkUnlockMeta, setBulkUnlockMeta] = useState<{
+    classId: string;
+    className: string;
+    onlineCount: number;
+  } | null>(null);
   const [exitEvents, setExitEvents] = useState<
     Array<{ id: string; kind: string; detail: string; createdAt: string; actorRole?: string | null }>
   >([]);
@@ -4714,7 +4721,15 @@ export function SettingsPanel({
             <p className="error">解除码已超过轮换周期（{rotateDays} 天），请尽快更换。</p>
           ) : null}
           {isAssistant() ? (
-            <p className="hint">助教可查看锁定状态与审计（只读）；批量解除 / 解除码轮换由教师操作。</p>
+            <div data-testid="exit-lock-readonly">
+              <p className="hint">
+                助教 / 投影只读：不可改解除码与轮换天数；批量解除 / 解除码轮换由教师操作。
+              </p>
+              <p className="hint" data-testid="exit-lock-readonly-rotate">
+                当前轮换提醒：{rotateDays} 天
+                {codeAgeDays != null ? ` · 已使用 ${codeAgeDays} 天` : ''}
+              </p>
+            </div>
           ) : (
             <>
               <label>
@@ -4730,28 +4745,33 @@ export function SettingsPanel({
               <div className="row">
                 <button
                   type="button"
+                  data-testid="bulk-exit-unlock-btn"
                   onClick={() => {
-                    if (
-                      !window.confirm(
-                        `确认批量允许全班关闭学生端 ${exitMinutes} 分钟？\n时限结束后将自动恢复锁定。`,
-                      )
-                    ) {
-                      return;
-                    }
-                    void api<{
-                      clientExitAllowed?: boolean;
-                      clientExitUnlockUntil?: string | null;
-                    }>('/api/v1/settings', {
-                      method: 'PATCH',
-                      body: JSON.stringify({ clientExitUnlockMinutes: exitMinutes }),
-                    })
-                      .then(async (r) => {
-                        setExitAllowed(r.clientExitAllowed === true);
-                        setExitUnlockUntil(r.clientExitUnlockUntil ?? null);
-                        setExitMsg(`已批量允许关闭 ${exitMinutes} 分钟`);
-                        await refreshExitLock().catch(() => undefined);
-                      })
-                      .catch((e) => setExitMsg(e instanceof Error ? e.message : '解除失败'));
+                    void (async () => {
+                      try {
+                        const classId =
+                          localStorage.getItem('cd_teacher_class_id')?.trim() ||
+                          '';
+                        const classes = await api<{ items: ClassItem[] }>('/api/v1/classes');
+                        const klass =
+                          classes.items.find((c) => c.id === classId) ?? classes.items[0];
+                        let onlineCount = 0;
+                        if (klass?.id) {
+                          const clients = await api<{ count?: number }>(
+                            `/api/v1/presence/clients?classId=${encodeURIComponent(klass.id)}`,
+                          );
+                          onlineCount = Number(clients.count ?? 0);
+                        }
+                        setBulkUnlockMeta({
+                          classId: klass?.id ?? classId,
+                          className: klass?.name ?? '（未选班级）',
+                          onlineCount,
+                        });
+                        setBulkUnlockOpen(true);
+                      } catch (e) {
+                        setExitMsg(e instanceof Error ? e.message : '无法加载班级/在线机位');
+                      }
+                    })();
                   }}
                 >
                   批量允许关闭学生端
@@ -4901,6 +4921,7 @@ export function SettingsPanel({
                 <option value="code_set">首次设置解除码</option>
                 <option value="code_rotated">轮换解除码</option>
                 <option value="rate_config">限流/轮换配置</option>
+                <option value="client_reconcile">断线对账冲突</option>
               </select>
             </label>
             <div className="row">
@@ -5167,6 +5188,61 @@ stateDiagram-v2
             })
             .catch((e) => setGrantMsg(e instanceof Error ? e.message : '保存失败'))
             .finally(() => setGrantMigrateBusy(false));
+        }}
+      />
+      <ConfirmModal
+        open={bulkUnlockOpen}
+        title="批量允许关闭学生端"
+        busy={bulkUnlockBusy}
+        confirmLabel={`允许 ${exitMinutes} 分钟`}
+        body={
+          <div data-testid="bulk-exit-unlock-confirm">
+            <p>
+              确认批量允许关闭学生端 <strong>{exitMinutes}</strong> 分钟？时限结束后将自动恢复锁定。
+            </p>
+            <p className="hint" data-testid="bulk-exit-unlock-class">
+              班级：{bulkUnlockMeta?.className ?? '—'}
+            </p>
+            <p className="hint" data-testid="bulk-exit-unlock-online">
+              预计在线机位：{bulkUnlockMeta?.onlineCount ?? 0}（按当前 presence；解锁对全班生效）
+            </p>
+            {isAssistant() ? (
+              <p className="error">助教不可执行批量解除（只读）。</p>
+            ) : null}
+          </div>
+        }
+        onCancel={() => {
+          if (bulkUnlockBusy) return;
+          setBulkUnlockOpen(false);
+        }}
+        onConfirm={() => {
+          if (isAssistant()) {
+            setBulkUnlockOpen(false);
+            setExitMsg('助教不可批量解除');
+            return;
+          }
+          setBulkUnlockBusy(true);
+          void api<{
+            clientExitAllowed?: boolean;
+            clientExitUnlockUntil?: string | null;
+          }>('/api/v1/settings', {
+            method: 'PATCH',
+            body: JSON.stringify({ clientExitUnlockMinutes: exitMinutes }),
+          })
+            .then(async (r) => {
+              setExitAllowed(r.clientExitAllowed === true);
+              setExitUnlockUntil(r.clientExitUnlockUntil ?? null);
+              setExitMsg(
+                `已批量允许关闭 ${exitMinutes} 分钟` +
+                  (bulkUnlockMeta
+                    ? `（${bulkUnlockMeta.className} · 在线约 ${bulkUnlockMeta.onlineCount}）`
+                    : ''),
+              );
+              setBulkUnlockOpen(false);
+              await refreshExitLock().catch(() => undefined);
+            })
+            .catch((e) => setExitMsg(e instanceof Error ? e.message : '解除失败'))
+            .finally(() => setBulkUnlockBusy(false));
         }}
       />
     </section>

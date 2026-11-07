@@ -18,6 +18,14 @@
 
 未签名安装包：Windows SmartScreen →「更多信息」→「仍要运行」。说明见 [SMARTSCREEN.md](./SMARTSCREEN.md)。
 
+### 合规（强制勾选）
+
+部署退出锁定 / Assigned Access 前：
+
+- [ ] **须学校 IT 知情**：已告知机房或信息中心本方案为合法课堂 kiosk（解除码 + 批量解锁 + 可选 Assigned Access），无隐蔽监控；文档见 [EXIT_LOCK_MDM.md](./EXIT_LOCK_MDM.md)、[STUDENT_LOCK_HARDENING_PLAN.md](./STUDENT_LOCK_HARDENING_PLAN.md)。
+
+未勾选不得在正式机房开启退出锁定。
+
 ---
 
 ## 你需要准备的本班参数

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { APP_NAME, GITHUB_RELEASES_BASE } from '@classroom-desk/shared';
 import jsQR from 'jsqr';
 import {
+  ApiError,
   ApiOfflineError,
   api,
   getApiBase,
@@ -11,6 +12,11 @@ import {
   setApiBase,
   setToken,
 } from './api';
+import {
+  exitLockCacheConflicts,
+  readExitLockCache,
+  writeExitLockCache,
+} from './exitLockCache';
 declare const __APP_VERSION__: string;
 const CLIENT_VERSION = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.0.0';
 
@@ -98,6 +104,7 @@ export function App() {
   const [exitUnlockUntil, setExitUnlockUntil] = useState<string | null>(null);
   const [quizConfirmSubmit, setQuizConfirmSubmit] = useState(true);
   const [nowTick, setNowTick] = useState(() => Date.now());
+  const [hardeningTip, setHardeningTip] = useState(false);
   const knownQuestionIdsRef = useRef(new Set<string>());
 
   const showToast = useCallback((msg: string) => {
@@ -105,25 +112,111 @@ export function App() {
     window.setTimeout(() => setToast(''), 2200);
   }, []);
 
-  const syncExitLock = useCallback(async (allowed: boolean) => {
+  const syncExitLock = useCallback(async (allowed: boolean, until: string | null = null) => {
     setExitAllowed(allowed);
+    if (until !== undefined) setExitUnlockUntil(until);
+    writeExitLockCache(allowed, until);
     if (window.classroomDesk?.setExitAllowed) {
       const st = await window.classroomDesk.setExitAllowed(allowed);
       setExitAllowed(Boolean(st.exitAllowed));
     }
   }, []);
 
-  useEffect(() => {
-    if (!window.classroomDesk?.onBlockedClose) return;
-    return window.classroomDesk.onBlockedClose(() => {
-      showToast('课堂锁定中，找老师或输入解除码');
-      setTab('admin');
-    });
+  const applyServerExitLock = useCallback(
+    async (serverAllowed: boolean, serverUntil: string | null, opts?: { reconcile?: boolean }) => {
+      const cache = readExitLockCache();
+      if (opts?.reconcile !== false && exitLockCacheConflicts(cache, serverAllowed, serverUntil)) {
+        try {
+          await api('/api/v1/auth/exit-lock-reconcile', {
+            method: 'POST',
+            body: JSON.stringify({
+              allowed: cache?.allowed ?? false,
+              until: cache?.until ?? null,
+              clientId: classId || undefined,
+            }),
+          });
+        } catch {
+          /* offline — keep applying server when next reachable */
+        }
+      }
+      setExitUnlockUntil(serverUntil);
+      await syncExitLock(serverAllowed, serverUntil);
+    },
+    [classId, syncExitLock],
+  );
+
+  const notifyExitBlocked = useCallback(() => {
+    showToast('向教师申请解除');
+    setTab('admin');
   }, [showToast]);
+
+  useEffect(() => {
+    const unsub = window.classroomDesk?.onBlockedClose?.(() => notifyExitBlocked());
+    // Browser / e2e: simulate Electron close / Alt+F4 block path
+    (window as unknown as { __cdSimulateBlockedClose?: () => void }).__cdSimulateBlockedClose =
+      notifyExitBlocked;
+    return () => {
+      unsub?.();
+      delete (window as unknown as { __cdSimulateBlockedClose?: () => void }).__cdSimulateBlockedClose;
+    };
+  }, [notifyExitBlocked]);
+
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (exitAllowed) return;
+      if (e.key === 'F4' && e.altKey) {
+        e.preventDefault();
+        e.stopPropagation();
+        notifyExitBlocked();
+      }
+    }
+    function onBeforeUnload(e: BeforeUnloadEvent) {
+      if (exitAllowed) return;
+      e.preventDefault();
+      e.returnValue = '';
+      notifyExitBlocked();
+    }
+    window.addEventListener('keydown', onKey, true);
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => {
+      window.removeEventListener('keydown', onKey, true);
+      window.removeEventListener('beforeunload', onBeforeUnload);
+    };
+  }, [exitAllowed, notifyExitBlocked]);
 
   useEffect(() => {
     const t = window.setInterval(() => setNowTick(Date.now()), 1000);
     return () => window.clearInterval(t);
+  }, []);
+
+  useEffect(() => {
+    const dismissed = localStorage.getItem('cd_hardening_tip_dismissed') === '1';
+    if (dismissed) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        if (window.classroomDesk?.getKioskHardening) {
+          const h = await window.classroomDesk.getKioskHardening();
+          if (!cancelled && h && h.hardened === false) setHardeningTip(true);
+        } else if (
+          import.meta.env.DEV ||
+          (typeof location !== 'undefined' && new URLSearchParams(location.search).has('e2e'))
+        ) {
+          // Browser preview / e2e: surface tip when ?showHardening=1
+          if (
+            typeof location !== 'undefined' &&
+            new URLSearchParams(location.search).has('showHardening')
+          ) {
+            if (!cancelled) setHardeningTip(true);
+          }
+        }
+      } catch {
+        /* ignore */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -162,8 +255,10 @@ export function App() {
       try {
         const data = typeof raw === 'string' ? JSON.parse(raw) : raw;
         if (!data || data.type !== 'exit_lock') return;
-        setExitUnlockUntil(data.clientExitUnlockUntil ?? null);
-        void syncExitLock(data.clientExitAllowed === true);
+        void applyServerExitLock(
+          data.clientExitAllowed === true,
+          data.clientExitUnlockUntil ?? null,
+        );
       } catch {
         /* ignore */
       }
@@ -225,7 +320,7 @@ export function App() {
       }
       es?.close();
     };
-  }, [ready, healthOk, syncExitLock, showToast]);
+  }, [ready, healthOk, applyServerExitLock, showToast]);
 
   const announceNewQuestions = useCallback(
     (items: Array<Record<string, unknown>>) => {
@@ -273,8 +368,11 @@ export function App() {
       }>('/api/v1/settings/public');
       setMessagesEnabled(pub.messagesEnabled !== false);
       setQuizConfirmSubmit(pub.quizConfirmSubmit !== false);
-      setExitUnlockUntil(pub.clientExitUnlockUntil ?? null);
-      await syncExitLock(pub.clientExitAllowed === true);
+      await applyServerExitLock(
+        pub.clientExitAllowed === true,
+        pub.clientExitUnlockUntil ?? null,
+        { reconcile: true },
+      );
       if (!getToken()) {
         setUser(null);
         setOffline(false);
@@ -314,7 +412,7 @@ export function App() {
         setUser(null);
       }
     }
-  }, [syncExitLock]);
+  }, [applyServerExitLock]);
 
   const probeHealth = useCallback(async () => {
     const base = getApiBase();
@@ -890,6 +988,23 @@ export function App() {
         </>
       )}
 
+      {hardeningTip ? (
+        <div className="banner-alert" role="status" data-testid="hardening-tip">
+          <p>本机未加固（未检测到 Assigned Access / 展台模式）。课堂锁定仍生效，但系统层防护较弱；请学校 IT 配置后更安全。</p>
+          <button
+            type="button"
+            className="linkish"
+            data-testid="hardening-tip-dismiss"
+            onClick={() => {
+              localStorage.setItem('cd_hardening_tip_dismissed', '1');
+              setHardeningTip(false);
+            }}
+          >
+            知道了，不再提示
+          </button>
+        </div>
+      ) : null}
+
       {toast ? (
         <div
           className={`toast${/账号已下线|账号已删除|session_kicked|account_deleted/i.test(toast) ? ' toast-session-ended' : ''}`}
@@ -898,7 +1013,9 @@ export function App() {
               ? 'session-kicked-toast'
               : /账号已删除|account_deleted/i.test(toast)
                 ? 'account-deleted-toast'
-                : 'app-toast'
+                : /向教师申请解除/.test(toast)
+                  ? 'exit-lock-blocked-toast'
+                  : 'app-toast'
           }
           role="status"
           aria-live="assertive"
@@ -1532,6 +1649,15 @@ function AdminTab({
   const [busyExit, setBusyExit] = useState(false);
   const [teacherOpen, setTeacherOpen] = useState(false);
   const [unlockBusy, setUnlockBusy] = useState(false);
+  const [remainingAttempts, setRemainingAttempts] = useState<number | null>(null);
+  const [maxFails, setMaxFails] = useState<number | null>(null);
+  const [retryAfterSec, setRetryAfterSec] = useState(0);
+
+  useEffect(() => {
+    if (retryAfterSec <= 0) return;
+    const t = window.setTimeout(() => setRetryAfterSec((s) => Math.max(0, s - 1)), 1000);
+    return () => window.clearTimeout(t);
+  }, [retryAfterSec]);
 
   async function unlockConfig() {
     setMsg('');
@@ -1581,6 +1707,8 @@ function AdminTab({
           method: 'POST',
           body: JSON.stringify({ code: exitCode }),
         });
+        setRemainingAttempts(null);
+        setRetryAfterSec(0);
         onExitAllowed();
       }
       if (window.classroomDesk?.grantExitAndQuit) {
@@ -1591,7 +1719,14 @@ function AdminTab({
       }
       setExitCode('');
     } catch (e) {
-      setExitMsg(e instanceof Error ? e.message : '解除失败');
+      if (e instanceof ApiError) {
+        if (e.remainingAttempts != null) setRemainingAttempts(e.remainingAttempts);
+        if (e.maxFails != null) setMaxFails(e.maxFails);
+        if (e.retryAfterSec != null && e.retryAfterSec > 0) setRetryAfterSec(e.retryAfterSec);
+        setExitMsg(e.message);
+      } else {
+        setExitMsg(e instanceof Error ? e.message : '解除失败');
+      }
     } finally {
       setBusyExit(false);
     }
@@ -1620,7 +1755,7 @@ function AdminTab({
       <p className="hint">
         {exitAllowed
           ? '当前已允许退出（教师批量解除或已输入解除码）。'
-          : '课堂锁定中，找老师或输入解除码。'}
+          : '课堂锁定中，请向教师申请解除或输入解除码。'}
       </p>
       {!exitAllowed ? (
         <label className="field">
@@ -1631,13 +1766,30 @@ function AdminTab({
             onChange={(e) => setExitCode(e.target.value)}
             placeholder="教师设置的解除码或管理密码"
             autoComplete="off"
+            disabled={retryAfterSec > 0}
           />
         </label>
       ) : null}
-      <button type="button" className="secondary" disabled={busyExit} onClick={() => void unlockAndQuit()}>
+      {!exitAllowed && remainingAttempts != null ? (
+        <p className="hint" data-testid="exit-unlock-remaining">
+          剩余尝试次数：{remainingAttempts}
+          {maxFails != null ? ` / ${maxFails}` : ''}
+        </p>
+      ) : null}
+      {!exitAllowed && retryAfterSec > 0 ? (
+        <p className="error" data-testid="exit-unlock-cooldown">
+          冷却中，请 {retryAfterSec} 秒后再试
+        </p>
+      ) : null}
+      <button
+        type="button"
+        className="secondary"
+        disabled={busyExit || retryAfterSec > 0}
+        onClick={() => void unlockAndQuit()}
+      >
         {busyExit ? '处理中…' : exitAllowed ? '退出程序' : '验证解除码并退出'}
       </button>
-      {exitMsg ? <p className="error">{exitMsg}</p> : null}
+      {exitMsg ? <p className="error" data-testid="exit-unlock-msg">{exitMsg}</p> : null}
 
       <h2>教师配置</h2>
       {!teacherOpen ? (

@@ -105,13 +105,18 @@ jobs:
         id: bulk_gate
         run: |
           set +e
+          # Includes former nightly-quarantine five (bulk-ui / shift / q-recycle-virtual /
+          # recycle-urgent / exit-lock-rotation) so smoke catches regressions early.
           npx playwright test \
             e2e/bulk-ui.spec.ts \
             e2e/bulk-ops.spec.ts \
             e2e/q-recycle-purge.spec.ts \
+            e2e/q-recycle-virtual.spec.ts \
             e2e/questions-shift-select.spec.ts \
             e2e/settings-health-alerts.spec.ts \
             e2e/recycle-urgent-days.spec.ts \
+            e2e/exit-lock-rotation-banner.spec.ts \
+            e2e/settings-save-msg-single.spec.ts \
             e2e/ops-polish.spec.ts \
             e2e/ops-v015.spec.ts \
             e2e/ops-v016.spec.ts
@@ -119,7 +124,7 @@ jobs:
           {
             echo "### e2e suite: bulk gate"
             if [ "$code" -eq 0 ]; then
-              echo "- result: **passed** (bulk + shift/sticky + health + urgent + ops)"
+              echo "- result: **passed** (bulk + former-quarantine five + save-msg + ops)"
             else
               echo "- result: **failed** — suite=**bulk gate**"
             fi
@@ -193,7 +198,10 @@ jobs:
             e2e/session-kick-ui.spec.ts \
             e2e/audit-detail.spec.ts \
             e2e/audit-jump-highlight.spec.ts \
-            e2e/permissions-doc.spec.ts
+            e2e/permissions-doc.spec.ts \
+            e2e/exit-lock-reconcile.spec.ts \
+            e2e/exit-lock-toast.spec.ts \
+            e2e/exit-lock-blocked-close.spec.ts
           code=$?
           {
             echo "### e2e suite: rbac"
