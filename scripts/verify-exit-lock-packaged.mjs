@@ -107,6 +107,18 @@ if (exes.length) {
   ok('release.exe', 'skipped (no exe yet; windows-pack sets REQUIRE_WIN_EXE=1)');
 }
 
+const ciYml = path.join(root, '.github/workflows/ci.yml');
+if (fs.existsSync(ciYml)) {
+  const yml = fs.readFileSync(ciYml, 'utf8');
+  if (
+    /REQUIRE_WIN_EXE:\s*['"]?1['"]?/.test(yml) &&
+    /if-no-files-found:\s*error/.test(yml) &&
+    /classroom-desk-windows-setup/.test(yml)
+  ) {
+    ok('ci.windowsPack', 'REQUIRE_WIN_EXE=1 + artifact hard-fail + archive name');
+  } else fail('ci.windowsPack', 'ci.yml missing REQUIRE_WIN_EXE / if-no-files-found:error / artifact');
+} else fail('ci.windowsPack', 'missing .github/workflows/ci.yml');
+
 console.log('\nManual Windows install check: docs/EXIT_LOCK_MDM.md →「验证打包安装态退出锁定」');
 const failed = log.filter((x) => !x.ok);
 console.log(`\n${failed.length ? 'FAILED' : 'PASSED'} — ${log.length - failed.length}/${log.length} checks`);

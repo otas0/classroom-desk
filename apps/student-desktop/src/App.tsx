@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { APP_NAME } from '@classroom-desk/shared';
+import { APP_NAME, GITHUB_RELEASES_BASE } from '@classroom-desk/shared';
 import jsQR from 'jsqr';
 import {
   ApiOfflineError,
@@ -11,7 +11,8 @@ import {
   setApiBase,
   setToken,
 } from './api';
-import { CLIENT_VERSION } from './version';
+declare const __APP_VERSION__: string;
+const CLIENT_VERSION = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.0.0';
 
 type TabId = 'points' | 'attendance' | 'quiz' | 'messages' | 'admin';
 
@@ -65,6 +66,7 @@ export function App() {
   const [ready, setReady] = useState(false);
   const [healthOk, setHealthOk] = useState<boolean | null>(null);
   const [healthDetail, setHealthDetail] = useState('');
+  const [expectedClientVersion, setExpectedClientVersion] = useState('');
   const [newQuizPulse, setNewQuizPulse] = useState(false);
   const [openQuizCount, setOpenQuizCount] = useState(0);
   const [pendingIdentity, setPendingIdentity] = useState<RosterRow | null>(null);
@@ -270,12 +272,18 @@ export function App() {
         setHealthDetail(`HTTP ${res.status}（${ms}ms）· ${base}`);
         return false;
       }
-      const body = (await res.json()) as { ok?: boolean };
+      const body = (await res.json()) as {
+        ok?: boolean;
+        studentDesktopVersion?: string;
+        version?: string;
+      };
       if (!body.ok) {
         setHealthOk(false);
         setHealthDetail(`服务未就绪（${ms}ms）· ${base}`);
         return false;
       }
+      const expected = String(body.studentDesktopVersion ?? body.version ?? '').trim();
+      setExpectedClientVersion(expected);
       setHealthOk(true);
       setHealthDetail(`正常 ${ms}ms · ${base}`);
       return true;
@@ -601,6 +609,11 @@ export function App() {
     );
   }
 
+  const versionDrift =
+    Boolean(expectedClientVersion) &&
+    CLIENT_VERSION !== '0.0.0' &&
+    expectedClientVersion !== CLIENT_VERSION;
+
   return (
     <div className="shell">
       {offline ? (
@@ -609,6 +622,22 @@ export function App() {
           <button type="button" className="icon-btn" onClick={() => void refreshMe()}>
             重连
           </button>
+        </div>
+      ) : null}
+      {versionDrift ? (
+        <div className="offline-banner version-drift" data-no-drag role="status">
+          版本漂移：本机 v{CLIENT_VERSION}，应升级到 v{expectedClientVersion}
+          <a
+            href={`${GITHUB_RELEASES_BASE}/tag/v${expectedClientVersion}`}
+            target="_blank"
+            rel="noreferrer"
+            data-no-drag
+          >
+            打开 Release
+          </a>
+          <a href={GITHUB_RELEASES_BASE} target="_blank" rel="noreferrer" data-no-drag>
+            全部版本
+          </a>
         </div>
       ) : null}
       <header className="titlebar" data-drag>
@@ -800,6 +829,8 @@ function FirstRunSetup({
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
   const [scanning, setScanning] = useState(false);
+  const [pasteJson, setPasteJson] = useState('');
+  const [showPaste, setShowPaste] = useState(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const scanTimerRef = useRef<number | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -851,7 +882,9 @@ function FirstRunSetup({
           if (!code?.data) return;
           const parsed = parseClassroomQrPayload(code.data);
           if (!parsed) {
-            setMsg('识别到二维码，但不是教师指派格式');
+            setMsg('识别到二维码，但不是教师指派格式 — 可改用下方粘贴 JSON');
+            setShowPaste(true);
+            setPasteJson(code.data);
             return;
           }
           applyPayload(parsed.apiBase, parsed.classId);
@@ -859,9 +892,20 @@ function FirstRunSetup({
         }, 400);
       }, 50);
     } catch (e) {
-      setMsg(e instanceof Error ? `无法打开摄像头：${e.message}` : '无法打开摄像头');
+      setMsg(e instanceof Error ? `无法打开摄像头：${e.message} — 可改用粘贴 JSON` : '无法打开摄像头');
+      setShowPaste(true);
       stopScan();
     }
+  }
+
+  function applyPasteJson() {
+    const parsed = parseClassroomQrPayload(pasteJson);
+    if (!parsed) {
+      setMsg('粘贴内容无法解析，需含 apiBase 与 classId 的 JSON');
+      setShowPaste(true);
+      return;
+    }
+    applyPayload(parsed.apiBase, parsed.classId);
   }
 
   async function onQrImage(file: File | null) {
@@ -882,7 +926,8 @@ function FirstRunSetup({
       if (!parsed) throw new Error('二维码内容不是教师指派 JSON');
       applyPayload(parsed.apiBase, parsed.classId);
     } catch (e) {
-      setMsg(e instanceof Error ? e.message : '读图失败');
+      setMsg(e instanceof Error ? `${e.message} — 可改用粘贴 JSON` : '读图失败');
+      setShowPaste(true);
     }
   }
 
@@ -946,9 +991,26 @@ function FirstRunSetup({
             }}
           />
         </label>
+        <button type="button" className="secondary" onClick={() => setShowPaste((v) => !v)}>
+          {showPaste ? '收起粘贴' : '粘贴 JSON 兜底'}
+        </button>
       </div>
       {scanning ? (
         <video ref={videoRef} className="qr-scan-video" playsInline muted style={{ width: '100%', maxHeight: 220 }} />
+      ) : null}
+      {showPaste ? (
+        <label className="field">
+          教师 QR 原文（JSON）
+          <textarea
+            value={pasteJson}
+            onChange={(e) => setPasteJson(e.target.value)}
+            rows={4}
+            placeholder='{"apiBase":"http://192.168.x.x:8787","classId":"..."}'
+          />
+          <button type="button" className="secondary" onClick={applyPasteJson}>
+            从粘贴填入
+          </button>
+        </label>
       ) : null}
       <label className="field">
         服务器地址（serverUrl / apiBase）

@@ -34,13 +34,14 @@ npm run prepare:live -- --apiBase http://192.168.x.x:8787 --className 高一(3)�
 
 ## C2. 锁退出（须 Windows 真机）
 
-详见 [EXIT_LOCK_MDM.md](./EXIT_LOCK_MDM.md)（状态机表 + Assigned Access / Intune XML 示例 [`intune-student-kiosk.example.xml`](./intune-student-kiosk.example.xml)）。  
-静态检查（CI / `dist:win`）：`npm run verify:exit-lock-packaged`（打包机加 `REQUIRE_WIN_EXE=1`）。
+详见 [EXIT_LOCK_MDM.md](./EXIT_LOCK_MDM.md)（C2 证据表 + Assigned Access 真实 NSIS 路径 + Intune XML [`intune-student-kiosk.example.xml`](./intune-student-kiosk.example.xml)）。  
+静态检查（CI / `dist:win`）：`npm run verify:exit-lock-packaged`（`REQUIRE_WIN_EXE=1` 无 exe 硬失败；Artifact 保留 30 天）。
 
-- [ ] 标题栏「已锁定」（读屏可听）；关窗 / Alt+F4 无效  
+- [ ] 标题栏「已锁定」（讲述人录音）；关窗 / Alt+F4 无效 — 证据归档  
 - [ ] 教师批量解除二次确认后，学生秒级「可退出 m:ss」并可关  
 - [ ] 重新锁定后无法关闭  
-- [ ] 解除码可退；错码限流可配；审计可筛选/导出 CSV；超期轮换提醒  
-- [ ] （可选）Assigned Access / Intune 挡任务管理器（按 EXIT_LOCK_MDM 手测表勾完） 
+- [ ] 解除码可退；错码限流；审计含 `code_rotated`；CSV 与当前页一致；超期横幅  
+- [ ] Assigned Access 路径 `C:\Program Files\Classroom Desk\Classroom Desk.exe` + 任务管理器负向手测  
+- [ ] （可选）试验组 Intune HideTaskManager 生效 
 
 网络不通先查 [NETWORK.md](./NETWORK.md)。

@@ -1,12 +1,14 @@
 import { expect, test } from '@playwright/test';
+import { openPrepTab } from './helpers/navPrep';
+import { loginTeacherWeb } from './helpers/teacherWebLogin';
 
 const API = process.env.API_BASE ?? 'http://127.0.0.1:8787';
-const TEACHER_WEB = process.env.TEACHER_WEB ?? 'http://localhost:5174';
 
 test.describe('audit detail JSON fold', () => {
   test('bulk delete with long ids → expand/collapse ids in settings', async ({ page, request }) => {
+    const { password } = await loginTeacherWeb(page, request);
     const login = await request.post(`${API}/api/v1/auth/login`, {
-      data: { username: 'teacher', password: 'TeacherPass123' },
+      data: { username: 'teacher', password },
     });
     expect(login.ok()).toBeTruthy();
     const { token } = (await login.json()) as { token: string };
@@ -33,14 +35,7 @@ test.describe('audit detail JSON fold', () => {
     });
     expect(soft.ok()).toBeTruthy();
 
-    await page.goto(TEACHER_WEB);
-    await page.getByLabel('用户名').fill('teacher');
-    await page.getByLabel('密码').fill('TeacherPass123');
-    await page.getByRole('button', { name: '登录' }).click();
-
-    const prep = page.getByRole('button', { name: /课前准备|备课/ });
-    if (await prep.isVisible().catch(() => false)) await prep.click();
-    await page.getByRole('button', { name: '设置', exact: true }).click();
+    await openPrepTab(page, '设置');
     await expect(page.getByRole('heading', { name: /操作审计/ })).toBeVisible({ timeout: 15_000 });
 
     const expand = page.getByRole('button', { name: /展开 ids（12）/ }).first();

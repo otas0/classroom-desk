@@ -5,6 +5,7 @@ export type TeacherPrepTab =
   | 'q-recycle'
   | 'requests'
   | 'attendance'
+  | 'presence'
   | 'exports'
   | 'messages'
   | 'settings';
@@ -20,6 +21,7 @@ const PREP_TABS: TeacherPrepTab[] = [
   'q-recycle',
   'requests',
   'attendance',
+  'presence',
   'exports',
   'messages',
   'settings',

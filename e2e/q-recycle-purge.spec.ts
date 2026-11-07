@@ -1,12 +1,14 @@
 import { expect, test } from '@playwright/test';
+import { openPrepTab } from './helpers/navPrep';
+import { loginTeacherWeb } from './helpers/teacherWebLogin';
 
 const API = process.env.API_BASE ?? 'http://127.0.0.1:8787';
-const TEACHER_WEB = process.env.TEACHER_WEB ?? 'http://localhost:5174';
 
 test.describe('question recycle purge-all', () => {
   test('soft-delete → recycle → 一键清空全部', async ({ page, request }) => {
+    const { password } = await loginTeacherWeb(page, request);
     const login = await request.post(`${API}/api/v1/auth/login`, {
-      data: { username: 'teacher', password: 'TeacherPass123' },
+      data: { username: 'teacher', password },
     });
     expect(login.ok()).toBeTruthy();
     const { token } = (await login.json()) as { token: string };
@@ -39,21 +41,11 @@ test.describe('question recycle purge-all', () => {
     });
     expect(soft.ok()).toBeTruthy();
 
-    await page.goto(TEACHER_WEB);
-    await page.getByLabel('用户名').fill('teacher');
-    await page.getByLabel('密码').fill('TeacherPass123');
-    await page.getByRole('button', { name: '登录' }).click();
-
-    const prep = page.getByRole('button', { name: /课前准备|备课/ });
-    if (await prep.isVisible().catch(() => false)) {
-      await prep.click();
-    }
-    const recycleNav = page.getByRole('button', { name: '题目回收站', exact: true });
-    await expect(recycleNav).toBeVisible({ timeout: 15_000 });
-    await recycleNav.click();
+    await openPrepTab(page, '题目回收站');
 
     await expect(page.getByTestId('q-recycle-virtual')).toBeVisible({ timeout: 15_000 });
     await expect(page.getByText(`回收清空${stamp}`)).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId('recycle-days-left').first()).toBeVisible();
 
     page.once('dialog', (d) => void d.accept());
     await page.getByTestId('q-recycle-purge-all').click();

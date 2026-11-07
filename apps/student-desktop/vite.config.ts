@@ -1,9 +1,20 @@
+import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import electron from 'vite-plugin-electron/simple';
 
+const pkgDir = path.dirname(fileURLToPath(import.meta.url));
+const pkgVersion = String(
+  (JSON.parse(fs.readFileSync(path.join(pkgDir, 'package.json'), 'utf8')) as { version?: string })
+    .version ?? '0.0.0',
+);
+
 export default defineConfig(({ mode }) => ({
+  define: {
+    __APP_VERSION__: JSON.stringify(pkgVersion),
+  },
   plugins: [
     react(),
     {

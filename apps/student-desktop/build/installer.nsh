@@ -1,9 +1,29 @@
-; Optional NSIS hooks. Server URL is configured via resources/config.json
-; and can be changed after install by admin in the student app (「设置」).
+; Optional NSIS hooks. FIRST_RUN_GUIDE.html is shipped via electron-builder extraResources.
+!include "LogicLib.nsh"
+
 !macro customInstall
-  DetailPrint "Classroom Desk installed. Edit resources\\config.json or use admin UI to set apiBase."
+  DetailPrint "Classroom Desk installed. Configure apiBase via QR or resources\\config.json."
 !macroend
 
 Function .onInstSuccess
-  MessageBox MB_ICONINFORMATION|MB_OK "安装完成。$\r$\n$\r$\n请设置教室服务器地址（apiBase）：$\r$\n1) 编辑安装目录下 resources\\config.json$\r$\n2) 或打开应用 →「设置」→ 管理密码后保存$\r$\n$\r$\n示例：http://192.168.1.50:8787$\r$\n上课前教师把 classId 写进本机配置；学生在「名单」点自己的姓名。$\r$\n然后验证连接 → 交作业 → 教师审核。"
+  ; Silent / quiet installs: skip UI guide and prompts (MDM / scripted lab imaging).
+  ${If} ${Silent}
+    Return
+  ${EndIf}
+
+  ; Open first-run guide card (extraResources → $INSTDIR\resources\)
+  IfFileExists "$INSTDIR\resources\FIRST_RUN_GUIDE.html" 0 skip_guide
+    ExecShell "open" "$INSTDIR\resources\FIRST_RUN_GUIDE.html"
+  skip_guide:
+
+  MessageBox MB_ICONQUESTION|MB_YESNO "安装完成。$\r$\n$\r$\n已尝试打开《首次引导》说明卡（含 SmartScreen 说明链接）。$\r$\n$\r$\n是否立即打开 Classroom Desk？" IDYES open_app IDNO done
+  open_app:
+    ; electron-builder product executable name
+    IfFileExists "$INSTDIR\Classroom Desk.exe" 0 try_alt
+      Exec "$INSTDIR\Classroom Desk.exe"
+      Goto done
+    try_alt:
+    IfFileExists "$INSTDIR\ClassroomDesk.exe" 0 done
+      Exec "$INSTDIR\ClassroomDesk.exe"
+  done:
 FunctionEnd

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { API_BASE, api } from '../api';
 import type { ClassItem } from '../types';
 
-export type SetupDest = 'prep' | 'assign' | 'session' | 'prep-roster' | 'prep-questions';
+export type SetupDest = 'prep' | 'assign' | 'session' | 'prep-roster' | 'prep-questions' | 'prep-presence';
 
 export function SetupChecklist({
   classId,
@@ -100,7 +100,9 @@ export function SetupChecklist({
   const assignDone = hasApiBase && Boolean(classId);
   const questionDone = hasQuestion;
   const healthDone = serverOk === true;
-  if (rosterDone && assignDone && healthDone && (!questionKnown || questionDone)) return null;
+  const clientsKnown = serverOk !== null;
+  const coreDone = rosterDone && assignDone && healthDone && (!questionKnown || questionDone);
+  if (coreDone && connectedCount > 0) return null;
 
   type Step = {
     n: number;
@@ -140,9 +142,27 @@ export function SetupChecklist({
       n: 4,
       label: '服务器可达 / 学生端版本',
       done: healthDone,
-      pending: serverOk === null,
-      actionLabel: '重新检测',
-      action: () => onGo('assign'),
+      pending: !clientsKnown,
+      actionLabel: connectedCount === 0 && healthDone ? '扫码指派学生机' : '重新检测',
+      action: () => {
+        if (connectedCount === 0 && healthDone) {
+          const at = Date.now();
+          try {
+            sessionStorage.setItem(`cd_assign_cta_at_${classId}`, String(at));
+          } catch {
+            /* ignore */
+          }
+          void api('/api/v1/audit/events', {
+            method: 'POST',
+            body: JSON.stringify({
+              action: 'setup.scan_assign_cta',
+              classId,
+              detail: { at: new Date(at).toISOString(), source: 'setup_step4' },
+            }),
+          }).catch(() => undefined);
+        }
+        onGo('assign');
+      },
     },
   ];
 
@@ -162,6 +182,25 @@ export function SetupChecklist({
   } else if (!healthDone) {
     ctaLabel = '检查服务器';
     cta = () => onGo('assign');
+  } else if (connectedCount === 0) {
+    ctaLabel = '扫码指派学生机';
+    cta = () => {
+      const at = Date.now();
+      try {
+        sessionStorage.setItem(`cd_assign_cta_at_${classId}`, String(at));
+      } catch {
+        /* ignore */
+      }
+      void api('/api/v1/audit/events', {
+        method: 'POST',
+        body: JSON.stringify({
+          action: 'setup.scan_assign_cta',
+          classId,
+          detail: { at: new Date(at).toISOString(), source: 'setup_checklist_cta' },
+        }),
+      }).catch(() => undefined);
+      onGo('assign');
+    };
   }
 
   const connectedLabel =
@@ -201,6 +240,15 @@ export function SetupChecklist({
           </li>
         ))}
       </ol>
+      {healthDone && connectedCount === 0 ? (
+        <p className="hint">
+          尚无学生机心跳。请在「指派学生机」展示 QR，让学生端首次引导扫码，或打开{' '}
+          <button type="button" className="linkish" onClick={() => onGo('prep-presence')}>
+            在线机位
+          </button>{' '}
+          查看连接。
+        </p>
+      ) : null}
       <button type="button" onClick={cta}>
         {ctaLabel}
       </button>

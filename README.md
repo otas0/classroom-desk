@@ -137,11 +137,18 @@ CLASSROOM_DESK_NAS_DIR=/Volumes/SchoolNAS/classroom-desk npm run backup:db
 ```bash
 npm run test:server          # schema + confirm/cleanup
 npm run typecheck:server
+npm run verify:exit-lock-packaged
+npm run verify:exit-lock-audit   # 需 API；审计分页 / CSV / 解除码超期
 # 需 API + 教师端已启动：
 npm run test:e2e
+# 口令已在后台改过导致 e2e 401 时：
+TEACHER_PASSWORD=TeacherPass123 node scripts/ensure-teacher.mjs
+npx playwright test e2e/exit-lock-ws.spec.ts
+# API 被杀后教师 Vite 保活（另开终端先 npm run dev:stack -- --no-student）：
+npm run smoke:dev-stack-api-restart
 ```
 
-GitHub Actions（`.github/workflows/ci.yml`）：typecheck、server tests、`/health` smoke、Playwright e2e；push 时 Windows runner 尝试打 NSIS。
+GitHub Actions（`.github/workflows/ci.yml`）：typecheck、server tests、`/health` smoke、Playwright e2e；push 时 Windows runner 打 NSIS，`REQUIRE_WIN_EXE=1` 无 exe 硬失败，Artifact `classroom-desk-windows-setup` 保留 30 天。
 
 ## 结构
 

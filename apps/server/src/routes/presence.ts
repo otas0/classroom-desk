@@ -1,6 +1,13 @@
 import { Router } from 'express';
 import { openDb } from '../db/client.js';
 import { requireAuth, requireRoles, type AuthedRequest } from '../middleware/auth.js';
+import { findUserById, mapUser, verifyToken } from '../services/auth.js';
+import {
+  addPresenceSseClient,
+  broadcastPresence,
+  listPresenceClients,
+  presenceSnapshot,
+} from '../services/presenceHub.js';
 import { newId, nowIso } from '../utils/id.js';
 
 export const presenceRouter = Router();
@@ -56,6 +63,7 @@ presenceRouter.post('/api/v1/presence/heartbeat', requireAuth, requireRoles('stu
     ).run(newId(), session.id, req.user.id, status, now);
   }
 
+  broadcastPresence(req.user.classId);
   res.json({ ok: true, at: now });
 });
 
@@ -71,33 +79,46 @@ presenceRouter.get(
       return;
     }
     const sinceMs = Number(req.query.sinceMs ?? ONLINE_MS);
-    const cutoff = new Date(Date.now() - (Number.isFinite(sinceMs) && sinceMs > 0 ? sinceMs : ONLINE_MS)).toISOString();
-    const rows = openDb()
-      .prepare(
-        `SELECT p.student_id AS studentId, p.class_id AS classId, p.last_seen_at AS lastSeenAt,
-                p.client_version AS clientVersion, p.client_platform AS clientPlatform,
-                u.display_name AS displayName, u.student_no AS studentNo
-         FROM presence_heartbeats p
-         JOIN users u ON u.id = p.student_id
-         WHERE p.class_id = ? AND p.last_seen_at >= ?
-         ORDER BY p.last_seen_at DESC`,
-      )
-      .all(classId, cutoff) as Array<{
-      studentId: string;
-      classId: string;
-      lastSeenAt: string;
-      clientVersion: string;
-      clientPlatform: string;
-      displayName: string;
-      studentNo: string | null;
-    }>;
-    const versions = [...new Set(rows.map((r) => r.clientVersion).filter(Boolean))];
+    const rows = listPresenceClients(
+      classId,
+      Number.isFinite(sinceMs) && sinceMs > 0 ? sinceMs : ONLINE_MS,
+    );
+    const snap = presenceSnapshot(classId);
     res.json({
       classId,
       onlineWindowMs: Number.isFinite(sinceMs) && sinceMs > 0 ? sinceMs : ONLINE_MS,
-      count: rows.length,
-      versions,
+      count: snap.count,
+      versions: snap.versions,
       items: rows,
     });
   },
 );
+
+/**
+ * Teacher presence SSE. EventSource cannot set Authorization → pass JWT as ?token=.
+ * Path: GET /api/v1/presence/stream?classId=&token=
+ */
+presenceRouter.get('/api/v1/presence/stream', async (req, res) => {
+  const classId = String(req.query.classId ?? '').trim();
+  const token = String(req.query.token ?? '').trim();
+  if (!classId || !token) {
+    res.status(400).json({ error: 'class_id_and_token_required' });
+    return;
+  }
+  const payload = await verifyToken(token);
+  if (!payload) {
+    res.status(401).json({ error: 'unauthorized' });
+    return;
+  }
+  const dbUser = findUserById(openDb(), payload.id);
+  if (!dbUser) {
+    res.status(401).json({ error: 'unauthorized' });
+    return;
+  }
+  const user = mapUser(dbUser);
+  if (user.role !== 'teacher' && user.role !== 'admin' && user.role !== 'assistant') {
+    res.status(403).json({ error: 'forbidden' });
+    return;
+  }
+  addPresenceSseClient(res, classId);
+});

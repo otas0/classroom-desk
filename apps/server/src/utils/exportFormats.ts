@@ -57,6 +57,20 @@ export function streamCsvExport(
   res.end();
 }
 
+function applySheetLayout(
+  sheet: XLSX.WorkSheet,
+  headers: string[],
+  rowCount: number,
+): void {
+  sheet['!cols'] = headers.map((h) => ({ wch: Math.max(10, Math.min(28, String(h).length + 4)) }));
+  if (headers.length && rowCount >= 0) {
+    const lastCol = XLSX.utils.encode_col(headers.length - 1);
+    const lastRow = rowCount + 1; // header + data
+    sheet['!autofilter'] = { ref: `A1:${lastCol}${lastRow}` };
+    sheet['!freeze'] = { xSplit: 0, ySplit: 1, topLeftCell: 'A2', activePane: 'bottomLeft', state: 'frozen' };
+  }
+}
+
 /** Write xlsx to a temp file then stream to response (avoids holding full Buffer in heap for large sheets). */
 export async function streamXlsxExport(
   res: Response,
@@ -64,13 +78,26 @@ export async function streamXlsxExport(
     filenameBase: string;
     headers: string[];
     rows: Array<Array<string | number | null | undefined>>;
+    /** Optional extra sheets (e.g. 请假 / 迟到). */
+    sheets?: Array<{
+      name: string;
+      headers: string[];
+      rows: Array<Array<string | number | null | undefined>>;
+    }>;
   },
 ): Promise<void> {
-  const { filenameBase, headers, rows } = opts;
-  const aoa = [headers, ...rows.map((r) => r.map((c) => (c == null ? '' : c)))];
-  const sheet = XLSX.utils.aoa_to_sheet(aoa);
+  const { filenameBase, headers, rows, sheets } = opts;
   const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, sheet, 'export');
+  const primary = sheets?.length
+    ? sheets
+    : [{ name: 'export', headers, rows }];
+  for (const tab of primary) {
+    const aoa = [tab.headers, ...tab.rows.map((r) => r.map((c) => (c == null ? '' : c)))];
+    const sheet = XLSX.utils.aoa_to_sheet(aoa);
+    applySheetLayout(sheet, tab.headers, tab.rows.length);
+    const safeName = String(tab.name || 'export').slice(0, 31) || 'export';
+    XLSX.utils.book_append_sheet(wb, sheet, safeName);
+  }
   const tmp = path.join(os.tmpdir(), `cd-export-${newId()}.xlsx`);
   try {
     XLSX.writeFile(wb, tmp);
@@ -96,16 +123,21 @@ export function sendTableExport(
     filenameBase: string;
     headers: string[];
     rows: Array<Array<string | number | null | undefined>>;
+    sheets?: Array<{
+      name: string;
+      headers: string[];
+      rows: Array<Array<string | number | null | undefined>>;
+    }>;
   },
 ): void {
-  const { format, filenameBase, headers, rows } = opts;
+  const { format, filenameBase, headers, rows, sheets } = opts;
   if (format === 'json') {
     const items = rows.map((row) =>
       Object.fromEntries(headers.map((h, i) => [h, row[i] ?? null])),
     );
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="${filenameBase}.json"`);
-    res.send(JSON.stringify({ headers, items }, null, 2));
+    res.send(JSON.stringify({ headers, items, sheets: sheets ?? null }, null, 2));
     return;
   }
   if ((format === 'csv' || format === 'tsv') && rows.length >= STREAM_THRESHOLD) {
@@ -117,7 +149,7 @@ export function sendTableExport(
     return;
   }
   if (format === 'xlsx') {
-    void streamXlsxExport(res, { filenameBase, headers, rows }).catch((err) => {
+    void streamXlsxExport(res, { filenameBase, headers, rows, sheets }).catch((err) => {
       console.error('[export] xlsx stream failed', err);
       if (!res.headersSent) {
         res.status(500).json({ error: 'export_failed', message: '导出失败' });

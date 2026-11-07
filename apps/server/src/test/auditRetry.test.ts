@@ -13,7 +13,7 @@ function queuePath() {
   return path.join(getDataDir(), 'audit-retry-queue.jsonl');
 }
 
-function run() {
+async function run() {
   // Isolate queue file for this process
   if (fs.existsSync(queuePath())) fs.unlinkSync(queuePath());
   clearAuditWriteFailure();
@@ -62,7 +62,33 @@ function run() {
   assert.equal(auditRetryQueueSize(), 0);
   assert.ok(!fs.existsSync(queuePath()));
 
+  // /health exposes retryQueueSize when API is up (best-effort)
+  enqueueAuditRetry({
+    actorUserId: null,
+    actorRole: 'teacher',
+    action: 'test.audit_retry_health',
+    classId: null,
+    detail: '{}',
+    clientIp: null,
+    createdAt: new Date().toISOString(),
+  });
+  assert.equal(auditRetryQueueSize(), 1);
+  try {
+    const res = await fetch('http://127.0.0.1:8787/health');
+    if (res.ok) {
+      const body = (await res.json()) as { audit?: { retryQueueSize?: number } };
+      assert.ok((body.audit?.retryQueueSize ?? 0) >= 1);
+    }
+  } catch {
+    /* API not running — queue size unit check above is enough */
+  }
+  flushAuditRetryQueue();
+  assert.equal(auditRetryQueueSize(), 0);
+
   console.log('auditRetry.test.ts ok');
 }
 
-run();
+void run().catch((e) => {
+  console.error(e);
+  process.exit(1);
+});

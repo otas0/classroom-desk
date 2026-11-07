@@ -1,5 +1,26 @@
 # Classroom Desk 更新日志
 
+## v0.1.5 — 2026-11-07
+
+运维与上课台打磨：版本注入、机房就绪埋点、presence SSE、投影按课次计时、缺勤分列导出、可配置弱口令。
+
+- 学生端版本由 `package.json` / Vite `define` 注入；去掉手写 `version.ts`
+- 开课清单：无在线桌面端时「扫码指派」CTA；审计 `setup.scan_assign_cta` / `setup.classroom_ready`（就绪时长）
+- 备课「在线机位」：SSE 推送（失败回退轮询）+ 一键复制漂移升级提示
+- 教师侧栏班级版本漂移汇总（对齐 /health + presence）+ Release 链接
+- 投影只读：按本场出勤课次 `startAt` 起算 N 分钟（重进投影不重置）
+- 出勤单场缺勤导出：缺勤/请假/迟到分列；xlsx 多表 + 冻结首行/筛选
+- QR 失败可粘贴 JSON；Windows `FIRST_RUN_GUIDE.html`（打开应用协议 + SmartScreen 交叉链接；`/S` 静默跳过）
+- 弱口令：内置列表 + 设置扩展；`/api/v1/auth/password-policy` 合并下发
+- 备份「显示目录」+「复制路径」
+- CI bulk gate：`ops-polish` + `ops-v015`
+
+### 安装包
+
+- `ClassroomDesk-Setup-0.1.5.exe` + `.sha256` + `config.example.json`（由 tag `v0.1.5` Release workflow 产出）
+
+---
+
 ## v0.1.4 — 2026-11-07
 
 机房落地补丁：版本心跳、扫码首次配置、出勤单场重算、投影只读大屏、Release 按 tag 截取 CHANGELOG。

@@ -1,15 +1,18 @@
 import { expect, test } from '@playwright/test';
+import { ensureTeacherPasswordReady } from './helpers/teacherLogin';
+import { loginTeacherWeb } from './helpers/teacherWebLogin';
+import { openPrepTab } from './helpers/navPrep';
 
 const API = process.env.API_BASE ?? 'http://127.0.0.1:8787';
-const TEACHER_WEB = process.env.TEACHER_WEB ?? 'http://localhost:5174';
 
 test.describe('bulk soft-delete students & questions', () => {
   test('impact → soft delete hides from roster; question bulk delete hides for student', async ({
     request,
     page,
   }) => {
+    const password = await ensureTeacherPasswordReady(request);
     const login = await request.post(`${API}/api/v1/auth/login`, {
-      data: { username: 'teacher', password: 'TeacherPass123' },
+      data: { username: 'teacher', password },
     });
     expect(login.ok()).toBeTruthy();
     const { token } = (await login.json()) as { token: string };
@@ -133,12 +136,8 @@ test.describe('bulk soft-delete students & questions', () => {
       data: { classId, ids: [qid], action: 'purge' },
     });
 
-    await page.goto(TEACHER_WEB);
-    await page.getByLabel('用户名').fill('teacher');
-    await page.getByLabel('密码').fill('TeacherPass123');
-    await page.getByRole('button', { name: '登录' }).click();
-    await expect(page.getByRole('button', { name: '发题/正确率', exact: true })).toBeVisible({
-      timeout: 15_000,
-    });
+    await loginTeacherWeb(page, request);
+    await openPrepTab(page, '发题');
+    await expect(page.getByRole('heading', { name: /发题/ })).toBeVisible({ timeout: 15_000 });
   });
 });

@@ -439,6 +439,20 @@ async function main() {
     if (!setCode.res.ok || !setCode.json?.hasExitUnlockCode) fail('exitLock.setCode', setCode.text);
     else ok('exitLock.setCode', 'hasExitUnlockCode');
 
+    const rotateCode = await req('PATCH', '/api/v1/settings', {
+      token: teacherToken,
+      body: { exitUnlockCode: 'ExitLock99b' },
+    });
+    if (!rotateCode.res.ok) fail('exitLock.rotateCode', rotateCode.text);
+    else {
+      const rotEv = await req('GET', '/api/v1/settings/exit-lock-events?kind=code_rotated&limit=5', {
+        token: teacherToken,
+      });
+      const hasRot = (rotEv.json?.items ?? []).some((e) => e.kind === 'code_rotated');
+      if (hasRot) ok('exitLock.code_rotated', 'audit kind');
+      else fail('exitLock.code_rotated', JSON.stringify(rotEv.json));
+    }
+
     const bad = await req('POST', '/api/v1/auth/exit-unlock', {
       body: { code: 'wrong-exit-code' },
       forwardFor: unlockIp,
@@ -465,7 +479,7 @@ async function main() {
     });
 
     const good = await req('POST', '/api/v1/auth/exit-unlock', {
-      body: { code: 'ExitLock99' },
+      body: { code: 'ExitLock99b' },
       forwardFor: unlockIp,
     });
     if (good.res.ok && good.json?.allowExit) ok('exitLock.code.ok', 'allowExit');

@@ -1,5 +1,8 @@
 # 角色权限矩阵
 
+> 单一来源。构建/开发时由 `scripts/sync-permissions-md.mjs` 同步到
+> `apps/teacher-web/public/PERMISSIONS.md`（设置页「权限说明」链接）。
+
 本教室工具账号角色：`admin` · `teacher` · `assistant` · `student`。
 
 | 能力 | admin | teacher | assistant | student |

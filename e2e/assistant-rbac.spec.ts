@@ -1,11 +1,13 @@
 import { expect, test } from '@playwright/test';
+import { ensureTeacherPasswordReady } from './helpers/teacherLogin';
+import { loginStaffWeb } from './helpers/teacherWebLogin';
 
 const API = process.env.API_BASE ?? 'http://127.0.0.1:8787';
-const TEACHER_WEB = process.env.TEACHER_WEB ?? 'http://localhost:5174';
 
 async function teacherAuth(request: import('@playwright/test').APIRequestContext) {
+  const password = await ensureTeacherPasswordReady(request);
   const login = await request.post(`${API}/api/v1/auth/login`, {
-    data: { username: 'teacher', password: 'TeacherPass123' },
+    data: { username: 'teacher', password },
   });
   expect(login.ok()).toBeTruthy();
   const { token } = (await login.json()) as { token: string };
@@ -20,42 +22,29 @@ test.describe('assistant RBAC', () => {
     const auth = await teacherAuth(request);
     const stamp = Date.now();
     const user = `asst_e2e_${stamp}`;
-    const pass = `AsstPass${stamp % 100000}a`;
+    const pass = `AsstPass${stamp % 100000}a9`;
     const created = await request.post(`${API}/api/v1/auth/assistants`, {
       headers: auth,
       data: { username: user, password: pass, displayName: 'E2E助教' },
     });
     expect(created.ok()).toBeTruthy();
 
-    await page.goto(TEACHER_WEB);
-    await page.getByLabel('用户名').fill(user);
-    await page.getByLabel('密码').fill(pass);
-    await page.getByRole('button', { name: '登录' }).click();
-
-    // Forced password change if bootstrap policy kicks in — skip if not shown
-    const forcePwd = page.getByText(/必须先改成个人密码|请先修改个人密码/);
-    if (await forcePwd.isVisible().catch(() => false)) {
-      await page.getByLabel('当前密码').fill(pass);
-      await page.getByLabel('新密码').fill(`${pass}X9`);
-      await page.getByRole('button', { name: '修改登录密码' }).click();
-    }
-
+    await loginStaffWeb(page, user, pass);
     await expect(page.getByRole('heading', { name: '出勤报表' })).toBeVisible({ timeout: 15_000 });
     await expect(page.getByRole('button', { name: '上课' })).toHaveCount(0);
     await expect(page.getByRole('button', { name: '指派学生机' })).toHaveCount(0);
 
-    await page.getByRole('button', { name: '名单', exact: true }).click();
+    await page.locator('.prep-subnav').getByRole('button', { name: '名单', exact: true }).click();
     await expect(page.getByText(/助教只读名单/)).toBeVisible();
     await expect(page.getByRole('button', { name: '创建班级' })).toHaveCount(0);
     await expect(page.getByRole('button', { name: '添加学生' })).toHaveCount(0);
 
-    await page.getByRole('button', { name: '设置', exact: true }).first().click();
+    await page.locator('aside').getByRole('button', { name: '设置', exact: true }).click();
     await expect(page.getByRole('heading', { name: '创建助教账号' })).toHaveCount(0);
     await expect(page.getByRole('heading', { name: '数据库备份' })).toHaveCount(0);
     await expect(page.getByText(/退出锁|解除码/)).toHaveCount(0);
     await expect(page.getByTestId('permissions-doc-link')).toBeVisible();
 
-    // cleanup: disable assistant
     const list = await request.get(`${API}/api/v1/auth/assistants`, { headers: auth });
     const items = ((await list.json()) as { items: Array<{ id: string; username: string }> }).items;
     const row = items.find((a) => a.username === user);
@@ -71,7 +60,7 @@ test.describe('assistant RBAC', () => {
     const auth = await teacherAuth(request);
     const stamp = Date.now();
     const user = `asst_dis_${stamp}`;
-    const pass = `AsstPass${stamp % 100000}b`;
+    const pass = `AsstPass${stamp % 100000}b9`;
     const created = await request.post(`${API}/api/v1/auth/assistants`, {
       headers: auth,
       data: { username: user, password: pass, displayName: '停用测' },
@@ -131,7 +120,7 @@ test.describe('assistant RBAC', () => {
     const qid = ((await q.json()) as { id: string }).id;
 
     const user = `asst_q_${stamp}`;
-    const pass = `AsstPass${stamp % 100000}c`;
+    const pass = `AsstPass${stamp % 100000}c9`;
     const created = await request.post(`${API}/api/v1/auth/assistants`, {
       headers: auth,
       data: { username: user, password: pass, displayName: '题权测' },
@@ -167,17 +156,8 @@ test.describe('assistant RBAC', () => {
     });
     expect(deadline.status()).toBe(403);
 
-    await page.goto(TEACHER_WEB);
-    await page.getByLabel('用户名').fill(user);
-    await page.getByLabel('密码').fill(pass);
-    await page.getByRole('button', { name: '登录' }).click();
-    const forcePwd = page.getByText(/必须先改成个人密码|请先修改个人密码/);
-    if (await forcePwd.isVisible().catch(() => false)) {
-      await page.getByLabel('当前密码').fill(pass);
-      await page.getByLabel('新密码').fill(`${pass}Y8`);
-      await page.getByRole('button', { name: '修改登录密码' }).click();
-    }
-    await page.getByRole('button', { name: '发题', exact: true }).click();
+    await loginStaffWeb(page, user, pass);
+    await page.locator('.prep-subnav').getByRole('button', { name: '发题', exact: true }).click();
     await expect(page.getByText(/助教可收卷\/下线，不可发布/)).toBeVisible({ timeout: 15_000 });
     await expect(page.getByRole('button', { name: '发布题目' })).toHaveCount(0);
     await expect(page.getByRole('button', { name: '批量删除' })).toBeDisabled();

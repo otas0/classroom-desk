@@ -25,7 +25,9 @@ export type AuditAction =
   | 'auth.create_assistant'
   | 'auth.disable_assistant'
   | 'auth.enable_assistant'
-  | 'auth.reset_assistant_password';
+  | 'auth.reset_assistant_password'
+  | 'setup.scan_assign_cta'
+  | 'setup.classroom_ready';
 
 export function writeAudit(
   opts: {

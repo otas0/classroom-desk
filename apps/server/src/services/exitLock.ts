@@ -212,18 +212,19 @@ export async function setExitUnlockCode(
   if (trimmed.length < 6) {
     return { ok: false as const, error: 'invalid_exit_unlock_code', message: '解除码至少 6 位' };
   }
+  const hadCode = Boolean(getSetting(db, KEY_CODE_HASH));
   const hash = await hashPassword(trimmed);
   upsertSetting(db, KEY_CODE_HASH, hash);
   upsertSetting(db, KEY_CODE_SET_AT, nowIso());
   recordExitLockEvent(db, {
-    kind: 'code_set',
+    kind: hadCode ? 'code_rotated' : 'code_set',
     actorUserId: meta?.actorUserId,
     actorRole: meta?.actorRole,
-    detail: 'exit_unlock_code_updated',
+    detail: hadCode ? 'exit_unlock_code_rotated' : 'exit_unlock_code_set',
     clientIp: meta?.clientIp,
   });
   notifyClients(db);
-  return { ok: true as const };
+  return { ok: true as const, rotated: hadCode };
 }
 
 export function setExitUnlockRateConfig(

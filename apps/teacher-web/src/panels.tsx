@@ -2088,6 +2088,32 @@ export function AttendancePanel({ classId }: { classId: string }) {
     }
   }
 
+  async function downloadAbsent() {
+    setExportMsg('');
+    if (!sessionId) {
+      setExportMsg('请先选择单场课次再导出缺勤名单');
+      return;
+    }
+    const token = getToken();
+    const q = new URLSearchParams({ classId, sessionId, format });
+    try {
+      const res = await fetch(`${API_BASE}/api/v1/exports/attendance-absent?${q}`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      });
+      if (!res.ok) throw new Error(`导出失败 HTTP ${res.status}`);
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `attendance-absent-${sessionId.slice(0, 8)}.${format}`;
+      a.click();
+      URL.revokeObjectURL(url);
+      setExportMsg(`已下载 ${a.download}`);
+    } catch (e) {
+      setExportMsg(e instanceof Error ? e.message : '导出失败');
+    }
+  }
+
   useEffect(() => {
     void loadSessions().catch(() => setSessions([]));
   }, [classId]);
@@ -2135,6 +2161,15 @@ export function AttendancePanel({ classId }: { classId: string }) {
         </button>
         <button type="button" className="secondary" onClick={() => void download('summary')}>
           导出汇总
+        </button>
+        <button
+          type="button"
+          className="secondary"
+          disabled={!sessionId}
+          title={sessionId ? '导出本场缺勤名单' : '请先选择单场课次'}
+          onClick={() => void downloadAbsent()}
+        >
+          本场缺勤名单
         </button>
       </div>
       {exportMsg ? <p className="hint">{exportMsg}</p> : null}
@@ -2626,6 +2661,10 @@ export function SettingsPanel({
   >([]);
   const [resetPwdDraft, setResetPwdDraft] = useState<Record<string, string>>({});
   const [nowTick, setNowTick] = useState(() => Date.now());
+  const [weakPasswords, setWeakPasswords] = useState<Set<string>>(() => new Set());
+  const [weakExtraDraft, setWeakExtraDraft] = useState('');
+  const [readonlyAfterMins, setReadonlyAfterMins] = useState(5);
+  const [backupDirPath, setBackupDirPath] = useState('');
 
   async function loadAudit() {
     const q = new URLSearchParams({ limit: '80' });
@@ -2646,6 +2685,8 @@ export function SettingsPanel({
       pointRequestTtlMinutes: number;
       messagesEnabled?: boolean;
       quizConfirmSubmit?: boolean;
+      liveboardReadonlyAfterMinutes?: number;
+      weakTeacherPasswordsExtra?: string[];
       clientExitAllowed?: boolean;
       clientExitUnlockUntil?: string | null;
       hasExitUnlockCode?: boolean;
@@ -2667,7 +2708,16 @@ export function SettingsPanel({
     setTtl(s.pointRequestTtlMinutes);
     setMessagesOn(s.messagesEnabled !== false);
     setQuizConfirmOn(s.quizConfirmSubmit !== false);
-    if (s.backup) setBackupInfo(s.backup);
+    if (s.liveboardReadonlyAfterMinutes != null) {
+      setReadonlyAfterMins(Number(s.liveboardReadonlyAfterMinutes) || 0);
+    }
+    if (Array.isArray(s.weakTeacherPasswordsExtra)) {
+      setWeakExtraDraft(s.weakTeacherPasswordsExtra.join('\n'));
+    }
+    if (s.backup) {
+      setBackupInfo(s.backup);
+      if (s.backup.dir) setBackupDirPath(s.backup.dir);
+    }
     setExitAllowed(s.clientExitAllowed === true);
     setExitUnlockUntil(s.clientExitUnlockUntil ?? null);
     setHasExitCode(s.hasExitUnlockCode === true);
@@ -2697,6 +2747,9 @@ export function SettingsPanel({
     void api<{ items: ClassItem[] }>('/api/v1/classes')
       .then((r) => setAuditClasses(r.items ?? []))
       .catch(() => setAuditClasses([]));
+    void api<{ weakPasswords?: string[] }>('/api/v1/auth/password-policy')
+      .then((r) => setWeakPasswords(new Set(r.weakPasswords ?? [])))
+      .catch(() => setWeakPasswords(new Set()));
   }, [exitKindFilter, exitEventsPage]);
 
   useEffect(() => {
@@ -2736,25 +2789,14 @@ export function SettingsPanel({
     }
   }
 
-  const WEAK_PASSWORDS = new Set([
-    'ChangeMe123',
-    'TeacherPass123',
-    'Classroom2026!',
-    'Desk@179#2026',
-    'AdminPass123',
-    'password',
-    '123456',
-    'Password1',
-    'password123',
-  ]);
-  const pwdWeakExact = WEAK_PASSWORDS.has(newPwd);
+  const pwdWeakExact = weakPasswords.size > 0 && weakPasswords.has(newPwd);
   const pwdTooShort = newPwd.length > 0 && newPwd.length < 8;
   const pwdNeedMixed =
     newPwd.length >= 8 && (!/[A-Za-z]/.test(newPwd) || !/[0-9]/.test(newPwd));
   const pwdOk = newPwd.length >= 8 && /[A-Za-z]/.test(newPwd) && /[0-9]/.test(newPwd) && !pwdWeakExact;
   const pwdHint =
     newPwd.length === 0
-      ? '至少 8 位，须含字母与数字；勿用 TeacherPass123 / ChangeMe123 等联调口令'
+      ? '至少 8 位，须含字母与数字；弱口令列表与服务端一致（/api/v1/auth/password-policy）'
       : pwdWeakExact
         ? '不可使用常见联调/弱口令，请换个人密码'
         : pwdTooShort
@@ -2880,35 +2922,128 @@ export function SettingsPanel({
               className="secondary"
               onClick={() =>
                 void api<{
+                  ok?: boolean;
                   dir?: string;
-                  keep?: number;
-                  latestAt?: string | null;
-                  ageHours?: number | null;
-                  lastError?: { at?: string; message?: string } | null;
-                  lastAutoBackupAt?: string | null;
-                }>('/api/v1/settings/backup')
+                  opened?: boolean;
+                  message?: string;
+                }>('/api/v1/settings/backup-open-dir', { method: 'POST', body: '{}' })
                   .then((r) => {
-                    setBackupInfo({
-                      dir: r.dir,
-                      keep: r.keep,
-                      latestAt: r.latestAt ?? null,
-                      ageHours: r.ageHours ?? null,
-                      lastError: r.lastError ?? null,
-                      lastAutoBackupAt: r.lastAutoBackupAt ?? null,
-                    });
-                    setBackupMsg(
-                      r.dir
-                        ? `备份目录：${r.dir}（请在教师机资源管理器中打开该路径）`
-                        : '无法读取备份目录',
-                    );
+                    if (r.dir) {
+                      setBackupDirPath(r.dir);
+                      setBackupInfo((prev) =>
+                        prev
+                          ? { ...prev, dir: r.dir }
+                          : {
+                              dir: r.dir,
+                              keep: undefined,
+                              latestAt: null,
+                              ageHours: null,
+                              lastError: null,
+                              lastAutoBackupAt: null,
+                            },
+                      );
+                    }
+                    if (r.opened) {
+                      setBackupMsg(`已在教师机打开备份目录：${r.dir ?? ''}`);
+                    } else {
+                      setBackupMsg(
+                        r.dir
+                          ? `备份目录：${r.dir}${r.message ? `（${r.message}）` : '（无图形环境）'} — 可用「复制路径」`
+                          : r.message ?? '无法读取备份目录',
+                      );
+                    }
                   })
-                  .catch((e) => setBackupMsg(e instanceof Error ? e.message : '读取失败'))
+                  .catch((e) => setBackupMsg(e instanceof Error ? e.message : '打开失败'))
               }
             >
               显示备份目录
             </button>
+            <button
+              type="button"
+              className="secondary"
+              disabled={!backupDirPath && !backupInfo?.dir}
+              onClick={() => {
+                const dir = backupDirPath || backupInfo?.dir || '';
+                if (!dir) {
+                  setBackupMsg('尚无备份目录路径');
+                  return;
+                }
+                void navigator.clipboard
+                  .writeText(dir)
+                  .then(() => setBackupMsg(`已复制路径：${dir}`))
+                  .catch(() => {
+                    window.prompt('复制备份目录路径', dir);
+                    setBackupMsg(`路径：${dir}`);
+                  });
+              }}
+            >
+              复制路径
+            </button>
           </div>
           {backupMsg ? <p className="hint">{backupMsg}</p> : null}
+
+          <h3>弱口令扩展列表</h3>
+          <p className="hint">每行一条；与内置联调口令合并后用于改密校验（单一策略数据源）。</p>
+          <label>
+            额外弱口令
+            <textarea
+              rows={4}
+              value={weakExtraDraft}
+              onChange={(e) => setWeakExtraDraft(e.target.value)}
+              placeholder={'SchoolDemo1\nTempPass2026'}
+            />
+          </label>
+          <button
+            type="button"
+            className="secondary"
+            onClick={() => {
+              const list = weakExtraDraft
+                .split(/\r?\n/)
+                .map((s) => s.trim())
+                .filter(Boolean);
+              void api('/api/v1/settings', {
+                method: 'PATCH',
+                body: JSON.stringify({ weakTeacherPasswordsExtra: list }),
+              })
+                .then(() =>
+                  api<{ weakPasswords?: string[] }>('/api/v1/auth/password-policy').then((r) => {
+                    setWeakPasswords(new Set(r.weakPasswords ?? []));
+                    setSaveMsg(`已保存扩展弱口令 ${list.length} 条（合计策略 ${(r.weakPasswords ?? []).length}）`);
+                  }),
+                )
+                .catch((e) => setSaveMsg(e instanceof Error ? e.message : '保存失败'));
+            }}
+          >
+            保存弱口令扩展
+          </button>
+
+          <h3>投影只读自动开启</h3>
+          <p className="hint">按本场出勤课次 startAt 起算，N 分钟后投影自动只读。0 = 关闭。</p>
+          <label>
+            上课后分钟数
+            <input
+              type="number"
+              min={0}
+              max={240}
+              value={readonlyAfterMins}
+              onChange={(e) => setReadonlyAfterMins(Number(e.target.value))}
+            />
+          </label>
+          <button
+            type="button"
+            className="secondary"
+            onClick={() =>
+              void api('/api/v1/settings', {
+                method: 'PATCH',
+                body: JSON.stringify({ liveboardReadonlyAfterMinutes: readonlyAfterMins }),
+              })
+                .then(() => setSaveMsg(`投影只读自动开启已设为 ${readonlyAfterMins} 分钟`))
+                .catch((e) => setSaveMsg(e instanceof Error ? e.message : '保存失败'))
+            }
+          >
+            保存投影只读时长
+          </button>
+          {saveMsg ? <p className="hint">{saveMsg}</p> : null}
 
           <h3>留言</h3>
           <label className="row">
@@ -3151,6 +3286,7 @@ export function SettingsPanel({
                 <option value="code_fail">code_fail</option>
                 <option value="code_rate_limited">code_rate_limited</option>
                 <option value="code_set">code_set</option>
+                <option value="code_rotated">code_rotated</option>
                 <option value="rate_config">rate_config</option>
               </select>
             </label>
@@ -3185,9 +3321,9 @@ export function SettingsPanel({
                   e.preventDefault();
                   void (async () => {
                     const token = getToken() || '';
-                    const url = `${API_BASE}/api/v1/settings/exit-lock-events.csv?limit=200${
-                      exitKindFilter ? `&kind=${encodeURIComponent(exitKindFilter)}` : ''
-                    }`;
+                    const url = `${API_BASE}/api/v1/settings/exit-lock-events.csv?limit=${EXIT_PAGE_SIZE}&offset=${
+                      exitEventsPage * EXIT_PAGE_SIZE
+                    }${exitKindFilter ? `&kind=${encodeURIComponent(exitKindFilter)}` : ''}`;
                     const res = await fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
                     if (!res.ok) {
                       setExitMsg(`导出失败 HTTP ${res.status}`);
@@ -3222,6 +3358,16 @@ export function SettingsPanel({
             </button>
             {showExitHelp ? (
               <div className="hint">
+                <p>
+                  完整说明（含 C2 手测表 / Assigned Access / Intune）：{' '}
+                  <a
+                    href="https://github.com/otas0/classroom-desk/blob/main/docs/EXIT_LOCK_MDM.md"
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    docs/EXIT_LOCK_MDM.md
+                  </a>
+                </p>
                 <pre style={{ whiteSpace: 'pre-wrap', fontSize: 12, lineHeight: 1.45 }}>
                   {`默认 → [已锁定]
   │ 教师「批量允许关闭」(二次确认)
@@ -3234,7 +3380,15 @@ export function SettingsPanel({
 
 错码达上限 → [限流 RateLimited] → 窗口结束 → [已锁定]
 
-详见 docs/EXIT_LOCK_MDM.md（含 Assigned Access / Intune）。`}
+mermaid（与文档同构）:
+stateDiagram-v2
+  [*] --> Locked
+  Locked --> TimedOpen : 批量解除
+  TimedOpen --> Locked : 到期/重新锁定
+  Locked --> LocalExit : 解除码成功
+  LocalExit --> [*]
+  Locked --> RateLimited : 错码上限
+  RateLimited --> Locked : 窗口结束`}
                 </pre>
               </div>
             ) : null}
@@ -3463,14 +3617,21 @@ export function SettingsPanel({
             </ul>
           </div>
 
-          <p className="hint">
-            数据库：服务进程每天自动备份一次（保留约 14 份）；也可手动 `npm run backup:db`。确认 /health 无
-            backup/audit lastError。
-            <a href={permissionsDocHref()} target="_blank" rel="noreferrer" data-testid="permissions-doc-link">
-              权限说明
-            </a>
-            。
-          </p>
+          {!isAssistant() ? (
+            <p className="hint">
+              数据库：服务进程每天自动备份一次（保留约 14 份）；也可手动 `npm run backup:db`。确认 /health 无
+              backup/audit lastError。
+              <a
+                href={permissionsDocHref()}
+                target="_blank"
+                rel="noreferrer"
+                data-testid="permissions-doc-link"
+              >
+                权限说明
+              </a>
+              。
+            </p>
+          ) : null}
         </>
       )}
     </section>

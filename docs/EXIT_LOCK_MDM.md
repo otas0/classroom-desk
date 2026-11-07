@@ -81,7 +81,14 @@ stateDiagram-v2
 </Replace>
 ```
 
-Assigned Access 多应用 JSON 片段（设置 → 帐户 → 分配的访问，或 Intune「展台」配置）：
+Assigned Access 多应用 / 桌面应用路径（electron-builder `productName: Classroom Desk`，NSIS 默认）：
+
+| 场景 | 路径 |
+|---|---|
+| 默认 x64（「为所有用户安装」） | `C:\Program Files\Classroom Desk\Classroom Desk.exe` |
+| 仅当前用户 / 自定义目录 | 开始菜单「Classroom Desk」→ 右键「打开文件位置」→ 复制实际 `.exe` |
+
+JSON 片段（Intune「展台」或多应用 Assigned Access）：
 
 ```json
 {
@@ -89,29 +96,63 @@ Assigned Access 多应用 JSON 片段（设置 → 帐户 → 分配的访问，
   "Apps": [
     {
       "AppType": "DesktopApp",
-      "DesktopAppPath": "C:\\\\Program Files\\\\Classroom Desk\\\\Classroom Desk.exe"
+      "DesktopAppPath": "C:\\Program Files\\Classroom Desk\\Classroom Desk.exe"
     }
   ]
 }
 ```
 
-路径以实际安装目录为准（NSIS 默认可能在 `Program Files\\Classroom Desk`）。
+**负向手测（任务管理器结束）**：展台账户登录 → `Ctrl+Alt+Del` 若仍能开任务管理器 → 对「Classroom Desk」点结束任务 → 期望失败或进程被策略立即拉起；普通管理员账户不在本测范围。
+
+#### 试验机组部署 Intune XML
+
+1. Intune → 设备 → 配置 → 创建 → 「模板」/自定义 → 上传 [`intune-student-kiosk.example.xml`](./intune-student-kiosk.example.xml) 或按其中 OMA-URI 手工添加 `HideTaskManager=1`。
+2. 分配到**试验组**（先 1～3 台样机），同步策略。
+3. 样机：设置 → 系统 → 关于 → 确认 Windows 版本（记下 22H2/24H2 等）。
+4. 验证：开始菜单无「任务管理器」或打开后策略阻止；事件查看器 / `rsop` 可选。
+5. 未生效：核对 CSP 在该版本是否支持，改用「开始」策略或 kiosk 配置，勿直接推全校。
 
 ### 验证打包安装态退出锁定（C2 · 须在 Windows 真机）
 
-本仓库 CI/代理机多为 macOS，**无法代替**教室 Windows 手测。打印下表到样机旁勾选：
+本仓库 CI/代理机多为 macOS，**无法代替**教室 Windows 手测。打印下表到样机旁勾选；**证据**栏拍屏/录屏归档到教师机 `证据/C2-YYYYMMDD/`。
 
-| # | 步骤 | 期望 | □ |
-|---|---|---|---|
-| 1 | 安装 `ClassroomDesk-Setup-*.exe` | 安装成功 | |
-| 2 | 写入 LAN `config.json`（禁止 127.0.0.1） | 能连 `/health` | |
-| 3 | 启动学生端 | 标题栏「已锁定」；读屏可听 | |
-| 4 | 关窗 / Alt+F4 | 无法退出 | |
-| 5 | 教师批量解除（确认框） | 学生秒级「可退出 m:ss」 | |
-| 6 | 关窗 | 可退出 | |
-| 7 | 教师重新锁定后再开学生端 | 再次无法关 | |
-| 8 | 解除码路径 | 可退；错码限流 | |
-| 9 | 教师审计 | 可筛选 kind / 导出 CSV | |
-| 10 | （可选）Assigned Access | 任务管理器不可结束 | |
+| # | 步骤 | 期望 | 证据 | □ |
+|---|---|---|---|---|
+| 1 | 安装 `ClassroomDesk-Setup-*.exe` | 安装成功 | 安装完成对话框 | |
+| 2 | 写入 LAN `config.json`（禁止 127.0.0.1） | 能连 `/health` | 配置文件 + `/ready` | |
+| 3 | 启动学生端；开「讲述人」 | 标题栏「已锁定」；读屏朗读锁定 | 标题栏截图 + 讲述人录音 10s | |
+| 4 | 关窗 / Alt+F4 | 无法退出 | 录屏 | |
+| 5 | 教师批量解除（确认框） | 学生秒级「可退出 m:ss」 | 师生同屏截图 | |
+| 6 | 关窗 | 可退出 | 录屏 | |
+| 7 | 教师重新锁定后再开学生端 | 再次无法关 | 截图 | |
+| 8 | 解除码路径 | 可退；错码限流 | 截图 | |
+| 9 | 教师审计 | 可筛选 kind（含 `code_rotated`）/ 导出 CSV | CSV 文件 | |
+| 10 | Assigned Access + 上表路径 | 任务管理器无法结束 | 负向手测录屏 | |
+| 11 | （可选）Intune HideTaskManager | 试验组生效 | 策略同步截图 | |
 
-静态检查：`npm run verify:exit-lock-packaged`（打包机加 `REQUIRE_WIN_EXE=1`）。总表见 [LOCAL_USB_CHECKLIST.md](./LOCAL_USB_CHECKLIST.md)「C2」。
+静态检查：`npm run verify:exit-lock-packaged`（打包机 / CI `REQUIRE_WIN_EXE=1`；无 exe 硬失败）。Artifact：`classroom-desk-windows-setup`（保留 30 天）。总表见 [LOCAL_USB_CHECKLIST.md](./LOCAL_USB_CHECKLIST.md)「C2」。
+
+### 学生端 WS → SSE 降级手测（DevTools）
+
+1. 开发：学生端连上后，Chrome/Electron DevTools → Network → WS → 选中 `/exit-lock/ws` → 右键关闭帧（或 Offline **仅**在确认会触发 `onclose` 后立刻恢复网络，避免整页离线）。
+2. 期望：出现 toast「实时通道已切到备用（WebSocket …）」；Network 出现 EventSource `/exit-lock/stream`。
+3. 教师批量解除 → 学生标题栏仍秒级变为「可退出」。
+4. 自动化：`npx playwright test e2e/exit-lock-ws.spec.ts`（含「WS 断 → SSE 仍收到 batch_unlock」）。
+
+### 审计分页 / 超期横幅 / 口令
+
+```bash
+# 审计 offset/limit + CSV 与当前页一致 + rotateDays 真超期
+npm run verify:exit-lock-audit
+
+# 口令已在后台改过、e2e 401 时先重置再测：
+TEACHER_PASSWORD=TeacherPass123 node scripts/ensure-teacher.mjs
+npx playwright test e2e/exit-lock-ws.spec.ts
+```
+
+`dev:stack` API 被 SIGKILL（类似 exit 137）后教师 Vite 应仍存活、API 经监督重启恢复：
+
+```bash
+npm run dev:stack -- --no-student   # 另开终端
+npm run smoke:dev-stack-api-restart
+```

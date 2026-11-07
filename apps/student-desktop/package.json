@@ -1,6 +1,6 @@
 {
   "name": "@classroom-desk/student-desktop",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "private": true,
   "description": "Student desktop widget for Classroom Desk",
   "author": "School IT",
@@ -75,6 +75,18 @@
       {
         "from": "resources/config.json",
         "to": "config.json"
+      },
+      {
+        "from": "build/FIRST_RUN_GUIDE.html",
+        "to": "FIRST_RUN_GUIDE.html"
+      }
+    ],
+    "protocols": [
+      {
+        "name": "Classroom Desk",
+        "schemes": [
+          "classroom-desk"
+        ]
       }
     ],
     "extraMetadata": {

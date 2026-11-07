@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { openDb, withTransaction } from '../db/client.js';
-import { newId, nowIso } from '../utils/id.js';
+import { newId } from '../utils/id.js';
 import { recycleTiming } from '../utils/recycleRetention.js';
 
 /**
@@ -19,8 +19,10 @@ function run() {
   assert.ok(teacher, 'need a teacher');
 
   const stamp = Date.now();
+  const nowMs = stamp;
   const ids: string[] = [];
-  const at = nowIso();
+  const at = new Date(nowMs).toISOString();
+  const day = 86_400_000;
   withTransaction(db, () => {
     const ins = db.prepare(
       `INSERT INTO questions
@@ -33,9 +35,10 @@ function run() {
       // Stagger deleted_at so daysLeft spans boundary cases
       const deletedAt =
         i === 0
-          ? new Date(Date.now() - 7 * 86_400_000 - 60_000).toISOString()
+          ? new Date(nowMs - 7 * day - 60_000).toISOString()
           : i === 1
-            ? new Date(Date.now() - 7 * 86_400_000 + 3600_000).toISOString()
+            ? // Exact retention boundary: daysLeft=0, not yet expired (strict <)
+              new Date(nowMs - 7 * day).toISOString()
             : at;
       ins.run(id, cls!.id, `VR${stamp}-${i}`, 'stem', teacher!.id, at, deletedAt);
     }
@@ -51,7 +54,7 @@ function run() {
     .all(cls!.id, `VR${stamp}-%`) as Array<{ id: string; deletedAt: string }>;
 
   assert.equal(rows.length, 520);
-  const withTiming = rows.map((r) => ({ ...r, ...recycleTiming(r.deletedAt) }));
+  const withTiming = rows.map((r) => ({ ...r, ...recycleTiming(r.deletedAt, nowMs) }));
   assert.ok(withTiming.some((r) => r.expired === true));
   assert.ok(withTiming.some((r) => r.daysLeft === 0 && r.expired === false));
   assert.ok(withTiming.filter((r) => (r.daysLeft ?? 0) >= 6).length >= 500);

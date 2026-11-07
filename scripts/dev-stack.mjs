@@ -158,9 +158,47 @@ process.on('SIGTERM', () => shutdown('SIGTERM'));
 console.log('[dev-stack] default: API :8787 + teacher :5174' + (noStudent ? '' : ' + student'));
 console.log('[dev-stack] Ctrl+C stops all. Flags: --no-student --once');
 
+/** If API listen process was SIGKILL'd but npm parent still "alive", force-restart. */
+function startApiHealthWatchdog() {
+  const intervalMs = Number(process.env.DEV_STACK_HEALTH_MS ?? 4000);
+  setInterval(() => {
+    if (shuttingDown || once) return;
+    const url = `http://${apiHost}:${apiPort}/health`;
+    void fetch(url)
+      .then(async (res) => {
+        if (res.ok) return;
+        throw new Error(`status ${res.status}`);
+      })
+      .catch(() => {
+        const cur = procs.get('api');
+        if (!cur || shuttingDown) return;
+        console.warn('[dev-stack] API health lost — killing npm parent and restarting…');
+        try {
+          cur.child.kill('SIGKILL');
+        } catch {
+          /* exit handler will restart */
+        }
+        // If exit handler did not fire (zombie), start anyway after brief delay
+        setTimeout(() => {
+          const still = procs.get('api');
+          if (still && still.child === cur.child && !shuttingDown) {
+            try {
+              still.child.kill('SIGKILL');
+            } catch {
+              /* ignore */
+            }
+            procs.delete('api');
+            start(specs[0], (still.restarts ?? 0) + 1);
+          }
+        }, 800);
+      });
+  }, intervalMs).unref?.();
+}
+
 async function main() {
   start(specs[0]); // api
   await waitForHealth();
+  startApiHealthWatchdog();
   for (const spec of specs.slice(1)) start(spec);
 }
 

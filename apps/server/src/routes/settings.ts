@@ -17,6 +17,7 @@ import {
 import { addExitLockSseClient } from '../services/exitLockHub.js';
 import { toCsv } from '../utils/csv.js';
 import { getBackupStatus, runDbBackup } from '../services/backup.js';
+import { getExtraWeakPasswords, setExtraWeakPasswords } from '../services/weakPasswords.js';
 import { nowIso } from '../utils/id.js';
 
 export const settingsRouter = Router();
@@ -63,6 +64,8 @@ settingsRouter.get('/api/v1/settings', requireAuth, requireRoles('teacher', 'adm
     pointRequestDailyCleanupEditable: false,
     messagesEnabled: (getSetting(db, 'messages_enabled') ?? '1') !== '0',
     quizConfirmSubmit: (getSetting(db, 'quiz_confirm_submit') ?? '1') !== '0',
+    liveboardReadonlyAfterMinutes: Number(getSetting(db, 'liveboard_readonly_after_minutes') ?? 5),
+    weakTeacherPasswordsExtra: getExtraWeakPasswords(db),
     classroomApiBase: getSetting(db, 'classroom_api_base') ?? '',
     noticeText: getSetting(db, 'notice_text') ?? APP_NOTICE,
     attendanceNoticeText: getSetting(db, 'attendance_notice_text') ?? ATTENDANCE_NOTICE,
@@ -114,6 +117,32 @@ settingsRouter.patch('/api/v1/settings', requireAuth, requireRoles('teacher', 'a
       `INSERT INTO settings (key, value) VALUES ('quiz_confirm_submit', ?)
        ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
     ).run(enabled ? '1' : '0');
+  }
+
+  if (req.body?.liveboardReadonlyAfterMinutes != null) {
+    const mins = Number(req.body.liveboardReadonlyAfterMinutes);
+    if (!Number.isFinite(mins) || mins < 0 || mins > 240) {
+      res.status(400).json({
+        error: 'invalid_readonly_minutes',
+        message: '投影只读自动开启须为 0–240 分钟（0=关闭）',
+      });
+      return;
+    }
+    db.prepare(
+      `INSERT INTO settings (key, value) VALUES ('liveboard_readonly_after_minutes', ?)
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+    ).run(String(Math.trunc(mins)));
+  }
+
+  if (req.body?.weakTeacherPasswordsExtra != null) {
+    if (!Array.isArray(req.body.weakTeacherPasswordsExtra)) {
+      res.status(400).json({ error: 'invalid_weak_list', message: '须为字符串数组' });
+      return;
+    }
+    setExtraWeakPasswords(
+      (req.body.weakTeacherPasswordsExtra as unknown[]).map((x) => String(x)),
+      db,
+    );
   }
 
   if (req.body?.classroomApiBase != null) {
@@ -258,15 +287,48 @@ settingsRouter.post(
   },
 );
 
+/** Open backup directory on the teacher host (server OS). No-op in headless CI. */
+settingsRouter.post(
+  '/api/v1/settings/backup-open-dir',
+  requireAuth,
+  requireRoles('teacher', 'admin'),
+  async (_req, res) => {
+    const status = getBackupStatus(getSetting(openDb(), 'last_auto_backup_at'));
+    const dir = status.dir;
+    try {
+      const { execFile } = await import('node:child_process');
+      const { promisify } = await import('node:util');
+      const execFileAsync = promisify(execFile);
+      if (process.platform === 'darwin') {
+        await execFileAsync('open', [dir]);
+      } else if (process.platform === 'win32') {
+        await execFileAsync('explorer', [dir]);
+      } else {
+        await execFileAsync('xdg-open', [dir]);
+      }
+      res.json({ ok: true, dir, opened: true });
+    } catch (e) {
+      res.json({
+        ok: true,
+        dir,
+        opened: false,
+        message: e instanceof Error ? e.message : '无法在本机打开目录（无图形环境时属正常）',
+      });
+    }
+  },
+);
+
 settingsRouter.get(
   '/api/v1/settings/exit-lock-events.csv',
   requireAuth,
   requireRoles('teacher', 'admin'),
   (req: AuthedRequest, res) => {
     const limit = Number(req.query.limit ?? 200);
+    const offset = Number(req.query.offset ?? 0);
     const kind = String(req.query.kind ?? '').trim();
     const items = listExitLockEvents(openDb(), {
       limit: Number.isFinite(limit) ? limit : 200,
+      offset: Number.isFinite(offset) ? offset : 0,
       kind: kind || undefined,
     }) as Array<{
       id: string;

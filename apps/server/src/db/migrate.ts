@@ -12,6 +12,10 @@ const DEFAULT_SETTINGS: Record<string, string> = {
   messages_enabled: '1',
   /** Student single/bool: require separate「确认提交」before answer (1=on). */
   quiz_confirm_submit: '1',
+  /** Minutes after class session startAt before projection auto read-only (0=off). */
+  liveboard_readonly_after_minutes: '5',
+  /** JSON string array of extra weak teacher passwords (merged with shared list). */
+  weak_teacher_passwords_extra: '[]',
   teacher_password_ok: '0',
   last_auto_backup_at: '',
   server_bind: '0.0.0.0',

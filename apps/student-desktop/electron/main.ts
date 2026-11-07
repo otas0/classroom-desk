@@ -111,29 +111,61 @@ function quitIfAllowed() {
   return true;
 }
 
-app.whenReady().then(() => {
-  applyProductionCsp();
-  loadConfig();
+function focusMainWindow() {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    createWindow();
+    return;
+  }
+  mainWindow.show();
+  mainWindow.focus();
+}
 
-  // Remove default menu Quit (Cmd/Ctrl+Q)
-  Menu.setApplicationMenu(null);
-
-  app.setLoginItemSettings({
-    openAtLogin: true,
-    path: process.execPath,
+const gotLock = app.requestSingleInstanceLock();
+if (!gotLock) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    focusMainWindow();
   });
 
-  createWindow();
-
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      createWindow();
-    } else {
-      mainWindow?.show();
-      mainWindow?.focus();
+  // FIRST_RUN_GUIDE.html「打开应用」→ classroom-desk://launch
+  if (process.defaultApp) {
+    if (process.argv.length >= 2) {
+      app.setAsDefaultProtocolClient('classroom-desk', process.execPath, [
+        path.resolve(process.argv[1]),
+      ]);
     }
+  } else {
+    app.setAsDefaultProtocolClient('classroom-desk');
+  }
+
+  app.whenReady().then(() => {
+    applyProductionCsp();
+    loadConfig();
+
+    Menu.setApplicationMenu(null);
+
+    app.setLoginItemSettings({
+      openAtLogin: true,
+      path: process.execPath,
+    });
+
+    createWindow();
+
+    app.on('activate', () => {
+      if (BrowserWindow.getAllWindows().length === 0) {
+        createWindow();
+      } else {
+        focusMainWindow();
+      }
+    });
+
+    app.on('open-url', (event, url) => {
+      event.preventDefault();
+      if (String(url).startsWith('classroom-desk:')) focusMainWindow();
+    });
   });
-});
+}
 
 app.on('before-quit', (event) => {
   if (exitAllowed) return;

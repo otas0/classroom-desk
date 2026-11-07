@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
-import { APP_NAME } from '@classroom-desk/shared';
+import { APP_NAME, GITHUB_RELEASES_BASE } from '@classroom-desk/shared';
 import { API_BASE, api, getToken, setToken } from './api';
 import { ClassroomConnect } from './components/ClassroomConnect';
 import { LiveBoard } from './components/LiveBoard';
+import { PresenceClients } from './components/PresenceClients';
 import { SessionHome } from './components/SessionHome';
-import { SetupChecklist } from './components/SetupChecklist';
+import { SetupChecklist, type SetupDest } from './components/SetupChecklist';
 import {
   AttendancePanel,
   ExportsPanel,
@@ -36,6 +37,7 @@ const PREP_ITEMS: Array<[PrepTab, string]> = [
   ['q-recycle', '题目回收站'],
   ['requests', '加分'],
   ['attendance', '出勤报表'],
+  ['presence', '在线机位'],
   ['exports', '导出'],
   ['messages', '留言'],
   ['settings', '设置'],
@@ -55,6 +57,7 @@ export function App() {
   );
   const [messagesEnabled, setMessagesEnabled] = useState(true);
   const [healthAlert, setHealthAlert] = useState('');
+  const [driftExpectedVersion, setDriftExpectedVersion] = useState('');
   const [healthLanIps, setHealthLanIps] = useState<string[]>([]);
   const [healthTick, setHealthTick] = useState(0);
   const [projectionMode, setProjectionMode] = useState(false);
@@ -184,20 +187,43 @@ export function App() {
         const err = body.backup?.lastError;
         const auditErr = body.audit?.lastError;
         let drift = '';
+        let expectedVer = '';
         if (classId && body.ok) {
           try {
             const clients = await api<{ versions: string[]; count: number }>(
               `/api/v1/presence/clients?classId=${encodeURIComponent(classId)}`,
             );
             const expected = String(body.studentDesktopVersion ?? body.version ?? '').trim();
+            expectedVer = expected;
             const odd = (clients.versions ?? []).filter((v) => v && expected && v !== expected);
             if (odd.length) {
-              drift = `学生端版本漂移：已连 ${clients.count} 台，上报 ${[...new Set(odd)].join(' / ')}，服务期望 v${expected}`;
+              drift = `班级版本漂移：已连 ${clients.count} 台，上报 ${[...new Set(odd)].join(' / ')}，应升级到 v${expected}`;
+            }
+            // 机房就绪埋点：扫码 CTA 后首次出现在线桌面端
+            const ctaAt = Number(sessionStorage.getItem(`cd_assign_cta_at_${classId}`) || 0);
+            const readyLogged = sessionStorage.getItem(`cd_classroom_ready_${classId}`) === '1';
+            if (ctaAt > 0 && !readyLogged && clients.count > 0) {
+              sessionStorage.setItem(`cd_classroom_ready_${classId}`, '1');
+              const durationMs = Date.now() - ctaAt;
+              void api('/api/v1/audit/events', {
+                method: 'POST',
+                body: JSON.stringify({
+                  action: 'setup.classroom_ready',
+                  classId,
+                  detail: {
+                    durationMs,
+                    durationSec: Math.round(durationMs / 1000),
+                    onlineCount: clients.count,
+                    versions: clients.versions,
+                  },
+                }),
+              }).catch(() => undefined);
             }
           } catch {
             /* presence optional */
           }
         }
+        setDriftExpectedVersion(drift ? expectedVer : '');
         setHealthAlert(
           !body.ok
             ? '服务异常：/health 未就绪'
@@ -295,7 +321,7 @@ export function App() {
     }
   }
 
-  function openDest(dest: 'prep' | 'assign' | 'session' | 'prep-roster' | 'prep-questions') {
+  function openDest(dest: SetupDest) {
     setProjectionMode(false);
     if (dest === 'prep' || dest === 'prep-roster') {
       setPrepTab('roster');
@@ -304,6 +330,11 @@ export function App() {
     }
     if (dest === 'prep-questions') {
       setPrepTab('questions');
+      setTab('prep');
+      return;
+    }
+    if (dest === 'prep-presence') {
+      setPrepTab('presence');
       setTab('prep');
       return;
     }
@@ -364,6 +395,28 @@ export function App() {
           {healthAlert ? (
             <div className="banner-alert">
               <p>{healthAlert}</p>
+              {driftExpectedVersion ? (
+                <p className="hint light">
+                  <a
+                    href={`${GITHUB_RELEASES_BASE}/tag/v${driftExpectedVersion}`}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    打开 Release v{driftExpectedVersion}
+                  </a>
+                  {' · '}
+                  <button
+                    type="button"
+                    className="linkish"
+                    onClick={() => {
+                      setPrepTab('presence');
+                      setTab('prep');
+                    }}
+                  >
+                    查看在线机位
+                  </button>
+                </p>
+              ) : null}
               {healthLanIps.length ? (
                 <p className="hint light">局域网 IP：{healthLanIps.join(' · ')}</p>
               ) : null}
@@ -516,6 +569,7 @@ export function App() {
                 {prepTab === 'q-recycle' && <QuestionRecyclePanel classId={classId} />}
                 {prepTab === 'requests' && <RequestsPanel classId={classId} />}
                 {prepTab === 'attendance' && <AttendancePanel classId={classId} />}
+                {prepTab === 'presence' && <PresenceClients classId={classId} />}
                 {prepTab === 'exports' && <ExportsPanel classId={classId} />}
                 {prepTab === 'messages' && messagesEnabled && (
                   <MessagesPanel classId={classId} onEnabledChange={setMessagesEnabled} />

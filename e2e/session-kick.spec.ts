@@ -1,11 +1,13 @@
 import { expect, test } from '@playwright/test';
+import { ensureTeacherPasswordReady } from './helpers/teacherLogin';
 
 const API = process.env.API_BASE ?? 'http://127.0.0.1:8787';
 
 test.describe('soft-delete session kick', () => {
   test('online student heartbeat → session_kicked after soft delete', async ({ request }) => {
+    const password = await ensureTeacherPasswordReady(request);
     const login = await request.post(`${API}/api/v1/auth/login`, {
-      data: { username: 'teacher', password: 'TeacherPass123' },
+      data: { username: 'teacher', password },
     });
     expect(login.ok()).toBeTruthy();
     const { token } = (await login.json()) as { token: string };

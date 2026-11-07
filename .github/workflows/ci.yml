@@ -78,19 +78,19 @@ jobs:
             curl -fsS -o /dev/null -w '%{http_code}' http://127.0.0.1:8787/admin/assignments | grep -q 200 && break
             sleep 1
           done
-      - name: Playwright bulk gate (bulk-ui + bulk-ops + q-recycle)
+      - name: Playwright bulk gate (bulk-ui + bulk-ops + q-recycle + ops-polish)
         id: bulk_gate
         run: |
           set +e
-          npx playwright test e2e/bulk-ui.spec.ts e2e/bulk-ops.spec.ts e2e/q-recycle-purge.spec.ts
+          npx playwright test e2e/bulk-ui.spec.ts e2e/bulk-ops.spec.ts e2e/q-recycle-purge.spec.ts e2e/ops-polish.spec.ts e2e/ops-v015.spec.ts
           code=$?
           {
             echo "### e2e suite: bulk gate"
             if [ "$code" -eq 0 ]; then
-              echo "- result: **passed** (bulk-ui + bulk-ops + q-recycle-purge)"
+              echo "- result: **passed** (bulk-ui + bulk-ops + q-recycle-purge + ops-polish + ops-v015)"
             else
               echo "- result: **failed** — suite=**bulk gate** (not full suite)"
-              echo "- specs: \`e2e/bulk-ui.spec.ts\` \`e2e/bulk-ops.spec.ts\` \`e2e/q-recycle-purge.spec.ts\`"
+              echo "- specs: \`e2e/bulk-ui.spec.ts\` \`e2e/bulk-ops.spec.ts\` \`e2e/q-recycle-purge.spec.ts\` \`e2e/ops-polish.spec.ts\` \`e2e/ops-v015.spec.ts\`"
             fi
           } >> "$GITHUB_STEP_SUMMARY"
           exit $code
@@ -192,3 +192,4 @@ jobs:
             apps/student-desktop/release/*.exe
             apps/student-desktop/release/*.sha256
           if-no-files-found: error
+          retention-days: 30

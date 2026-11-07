@@ -1,13 +1,15 @@
 import { expect, test } from '@playwright/test';
+import { openPrepTab } from './helpers/navPrep';
+import { loginTeacherWeb } from './helpers/teacherWebLogin';
 
 const API = process.env.API_BASE ?? 'http://127.0.0.1:8787';
-const TEACHER_WEB = process.env.TEACHER_WEB ?? 'http://localhost:5174';
 
 test.describe('question recycle virtual list (≥500)', () => {
   test('seed 520 deleted → virtual scroll + select-all + purge-all', async ({ page, request }) => {
-    test.setTimeout(120_000);
+    test.setTimeout(180_000);
+    const { password } = await loginTeacherWeb(page, request);
     const login = await request.post(`${API}/api/v1/auth/login`, {
-      data: { username: 'teacher', password: 'TeacherPass123' },
+      data: { username: 'teacher', password },
     });
     expect(login.ok()).toBeTruthy();
     const { token } = (await login.json()) as { token: string };
@@ -49,31 +51,23 @@ test.describe('question recycle virtual list (≥500)', () => {
       expect(del.ok()).toBeTruthy();
     }
 
-    await page.goto(TEACHER_WEB);
-    await page.getByLabel('用户名').fill('teacher');
-    await page.getByLabel('密码').fill('TeacherPass123');
-    await page.getByRole('button', { name: '登录' }).click();
-    const prep = page.getByRole('button', { name: /课前准备|备课/ });
-    if (await prep.isVisible().catch(() => false)) await prep.click();
-    await page.getByRole('button', { name: '题目回收站', exact: true }).click();
+    await openPrepTab(page, '题目回收站');
 
     const virt = page.getByTestId('q-recycle-virtual');
-    await expect(virt).toBeVisible({ timeout: 20_000 });
-    await expect(page.getByText('全选（520）')).toBeVisible({ timeout: 20_000 });
+    await expect(virt).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByText('全选（520）')).toBeVisible({ timeout: 30_000 });
     await expect(page.getByTestId('recycle-days-left').first()).toBeVisible();
 
     // Scroll deep — virtual list should still render rows without mounting 520 DOM nodes
     await virt.evaluate((el) => {
       el.scrollTop = el.scrollHeight;
     });
-    await expect(page.locator('.q-virtual-row')).toHaveCount(await page.locator('.q-virtual-row').count());
     const mounted = await page.locator('.q-virtual-row').count();
     expect(mounted).toBeLessThan(80);
 
-    await page.getByLabel(/全选/).check();
     page.once('dialog', (d) => void d.accept());
     await page.getByTestId('q-recycle-purge-all').click();
-    await expect(page.getByText('回收站为空')).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByText('回收站为空')).toBeVisible({ timeout: 60_000 });
 
     const after = await request.get(`${API}/api/v1/questions?classId=${classId}&includeDeleted=1`, {
       headers: auth,

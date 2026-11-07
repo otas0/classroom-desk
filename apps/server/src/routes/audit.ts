@@ -1,9 +1,14 @@
 import { Router } from 'express';
 import { requireAuth, requireRoles, type AuthedRequest } from '../middleware/auth.js';
-import { listAudit, listAuditActions } from '../services/audit.js';
+import { listAudit, listAuditActions, writeAudit } from '../services/audit.js';
 import { parseFormat, sendTableExport, streamCsvExport } from '../utils/exportFormats.js';
 
 export const auditRouter = Router();
+
+const CLIENT_AUDIT_ACTIONS = new Set([
+  'setup.scan_assign_cta',
+  'setup.classroom_ready',
+]);
 
 auditRouter.get(
   '/api/v1/audit',
@@ -21,6 +26,34 @@ auditRouter.get(
       }),
       actions: listAuditActions(),
     });
+  },
+);
+
+/** Teacher SPA telemetry (扫码指派 CTA / 机房就绪时长). */
+auditRouter.post(
+  '/api/v1/audit/events',
+  requireAuth,
+  requireRoles('teacher', 'admin', 'assistant'),
+  (req: AuthedRequest, res) => {
+    const action = String(req.body?.action ?? '').trim();
+    if (!CLIENT_AUDIT_ACTIONS.has(action)) {
+      res.status(400).json({ error: 'invalid_action', allowed: [...CLIENT_AUDIT_ACTIONS] });
+      return;
+    }
+    const classId = String(req.body?.classId ?? '').trim() || null;
+    const detail =
+      req.body?.detail && typeof req.body.detail === 'object'
+        ? (req.body.detail as Record<string, unknown>)
+        : { note: String(req.body?.detail ?? '') };
+    writeAudit({
+      actorUserId: req.user?.id,
+      actorRole: req.user?.role,
+      action,
+      classId,
+      detail,
+      clientIp: req.ip,
+    });
+    res.status(201).json({ ok: true });
   },
 );
 

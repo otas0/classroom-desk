@@ -418,6 +418,18 @@ textarea {
   border-bottom: 1px solid #000;
 }
 
+.offline-banner.version-drift {
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  gap: 10px;
+  background: #1a2332;
+}
+
+.offline-banner.version-drift a {
+  color: #9fd4bf;
+  text-decoration: underline;
+}
+
 .quiz-flash {
   animation: quizPulse 1.4s ease;
 }

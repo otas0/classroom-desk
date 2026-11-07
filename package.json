@@ -1,7 +1,7 @@
 {
   "name": "classroom-desk",
   "private": true,
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "School classroom homework, attendance, and points toolkit",
   "workspaces": [
     "apps/*",
@@ -18,7 +18,9 @@
     "dev:teacher": "npm run dev --workspace=@classroom-desk/teacher-web",
     "start:server": "npm run start --workspace=@classroom-desk/server",
     "test:server": "npm run test --workspace=@classroom-desk/server",
+    "sync:permissions": "node scripts/sync-permissions-md.mjs",
     "test:e2e": "playwright test",
+    "test:e2e:bulk": "playwright test e2e/bulk-ui.spec.ts e2e/bulk-ops.spec.ts e2e/q-recycle-purge.spec.ts e2e/ops-polish.spec.ts e2e/ops-v015.spec.ts",
     "dist:win": "npm run dist:win --workspace=@classroom-desk/student-desktop",
     "typecheck:server": "npm run typecheck --workspace=@classroom-desk/server",
     "backup:db": "bash scripts/backup-db.sh",
@@ -26,6 +28,8 @@
     "verify:1plus1": "node scripts/local-1plus1-verify.mjs",
     "verify:usb-host": "node scripts/verify-usb-host.mjs",
     "verify:exit-lock-packaged": "node scripts/verify-exit-lock-packaged.mjs",
+    "verify:exit-lock-audit": "node scripts/verify-exit-lock-audit.mjs",
+    "smoke:dev-stack-api-restart": "node scripts/dev-stack-api-restart-smoke.mjs",
     "test:month": "node --import tsx/esm apps/server/src/test/localMonthRange.test.ts"
   },
   "type": "module",

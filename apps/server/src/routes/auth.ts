@@ -11,6 +11,7 @@ import {
   verifyPassword,
 } from '../services/auth.js';
 import { writeAudit } from '../services/audit.js';
+import { allWeakPasswords, isWeakTeacherPassword } from '../services/weakPasswords.js';
 import { requireAuth, requireRoles, type AuthedRequest } from '../middleware/auth.js';
 import { config } from '../config.js';
 import { newId, nowIso } from '../utils/id.js';
@@ -47,17 +48,8 @@ authRouter.post('/api/v1/auth/login', async (req, res) => {
 
   const authUser = mapUser(user);
   const token = await signToken(authUser);
-  const weakPasswords = new Set([
-    'ChangeMe123',
-    'TeacherPass123',
-    'Classroom2026!',
-    'Desk@179#2026',
-    'AdminPass123',
-    'password',
-    '123456',
-  ]);
   const passwordMarkedOk = getSetting(db, 'teacher_password_ok') === '1';
-  const mustChangePassword = !passwordMarkedOk || weakPasswords.has(password);
+  const mustChangePassword = !passwordMarkedOk || isWeakTeacherPassword(password);
   res.json({ token, user: authUser, mustChangePassword });
 });
 
@@ -198,15 +190,6 @@ authRouter.post('/api/v1/auth/change-password', requireAuth, async (req: AuthedR
   }
   const currentPassword = String(req.body?.currentPassword ?? '');
   const newPassword = String(req.body?.newPassword ?? '');
-  const weakPasswords = new Set([
-    'ChangeMe123',
-    'TeacherPass123',
-    'Classroom2026!',
-    'Desk@179#2026',
-    'AdminPass123',
-    'password',
-    '123456',
-  ]);
   if (!currentPassword || newPassword.length < 8) {
     res.status(400).json({ error: 'invalid_password', message: '新密码至少 8 位' });
     return;
@@ -218,7 +201,7 @@ authRouter.post('/api/v1/auth/change-password', requireAuth, async (req: AuthedR
     });
     return;
   }
-  if (weakPasswords.has(newPassword)) {
+  if (isWeakTeacherPassword(newPassword)) {
     res.status(400).json({ error: 'weak_password', message: '请勿使用联调/示例口令' });
     return;
   }
@@ -256,6 +239,16 @@ authRouter.get('/api/v1/auth/bootstrap-info', (_req, res) => {
   });
 });
 
+/** Public password policy (built-in + server-configured extras). */
+authRouter.get('/api/v1/auth/password-policy', (_req, res) => {
+  const db = openDb();
+  res.json({
+    minLength: 8,
+    requireLetterAndDigit: true,
+    weakPasswords: allWeakPasswords(db),
+  });
+});
+
 /** Create an assistant account (username + initial password). Teacher/admin only. */
 authRouter.post(
   '/api/v1/auth/assistants',
@@ -277,6 +270,10 @@ authRouter.post(
         error: 'weak_password',
         message: '初始口令至少 8 位且含字母与数字',
       });
+      return;
+    }
+    if (isWeakTeacherPassword(password)) {
+      res.status(400).json({ error: 'weak_password', message: '请勿使用联调/示例口令' });
       return;
     }
     if (!/^[\u4e00-\u9fffA-Za-z0-9·•\s._-]{1,40}$/.test(displayName)) {

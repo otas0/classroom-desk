@@ -65,6 +65,101 @@ exportsRouter.get(
   },
 );
 
+/**
+ * Per-session roster exceptions: 缺勤 / 请假 / 迟到 as separate columns (and xlsx sheets).
+ * 「本场缺勤名单」仍可用：汇总表含未到与请假；迟到单独分列/分表。
+ */
+exportsRouter.get(
+  '/api/v1/exports/attendance-absent',
+  requireAuth,
+  requireRoles('teacher', 'admin', 'assistant'),
+  (req, res) => {
+    const format = parseFormat(req.query.format);
+    const classId = String(req.query.classId ?? '').trim();
+    const sessionId = String(req.query.sessionId ?? '').trim();
+    if (!classId || !sessionId) {
+      res.status(400).json({ error: 'class_id_and_session_id_required' });
+      return;
+    }
+    const db = openDb();
+    const sess = db
+      .prepare(
+        `SELECT id, start_at AS startAt, status, mode FROM attendance_sessions
+         WHERE id = ? AND class_id = ?`,
+      )
+      .get(sessionId, classId) as
+      | { id: string; startAt: string; status: string; mode: string }
+      | undefined;
+    if (!sess) {
+      res.status(404).json({ error: 'session_not_found' });
+      return;
+    }
+    const students = db
+      .prepare(
+        `SELECT id, display_name AS displayName, student_no AS studentNo FROM users
+         WHERE role = 'student' AND class_id = ?
+           AND (deleted_at IS NULL OR deleted_at = '')
+         ORDER BY student_no, display_name`,
+      )
+      .all(classId) as Array<{ id: string; displayName: string; studentNo: string | null }>;
+    const statusByStudent = new Map(
+      (
+        db
+          .prepare(
+            `SELECT student_id AS studentId, status FROM attendance_records WHERE session_id = ?`,
+          )
+          .all(sessionId) as Array<{ studentId: string; status: string }>
+      ).map((r) => [r.studentId, r.status]),
+    );
+
+    type Row = Array<string | number | null>;
+    const headers = ['学号', '姓名', '缺勤', '请假', '迟到', '原始状态', '场次开始', '场次状态', '签到模式'];
+    const summaryRows: Row[] = [];
+    const absentRows: Row[] = [];
+    const leaveRows: Row[] = [];
+    const lateRows: Row[] = [];
+
+    for (const s of students) {
+      const st = statusByStudent.get(s.id) ?? 'absent';
+      if (st === 'present') continue;
+      const isAbsent = st === 'absent' || !statusByStudent.has(s.id);
+      const isLeave = st === 'leave';
+      const isLate = st === 'late';
+      const row: Row = [
+        s.studentNo,
+        s.displayName,
+        isAbsent ? '是' : '',
+        isLeave ? '是' : '',
+        isLate ? '是' : '',
+        st,
+        sess.startAt,
+        sess.status,
+        sess.mode,
+      ];
+      summaryRows.push(row);
+      if (isAbsent) absentRows.push(row);
+      if (isLeave) leaveRows.push(row);
+      if (isLate) lateRows.push(row);
+    }
+
+    sendTableExport(res, {
+      format,
+      filenameBase: `attendance-absent-${sessionId.slice(0, 8)}`,
+      headers,
+      rows: summaryRows,
+      sheets:
+        format === 'xlsx'
+          ? [
+              { name: '汇总', headers, rows: summaryRows },
+              { name: '缺勤', headers, rows: absentRows },
+              { name: '请假', headers, rows: leaveRows },
+              { name: '迟到', headers, rows: lateRows },
+            ]
+          : undefined,
+    });
+  },
+);
+
 exportsRouter.get(
   '/api/v1/exports/attendance-summary',
   requireAuth,

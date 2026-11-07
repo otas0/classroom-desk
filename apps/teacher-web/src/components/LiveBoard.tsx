@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api } from '../api';
 
 export function LiveBoard({
@@ -36,6 +36,10 @@ export function LiveBoard({
       return false;
     }
   });
+  const [autoReadonlyMins, setAutoReadonlyMins] = useState(5);
+  const [sessionStartAt, setSessionStartAt] = useState<string | null>(null);
+  const [autoReadonlyHint, setAutoReadonlyHint] = useState('');
+  const autoArmedRef = useRef(false);
 
   async function load() {
     if (!classId) return;
@@ -52,6 +56,83 @@ export function LiveBoard({
     const t = window.setInterval(() => void load().catch(() => undefined), 3000);
     return () => window.clearInterval(t);
   }, [classId]);
+
+  useEffect(() => {
+    void api<{ liveboardReadonlyAfterMinutes?: number }>('/api/v1/settings')
+      .then((s) => {
+        const mins = Number(s.liveboardReadonlyAfterMinutes ?? 5);
+        setAutoReadonlyMins(Number.isFinite(mins) ? Math.max(0, Math.min(240, Math.trunc(mins))) : 5);
+      })
+      .catch(() => undefined);
+  }, []);
+
+  useEffect(() => {
+    if (!classId) {
+      setSessionStartAt(null);
+      return;
+    }
+    let cancelled = false;
+    void api<{ items: Array<{ id: string; startAt: string; status: string }> }>(
+      `/api/v1/attendance/sessions?classId=${encodeURIComponent(classId)}`,
+    )
+      .then((r) => {
+        if (cancelled) return;
+        const open = (r.items ?? []).find((s) => s.status === 'open');
+        setSessionStartAt(open?.startAt ?? null);
+      })
+      .catch(() => {
+        if (!cancelled) setSessionStartAt(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [classId, projection]);
+
+  useEffect(() => {
+    if (!projection) {
+      autoArmedRef.current = false;
+      setAutoReadonlyHint('');
+      return;
+    }
+
+    if (autoReadonlyMins <= 0) {
+      setAutoReadonlyHint('自动只读已关闭（设置中 N=0）');
+      return;
+    }
+
+    if (!sessionStartAt) {
+      setAutoReadonlyHint('尚无进行中的出勤课次：创建/开启签到后按课次 startAt 计时自动只读');
+      return;
+    }
+
+    const enteredAt = new Date(sessionStartAt).getTime();
+    if (!Number.isFinite(enteredAt)) {
+      setAutoReadonlyHint('课次开始时间无效');
+      return;
+    }
+
+    const dueAt = enteredAt + autoReadonlyMins * 60_000;
+    const remaining = dueAt - Date.now();
+
+    function enableAutoReadonly() {
+      if (autoArmedRef.current) return;
+      autoArmedRef.current = true;
+      setReadOnly(true);
+      setAutoReadonlyHint(`已到本场课次开始后 ${autoReadonlyMins} 分钟，自动进入只读大屏`);
+    }
+
+    if (remaining <= 0) {
+      enableAutoReadonly();
+      return;
+    }
+
+    const minsLeft = Math.ceil(remaining / 60_000);
+    setAutoReadonlyHint(
+      `本场课次 ${new Date(sessionStartAt).toLocaleTimeString()} 起算，约 ${minsLeft} 分钟后自动只读（R 可手动）`,
+    );
+    const t = window.setTimeout(enableAutoReadonly, remaining);
+    return () => window.clearTimeout(t);
+  }, [projection, autoReadonlyMins, sessionStartAt]);
 
   useEffect(() => {
     if (!projection) return;
@@ -135,6 +216,7 @@ export function LiveBoard({
         全班 {rosterTotal} 人 · 约每 3 秒刷新 · 投影可读
         {projection ? ' · Esc 退出 · F 全屏 · R 只读' : ''}
       </p>
+      {projection && autoReadonlyHint ? <p className="hint">{autoReadonlyHint}</p> : null}
       {fsHint ? <p className="hint">{fsHint}</p> : null}
       {err ? <p className="error">{err}</p> : null}
       {items.length === 0 ? <p className="hint">暂无进行中的已发布题目</p> : null}
