@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { openPrepTab, selectTeacherClass } from './helpers/navPrep';
+import { createDedicatedClass, openPrepTab, selectTeacherClass } from './helpers/navPrep';
 import { loginTeacherWeb } from './helpers/teacherWebLogin';
 
 const API = process.env.API_BASE ?? 'http://127.0.0.1:8787';
@@ -15,17 +15,8 @@ test.describe('question recycle virtual list (≥500)', () => {
     const { token } = (await login.json()) as { token: string };
     const auth = { Authorization: `Bearer ${token}` };
 
-    const classes = await request.get(`${API}/api/v1/classes`, { headers: auth });
-    const classId = ((await classes.json()) as { items: Array<{ id: string }> }).items[0]?.id;
-    expect(classId).toBeTruthy();
-
-    // Isolate: clear recycle for this class before seeding.
-    await request.post(`${API}/api/v1/questions/recycle/purge-all`, {
-      headers: auth,
-      data: { classId },
-    });
-
-    const stamp = Date.now();
+    // Dedicated class — purge-all on shared items[0] races q-recycle-purge / urgent specs.
+    const { classId, stamp } = await createDedicatedClass(request, auth, 'VirtCls');
     const ids: string[] = [];
     // Parallel batches: 520 soft-deleted questions
     for (let batch = 0; batch < 26; batch++) {
@@ -58,7 +49,9 @@ test.describe('question recycle virtual list (≥500)', () => {
     }
     expect(ids.length).toBe(520);
 
-    await selectTeacherClass(page, classId!);
+    await page.reload();
+    await expect(page.locator('aside select').first()).toBeVisible({ timeout: 20_000 });
+    await selectTeacherClass(page, classId);
     await openPrepTab(page, '题目回收站');
 
     const virt = page.getByTestId('q-recycle-virtual');
