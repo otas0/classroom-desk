@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { openPrepTab } from './helpers/navPrep';
+import { openPrepTab, selectTeacherClass } from './helpers/navPrep';
 import { loginTeacherWeb } from './helpers/teacherWebLogin';
 
 const API = process.env.API_BASE ?? 'http://127.0.0.1:8787';
@@ -14,13 +14,15 @@ test.describe('question recycle purge-all', () => {
     const { token } = (await login.json()) as { token: string };
     const auth = { Authorization: `Bearer ${token}` };
 
-    const classes = await request.get(`${API}/api/v1/classes`, { headers: auth });
-    const classItems = ((await classes.json()) as { items: Array<{ id: string; name: string }> }).items;
-    const picked = classItems.find((c) => c.name === '本教室') ?? classItems[0];
-    const classId = picked?.id;
-    expect(classId).toBeTruthy();
-
+    // Dedicated class — shared items[0]/本教室 may be purged/virtualized by parallel bulk specs.
     const stamp = Date.now();
+    const createdClass = await request.post(`${API}/api/v1/classes`, {
+      headers: auth,
+      data: { name: `PurgeCls_${stamp}` },
+    });
+    expect(createdClass.ok()).toBeTruthy();
+    const classId = ((await createdClass.json()) as { id: string }).id;
+
     const created = await request.post(`${API}/api/v1/questions`, {
       headers: auth,
       data: {
@@ -43,8 +45,10 @@ test.describe('question recycle purge-all', () => {
     });
     expect(soft.ok()).toBeTruthy();
 
-    // Align UI class picker with the class used for soft-delete (localStorage may differ).
-    await page.getByLabel('当前班级').selectOption({ value: classId! });
+    // API-created class is not in the SPA select until classes reload.
+    await page.reload();
+    await expect(page.locator('aside select').first()).toBeVisible({ timeout: 20_000 });
+    await selectTeacherClass(page, classId);
     await openPrepTab(page, '题目回收站');
 
     await expect(page.getByTestId('q-recycle-virtual')).toBeVisible({ timeout: 15_000 });

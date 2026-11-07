@@ -27,15 +27,22 @@ presenceRouter.post('/api/v1/presence/heartbeat', requireAuth, requireRoles('stu
   const now = nowIso();
   const clientVersion = String(req.body?.clientVersion ?? req.body?.version ?? '').trim().slice(0, 32);
   const clientPlatform = String(req.body?.clientPlatform ?? req.body?.platform ?? '').trim().slice(0, 64);
+  const clientId = String(req.body?.clientId ?? req.body?.presenceClientId ?? '')
+    .trim()
+    .slice(0, 64);
   db.prepare(
-    `INSERT INTO presence_heartbeats (student_id, class_id, last_seen_at, client_version, client_platform)
-     VALUES (?, ?, ?, ?, ?)
+    `INSERT INTO presence_heartbeats (student_id, class_id, last_seen_at, client_version, client_platform, client_id)
+     VALUES (?, ?, ?, ?, ?, ?)
      ON CONFLICT(student_id) DO UPDATE SET
        class_id = excluded.class_id,
        last_seen_at = excluded.last_seen_at,
        client_version = excluded.client_version,
-       client_platform = excluded.client_platform`,
-  ).run(req.user.id, req.user.classId, now, clientVersion, clientPlatform);
+       client_platform = excluded.client_platform,
+       client_id = CASE
+         WHEN excluded.client_id != '' THEN excluded.client_id
+         ELSE presence_heartbeats.client_id
+       END`,
+  ).run(req.user.id, req.user.classId, now, clientVersion, clientPlatform, clientId);
 
   // Auto check-in for open auto sessions if online during window.
   const sessions = db

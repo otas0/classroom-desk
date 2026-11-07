@@ -20,6 +20,7 @@ import {
 import {
   EMPTY_INPUT_LOCK,
   anyInputLocked,
+  getOrCreatePresenceClientId,
   installInputLockGuards,
   inputLockSummary,
   normalizeInputLock,
@@ -117,18 +118,28 @@ export function App() {
   const [nowTick, setNowTick] = useState(() => Date.now());
   const [hardeningTip, setHardeningTip] = useState(false);
   const [inputLock, setInputLock] = useState<InputLockFlags>(EMPTY_INPUT_LOCK);
-  const [, setInputLockStore] = useState<InputLockStore | null>(null);
+  const [inputLockStoreState, setInputLockStore] = useState<InputLockStore | null>(null);
   const [raiseHandBusy, setRaiseHandBusy] = useState(false);
   const inputLockToastAtRef = useRef(0);
   const knownQuestionIdsRef = useRef(new Set<string>());
-  const seatIdForLock = ''; // optional future: bind from presence/seat map
+  /** Presence client id (stable) + seat map id/label from /auth/me — no teacher hand-fill needed. */
+  const [lockSeatIds, setLockSeatIds] = useState<string[]>(() => {
+    try {
+      return [getOrCreatePresenceClientId()];
+    } catch {
+      return [];
+    }
+  });
+  const lockSeatIdsRef = useRef(lockSeatIds);
+  lockSeatIdsRef.current = lockSeatIds;
 
   const applyResolvedInputLock = useCallback(
-    (store: InputLockStore | null, flat: unknown, cid: string) => {
+    (store: InputLockStore | null, flat: unknown, cid: string, seatIds?: string[]) => {
       if (store) setInputLockStore(store);
+      const seats = seatIds ?? lockSeatIdsRef.current;
       const resolved = resolveInputLockClient(store, normalizeInputLock(flat), {
         classId: cid,
-        seatId: seatIdForLock,
+        seatIds: seats,
       });
       setInputLock(resolved);
       if (window.classroomDesk?.setInputMouseLocked) {
@@ -292,6 +303,7 @@ export function App() {
   }, [refreshOfflineQueueCount]);
 
   // Real-time exit-lock: WebSocket first; on close/error → SSE + toast; poll remains backup.
+  // Input-lock uses a dedicated SSE channel (not piggybacked on exit-lock payloads).
   useEffect(() => {
     if (!ready || healthOk === false) return;
     const base = getApiBase().replace(/\/$/, '');
@@ -299,20 +311,34 @@ export function App() {
     let closed = false;
     let ws: WebSocket | null = null;
     let es: EventSource | null = null;
+    let inputEs: EventSource | null = null;
     let usingSse = false;
 
-    function applyPayload(raw: unknown) {
+    function applyExitPayload(raw: unknown) {
       try {
         const data = typeof raw === 'string' ? JSON.parse(raw) : raw;
         if (!data || data.type !== 'exit_lock') return;
+        // Legacy: older servers may still embed store on exit-lock.
         if (data.inputLockStore != null) {
           applyResolvedInputLock(normalizeInputLockStore(data.inputLockStore), data.inputLock, classId);
-        } else if (data.inputLock != null) {
-          applyResolvedInputLock(null, data.inputLock, classId);
         }
         void applyServerExitLock(
           data.clientExitAllowed === true,
           data.clientExitUnlockUntil ?? null,
+        );
+      } catch {
+        /* ignore */
+      }
+    }
+
+    function applyInputPayload(raw: unknown) {
+      try {
+        const data = typeof raw === 'string' ? JSON.parse(raw) : raw;
+        if (!data || data.type !== 'input_lock') return;
+        applyResolvedInputLock(
+          data.inputLockStore != null ? normalizeInputLockStore(data.inputLockStore) : null,
+          data.inputLock,
+          classId,
         );
       } catch {
         /* ignore */
@@ -324,16 +350,22 @@ export function App() {
       usingSse = true;
       showToast(`实时通道已切到备用（${reason}）`);
       es = new EventSource(`${base}/api/v1/exit-lock/stream`);
-      es.onmessage = (ev) => applyPayload(ev.data);
+      es.onmessage = (ev) => applyExitPayload(ev.data);
       es.onerror = () => {
         /* EventSource auto-reconnects; keep silent */
       };
     }
 
+    inputEs = new EventSource(`${base}/api/v1/input-lock/stream`);
+    inputEs.addEventListener('input_lock', (ev) => {
+      applyInputPayload((ev as MessageEvent).data);
+    });
+    inputEs.onmessage = (ev) => applyInputPayload(ev.data);
+
     try {
       const wsUrl = base.replace(/^http/i, 'ws') + '/api/v1/exit-lock/ws';
       ws = new WebSocket(wsUrl);
-      ws.onmessage = (ev) => applyPayload(ev.data);
+      ws.onmessage = (ev) => applyExitPayload(ev.data);
       ws.onopen = () => {
         /* connected */
       };
@@ -374,8 +406,15 @@ export function App() {
         /* ignore */
       }
       es?.close();
+      inputEs?.close();
     };
   }, [ready, healthOk, applyServerExitLock, applyResolvedInputLock, showToast, classId]);
+
+  // Re-resolve when seat ids arrive (presence client id + seat map).
+  useEffect(() => {
+    if (!inputLockStoreState) return;
+    applyResolvedInputLock(inputLockStoreState, null, classId, lockSeatIds);
+  }, [lockSeatIds, classId, inputLockStoreState, applyResolvedInputLock]);
 
   const announceNewQuestions = useCallback(
     (items: Array<Record<string, unknown>>) => {
@@ -443,8 +482,22 @@ export function App() {
         setOffline(false);
         return;
       }
-      const me = await api<{ user: User; class: { name: string; id: string } | null }>('/api/v1/auth/me');
+      const me = await api<{
+        user: User;
+        class: { name: string; id: string } | null;
+        seat?: { id: string; label: string } | null;
+      }>('/api/v1/auth/me');
       setUser(me.user);
+      const presenceClientId = getOrCreatePresenceClientId();
+      const nextSeats = [
+        presenceClientId,
+        me.user?.id,
+        me.seat?.id,
+        me.seat?.label,
+      ]
+        .map((s) => String(s ?? '').trim())
+        .filter(Boolean);
+      setLockSeatIds([...new Set(nextSeats)]);
       if (me.class) {
         setClassName(me.class.name);
         setClassId(me.class.id);
@@ -453,6 +506,7 @@ export function App() {
             pub.inputLockStore ? normalizeInputLockStore(pub.inputLockStore) : null,
             pub.inputLock,
             me.class.id,
+            nextSeats,
           );
         }
       }
@@ -462,6 +516,7 @@ export function App() {
           body: JSON.stringify({
             clientVersion: CLIENT_VERSION,
             clientPlatform: navigator.userAgent.includes('Electron') ? 'electron' : 'web',
+            clientId: presenceClientId,
           }),
         });
       } catch {
@@ -1187,9 +1242,40 @@ function FirstRunSetup({
   const [scanning, setScanning] = useState(false);
   const [pasteJson, setPasteJson] = useState('');
   const [showPaste, setShowPaste] = useState(false);
+  const [cameraLocked, setCameraLocked] = useState(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const scanTimerRef = useRef<number | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function probeCameraLock() {
+      try {
+        const base = (serverUrl.trim() || getApiBase()).replace(/\/$/, '');
+        if (!base) return;
+        const r = await fetch(`${base}/api/v1/settings/public`, { cache: 'no-store' });
+        if (!r.ok) return;
+        const body = (await r.json()) as { inputLock?: { camera?: boolean } };
+        if (cancelled) return;
+        const locked = Boolean(body.inputLock?.camera);
+        setCameraLocked(locked);
+        if (locked) {
+          setShowPaste(true);
+          setMsg(
+            '教师已锁定相机，扫码入口已禁用。请使用下方「粘贴 JSON」完成指派，或请教师解除相机锁。',
+          );
+        }
+      } catch {
+        /* offline / no base yet */
+      }
+    }
+    void probeCameraLock();
+    const t = window.setInterval(() => void probeCameraLock(), 8000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(t);
+    };
+  }, [serverUrl]);
 
   function applyPayload(apiBase: string, classId: string) {
     setServerUrl(apiBase);
@@ -1213,6 +1299,13 @@ function FirstRunSetup({
   async function startScan() {
     setMsg('');
     stopScan();
+    if (cameraLocked) {
+      setShowPaste(true);
+      setMsg(
+        '教师已锁定相机，无法扫码指派。请改用下方「粘贴 JSON」完成配置，或请教师在设置中解除「禁止相机」。',
+      );
+      return;
+    }
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: { ideal: 'environment' } },
@@ -1334,30 +1427,58 @@ function FirstRunSetup({
       <h1>首次配置本机</h1>
       <p className="lead">扫教师「指派学生机」二维码，或手动填写后写入 config.json 并校验连通。</p>
       <div className="row">
-        <button type="button" className="secondary" disabled={scanning} onClick={() => void startScan()}>
-          {scanning ? '扫码中…' : '扫教师 QR'}
+        <button
+          type="button"
+          className="secondary"
+          disabled={scanning || cameraLocked}
+          data-testid="first-run-scan-qr"
+          title={cameraLocked ? '相机已锁定，请粘贴 JSON' : undefined}
+          onClick={() => void startScan()}
+        >
+          {cameraLocked ? '扫码不可用（相机锁）' : scanning ? '扫码中…' : '扫教师 QR'}
         </button>
         {scanning ? (
           <button type="button" className="secondary" onClick={stopScan}>
             停止摄像头
           </button>
         ) : null}
-        <label className="secondary" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+        <label
+          className="secondary"
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 6,
+            opacity: cameraLocked ? 0.45 : 1,
+            pointerEvents: cameraLocked ? 'none' : 'auto',
+          }}
+          title={cameraLocked ? '相机已锁定' : undefined}
+        >
           选 QR 图片
           <input
             type="file"
             accept="image/*"
             hidden
+            disabled={cameraLocked}
             onChange={(e) => {
               void onQrImage(e.target.files?.[0] ?? null);
               e.target.value = '';
             }}
           />
         </label>
-        <button type="button" className="secondary" onClick={() => setShowPaste((v) => !v)}>
-          {showPaste ? '收起粘贴' : '粘贴 JSON 兜底'}
+        <button
+          type="button"
+          className="secondary"
+          data-testid="first-run-paste-toggle"
+          onClick={() => setShowPaste((v) => (cameraLocked ? true : !v))}
+        >
+          {cameraLocked ? '粘贴 JSON（必填）' : showPaste ? '收起粘贴' : '粘贴 JSON 兜底'}
         </button>
       </div>
+      {cameraLocked ? (
+        <p className="hint" data-testid="first-run-camera-locked" role="status">
+          相机锁已开启：二维码扫码/选图已灰态，请使用粘贴区完成指派。
+        </p>
+      ) : null}
       {scanning ? (
         <video ref={videoRef} className="qr-scan-video" playsInline muted style={{ width: '100%', maxHeight: 220 }} />
       ) : null}

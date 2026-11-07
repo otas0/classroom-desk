@@ -5,6 +5,7 @@ import { writeAudit } from './audit.js';
 
 const KEY_V1 = 'client_input_lock_json';
 const KEY_V2 = 'client_input_lock_v2_json';
+const KEY_EXAM_SNAP = 'client_input_lock_exam_snapshot_json';
 
 export type InputLockFlags = {
   keyboard: boolean;
@@ -213,6 +214,10 @@ export function applyExamModeInputLock(
   opts: { classId?: string | null },
   meta?: { actorUserId?: string; actorRole?: string; clientIp?: string },
 ): InputLockFlags {
+  // Snapshot current store so「解除考试模式」can restore pre-exam locks.
+  const before = getInputLockStore(db);
+  upsertSetting(db, KEY_EXAM_SNAP, JSON.stringify(before));
+
   const flags: InputLockFlags = {
     keyboard: true,
     mouse: true,
@@ -244,4 +249,89 @@ export function applyExamModeInputLock(
     db,
   );
   return r.resolved;
+}
+
+/** Restore input-lock store captured before the last exam-mode apply. */
+export function restoreExamModeInputLock(
+  db: DatabaseSync,
+  meta?: { actorUserId?: string; actorRole?: string; clientIp?: string },
+): { store: InputLockStore; restored: boolean } {
+  const raw = getSetting(db, KEY_EXAM_SNAP);
+  if (!raw) {
+    const cleared = setInputLockStore(
+      db,
+      {
+        flags: {
+          keyboard: false,
+          mouse: false,
+          voice: false,
+          camera: false,
+        },
+      },
+      meta,
+    );
+    recordExitLockEvent(db, {
+      kind: 'exam_mode_end',
+      actorUserId: meta?.actorUserId,
+      actorRole: meta?.actorRole,
+      detail: '解除考试模式：无快照，已全部解除物理输入锁',
+      clientIp: meta?.clientIp,
+    });
+    writeAudit(
+      {
+        action: 'settings.exam_mode_end',
+        actorUserId: meta?.actorUserId,
+        actorRole: meta?.actorRole,
+        classId: null,
+        detail: '解除考试模式（无快照→全开）',
+        clientIp: meta?.clientIp,
+      },
+      db,
+    );
+    return { store: cleared.store, restored: false };
+  }
+
+  let snap: InputLockStore;
+  try {
+    const o = JSON.parse(raw) as Partial<InputLockStore>;
+    snap = {
+      global: parseFlags(o.global),
+      byClass: {},
+      bySeat: {},
+    };
+    for (const [k, v] of Object.entries(o.byClass ?? {})) snap.byClass[k] = parseFlags(v);
+    for (const [k, v] of Object.entries(o.bySeat ?? {})) snap.bySeat[k] = parseFlags(v);
+  } catch {
+    snap = emptyInputLockStore();
+  }
+
+  upsertSetting(db, KEY_V2, JSON.stringify(snap));
+  upsertSetting(db, KEY_V1, JSON.stringify(snap.global));
+  upsertSetting(db, KEY_EXAM_SNAP, '');
+
+  recordExitLockEvent(db, {
+    kind: 'exam_mode_end',
+    actorUserId: meta?.actorUserId,
+    actorRole: meta?.actorRole,
+    detail: `解除考试模式：已恢复进考前输入锁快照（全局 ${inputLockFlagsLabel(snap.global)}）`,
+    clientIp: meta?.clientIp,
+  });
+  writeAudit(
+    {
+      action: 'settings.exam_mode_end',
+      actorUserId: meta?.actorUserId,
+      actorRole: meta?.actorRole,
+      classId: null,
+      detail: '解除考试模式：恢复进考前输入锁快照',
+      clientIp: meta?.clientIp,
+    },
+    db,
+  );
+
+  return { store: snap, restored: true };
+}
+
+export function hasExamModeSnapshot(db: DatabaseSync): boolean {
+  const raw = getSetting(db, KEY_EXAM_SNAP);
+  return Boolean(raw && raw.trim());
 }

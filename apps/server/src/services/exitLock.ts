@@ -135,8 +135,8 @@ export function getClientExitLockState(db: DatabaseSync) {
     Boolean(getSetting(db, KEY_CODE_HASH)) &&
     ageDays != null &&
     ageDays >= rate.exitUnlockCodeRotateDays;
-  const inputLockStore = getInputLockStore(db);
-  const inputLock = resolveInputLock(inputLockStore);
+  // Flat global flags only on exit-lock channel — full store lives on /input-lock/stream.
+  const inputLock = resolveInputLock(getInputLockStore(db));
   return {
     clientExitLocked: locked,
     clientExitAllowed: isClientExitAllowed(db),
@@ -146,7 +146,6 @@ export function getClientExitLockState(db: DatabaseSync) {
     exitUnlockCodeAgeDays: ageDays,
     exitUnlockCodeRotationDue: rotationDue,
     inputLock,
-    inputLockStore,
     inputLockActive: inputLockActive(inputLock),
     ...rate,
   };

@@ -46,6 +46,7 @@ test.describe('assistant RBAC', () => {
     await expect(page.getByRole('heading', { name: '学生端退出锁定' })).toBeVisible();
     await expect(page.getByTestId('exit-lock-readonly')).toBeVisible();
     await expect(page.getByTestId('input-lock-readonly')).toBeVisible();
+    await expect(page.getByTestId('input-lock-scope-badge')).toBeVisible();
     await expect(page.getByRole('button', { name: '保存解除码' })).toHaveCount(0);
     await expect(page.getByRole('button', { name: '保存限流与轮换' })).toHaveCount(0);
     await expect(page.getByRole('button', { name: '批量允许关闭学生端' })).toHaveCount(0);

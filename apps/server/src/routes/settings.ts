@@ -25,12 +25,15 @@ import {
 import {
   applyExamModeInputLock,
   getInputLockStore,
+  hasExamModeSnapshot,
   inputLockActive,
   resolveInputLock,
+  restoreExamModeInputLock,
   setInputLockStore,
   type InputLockFlags,
 } from '../services/inputLock.js';
 import { addExitLockSseClient, broadcastExitLockPayload } from '../services/exitLockHub.js';
+import { addInputLockSseClient, broadcastInputLock, buildInputLockPayload } from '../services/inputLockHub.js';
 import { previewPurgeExpiredSoftDeletes, purgeExpiredSoftDeletes, writeAudit } from '../services/audit.js';
 import { toCsv } from '../utils/csv.js';
 import {
@@ -78,6 +81,8 @@ settingsRouter.get('/api/v1/settings/public', (req, res) => {
     inputLock: resolved,
     inputLockStore: store,
     inputLockActive: inputLockActive(resolved),
+    inputLockSummary: buildInputLockPayload(db).summary,
+    examModeSnapshot: hasExamModeSnapshot(db),
   });
 });
 
@@ -132,6 +137,9 @@ settingsRouter.get('/api/v1/settings', requireAuth, requireRoles('teacher', 'adm
     lastCleanupRemovedCount: lastCleanup?.removedCount ?? null,
     backup: getBackupStatus(getSetting(db, 'last_auto_backup_at')),
     ...exit,
+    inputLockStore: getInputLockStore(db),
+    examModeSnapshot: hasExamModeSnapshot(db),
+    inputLockSummary: buildInputLockPayload(db).summary,
   });
 });
 
@@ -347,7 +355,30 @@ settingsRouter.patch('/api/v1/settings', requireAuth, requireRoles('teacher', 'a
     relockClientExit(db, actor);
     const state = getClientExitLockState(db);
     broadcastExitLockPayload(state);
-    res.json({ ok: true, examMode: true, ...state });
+    broadcastInputLock(db);
+    res.json({
+      ok: true,
+      examMode: true,
+      examModeSnapshot: true,
+      ...state,
+      inputLockStore: getInputLockStore(db),
+    });
+    return;
+  }
+
+  /** End exam mode: restore pre-exam input-lock snapshot (exit lock unchanged). */
+  if (req.body?.examMode === false || req.body?.examModeRestore === true) {
+    const restored = restoreExamModeInputLock(db, actor);
+    const state = getClientExitLockState(db);
+    broadcastExitLockPayload(state);
+    broadcastInputLock(db);
+    res.json({
+      ok: true,
+      examMode: false,
+      examModeRestored: restored.restored,
+      ...state,
+      inputLockStore: restored.store,
+    });
     return;
   }
 
@@ -381,7 +412,8 @@ settingsRouter.patch('/api/v1/settings', requireAuth, requireRoles('teacher', 'a
     );
     const state = getClientExitLockState(db);
     broadcastExitLockPayload(state);
-    res.json({ ok: true, ...state });
+    broadcastInputLock(db);
+    res.json({ ok: true, ...state, inputLockStore: getInputLockStore(db) });
     return;
   }
 
@@ -452,6 +484,11 @@ settingsRouter.patch('/api/v1/settings', requireAuth, requireRoles('teacher', 'a
 
 settingsRouter.get('/api/v1/exit-lock/stream', (_req, res) => {
   addExitLockSseClient(res);
+});
+
+/** Dedicated input-lock SSE (store + class/seat summary). No auth — same as exit-lock stream. */
+settingsRouter.get('/api/v1/input-lock/stream', (_req, res) => {
+  addInputLockSseClient(res, openDb());
 });
 
 settingsRouter.get(

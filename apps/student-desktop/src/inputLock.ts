@@ -50,19 +50,44 @@ export function normalizeInputLockStore(raw: unknown): InputLockStore {
 export function resolveInputLockClient(
   store: InputLockStore | null | undefined,
   flat: InputLockFlags | null | undefined,
-  opts: { classId?: string; seatId?: string },
+  opts: { classId?: string; seatId?: string; seatIds?: string[] },
 ): InputLockFlags {
   if (store) {
     const classId = String(opts.classId ?? '').trim();
-    const seatId = String(opts.seatId ?? '').trim();
-    if (classId && seatId) {
-      const sk = `${classId}:${seatId}`;
-      if (store.bySeat[sk]) return { ...store.bySeat[sk]! };
+    const candidates = [
+      ...new Set(
+        [opts.seatId, ...(opts.seatIds ?? [])]
+          .map((s) => String(s ?? '').trim())
+          .filter(Boolean),
+      ),
+    ];
+    if (classId) {
+      for (const seatId of candidates) {
+        const sk = `${classId}:${seatId}`;
+        if (store.bySeat[sk]) return { ...store.bySeat[sk]! };
+      }
+      if (store.byClass[classId]) return { ...store.byClass[classId]! };
     }
-    if (classId && store.byClass[classId]) return { ...store.byClass[classId]! };
     return { ...store.global };
   }
   return normalizeInputLock(flat);
+}
+
+/** Stable per-machine id; teacher seat-scope can target this without hand-typing. */
+export function getOrCreatePresenceClientId(): string {
+  const key = 'cd_presence_client_id';
+  try {
+    const existing = localStorage.getItem(key)?.trim();
+    if (existing) return existing;
+    const id =
+      typeof crypto !== 'undefined' && 'randomUUID' in crypto
+        ? crypto.randomUUID()
+        : `pc_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+    localStorage.setItem(key, id);
+    return id;
+  } catch {
+    return `pc_${Date.now().toString(36)}`;
+  }
 }
 
 export function inputLockSummary(flags: InputLockFlags): string {

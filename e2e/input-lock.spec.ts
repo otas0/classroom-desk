@@ -115,6 +115,11 @@ test.describe('physical input lock', () => {
     const { token } = (await login.json()) as { token: string };
     const auth = { Authorization: `Bearer ${token}` };
 
+    await request.patch(`${API}/api/v1/settings`, {
+      headers: auth,
+      data: { inputLock: { keyboard: false, mouse: true, voice: false, camera: false } },
+    });
+
     const exam = await request.patch(`${API}/api/v1/settings`, {
       headers: auth,
       data: { examMode: true },
@@ -123,10 +128,12 @@ test.describe('physical input lock', () => {
     const body = (await exam.json()) as {
       inputLock?: { keyboard?: boolean; mouse?: boolean };
       clientExitAllowed?: boolean;
+      examModeSnapshot?: boolean;
     };
     expect(body.inputLock?.keyboard).toBeTruthy();
     expect(body.inputLock?.mouse).toBeTruthy();
     expect(body.clientExitAllowed).toBeFalsy();
+    expect(body.examModeSnapshot).toBeTruthy();
 
     const ev = await request.get(`${API}/api/v1/settings/exit-lock-events?kind=exam_mode&limit=5`, {
       headers: auth,
@@ -134,5 +141,43 @@ test.describe('physical input lock', () => {
     expect(ev.ok()).toBeTruthy();
     const items = ((await ev.json()) as { items: Array<{ kind: string }> }).items;
     expect(items.some((i) => i.kind === 'exam_mode')).toBeTruthy();
+
+    const restore = await request.patch(`${API}/api/v1/settings`, {
+      headers: auth,
+      data: { examModeRestore: true },
+    });
+    expect(restore.ok()).toBeTruthy();
+    const restored = (await restore.json()) as {
+      inputLock?: { keyboard?: boolean; mouse?: boolean; camera?: boolean };
+      examModeRestored?: boolean;
+    };
+    expect(restored.examModeRestored).toBeTruthy();
+    expect(restored.inputLock?.keyboard).toBeFalsy();
+    expect(restored.inputLock?.mouse).toBeTruthy();
+    expect(restored.inputLock?.camera).toBeFalsy();
+  });
+
+  test('input-lock SSE stream pushes store without exit-lock coupling', async ({ request }) => {
+    const password = await ensureTeacherPasswordReady(request);
+    const login = await request.post(`${API}/api/v1/auth/login`, {
+      data: { username: TEACHER_USER, password },
+    });
+    expect(login.ok()).toBeTruthy();
+    const { token } = (await login.json()) as { token: string };
+    const auth = { Authorization: `Bearer ${token}` };
+
+    // SSE is long-lived; assert store/summary via public settings after PATCH (hub broadcast path).
+    const patch = await request.patch(`${API}/api/v1/settings`, {
+      headers: auth,
+      data: { inputLock: { keyboard: true, mouse: false, voice: false, camera: false } },
+    });
+    expect(patch.ok()).toBeTruthy();
+    const pub = await request.get(`${API}/api/v1/settings/public`);
+    const body = (await pub.json()) as {
+      inputLockSummary?: { global: string; byClass: unknown[]; bySeat: unknown[] };
+      inputLockStore?: { global?: { keyboard?: boolean } };
+    };
+    expect(body.inputLockStore?.global?.keyboard).toBeTruthy();
+    expect(body.inputLockSummary?.global).toMatch(/键盘/);
   });
 });

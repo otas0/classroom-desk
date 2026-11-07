@@ -137,9 +137,12 @@ JSON 片段（Intune「展台」或多应用 Assigned Access）：
   └─ 退出锁定审计筛选「物理输入锁」可见中文标签
 ```
 
-- 实时推送走现有 `/exit-lock/ws` + SSE；审计 kind=`input_lock` / `exam_mode`，教师操作审计 `settings.input_lock`。  
+- 输入锁实时通道：`GET /api/v1/input-lock/stream`（独立 SSE，避免 exit-lock 大包）；退出锁定仍走 `/exit-lock/ws` + SSE。  
+- 审计 kind=`input_lock` / `exam_mode` / `exam_mode_end`；教师操作审计可一键跳转 `#input-lock-settings`。  
+- 学生端启动绑定 `presenceClientId` + 座位图 id/label，机位粒度锁无需教师手填。  
+- 考试模式保存进考前快照，可一键「解除考试模式」恢复。  
 - **不做** OS 级键鼠钩子、隐蔽监控或对抗杀软；系统热键/其它进程仍依赖 Assigned Access。  
-- e2e：`e2e/input-lock.spec.ts`。
+- e2e：`e2e/input-lock.spec.ts`。手测多显示器 / 触控笔见 C2 打印表。
 
 ### 验证打包安装态退出锁定（C2 · 须在 Windows 真机）
 

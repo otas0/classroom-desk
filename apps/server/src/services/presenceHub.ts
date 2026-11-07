@@ -9,8 +9,12 @@ export type PresenceClientRow = {
   lastSeenAt: string;
   clientVersion: string;
   clientPlatform: string;
+  /** Stable machine id from student desktop (for seat-scoped input lock). */
+  clientId: string;
   displayName: string;
   studentNo: string | null;
+  seatId: string | null;
+  seatLabel: string | null;
 };
 
 type PresencePayload = {
@@ -32,9 +36,12 @@ export function listPresenceClients(classId: string, sinceMs = ONLINE_MS): Prese
     .prepare(
       `SELECT p.student_id AS studentId, p.class_id AS classId, p.last_seen_at AS lastSeenAt,
               p.client_version AS clientVersion, p.client_platform AS clientPlatform,
-              u.display_name AS displayName, u.student_no AS studentNo
+              COALESCE(p.client_id, '') AS clientId,
+              u.display_name AS displayName, u.student_no AS studentNo,
+              s.id AS seatId, s.label AS seatLabel
        FROM presence_heartbeats p
        JOIN users u ON u.id = p.student_id
+       LEFT JOIN seat_map s ON s.class_id = p.class_id AND s.student_id = p.student_id
        WHERE p.class_id = ? AND p.last_seen_at >= ?
        ORDER BY p.last_seen_at DESC`,
     )

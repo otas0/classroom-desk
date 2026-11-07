@@ -6,7 +6,58 @@ on:
     - cron: '30 16 * * *'
   workflow_dispatch:
 
+# issues:write required for failure → open/comment Issue (default GITHUB_TOKEN was 403).
+permissions:
+  contents: read
+  issues: write
+  actions: read
+
 jobs:
+  # Zero-retry canary: audit-jump must pass without CD_E2E_RETRIES masking flakes.
+  audit-jump-smoke:
+    runs-on: ubuntu-latest
+    env:
+      PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/.pw-browsers
+      API_BASE: http://127.0.0.1:8787
+      TEACHER_WEB: http://localhost:5174
+      STUDENT_WEB: http://127.0.0.1:5173
+      CD_E2E_RETRIES: '0'
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/.pw-browsers
+          key: pw-chromium-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            pw-chromium-${{ runner.os }}-
+      - name: Install
+        run: npm install
+      - name: Install Playwright
+        run: npx playwright install --with-deps chromium
+      - name: Build teacher SPA
+        run: npm run build:teacher
+      - name: Start API + teacher web
+        run: |
+          JWT_SECRET=ci-secret-not-for-prod \
+          ADMIN_PASSWORD=AdminPass123 \
+          TEACHER_PASSWORD=TeacherPass123 \
+          DEFAULT_CLASS_CODE=DEMO01 \
+          CLASSROOM_DESK_E2E=1 \
+          npm run start --workspace=@classroom-desk/server &
+          npm run dev:teacher &
+          for i in $(seq 1 40); do
+            curl -fsS http://127.0.0.1:8787/health >/dev/null && \
+            curl -fsS http://127.0.0.1:5174/ >/dev/null && break
+            sleep 1
+          done
+      - name: audit-jump (retries=0)
+        run: npx playwright test e2e/audit-jump-highlight.spec.ts --reporter=line
+
   e2e-full:
     runs-on: ubuntu-latest
     env:
@@ -98,43 +149,96 @@ jobs:
           retention-days: 21
       - name: Open GitHub Issue on failure
         if: failure()
+        continue-on-error: true
         uses: actions/github-script@v7
         with:
           script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
             const title = `Nightly e2e failed (${context.runId})`;
             const body = [
               `**Workflow:** ${context.workflow}`,
-              `**Run:** ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+              `**Run:** ${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`,
               `**Commit:** ${context.sha}`,
               `**Ref:** ${context.ref}`,
               '',
               'Automated by `e2e-nightly.yml`. Check artifacts `playwright-nightly-full`.',
             ].join('\n');
-            const issues = await github.rest.issues.listForRepo({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              state: 'open',
-              labels: 'nightly-e2e',
-              per_page: 10,
-            });
-            const existing = issues.data.find((i) => i.title.startsWith('Nightly e2e failed'));
-            if (existing) {
-              await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: existing.number,
-                body: `### Re-failed\n\n${body}`,
-              });
-              core.info(`Commented on #${existing.number}`);
-            } else {
-              const created = await github.rest.issues.create({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                title,
-                body,
-                labels: ['nightly-e2e', 'bug'],
-              });
-              core.info(`Opened #${created.data.number}`);
+
+            // Always mirror into Step Summary so ACL 403 never hides the failure link.
+            await core.summary
+              .addHeading('Nightly failure notify')
+              .addRaw(body.replace(/\n/g, '  \n'))
+              .write();
+
+            try {
+              async function ensureLabel(name, color) {
+                try {
+                  await github.rest.issues.getLabel({ owner, repo, name });
+                } catch (e) {
+                  if (e.status !== 404) throw e;
+                  try {
+                    await github.rest.issues.createLabel({
+                      owner,
+                      repo,
+                      name,
+                      color,
+                      description: 'Nightly e2e automation',
+                    });
+                  } catch (createErr) {
+                    core.warning(`Could not create label ${name}: ${createErr.message}`);
+                  }
+                }
+              }
+
+              await ensureLabel('nightly-e2e', 'B60205');
+              await ensureLabel('bug', 'd73a4a');
+
+              let existing = null;
+              try {
+                const issues = await github.rest.issues.listForRepo({
+                  owner,
+                  repo,
+                  state: 'open',
+                  labels: 'nightly-e2e',
+                  per_page: 10,
+                });
+                existing = issues.data.find((i) => i.title.startsWith('Nightly e2e failed'));
+              } catch (e) {
+                core.warning(`listForRepo failed: ${e.message}`);
+              }
+
+              if (existing) {
+                await github.rest.issues.createComment({
+                  owner,
+                  repo,
+                  issue_number: existing.number,
+                  body: `### Re-failed\n\n${body}`,
+                });
+                core.info(`Commented on #${existing.number}`);
+              } else {
+                try {
+                  const created = await github.rest.issues.create({
+                    owner,
+                    repo,
+                    title,
+                    body,
+                    labels: ['nightly-e2e', 'bug'],
+                  });
+                  core.info(`Opened #${created.data.number}`);
+                } catch (e) {
+                  core.warning(`create with labels failed (${e.message}); retrying bare`);
+                  const created = await github.rest.issues.create({
+                    owner,
+                    repo,
+                    title,
+                    body,
+                  });
+                  core.info(`Opened #${created.data.number} (no labels)`);
+                }
+              }
+            } catch (e) {
+              core.warning(`Issue notify skipped (ACL?): ${e.message}. See Step Summary.`);
             }
 
   windows-student-smoke:

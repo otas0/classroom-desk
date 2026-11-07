@@ -58,6 +58,8 @@ export function migrate(database?: DatabaseSync): DatabaseSync {
   ensureColumn(conn, 'messages', 'read_at', 'TEXT');
   ensureColumn(conn, 'presence_heartbeats', 'client_version', `TEXT NOT NULL DEFAULT ''`);
   ensureColumn(conn, 'presence_heartbeats', 'client_platform', `TEXT NOT NULL DEFAULT ''`);
+  /** Stable per-machine id from student desktop (localStorage); used for seat-scoped input lock. */
+  ensureColumn(conn, 'presence_heartbeats', 'client_id', `TEXT NOT NULL DEFAULT ''`);
   ensureColumn(conn, 'student_answers', 'is_makeup', 'INTEGER NOT NULL DEFAULT 0');
   ensureColumn(conn, 'student_answers', 'queued_offline', 'INTEGER NOT NULL DEFAULT 0');
   conn.exec(`CREATE TABLE IF NOT EXISTS seat_map (

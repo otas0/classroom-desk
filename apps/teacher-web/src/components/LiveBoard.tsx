@@ -40,6 +40,12 @@ export function LiveBoard({
   const [sessionStartAt, setSessionStartAt] = useState<string | null>(null);
   const [autoReadonlyHint, setAutoReadonlyHint] = useState('');
   const [inputLockSummary, setInputLockSummary] = useState('');
+  const [inputLockDetailOpen, setInputLockDetailOpen] = useState(false);
+  const [inputLockDetail, setInputLockDetail] = useState<{
+    global: string;
+    byClass: Array<{ classId: string; label: string }>;
+    bySeat: Array<{ key: string; classId: string; seatId: string; label: string }>;
+  } | null>(null);
   const [highContrast, setHighContrast] = useState(() => {
     try {
       return localStorage.getItem('cd_liveboard_hc') === '1';
@@ -124,6 +130,7 @@ export function LiveBoard({
   useEffect(() => {
     if (!projection || !classId) {
       setInputLockSummary('');
+      setInputLockDetail(null);
       return;
     }
     let cancelled = false;
@@ -137,10 +144,23 @@ export function LiveBoard({
             camera?: boolean;
           };
           inputLockActive?: boolean;
+          inputLockSummary?: {
+            global: string;
+            byClass: Array<{ classId: string; label: string }>;
+            bySeat: Array<{ key: string; classId: string; seatId: string; label: string }>;
+          };
         }>(`/api/v1/settings/public?classId=${encodeURIComponent(classId)}`);
         if (cancelled) return;
-        if (!s.inputLockActive) {
-          setInputLockSummary('物理输入锁：未启用');
+        const summary = s.inputLockSummary ?? {
+          global: '无',
+          byClass: [],
+          bySeat: [],
+        };
+        setInputLockDetail(summary);
+        const classCount = summary.byClass.length;
+        const seatCount = summary.bySeat.length;
+        if (!s.inputLockActive && classCount === 0 && seatCount === 0) {
+          setInputLockSummary('全班输入锁：未启用');
           return;
         }
         const parts: string[] = [];
@@ -148,9 +168,18 @@ export function LiveBoard({
         if (s.inputLock?.mouse) parts.push('鼠标');
         if (s.inputLock?.voice) parts.push('语音');
         if (s.inputLock?.camera) parts.push('相机');
-        setInputLockSummary(`全班输入锁：已锁 ${parts.join('、') || '—'}`);
+        const scoped =
+          classCount || seatCount
+            ? ` · 班级覆盖 ${classCount} · 机位覆盖 ${seatCount}`
+            : '';
+        setInputLockSummary(
+          `全班输入锁：已锁 ${parts.join('、') || summary.global || '—'}${scoped}`,
+        );
       } catch {
-        if (!cancelled) setInputLockSummary('');
+        if (!cancelled) {
+          setInputLockSummary('');
+          setInputLockDetail(null);
+        }
       }
     }
     void loadInputLock();
@@ -300,9 +329,37 @@ export function LiveBoard({
     >
       <h2>大屏答题态势</h2>
       {projection && inputLockSummary ? (
-        <p className="hint" data-testid="projection-input-lock-summary" role="status">
-          {inputLockSummary}
-        </p>
+        <div data-testid="projection-input-lock-summary" role="status">
+          <p className="hint">{inputLockSummary}</p>
+          {inputLockDetail &&
+          (inputLockDetail.byClass.length > 0 || inputLockDetail.bySeat.length > 0) ? (
+            <div>
+              <button
+                type="button"
+                className="linkish"
+                data-testid="projection-input-lock-detail-toggle"
+                onClick={() => setInputLockDetailOpen((v) => !v)}
+              >
+                {inputLockDetailOpen ? '收起按班/机位明细' : '展开按班/机位明细'}
+              </button>
+              {inputLockDetailOpen ? (
+                <ul className="hint" data-testid="projection-input-lock-detail">
+                  <li>全局：{inputLockDetail.global || '无'}</li>
+                  {inputLockDetail.byClass.map((c) => (
+                    <li key={c.classId}>
+                      班级 {c.classId.slice(0, 8)}…：{c.label}
+                    </li>
+                  ))}
+                  {inputLockDetail.bySeat.map((s) => (
+                    <li key={s.key}>
+                      机位 {s.seatId}（班 {s.classId.slice(0, 8)}…）：{s.label}
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
       ) : null}
       {projection ? (
         <div className="row">

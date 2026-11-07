@@ -188,6 +188,7 @@ authRouter.post('/api/v1/auth/exit-lock-reconcile', (req, res) => {
 authRouter.get('/api/v1/auth/me', requireAuth, (req: AuthedRequest, res) => {
   const db = openDb();
   let classInfo = null;
+  let seat: { id: string; label: string } | null = null;
   if (req.user?.classId) {
     const klass = db.prepare(`SELECT id, name, class_code FROM classes WHERE id = ?`).get(req.user.classId) as
       | { id: string; name: string; class_code: string }
@@ -195,8 +196,16 @@ authRouter.get('/api/v1/auth/me', requireAuth, (req: AuthedRequest, res) => {
     if (klass) {
       classInfo = { id: klass.id, name: klass.name, classCode: klass.class_code };
     }
+    if (req.user.role === 'student') {
+      const row = db
+        .prepare(
+          `SELECT id, label FROM seat_map WHERE class_id = ? AND student_id = ? LIMIT 1`,
+        )
+        .get(req.user.classId, req.user.id) as { id: string; label: string } | undefined;
+      if (row) seat = { id: row.id, label: row.label };
+    }
   }
-  res.json({ user: req.user, class: classInfo });
+  res.json({ user: req.user, class: classInfo, seat });
 });
 
 authRouter.post('/api/v1/auth/change-admin-password', requireAuth, async (req: AuthedRequest, res) => {

@@ -2902,7 +2902,12 @@ export function SettingsPanel({
   const [inputLockBusy, setInputLockBusy] = useState(false);
   const [inputLockScope, setInputLockScope] = useState<'global' | 'class' | 'seat'>('global');
   const [inputLockSeatId, setInputLockSeatId] = useState('');
+  const [inputLockSeatOptions, setInputLockSeatOptions] = useState<
+    Array<{ value: string; label: string }>
+  >([]);
   const [examModeBusy, setExamModeBusy] = useState(false);
+  const [examModeSnapshot, setExamModeSnapshot] = useState(false);
+  const [inputLockScopeLabel, setInputLockScopeLabel] = useState('全校全局');
   const [exitEvents, setExitEvents] = useState<
     Array<{ id: string; kind: string; detail: string; createdAt: string; actorRole?: string | null }>
   >([]);
@@ -3030,6 +3035,7 @@ export function SettingsPanel({
         voice?: boolean;
         camera?: boolean;
       };
+      examModeSnapshot?: boolean;
       backup?: {
         dir?: string;
         keep?: number;
@@ -3083,6 +3089,7 @@ export function SettingsPanel({
         camera: Boolean(s.inputLock.camera),
       });
     }
+    setExamModeSnapshot(s.examModeSnapshot === true);
     const q = new URLSearchParams({
       limit: String(EXIT_PAGE_SIZE),
       offset: String(exitEventsPage * EXIT_PAGE_SIZE),
@@ -3094,6 +3101,55 @@ export function SettingsPanel({
     }>(`/api/v1/settings/exit-lock-events?${q}`);
     setExitEvents(ev.items ?? []);
     setExitEventsTotal(Number(ev.total ?? ev.items?.length ?? 0));
+
+    const classId = currentTeacherClassId();
+    if (classId) {
+      try {
+        const [presence, seats] = await Promise.all([
+          api<{
+            items: Array<{
+              studentId: string;
+              clientId?: string;
+              displayName: string;
+              seatId?: string | null;
+              seatLabel?: string | null;
+            }>;
+          }>(`/api/v1/presence/clients?classId=${encodeURIComponent(classId)}`),
+          api<{
+            items: Array<{ id: string; label: string; displayName?: string | null }>;
+          }>(`/api/v1/classes/${encodeURIComponent(classId)}/seats`),
+        ]);
+        const opts: Array<{ value: string; label: string }> = [];
+        const seen = new Set<string>();
+        for (const p of presence.items ?? []) {
+          const value = (p.clientId || p.seatId || p.studentId || '').trim();
+          if (!value || seen.has(value)) continue;
+          seen.add(value);
+          const seatHint = p.seatLabel ? ` · 座位 ${p.seatLabel}` : '';
+          opts.push({
+            value,
+            label: `${p.displayName || p.studentId}${seatHint}（${value.slice(0, 8)}…）`,
+          });
+        }
+        for (const s of seats.items ?? []) {
+          if (!s.id || seen.has(s.id)) continue;
+          seen.add(s.id);
+          opts.push({
+            value: s.id,
+            label: `座位 ${s.label || s.id}${s.displayName ? ` · ${s.displayName}` : ''}`,
+          });
+          if (s.label && !seen.has(s.label)) {
+            seen.add(s.label);
+            opts.push({ value: s.label, label: `座位号 ${s.label}` });
+          }
+        }
+        setInputLockSeatOptions(opts);
+      } catch {
+        setInputLockSeatOptions([]);
+      }
+    } else {
+      setInputLockSeatOptions([]);
+    }
   }
 
   function exitLockKindLabel(kind: string): string {
@@ -3109,6 +3165,7 @@ export function SettingsPanel({
       rate_config: '限流/轮换配置',
       input_lock: '物理输入锁',
       exam_mode: '考试模式',
+      exam_mode_end: '解除考试模式',
       client_reconcile: '断线对账冲突',
     };
     return map[kind] ? `${map[kind]}（${kind}）` : kind;
@@ -3118,9 +3175,24 @@ export function SettingsPanel({
     const map: Record<string, string> = {
       'settings.input_lock': '物理输入锁变更',
       'settings.exam_mode': '一键考试模式',
+      'settings.exam_mode_end': '解除考试模式',
       'session.raise_hand': '学生举手',
     };
     return map[action] ? `${map[action]}（${action}）` : action;
+  }
+
+  function jumpToInputLockSettings() {
+    sessionStorage.setItem('cd_goto_input_lock', '1');
+    try {
+      window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}#input-lock-settings`);
+    } catch {
+      /* ignore */
+    }
+    hardReloadTeacherNav({
+      tab: isAssistant() ? 'settings' : 'prep',
+      prepTab: 'settings',
+      classId: currentTeacherClassId() || undefined,
+    });
   }
 
   function currentTeacherClassId(): string {
@@ -3154,10 +3226,11 @@ export function SettingsPanel({
         }
         const scopeZh =
           inputLockScope === 'seat'
-            ? '机位'
+            ? `机位 ${inputLockSeatId || '—'}`
             : inputLockScope === 'class'
               ? '当前班级'
               : '全局';
+        setInputLockScopeLabel(scopeZh);
         setExitMsg(`物理输入锁已更新（${scopeZh}，已推送到学生端）`);
         void loadAudit().catch(() => undefined);
         void refreshExitLock().catch(() => undefined);
@@ -4949,11 +5022,35 @@ export function SettingsPanel({
             Access。须事先告知学生。
           </p>
           {isAssistant() ? (
-            <p className="hint" data-testid="input-lock-readonly">
-              当前：键盘 {inputLock.keyboard ? '锁' : '开'} · 鼠标{' '}
-              {inputLock.mouse ? '锁' : '开'} · 语音 {inputLock.voice ? '锁' : '开'} · 相机{' '}
-              {inputLock.camera ? '锁' : '开'}（助教只读）
-            </p>
+            <div data-testid="input-lock-readonly">
+              <p className="hint">
+                当前：键盘 {inputLock.keyboard ? '锁' : '开'} · 鼠标{' '}
+                {inputLock.mouse ? '锁' : '开'} · 语音 {inputLock.voice ? '锁' : '开'} · 相机{' '}
+                {inputLock.camera ? '锁' : '开'}（助教只读）
+              </p>
+              <p className="row" data-testid="input-lock-scope-badge">
+                <span className="hint">作用范围</span>
+                <span
+                  className="badge"
+                  data-testid={`input-lock-scope-badge-${inputLockScope}`}
+                  title={inputLockScopeLabel}
+                >
+                  {inputLockScope === 'global'
+                    ? '全局'
+                    : inputLockScope === 'class'
+                      ? '班级'
+                      : '机位'}
+                  {inputLockScope === 'seat' && inputLockSeatId
+                    ? ` · ${inputLockSeatId.slice(0, 12)}`
+                    : ''}
+                </span>
+                {examModeSnapshot ? (
+                  <span className="badge" data-testid="exam-mode-snapshot-badge">
+                    考试模式快照中
+                  </span>
+                ) : null}
+              </p>
+            </div>
           ) : (
             <div className="card" data-testid="input-lock-controls">
               <label>
@@ -4971,15 +5068,36 @@ export function SettingsPanel({
                 </select>
               </label>
               {inputLockScope === 'seat' ? (
-                <label>
-                  机位 / 客户端 ID
-                  <input
-                    data-testid="input-lock-seat-id"
-                    value={inputLockSeatId}
-                    onChange={(e) => setInputLockSeatId(e.target.value)}
-                    placeholder="如 presence 客户端 id 或座位号"
-                  />
-                </label>
+                <>
+                  <label>
+                    在线机位（自动，无需手填）
+                    <select
+                      data-testid="input-lock-seat-pick"
+                      value={
+                        inputLockSeatOptions.some((o) => o.value === inputLockSeatId)
+                          ? inputLockSeatId
+                          : ''
+                      }
+                      onChange={(e) => setInputLockSeatId(e.target.value)}
+                    >
+                      <option value="">选择在线学生 / 座位…</option>
+                      {inputLockSeatOptions.map((o) => (
+                        <option key={o.value} value={o.value}>
+                          {o.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    或手动机位 / 客户端 ID
+                    <input
+                      data-testid="input-lock-seat-id"
+                      value={inputLockSeatId}
+                      onChange={(e) => setInputLockSeatId(e.target.value)}
+                      placeholder="通常从上方选择即可"
+                    />
+                  </label>
+                </>
               ) : null}
               {(
                 [
@@ -5061,7 +5179,8 @@ export function SettingsPanel({
                           voice: true,
                           camera: true,
                         });
-                        setExitMsg('考试模式已开启：输入全锁 + 退出锁定');
+                        setExamModeSnapshot(true);
+                        setExitMsg('考试模式已开启：输入全锁 + 退出锁定（已保存进考前快照）');
                         await refreshExitLock().catch(() => undefined);
                         await loadAudit().catch(() => undefined);
                       })
@@ -5070,6 +5189,58 @@ export function SettingsPanel({
                   }}
                 >
                   {examModeBusy ? '开启中…' : '一键考试模式'}
+                </button>
+                <button
+                  type="button"
+                  className="secondary"
+                  disabled={examModeBusy || inputLockBusy || !examModeSnapshot}
+                  data-testid="exam-mode-restore-btn"
+                  title={
+                    examModeSnapshot
+                      ? '恢复进考前物理输入锁快照（不影响退出锁定）'
+                      : '尚无考试模式快照'
+                  }
+                  onClick={() => {
+                    if (
+                      !window.confirm(
+                        '解除考试模式？将恢复进考前的物理输入锁快照（退出锁定状态不变）。',
+                      )
+                    ) {
+                      return;
+                    }
+                    setExamModeBusy(true);
+                    void api<{
+                      inputLock?: typeof inputLock;
+                      examModeRestored?: boolean;
+                    }>('/api/v1/settings', {
+                      method: 'PATCH',
+                      body: JSON.stringify({ examModeRestore: true }),
+                    })
+                      .then(async (r) => {
+                        if (r.inputLock) {
+                          setInputLock({
+                            keyboard: Boolean(r.inputLock.keyboard),
+                            mouse: Boolean(r.inputLock.mouse),
+                            voice: Boolean(r.inputLock.voice),
+                            camera: Boolean(r.inputLock.camera),
+                          });
+                        }
+                        setExamModeSnapshot(false);
+                        setExitMsg(
+                          r.examModeRestored
+                            ? '已解除考试模式并恢复进考前输入锁'
+                            : '已解除考试模式（无快照，输入锁已全开）',
+                        );
+                        await refreshExitLock().catch(() => undefined);
+                        await loadAudit().catch(() => undefined);
+                      })
+                      .catch((e) =>
+                        setExitMsg(e instanceof Error ? e.message : '解除考试模式失败'),
+                      )
+                      .finally(() => setExamModeBusy(false));
+                  }}
+                >
+                  解除考试模式
                 </button>
               </div>
             </div>
@@ -5279,6 +5450,7 @@ export function SettingsPanel({
                 <option value="client_reconcile">断线对账冲突</option>
                 <option value="input_lock">物理输入锁</option>
                 <option value="exam_mode">考试模式</option>
+                <option value="exam_mode_end">解除考试模式</option>
               </select>
             </label>
             <div className="row">
@@ -5369,6 +5541,21 @@ export function SettingsPanel({
                 <li key={e.id}>
                   {new Date(e.createdAt).toLocaleString()} · {exitLockKindLabel(e.kind)}
                   {e.actorRole ? ` · ${e.actorRole}` : ''} · {e.detail}
+                  {e.kind === 'input_lock' ||
+                  e.kind === 'exam_mode' ||
+                  e.kind === 'exam_mode_end' ? (
+                    <>
+                      {' '}
+                      <button
+                        type="button"
+                        className="linkish"
+                        data-testid="audit-jump-input-lock"
+                        onClick={() => jumpToInputLockSettings()}
+                      >
+                        跳转物理输入锁
+                      </button>
+                    </>
+                  ) : null}
                 </li>
               ))}
             </ul>
@@ -5478,6 +5665,21 @@ stateDiagram-v2
                 <li key={a.id}>
                   {new Date(a.createdAt).toLocaleString()} · {auditActionLabel(a.action)}
                   {a.actorRole ? ` · ${a.actorRole}` : ''}
+                  {a.action === 'settings.input_lock' ||
+                  a.action === 'settings.exam_mode' ||
+                  a.action === 'settings.exam_mode_end' ? (
+                    <>
+                      {' '}
+                      <button
+                        type="button"
+                        className="linkish"
+                        data-testid="audit-jump-input-lock"
+                        onClick={() => jumpToInputLockSettings()}
+                      >
+                        跳转物理输入锁
+                      </button>
+                    </>
+                  ) : null}
                   {a.detail ? (
                     <>
                       {' · '}

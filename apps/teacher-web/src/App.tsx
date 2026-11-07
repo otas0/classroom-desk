@@ -120,11 +120,33 @@ export function App() {
     });
   }
 
+  function openInputLockSettings() {
+    if (isAssistant()) {
+      setTab('settings');
+    } else {
+      setTab('prep');
+      setPrepTab('settings');
+    }
+    window.requestAnimationFrame(() => {
+      document.getElementById('input-lock-settings')?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'start',
+      });
+    });
+  }
+
   useEffect(() => {
     if (!tokenReady) return;
     if (sessionStorage.getItem('cd_goto_exit_lock') === '1') {
       sessionStorage.removeItem('cd_goto_exit_lock');
       openExitLockSettings();
+    }
+    if (
+      sessionStorage.getItem('cd_goto_input_lock') === '1' ||
+      (typeof location !== 'undefined' && location.hash === '#input-lock-settings')
+    ) {
+      sessionStorage.removeItem('cd_goto_input_lock');
+      openInputLockSettings();
     }
   }, [tokenReady]);
 

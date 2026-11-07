@@ -799,6 +799,16 @@ button.linkish {
   font-size: 13px;
 }
 
+.badge {
+  display: inline-block;
+  padding: 0.15rem 0.5rem;
+  margin-inline: 0.25rem;
+  border: 1px solid color-mix(in srgb, currentColor 28%, transparent);
+  border-radius: 4px;
+  font-size: 0.85em;
+  background: color-mix(in srgb, currentColor 6%, transparent);
+}
+
 .cd-audit-jump-hl {
   outline: 2px solid #c2410c;
   outline-offset: -2px;
