@@ -32,6 +32,11 @@
 2. Push to `main` → `windows-pack` uploads `classroom-desk-windows-setup` artifact (`apps/student-desktop/release/*.exe`).
 3. Without secrets, CI builds unsigned (`signExecutable=false`); SmartScreen may warn.
 
+## Ops webhook（Slack / 飞书）
+
+1. GitHub repo **Settings → Secrets and variables → Actions** 新增 `CLASSROOM_DESK_OPS_WEBHOOK`（Slack Incoming Webhook 或飞书自定义机器人 URL）。
+2. Release `record-artifacts` 失败时会 POST 机房频道；详见 [ARTIFACTS.md](./ARTIFACTS.md)。
+
 ## systemd unit example
 
 `/etc/classroom-desk.env`（权限 `640`，属主 `root:classroom`）:

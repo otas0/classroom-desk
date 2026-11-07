@@ -141,26 +141,44 @@ export function App() {
   const [hasSeatBinding, setHasSeatBinding] = useState(false);
   const [seatBindLabel, setSeatBindLabel] = useState('');
 
+  const inputLockWasActiveRef = useRef(false);
+  const showToastRef = useRef<(msg: string) => void>(() => undefined);
+
+  const showToast = useCallback((msg: string) => {
+    setToast(msg);
+    window.setTimeout(() => setToast(''), 2200);
+  }, []);
+  showToastRef.current = showToast;
+
   const applyResolvedInputLock = useCallback(
-    (store: InputLockStore | null, flat: unknown, cid: string, seatIds?: string[]) => {
+    (
+      store: InputLockStore | null,
+      flat: unknown,
+      cid: string,
+      seatIds?: string[],
+      opts?: { clearedReason?: string | null },
+    ) => {
       if (store) setInputLockStore(store);
       const seats = seatIds ?? lockSeatIdsRef.current;
       const resolved = resolveInputLockClient(store, normalizeInputLock(flat), {
         classId: cid,
         seatIds: seats,
       });
+      const nextActive = Boolean(
+        resolved.keyboard || resolved.mouse || resolved.voice || resolved.camera,
+      );
+      const wasActive = inputLockWasActiveRef.current;
+      inputLockWasActiveRef.current = nextActive;
       setInputLock(resolved);
       if (window.classroomDesk?.setInputMouseLocked) {
         void window.classroomDesk.setInputMouseLocked(resolved.mouse);
       }
+      if (wasActive && !nextActive && opts?.clearedReason === 'ttl_expire') {
+        showToastRef.current('课次结束，输入锁已解除');
+      }
     },
     [],
   );
-
-  const showToast = useCallback((msg: string) => {
-    setToast(msg);
-    window.setTimeout(() => setToast(''), 2200);
-  }, []);
 
   const syncExitLock = useCallback(async (allowed: boolean, until: string | null = null) => {
     setExitAllowed(allowed);
@@ -348,6 +366,8 @@ export function App() {
           data.inputLockStore != null ? normalizeInputLockStore(data.inputLockStore) : null,
           data.inputLock,
           classId,
+          undefined,
+          { clearedReason: data.inputLockClearedReason ?? null },
         );
       } catch {
         /* ignore */
@@ -479,6 +499,7 @@ export function App() {
         clientExitUnlockUntil?: string | null;
         inputLock?: InputLockFlags;
         inputLockStore?: InputLockStore;
+        inputLockClearedReason?: string | null;
       }>(`/api/v1/settings/public${qs ? `?${qs}` : ''}`);
       setMessagesEnabled(pub.messagesEnabled !== false);
       setQuizConfirmSubmit(pub.quizConfirmSubmit !== false);
@@ -487,6 +508,8 @@ export function App() {
           pub.inputLockStore ? normalizeInputLockStore(pub.inputLockStore) : null,
           pub.inputLock,
           classId,
+          undefined,
+          { clearedReason: pub.inputLockClearedReason ?? null },
         );
       }
       await applyServerExitLock(
@@ -542,16 +565,27 @@ export function App() {
             pub.inputLock,
             me.class.id,
             nextSeats,
+            { clearedReason: pub.inputLockClearedReason ?? null },
           );
         }
       }
       try {
+        let hardened = false;
+        try {
+          if (window.classroomDesk?.getKioskHardening) {
+            const h = await window.classroomDesk.getKioskHardening();
+            hardened = Boolean(h?.hardened);
+          }
+        } catch {
+          hardened = false;
+        }
         await api('/api/v1/presence/heartbeat', {
           method: 'POST',
           body: JSON.stringify({
             clientVersion: CLIENT_VERSION,
             clientPlatform: navigator.userAgent.includes('Electron') ? 'electron' : 'web',
             clientId: presenceClientId,
+            hardened,
           }),
         });
       } catch {

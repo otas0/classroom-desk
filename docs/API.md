@@ -12,7 +12,7 @@ Auth: `Authorization: Bearer <jwt>`（除注明公开接口外）
 | GET | `/health` | 无 | 服务与数据库健康检查；含 `exportTmp`（`tmpLeaked`/`tmpDir`）、`audit.retryQueueSize`/`degraded` |
 | GET | `/api/v1/settings/public` | 无 | 告知文案、TTL、每日清空时刻；含 `clientExitAllowed` / `clientExitUnlockUntil` |
 | GET | `/api/v1/settings` | 教师 | 完整设置（含退出锁定状态、`recycleRetentionDays`、`recycleUrgentDays`） |
-| PATCH | `/api/v1/settings` | 教师 | `pointRequestTtlMinutes`；`clientExitUnlockMinutes` 批量解除；`clientExitRelock`；`exitUnlockCode`；`recycleRetentionDays`；`recycleUrgentDays`；清空时刻只读 |
+| PATCH | `/api/v1/settings` | 教师 | `pointRequestTtlMinutes`；`clientExitUnlockMinutes` 批量解除；`clientExitRelock`；`exitUnlockCode` / `exitUnlockCodeGenerate`（系统生成，明文仅本次响应；轮换最快 30s）；`recycleRetentionDays`；`recycleUrgentDays`；清空时刻只读 |
 
 ## Ops（教师运维）
 

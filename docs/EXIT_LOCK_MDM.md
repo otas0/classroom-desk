@@ -36,7 +36,7 @@ stateDiagram-v2
 | `admin:quit` IPC | 未解锁拒绝 |
 | 教师批量解除 | WebSocket `/api/v1/exit-lock/ws` + SSE `/api/v1/exit-lock/stream`；轮询兜底 |
 | 解除码错误 | 可配置：次数 / 窗口分钟 / 锁定分钟 |
-| 解除码轮换 | 超过 N 天在教师设置提醒 |
+| 解除码轮换 | 教师可「系统生成并轮换」（最快 30s；明文仅本次响应）；超过 N 天（默认 90）设置页提醒 |
 
 开发临时放开：`ALLOW_STUDENT_EXIT=1`。
 
@@ -106,11 +106,26 @@ JSON 片段（Intune「展台」或多应用 Assigned Access）：
 
 #### 试验机组部署 Intune XML
 
-1. Intune → 设备 → 配置 → 创建 → 「模板」/自定义 → 上传 [`intune-student-kiosk.example.xml`](./intune-student-kiosk.example.xml) 或按其中 OMA-URI 手工添加 `HideTaskManager=1`。
+1. Intune → 设备 → 配置 → 创建 → 「模板」/自定义 → 上传 [`intune-student-kiosk.example.xml`](./intune-student-kiosk.example.xml) 或按其中 OMA-URI 手工添加：
+   - `HideTaskManager=1`
+   - `Storage/RemovableDiskDenyWrite=1` + `RemovableDiskDenyExecute=1`（限制 USB 存储写/执行）
 2. 分配到**试验组**（先 1～3 台样机），同步策略。
 3. 样机：设置 → 系统 → 关于 → 确认 Windows 版本（记下 22H2/24H2 等）。
-4. 验证：开始菜单无「任务管理器」或打开后策略阻止；事件查看器 / `rsop` 可选。
+4. 验证：开始菜单无「任务管理器」或打开后策略阻止；插入 U 盘应无法写入；事件查看器 / `rsop` 可选。
 5. 未生效：核对 CSP 在该版本是否支持，改用「开始」策略或 kiosk 配置，勿直接推全校。
+
+#### 试验组回滚（必须可逆）
+
+1. Intune → 取消试验组对该配置文件的分配 → 设备「同步」。
+2. 或显式下发 [`intune-student-kiosk.rollback.xml`](./intune-student-kiosk.rollback.xml)（各 CSP `Data=0`）。
+3. 样机验证：任务管理器可开、U 盘可写（若学校基线本就禁止 USB，以机房基线为准）。
+4. 记录回滚时间与操作员到 `C2-intune-version.txt`。
+
+#### 学生端崩溃看门狗（仅 MDM / 启动项 · 禁止隐蔽 Run）
+
+- **允许**：Assigned Access 自动重启允许的应用；或学校 IT 用 **Startup 文件夹 / 已文档化的计划任务** 仅启动 `Classroom Desk.exe`（路径见上表）。
+- **禁止**：向学生机写入隐蔽 `HKCU\\...\\Run`、静默持久化、对抗杀软的自恢复木马式逻辑。本仓库学生端**不**实现此类 Run 键。
+- 教师「加固体检」页汇总 `/health` + presence `hardened`；可一键导出 Assigned Access 清单 JSON。
 
 ### 物理输入锁（教师可控 · 学生可见）
 
@@ -144,7 +159,9 @@ JSON 片段（Intune「展台」或多应用 Assigned Access）：
   - **全局/班级锁 + 未排座**：横幅 +「本机未排座，座锁未生效」。  
   - **仅机位锁 + 未排座**：无全局横幅，仅提示「座锁未命中」。  
 - 「全部解除」（`clearAll`）清空全局/班级/机位，**并清除考试模式输入锁快照**（避免误恢复旧锁）。  
-- USB：`CD_TOKEN` + `CD_CLASS_ID` 时 `prepare-usb-pack` 生成 `SEAT-MAP-ID-SHEET.html`（可扫码 seat_map.id 对照）。  
+- USB：`CD_TOKEN` + `CD_CLASS_ID` 时 `prepare-usb-pack` 生成 `SEAT-MAP-ID-SHEET.html`（可扫码 seat_map.id 对照；页内「全部 / 仅空座 / 仅已排」筛选后打印；`--filter empty|seated` 设初始筛选）。
+- 输入锁可按出勤课次 `end_at` 自动到期（设置页绑定 session；到期后 resolve 为空并写审计 `ttl_expire`）。
+- 座位图：按行 / 列 / 全部一键锁空座（键鼠）。  
 - 考试模式保存进考前快照，可一键「解除考试模式」恢复。  
 - 断线对账 `POST /api/v1/auth/exit-lock-reconcile` 的 `clientId`：**机位/机器 id**（`cd_presence_client_id`），不是 classId、不是学号。  
 - **不做** OS 级键鼠钩子、隐蔽监控或对抗杀软；系统热键/其它进程仍依赖 Assigned Access。  
@@ -167,7 +184,8 @@ JSON 片段（Intune「展台」或多应用 Assigned Access）：
 | 8 | 解除码路径 | 可退；错码限流 | 截图 | |
 | 9 | 教师审计 | 可筛选 kind（含 `code_rotated`）/ 导出 CSV | CSV 文件 | |
 | 10 | Assigned Access + 上表路径 | 任务管理器无法结束 | 负向手测录屏 | |
-| 11 | （可选）Intune HideTaskManager | 试验组生效 | 策略同步截图 | |
+| 11 | （可选）Intune HideTaskManager + USB 限制 | 试验组生效；U 盘不可写 | 策略同步截图 + USB 手测 | |
+| 12 | **锁态 Alt+Tab / Win 键（真机）** | 展台账户下 Alt+Tab、Win 键无效或无法切到桌面/其它应用；仍困在 Classroom Desk | `C2-alttab-win.mp4` | |
 
 静态检查：`npm run verify:exit-lock-packaged`（打包机 / CI `REQUIRE_WIN_EXE=1`；无 exe 硬失败）。Artifact：`classroom-desk-windows-setup`（保留 30 天）。总表见 [LOCAL_USB_CHECKLIST.md](./LOCAL_USB_CHECKLIST.md)「C2」。
 

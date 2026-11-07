@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Classroom Desk · Intune 试验组回滚样例
+  将 HideTaskManager / USB 限制恢复为允许（Data=0）或删除配置文件分配。
+  优先操作：Intune → 配置文件 → 取消试验组分配 → 设备同步；本文件仅作 OMA-URI 显式回滚参考。
+-->
+<SyncML xmlns="SYNCML:SYNCML1.2">
+  <SyncBody>
+    <Replace>
+      <CmdID>1</CmdID>
+      <Item>
+        <Target>
+          <LocURI>./Device/Vendor/MSFT/Policy/Config/Start/HideTaskManager</LocURI>
+        </Target>
+        <Meta>
+          <Format xmlns="syncml:metinf">int</Format>
+        </Meta>
+        <Data>0</Data>
+      </Item>
+    </Replace>
+    <Replace>
+      <CmdID>2</CmdID>
+      <Item>
+        <Target>
+          <LocURI>./Device/Vendor/MSFT/Policy/Config/Storage/RemovableDiskDenyWrite</LocURI>
+        </Target>
+        <Meta>
+          <Format xmlns="syncml:metinf">int</Format>
+        </Meta>
+        <Data>0</Data>
+      </Item>
+    </Replace>
+    <Replace>
+      <CmdID>3</CmdID>
+      <Item>
+        <Target>
+          <LocURI>./Device/Vendor/MSFT/Policy/Config/Storage/RemovableDiskDenyExecute</LocURI>
+        </Target>
+        <Meta>
+          <Format xmlns="syncml:metinf">int</Format>
+        </Meta>
+        <Data>0</Data>
+      </Item>
+    </Replace>
+    <Final/>
+  </SyncBody>
+</SyncML>

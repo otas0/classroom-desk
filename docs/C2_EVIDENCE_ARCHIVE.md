@@ -16,6 +16,13 @@
 
 核对步骤见 [EXIT_LOCK_MDM.md](./EXIT_LOCK_MDM.md)。Intune XML 示例：[intune-student-kiosk.example.xml](./intune-student-kiosk.example.xml)。版本表模板：[C2_intune-version.example.txt](./C2_intune-version.example.txt)。安装包命名：[ARTIFACTS.md](./ARTIFACTS.md)。
 
+本地证据目录（**勿 git**，已 ignore `证据/`）：
+
+```bash
+bash scripts/init-c2-evidence-dir.sh          # → 证据/C2-YYYYMMDD/
+# 样机填满 C2-intune-version.txt（22H2/24H2）；录制替换 C2-alttab-win.mp4.PLACEHOLDER
+```
+
 样机本批建议：`ClassroomDesk-Setup-0.1.7.exe`（Release `v0.1.7`）。本地可把填好的 `C2-intune-version.txt` 放在 `artifacts/`（gitignore）或 `证据/C2-YYYYMMDD/`；录完 `C2-narrator.mp4` / `C2-taskmgr-deny.mp4` 后按上表归档。
 
 ## 真机勾选表（打印 / 填入 CHECKLIST.md）
@@ -34,6 +41,8 @@
 | 10 | 实机 DevTools 关 `/exit-lock/ws` | toast「实时通道已切到备用」+ SSE | 截图 Network WS/SSE | | | |
 | 11 | **物理输入锁须告知学生** | 启用键鼠/语音/相机锁或考试模式前已当面/投影说明用途与解除方式；学生端有横幅；鼠标锁仍可「向教师举手」 | 告知记录或投影截图 | | | |
 | 12 | 多显示器 / 触控笔 · `setIgnoreMouseEvents` | 主屏锁定遮罩可点；副屏无点击穿透；触控笔/触控与鼠标锁一致，举手按钮可点 | 双屏录屏 + 触控手测勾选 | | | |
+| 13 | **锁态 Alt+Tab / Win 键（真机负向）** | Assigned Access 展台下 Alt+Tab、Win 无法切桌面/其它应用 | `C2-alttab-win.mp4` → 归档到 `证据/C2-YYYYMMDD/`（**本仓库 CI/macOS 无法代录**；操作员真机录屏） | | | |
+| 14 | Intune USB 限制（试验组 · 22H2/24H2） | 两版本各填 [`C2_intune-version.example.txt`](./C2_intune-version.example.txt) 对照表；U 盘不可写；回滚可恢复 | `C2-intune-version.txt` + 手测 | | | |
 
 ### 样机安装（本机无法代跑 — 操作员）
 

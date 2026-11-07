@@ -10,6 +10,8 @@ import { purgeExpiredSoftDeletes } from '../services/audit.js';
 import { flushAuditRetryQueue } from '../services/auditRetry.js';
 import { runDbBackup, shouldRunDailyBackup } from '../services/backup.js';
 import { takeFleetDriftSnapshot } from '../services/fleetDrift.js';
+import { purgeExpiredInputLocks } from '../services/inputLock.js';
+import { broadcastInputLock } from '../services/inputLockHub.js';
 import { nowIso } from '../utils/id.js';
 
 let timer: NodeJS.Timeout | null = null;
@@ -74,6 +76,15 @@ export function startCleanupScheduler(): void {
         console.log(
           `[recycle] purged soft-deletes students=${purged.students} questions=${purged.questions}`,
         );
+      }
+      try {
+        const ttl = purgeExpiredInputLocks(db);
+        if (ttl.purged) {
+          broadcastInputLock(db);
+          console.log('[input-lock] TTL expired → cleared + broadcast');
+        }
+      } catch (e) {
+        console.error('[scheduler] input-lock TTL purge failed', e);
       }
       const auditFlush = flushAuditRetryQueue();
       if (auditFlush.flushed > 0 || auditFlush.remaining > 0 || auditFlush.failed > 0) {

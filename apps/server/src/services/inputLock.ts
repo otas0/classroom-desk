@@ -20,6 +20,13 @@ export type InputLockStore = {
   byClass: Record<string, InputLockFlags>;
   /** `${classId}:${seatOrClientId}` → flags. */
   bySeat: Record<string, InputLockFlags>;
+  /**
+   * ISO expiry — when set and past, resolve treats locks as empty (课次/出勤 session TTL).
+   * Cleared on clearAll or explicit unbind.
+   */
+  expiresAt?: string | null;
+  /** Attendance session that owns expiresAt (optional audit/link). */
+  attendanceSessionId?: string | null;
 };
 
 export const DEFAULT_INPUT_LOCK: InputLockFlags = {
@@ -61,7 +68,68 @@ function seatKey(classId: string, seatId: string): string {
   return `${classId}:${seatId}`;
 }
 
-export function getInputLockStore(db: DatabaseSync): InputLockStore {
+export function inputLockExpired(store: InputLockStore, now = Date.now()): boolean {
+  const exp = String(store.expiresAt ?? '').trim();
+  if (!exp) return false;
+  const t = Date.parse(exp);
+  return Number.isFinite(t) && t <= now;
+}
+
+/** Persist store without audit (TTL purge / meta-only). */
+function writeInputLockStore(db: DatabaseSync, store: InputLockStore): void {
+  upsertSetting(db, KEY_V2, JSON.stringify(store));
+  upsertSetting(db, KEY_V1, JSON.stringify(store.global));
+}
+
+/** Students show toast while Date.now() < this (set on TTL purge). */
+let ttlClearedNoticeUntil = 0;
+
+export function inputLockClearedReasonNow(): 'ttl_expire' | null {
+  return Date.now() < ttlClearedNoticeUntil ? 'ttl_expire' : null;
+}
+
+/**
+ * If expiresAt is past, wipe locks and clear TTL fields. Returns (possibly purged) store.
+ * Broadcast is the caller's responsibility.
+ */
+export function purgeExpiredInputLocks(
+  db: DatabaseSync,
+  meta?: { actorUserId?: string; actorRole?: string; clientIp?: string },
+  /** Injected clock for tests (TTL expire without waiting). */
+  nowMs: number = Date.now(),
+): { store: InputLockStore; purged: boolean } {
+  const store = getInputLockStoreRaw(db);
+  if (!inputLockExpired(store, nowMs)) return { store, purged: false };
+  const empty = emptyInputLockStore();
+  writeInputLockStore(db, empty);
+  ttlClearedNoticeUntil = Date.now() + 120_000;
+  recordExitLockEvent(db, {
+    kind: 'input_lock',
+    actorUserId: meta?.actorUserId,
+    actorRole: meta?.actorRole ?? 'system',
+    detail: `物理输入锁：课次到期自动解除（session=${store.attendanceSessionId ?? '—'} · 原到期 ${store.expiresAt}）`,
+    clientIp: meta?.clientIp,
+  });
+  writeAudit(
+    {
+      action: 'settings.input_lock',
+      actorUserId: meta?.actorUserId,
+      actorRole: meta?.actorRole ?? 'system',
+      classId: null,
+      detail: JSON.stringify({
+        scope: 'ttl_expire',
+        attendanceSessionId: store.attendanceSessionId ?? null,
+        expiresAt: store.expiresAt ?? null,
+        summary: '课次到期自动解除物理输入锁',
+      }),
+      clientIp: meta?.clientIp,
+    },
+    db,
+  );
+  return { store: empty, purged: true };
+}
+
+function getInputLockStoreRaw(db: DatabaseSync): InputLockStore {
   const v2 = getSetting(db, KEY_V2);
   if (v2) {
     try {
@@ -74,6 +142,11 @@ export function getInputLockStore(db: DatabaseSync): InputLockStore {
         global: parseFlags(o.global),
         byClass,
         bySeat,
+        expiresAt: o.expiresAt != null && String(o.expiresAt).trim() ? String(o.expiresAt) : null,
+        attendanceSessionId:
+          o.attendanceSessionId != null && String(o.attendanceSessionId).trim()
+            ? String(o.attendanceSessionId)
+            : null,
       };
     } catch {
       /* fall through */
@@ -86,11 +159,16 @@ export function getInputLockStore(db: DatabaseSync): InputLockStore {
   return store;
 }
 
-/** Seat override > class override > global. */
+export function getInputLockStore(db: DatabaseSync): InputLockStore {
+  return purgeExpiredInputLocks(db).store;
+}
+
+/** Seat override > class override > global. Expired store resolves as unlocked. */
 export function resolveInputLock(
   store: InputLockStore,
   opts?: { classId?: string | null; seatId?: string | null },
 ): InputLockFlags {
+  if (inputLockExpired(store)) return { ...DEFAULT_INPUT_LOCK };
   const classId = String(opts?.classId ?? '').trim();
   const seatId = String(opts?.seatId ?? '').trim();
   if (classId && seatId) {
@@ -99,6 +177,159 @@ export function resolveInputLock(
   }
   if (classId && store.byClass[classId]) return { ...store.byClass[classId]! };
   return { ...store.global };
+}
+
+/** Bind / clear TTL (attendance session end_at). Does not change flag maps. */
+export function setInputLockTtl(
+  db: DatabaseSync,
+  patch: {
+    expiresAt?: string | null;
+    attendanceSessionId?: string | null;
+    clearTtl?: boolean;
+  },
+  meta?: { actorUserId?: string; actorRole?: string; clientIp?: string },
+): InputLockStore {
+  const store = getInputLockStoreRaw(db);
+  if (patch.clearTtl) {
+    store.expiresAt = null;
+    store.attendanceSessionId = null;
+  } else {
+    if (patch.expiresAt !== undefined) {
+      store.expiresAt = patch.expiresAt ? String(patch.expiresAt) : null;
+    }
+    if (patch.attendanceSessionId !== undefined) {
+      store.attendanceSessionId = patch.attendanceSessionId
+        ? String(patch.attendanceSessionId)
+        : null;
+    }
+  }
+  writeInputLockStore(db, store);
+  recordExitLockEvent(db, {
+    kind: 'input_lock',
+    actorUserId: meta?.actorUserId,
+    actorRole: meta?.actorRole,
+    detail: store.expiresAt
+      ? `物理输入锁：绑定课次到期 ${store.expiresAt}${store.attendanceSessionId ? `（session ${store.attendanceSessionId}）` : ''}`
+      : '物理输入锁：已清除课次到期',
+    clientIp: meta?.clientIp,
+  });
+  return store;
+}
+
+/** Apply same flags to many seat_map ids in one class (one audit). */
+export function setInputLockSeatsBulk(
+  db: DatabaseSync,
+  opts: {
+    classId: string;
+    seatIds: string[];
+    flags: Partial<InputLockFlags>;
+  },
+  meta?: { actorUserId?: string; actorRole?: string; clientIp?: string },
+): { store: InputLockStore; count: number } {
+  const classId = String(opts.classId ?? '').trim();
+  const seatIds = [...new Set(opts.seatIds.map((s) => String(s).trim()).filter(Boolean))];
+  if (!classId || !seatIds.length) {
+    return { store: getInputLockStore(db), count: 0 };
+  }
+  const store = getInputLockStore(db);
+  for (const seatId of seatIds) {
+    const sk = seatKey(classId, seatId);
+    const prev = store.bySeat[sk] ?? { ...DEFAULT_INPUT_LOCK };
+    store.bySeat[sk] = {
+      keyboard: opts.flags.keyboard != null ? Boolean(opts.flags.keyboard) : prev.keyboard,
+      mouse: opts.flags.mouse != null ? Boolean(opts.flags.mouse) : prev.mouse,
+      voice: opts.flags.voice != null ? Boolean(opts.flags.voice) : prev.voice,
+      camera: opts.flags.camera != null ? Boolean(opts.flags.camera) : prev.camera,
+    };
+  }
+  writeInputLockStore(db, store);
+  const cls = db.prepare(`SELECT name FROM classes WHERE id = ?`).get(classId) as
+    | { name?: string }
+    | undefined;
+  const className = String(cls?.name ?? '').trim() || null;
+  const sample = seatIds.slice(0, 8).join(',');
+  const detailZh = `物理输入锁（批量机位 ${seatIds.length} · 班级 ${className || classId}）：${inputLockFlagsLabel(parseFlags(opts.flags))} · 例 ${sample}`;
+  recordExitLockEvent(db, {
+    kind: 'input_lock',
+    actorUserId: meta?.actorUserId,
+    actorRole: meta?.actorRole,
+    detail: detailZh,
+    clientIp: meta?.clientIp,
+  });
+  writeAudit(
+    {
+      action: 'settings.input_lock',
+      actorUserId: meta?.actorUserId,
+      actorRole: meta?.actorRole,
+      classId,
+      detail: JSON.stringify({
+        scope: 'seat_bulk',
+        classId,
+        className,
+        seatIds,
+        count: seatIds.length,
+        flags: parseFlags(opts.flags),
+        summary: detailZh,
+      }),
+      clientIp: meta?.clientIp,
+    },
+    db,
+  );
+  return { store, count: seatIds.length };
+}
+
+/** Remove bySeat entries for many seat ids in one class (one audit). */
+export function clearInputLockSeatsBulk(
+  db: DatabaseSync,
+  opts: { classId: string; seatIds: string[] },
+  meta?: { actorUserId?: string; actorRole?: string; clientIp?: string },
+): { store: InputLockStore; count: number } {
+  const classId = String(opts.classId ?? '').trim();
+  const seatIds = [...new Set(opts.seatIds.map((s) => String(s).trim()).filter(Boolean))];
+  if (!classId || !seatIds.length) {
+    return { store: getInputLockStore(db), count: 0 };
+  }
+  const store = getInputLockStore(db);
+  let count = 0;
+  for (const seatId of seatIds) {
+    const sk = seatKey(classId, seatId);
+    if (store.bySeat[sk]) {
+      delete store.bySeat[sk];
+      count += 1;
+    }
+  }
+  writeInputLockStore(db, store);
+  const cls = db.prepare(`SELECT name FROM classes WHERE id = ?`).get(classId) as
+    | { name?: string }
+    | undefined;
+  const className = String(cls?.name ?? '').trim() || null;
+  const detailZh = `物理输入锁：批量解除机位锁 ${count}/${seatIds.length} · 班级 ${className || classId}`;
+  recordExitLockEvent(db, {
+    kind: 'input_lock',
+    actorUserId: meta?.actorUserId,
+    actorRole: meta?.actorRole,
+    detail: detailZh,
+    clientIp: meta?.clientIp,
+  });
+  writeAudit(
+    {
+      action: 'settings.input_lock',
+      actorUserId: meta?.actorUserId,
+      actorRole: meta?.actorRole,
+      classId,
+      detail: JSON.stringify({
+        scope: 'seat_bulk_clear',
+        classId,
+        className,
+        seatIds,
+        cleared: count,
+        summary: detailZh,
+      }),
+      clientIp: meta?.clientIp,
+    },
+    db,
+  );
+  return { store, count };
 }
 
 /** @deprecated prefer getInputLockStore + resolve */
@@ -323,6 +554,11 @@ export function restoreExamModeInputLock(
       global: parseFlags(o.global),
       byClass: {},
       bySeat: {},
+      expiresAt: o.expiresAt != null && String(o.expiresAt).trim() ? String(o.expiresAt) : null,
+      attendanceSessionId:
+        o.attendanceSessionId != null && String(o.attendanceSessionId).trim()
+          ? String(o.attendanceSessionId)
+          : null,
     };
     for (const [k, v] of Object.entries(o.byClass ?? {})) snap.byClass[k] = parseFlags(v);
     for (const [k, v] of Object.entries(o.bySeat ?? {})) snap.bySeat[k] = parseFlags(v);
@@ -372,6 +608,8 @@ export function clearAllInputLocks(
 ): InputLockStore {
   const hadExamSnap = hasExamModeSnapshot(db);
   const store = emptyInputLockStore();
+  store.expiresAt = null;
+  store.attendanceSessionId = null;
   upsertSetting(db, KEY_V2, JSON.stringify(store));
   upsertSetting(db, KEY_V1, JSON.stringify(store.global));
   if (hadExamSnap) {

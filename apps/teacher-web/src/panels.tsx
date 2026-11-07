@@ -625,17 +625,17 @@ export function RosterPanel({
           {filteredStudents.slice(rosterVirtual.start, rosterVirtual.end).map((s, i) => {
             const idx = rosterVirtual.start + i;
             return (
-              <StudentRow
-                key={String(s.id)}
-                classId={classId}
-                student={s}
+            <StudentRow
+              key={String(s.id)}
+              classId={classId}
+              student={s}
                 style={{ top: idx * ROSTER_ROW_H, height: ROSTER_ROW_H } as CSSProperties}
                 jumpHighlight={jumpIds.has(String(s.id))}
                 selected={selectedIds.has(String(s.id))}
                 onSelectChange={(id, on, opts) => {
                   toggleRosterSelect(id, on, Boolean(opts?.shift));
                 }}
-                onChanged={() => void loadStudents()}
+              onChanged={() => void loadStudents()}
                 onRemoved={() => {
                   onRosterChanged?.();
                   toast.ok('已移入回收站');
@@ -920,15 +920,15 @@ export function StudentRow({
 
   async function remove() {
     setBusy(true);
-    try {
-      const impact = await api<{
-        attendanceRecords: number;
-        pointsLog: number;
-        answers: number;
-        messages: number;
-        pointRequests: number;
-        total: number;
-      }>(`/api/v1/classes/${classId}/students/${id}/impact`);
+      try {
+        const impact = await api<{
+          attendanceRecords: number;
+          pointsLog: number;
+          answers: number;
+          messages: number;
+          pointRequests: number;
+          total: number;
+        }>(`/api/v1/classes/${classId}/students/${id}/impact`);
       if (onRequestDelete) {
         onRequestDelete({
           ids: [id],
@@ -961,10 +961,10 @@ export function StudentRow({
       data-row-id={id}
       tabIndex={-1}
     >
-      <input
+        <input
         type="checkbox"
         checked={Boolean(selected)}
-        disabled={busy}
+          disabled={busy}
         aria-label={`选择 ${name || id}`}
         data-testid={`student-check-${id}`}
         onClick={(e) => {
@@ -978,29 +978,29 @@ export function StudentRow({
       <input
         value={studentNo}
         disabled={busy || !allowWrite}
-        onChange={(e) => setStudentNo(e.target.value)}
-        placeholder="学号"
-        aria-label="学号"
+          onChange={(e) => setStudentNo(e.target.value)}
+          placeholder="学号"
+          aria-label="学号"
         readOnly={!allowWrite}
-      />
-      <input
-        value={name}
+        />
+        <input
+          value={name}
         disabled={busy || !allowWrite}
-        onChange={(e) => setName(e.target.value)}
-        placeholder="姓名"
-        aria-label="姓名"
+          onChange={(e) => setName(e.target.value)}
+          placeholder="姓名"
+          aria-label="姓名"
         readOnly={!allowWrite}
       />
       <span>{String(student.totalPoints)}</span>
       <span>
         {allowWrite ? (
           <>
-            <button type="button" className="secondary" disabled={busy} onClick={() => void save()}>
-              保存
-            </button>{' '}
-            <button type="button" disabled={busy} onClick={() => void remove()}>
-              删除
-            </button>
+        <button type="button" className="secondary" disabled={busy} onClick={() => void save()}>
+          保存
+        </button>{' '}
+        <button type="button" disabled={busy} onClick={() => void remove()}>
+          删除
+        </button>
           </>
         ) : (
           <span className="hint">只读</span>
@@ -1342,12 +1342,12 @@ export function QuestionsPanel({ classId }: { classId: string }) {
       <div className="row">
         {allowWrite ? (
           <>
-            <button type="button" className="chip" onClick={() => applyTemplate('bool')}>
-              判断题模板
-            </button>
-            <button type="button" className="chip" onClick={() => applyTemplate('blank')}>
-              填空题模板
-            </button>
+        <button type="button" className="chip" onClick={() => applyTemplate('bool')}>
+          判断题模板
+        </button>
+        <button type="button" className="chip" onClick={() => applyTemplate('blank')}>
+          填空题模板
+        </button>
           </>
         ) : null}
         <label className="row">
@@ -1373,7 +1373,7 @@ export function QuestionsPanel({ classId }: { classId: string }) {
         <input value={blankKey} onChange={(e) => setBlankKey(e.target.value)} placeholder="参考答案（必填）" />
       ) : type === 'bool' ? (
         <>
-          <p className="hint">判断题选项固定为「正确 / 错误」</p>
+        <p className="hint">判断题选项固定为「正确 / 错误」</p>
           <div className="row" role="radiogroup" aria-label="正确答案">
             <span>正确答案：</span>
             <label className="choice">
@@ -1779,24 +1779,24 @@ export function QuestionsPanel({ classId }: { classId: string }) {
               </button>
             </div>
           );
-          })}
+        })}
         </div>
       </div>
       {allowWrite && editingQuestion ? (
         <>
-          <h3>编辑题目（加载原选项）</h3>
-          <QuestionEditForm
-            classId={classId}
-            seed={editingQuestion}
-            onSaved={async () => {
-              setEditingQuestion(null);
-              await load();
-            }}
-            onDeleted={async () => {
-              setEditingQuestion(null);
-              await load();
-            }}
-          />
+      <h3>编辑题目（加载原选项）</h3>
+      <QuestionEditForm
+        classId={classId}
+        seed={editingQuestion}
+        onSaved={async () => {
+          setEditingQuestion(null);
+          await load();
+        }}
+        onDeleted={async () => {
+          setEditingQuestion(null);
+          await load();
+        }}
+      />
         </>
       ) : null}
       {chart ? (
@@ -2360,7 +2360,7 @@ export function AttendancePanel({ classId }: { classId: string }) {
       <div className="row">
         <label>
           月份
-          <input value={month} onChange={(e) => setMonth(e.target.value)} placeholder="YYYY-MM" />
+      <input value={month} onChange={(e) => setMonth(e.target.value)} placeholder="YYYY-MM" />
         </label>
         <label>
           课次
@@ -2382,9 +2382,9 @@ export function AttendancePanel({ classId }: { classId: string }) {
         </label>
       </div>
       <div className="row">
-        <button type="button" onClick={() => void load()}>
-          刷新
-        </button>
+      <button type="button" onClick={() => void load()}>
+        刷新
+      </button>
         <button type="button" className="secondary" onClick={() => void download('detail')}>
           导出明细
         </button>
@@ -2847,6 +2847,9 @@ export function SettingsPanel({
   const [hasExitCode, setHasExitCode] = useState(false);
   const [exitMinutes, setExitMinutes] = useState(15);
   const [exitCodeDraft, setExitCodeDraft] = useState('');
+  /** One-time plaintext from system rotate — copy into password book then dismiss. */
+  const [generatedExitCode, setGeneratedExitCode] = useState<string | null>(null);
+  const [exitCodeGenerateBusy, setExitCodeGenerateBusy] = useState(false);
   const [exitMsg, setExitMsg] = useState('');
   const [csvExportBusy, setCsvExportBusy] = useState(false);
   const csvExportAbortRef = useRef<AbortController | null>(null);
@@ -2913,6 +2916,12 @@ export function SettingsPanel({
   /** Last known store summary counts for clearAll confirm. */
   const [inputLockClassCount, setInputLockClassCount] = useState(0);
   const [inputLockSeatCount, setInputLockSeatCount] = useState(0);
+  const [inputLockExpiresAt, setInputLockExpiresAt] = useState<string | null>(null);
+  const [inputLockSsePolling, setInputLockSsePolling] = useState(false);
+  const [inputLockSessionId, setInputLockSessionId] = useState('');
+  const [attendanceSessions, setAttendanceSessions] = useState<
+    Array<{ id: string; startAt: string; endAt: string; status: string }>
+  >([]);
   const [seatIdCopied, setSeatIdCopied] = useState(false);
   const [clearAllOpen, setClearAllOpen] = useState(false);
   const [clearAllBusy, setClearAllBusy] = useState(false);
@@ -3000,6 +3009,7 @@ export function SettingsPanel({
   const [grantMigrateBusy, setGrantMigrateBusy] = useState(false);
   const [grantLoseNames, setGrantLoseNames] = useState<string[]>([]);
   const [driftMins, setDriftMins] = useState(5);
+  const [unhardenedThresh, setUnhardenedThresh] = useState(0.25);
   const [driftLastAt, setDriftLastAt] = useState<string | null>(null);
   const [driftSnapBusy, setDriftSnapBusy] = useState(false);
   const [upgradesKeep, setUpgradesKeep] = useState(3);
@@ -3030,6 +3040,7 @@ export function SettingsPanel({
       recycleRetentionDays?: number;
       recycleUrgentDays?: number;
       fleetDriftSnapshotMinutes?: number;
+      unhardenedAlertThreshold?: number;
       fleetDriftSnapshotLastAt?: string | null;
       upgradesKeepCount?: number;
       restoreConfirmEmail?: string;
@@ -3063,8 +3074,8 @@ export function SettingsPanel({
         lastAutoBackupAt: string | null;
       };
     }>('/api/v1/settings');
-    setTtl(s.pointRequestTtlMinutes);
-    setMessagesOn(s.messagesEnabled !== false);
+      setTtl(s.pointRequestTtlMinutes);
+      setMessagesOn(s.messagesEnabled !== false);
     setQuizConfirmOn(s.quizConfirmSubmit !== false);
     if (s.liveboardReadonlyAfterMinutes != null) {
       setReadonlyAfterMins(Number(s.liveboardReadonlyAfterMinutes) || 0);
@@ -3074,6 +3085,9 @@ export function SettingsPanel({
     }
     if (s.fleetDriftSnapshotMinutes != null && Number.isFinite(Number(s.fleetDriftSnapshotMinutes))) {
       setDriftMins(Number(s.fleetDriftSnapshotMinutes));
+    }
+    if (s.unhardenedAlertThreshold != null && Number.isFinite(Number(s.unhardenedAlertThreshold))) {
+      setUnhardenedThresh(Number(s.unhardenedAlertThreshold));
     }
     setDriftLastAt(s.fleetDriftSnapshotLastAt ?? null);
     if (typeof s.restoreConfirmEmail === 'string') setRestoreConfirmEmail(s.restoreConfirmEmail);
@@ -3090,9 +3104,9 @@ export function SettingsPanel({
       setBackupInfo(s.backup);
       if (s.backup.dir) setBackupDirPath(s.backup.dir);
     }
-    setExitAllowed(s.clientExitAllowed === true);
-    setExitUnlockUntil(s.clientExitUnlockUntil ?? null);
-    setHasExitCode(s.hasExitUnlockCode === true);
+      setExitAllowed(s.clientExitAllowed === true);
+      setExitUnlockUntil(s.clientExitUnlockUntil ?? null);
+      setHasExitCode(s.hasExitUnlockCode === true);
     setMaxFails(s.exitUnlockMaxFails ?? 5);
     setWindowMin(s.exitUnlockWindowMinutes ?? 15);
     setLockoutMin(s.exitUnlockLockoutMinutes ?? 15);
@@ -3108,6 +3122,12 @@ export function SettingsPanel({
       });
     }
     setExamModeSnapshot(s.examModeSnapshot === true);
+    setInputLockExpiresAt(
+      (s as { inputLockExpiresAt?: string | null }).inputLockExpiresAt ?? null,
+    );
+    setInputLockSessionId(
+      String((s as { inputLockAttendanceSessionId?: string | null }).inputLockAttendanceSessionId ?? ''),
+    );
     const sum = s.inputLockSummary;
     const classN = Array.isArray(sum?.byClass) ? sum!.byClass!.length : 0;
     const seatN = Array.isArray(sum?.bySeat) ? sum!.bySeat!.length : 0;
@@ -3137,6 +3157,16 @@ export function SettingsPanel({
 
     const classId = currentTeacherClassId();
     if (classId) {
+      try {
+        const sessions = await api<{
+          items?: Array<{ id: string; startAt: string; endAt: string; status: string }>;
+        }>(`/api/v1/attendance/sessions?classId=${encodeURIComponent(classId)}`);
+        setAttendanceSessions(
+          (sessions.items ?? []).filter((x) => x.status === 'open').slice(0, 20),
+        );
+      } catch {
+        setAttendanceSessions([]);
+      }
       try {
         const [presence, seats] = await Promise.all([
           api<{
@@ -3207,6 +3237,7 @@ export function SettingsPanel({
       'settings.input_lock': '物理输入锁变更',
       'settings.exam_mode': '一键考试模式',
       'settings.exam_mode_end': '解除考试模式',
+      'settings.unhardened_threshold': '未加固告警阈值',
       'session.raise_hand': '学生举手',
     };
     return map[action] ? `${map[action]}（${action}）` : action;
@@ -3558,8 +3589,51 @@ export function SettingsPanel({
         );
       }
     }
+    let inputLockFailStreak = 0;
+    let inputLockPollTimer: number | undefined;
+    let inputLockUsingPoll = false;
+    function pollInputLockOnce() {
+      void api<{
+        inputLock?: typeof inputLock;
+        inputLockExpiresAt?: string | null;
+        inputLockSummary?: {
+          global?: string;
+          byClass?: unknown[];
+          bySeat?: unknown[];
+        };
+      }>('/api/v1/settings')
+        .then((s) => {
+          if (s.inputLock) {
+            setInputLock({
+              keyboard: Boolean(s.inputLock.keyboard),
+              mouse: Boolean(s.inputLock.mouse),
+              voice: Boolean(s.inputLock.voice),
+              camera: Boolean(s.inputLock.camera),
+            });
+          }
+          if ('inputLockExpiresAt' in s) {
+            setInputLockExpiresAt(
+              s.inputLockExpiresAt != null && String(s.inputLockExpiresAt).trim()
+                ? String(s.inputLockExpiresAt)
+                : null,
+            );
+          }
+          applyInputLockCoverage(s.inputLockSummary);
+        })
+        .catch(() => undefined);
+    }
+    function startInputLockPollFallback() {
+      if (cancelled || inputLockPollTimer != null) return;
+      inputLockUsingPoll = true;
+      setInputLockSsePolling(true);
+      pollInputLockOnce();
+      inputLockPollTimer = window.setInterval(() => pollInputLockOnce(), 5_000);
+    }
     function connectInputLockSse() {
-      if (cancelled || typeof EventSource === 'undefined') return;
+      if (cancelled || typeof EventSource === 'undefined') {
+        startInputLockPollFallback();
+        return;
+      }
       try {
         inputLockEs?.close();
       } catch {
@@ -3567,10 +3641,20 @@ export function SettingsPanel({
       }
       inputLockEs = new EventSource(`${API_BASE}/api/v1/input-lock/stream`);
       const onLock = (ev: MessageEvent) => {
+        inputLockFailStreak = 0;
+        if (inputLockUsingPoll) {
+          inputLockUsingPoll = false;
+          setInputLockSsePolling(false);
+          if (inputLockPollTimer != null) {
+            window.clearInterval(inputLockPollTimer);
+            inputLockPollTimer = undefined;
+          }
+        }
         try {
           const data = JSON.parse(String(ev.data)) as {
             type?: string;
             inputLock?: typeof inputLock;
+            inputLockExpiresAt?: string | null;
             summary?: {
               global?: string;
               byClass?: unknown[];
@@ -3585,6 +3669,13 @@ export function SettingsPanel({
               camera: Boolean(data.inputLock.camera),
             });
           }
+          if ('inputLockExpiresAt' in data) {
+            setInputLockExpiresAt(
+              data.inputLockExpiresAt != null && String(data.inputLockExpiresAt).trim()
+                ? String(data.inputLockExpiresAt)
+                : null,
+            );
+          }
           applyInputLockCoverage(data.summary);
         } catch {
           /* ignore */
@@ -3592,7 +3683,27 @@ export function SettingsPanel({
       };
       inputLockEs.addEventListener('input_lock', onLock as EventListener);
       inputLockEs.onmessage = onLock;
+      inputLockEs.onerror = () => {
+        inputLockFailStreak += 1;
+        if (inputLockFailStreak >= 2) startInputLockPollFallback();
+      };
     }
+    // e2e / DevTools: force assistant settings input-lock SSE → 5s poll (expiresAt still updates).
+    (window as unknown as { __cdForceAssistantInputLockSseFallback?: () => void }).__cdForceAssistantInputLockSseFallback =
+      () => {
+        try {
+          inputLockEs?.close();
+        } catch {
+          /* ignore */
+        }
+        inputLockEs = null;
+        if (inputLockPollTimer != null) {
+          // Already on poll: nudge an immediate fetch (e2e after teacher PATCH).
+          pollInputLockOnce();
+          return;
+        }
+        startInputLockPollFallback();
+      };
     connectInputLockSse();
 
     async function pollHealthAlert() {
@@ -3625,6 +3736,12 @@ export function SettingsPanel({
     return () => {
       cancelled = true;
       try {
+        delete (window as unknown as { __cdForceAssistantInputLockSseFallback?: () => void })
+          .__cdForceAssistantInputLockSseFallback;
+      } catch {
+        /* ignore */
+      }
+      try {
         es?.close();
       } catch {
         /* ignore */
@@ -3634,6 +3751,7 @@ export function SettingsPanel({
       } catch {
         /* ignore */
       }
+      if (inputLockPollTimer != null) window.clearInterval(inputLockPollTimer);
       if (reconnectTimer != null) window.clearTimeout(reconnectTimer);
       stopPoll();
       window.clearInterval(healthPoll);
@@ -3887,8 +4005,8 @@ export function SettingsPanel({
         : pwdTooShort
           ? `还差 ${8 - newPwd.length} 个字符（至少 8 位）`
           : pwdNeedMixed
-            ? '还需同时包含字母与数字'
-            : '强度看起来可以提交';
+          ? '还需同时包含字母与数字'
+          : '强度看起来可以提交';
 
   return (
     <section>
@@ -4631,6 +4749,30 @@ export function SettingsPanel({
               }}
             />
           </label>
+          <label id="unhardened-alert-threshold">
+            未加固告警阈值（0–1，健康仪表盘；默认 0.25=25%）
+            <input
+              type="number"
+              min={0}
+              max={1}
+              step={0.05}
+              data-testid="unhardened-alert-threshold"
+              value={unhardenedThresh}
+              onChange={(e) => setUnhardenedThresh(Number(e.target.value))}
+              onBlur={(e) => {
+                let t = Number(e.currentTarget.value);
+                if (!Number.isFinite(t)) t = 0.25;
+                t = Math.max(0, Math.min(1, t));
+                setUnhardenedThresh(t);
+                void api('/api/v1/settings', {
+                  method: 'PATCH',
+                  body: JSON.stringify({ unhardenedAlertThreshold: t }),
+                })
+                  .then(() => setSaveMsg(`未加固告警阈值 ${(t * 100).toFixed(0)}%`))
+                  .catch((err) => setSaveMsg(err instanceof Error ? err.message : '保存失败'));
+              }}
+            />
+          </label>
           <div className="row">
             <p className="hint" data-testid="fleet-drift-snapshot-last" style={{ margin: 0 }}>
               上次 fleet.drift_snapshot：
@@ -4904,6 +5046,9 @@ export function SettingsPanel({
             <h3>创建助教账号</h3>
             {assistantsLiveMode === 'poll' ? (
               <p className="hint" data-testid="assistants-sse-fallback-badge" role="status">
+                <span className="badge" data-testid="assistants-sse-polling-badge">
+                  轮询中
+                </span>{' '}
                 实时通道降级为轮询（弱网/SSE 断开，恢复后自动切回）
               </p>
             ) : (
@@ -5184,10 +5329,24 @@ export function SettingsPanel({
                   </span>
                 ) : null}
               </p>
+              <p className="hint" data-testid="input-lock-expires-readonly">
+                课次自动到期：
+                {inputLockExpiresAt
+                  ? new Date(inputLockExpiresAt).toLocaleString()
+                  : '未绑定'}
+                {inputLockSsePolling ? (
+                  <>
+                    {' '}
+                    <span className="badge" data-testid="input-lock-sse-polling-badge">
+                      轮询中
+                    </span>
+                  </>
+                ) : null}
+              </p>
             </div>
           ) : (
             <div className="card" data-testid="input-lock-controls">
-              <label>
+          <label>
                 作用范围
                 <select
                   data-testid="input-lock-scope"
@@ -5237,13 +5396,13 @@ export function SettingsPanel({
                   </label>
                   <label>
                     或手动机位 / 客户端 ID
-                    <input
+            <input
                       data-testid="input-lock-seat-id"
                       value={inputLockSeatId}
                       onChange={(e) => setInputLockSeatId(e.target.value)}
                       placeholder="通常从上方选择即可"
-                    />
-                  </label>
+            />
+          </label>
                   {inputLockSeatId.trim() ? (
                     <p className="hint row" data-testid="input-lock-seat-id-readonly">
                       当前选中 seat_map.id（只读核对）：
@@ -5289,13 +5448,13 @@ export function SettingsPanel({
                   {label}
                 </label>
               ))}
-              <div className="row">
-                <button
-                  type="button"
+          <div className="row">
+            <button
+              type="button"
                   className="secondary"
                   disabled={inputLockBusy}
                   data-testid="input-lock-all"
-                  onClick={() =>
+              onClick={() =>
                     patchInputLock({
                       keyboard: true,
                       mouse: true,
@@ -5323,6 +5482,86 @@ export function SettingsPanel({
                 >
                   全部解除
                 </button>
+              </div>
+              <div className="row" data-testid="input-lock-ttl">
+                <label>
+                  课次自动到期（出勤 session）
+                  <select
+                    data-testid="input-lock-ttl-session"
+                    value={inputLockSessionId}
+                    disabled={inputLockBusy}
+                    onChange={(e) => setInputLockSessionId(e.target.value)}
+                  >
+                    <option value="">不绑定课次</option>
+                    {attendanceSessions.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {new Date(s.startAt).toLocaleString()} → {new Date(s.endAt).toLocaleString()}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <button
+                  type="button"
+                  className="secondary"
+                  disabled={inputLockBusy || !inputLockSessionId}
+                  data-testid="input-lock-ttl-bind"
+                  onClick={() => {
+                    if (!inputLockSessionId) return;
+                    setInputLockBusy(true);
+                    void api('/api/v1/settings', {
+                      method: 'PATCH',
+                      body: JSON.stringify({
+                        inputLock: { bindAttendanceSessionId: inputLockSessionId },
+                      }),
+                    })
+                      .then(async (r) => {
+                        const body = r as { inputLockExpiresAt?: string | null };
+                        setInputLockExpiresAt(body.inputLockExpiresAt ?? null);
+                        setExitMsg(
+                          body.inputLockExpiresAt
+                            ? `已绑定课次到期：${new Date(body.inputLockExpiresAt).toLocaleString()}`
+                            : '已绑定课次到期',
+                        );
+                        await refreshExitLock().catch(() => undefined);
+                      })
+                      .catch((e) => setExitMsg(e instanceof Error ? e.message : '绑定课次失败'))
+                      .finally(() => setInputLockBusy(false));
+                  }}
+                >
+                  绑定到期
+                </button>
+                <button
+                  type="button"
+                  className="secondary"
+                  disabled={inputLockBusy || !inputLockExpiresAt}
+                  data-testid="input-lock-ttl-clear"
+                  onClick={() => {
+                    setInputLockBusy(true);
+                    void api('/api/v1/settings', {
+                      method: 'PATCH',
+                      body: JSON.stringify({ inputLock: { clearTtl: true } }),
+                    })
+                      .then(async () => {
+                        setInputLockExpiresAt(null);
+                        setInputLockSessionId('');
+                        setExitMsg('已清除课次到期');
+                        await refreshExitLock().catch(() => undefined);
+                      })
+                      .catch((e) => setExitMsg(e instanceof Error ? e.message : '清除到期失败'))
+                      .finally(() => setInputLockBusy(false));
+                  }}
+                >
+                  清除到期
+                </button>
+                {inputLockExpiresAt ? (
+                  <span className="hint" data-testid="input-lock-expires-at">
+                    到期：{new Date(inputLockExpiresAt).toLocaleString()}
+                  </span>
+                ) : (
+                  <span className="hint">未绑定课次到期</span>
+                )}
+              </div>
+              <div className="row">
                 <button
                   type="button"
                   disabled={examModeBusy || inputLockBusy}
@@ -5381,11 +5620,11 @@ export function SettingsPanel({
                       return;
                     }
                     setExamModeBusy(true);
-                    void api<{
+                void api<{
                       inputLock?: typeof inputLock;
                       examModeRestored?: boolean;
-                    }>('/api/v1/settings', {
-                      method: 'PATCH',
+                }>('/api/v1/settings', {
+                  method: 'PATCH',
                       body: JSON.stringify({ examModeRestore: true }),
                     })
                       .then(async (r) => {
@@ -5471,64 +5710,142 @@ export function SettingsPanel({
                       }
                     })();
                   }}
+            >
+              批量允许关闭学生端
+            </button>
+            <button
+              type="button"
+              className="secondary"
+                  onClick={() => {
+                    if (!window.confirm('确认重新锁定？学生端将无法退出。')) return;
+                void api<{
+                  clientExitAllowed?: boolean;
+                  clientExitUnlockUntil?: string | null;
+                }>('/api/v1/settings', {
+                  method: 'PATCH',
+                  body: JSON.stringify({ clientExitRelock: true }),
+                })
+                      .then(async (r) => {
+                    setExitAllowed(r.clientExitAllowed === true);
+                    setExitUnlockUntil(r.clientExitUnlockUntil ?? null);
+                    setExitMsg('已重新锁定：学生端无法退出');
+                        await refreshExitLock().catch(() => undefined);
+                  })
+                      .catch((e) => setExitMsg(e instanceof Error ? e.message : '锁定失败'));
+                  }}
+            >
+              重新锁定
+            </button>
+          </div>
+          <label>
+            手动设置/更换解除码（至少 6 位，不预填）
+            <input
+              type="password"
+              value={exitCodeDraft}
+              onChange={(e) => setExitCodeDraft(e.target.value)}
+              autoComplete="new-password"
+              placeholder="输入新解除码后点保存"
+            />
+          </label>
+          <div className="row">
+            <button
+              type="button"
+              onClick={() =>
+                void api<{ hasExitUnlockCode?: boolean }>('/api/v1/settings', {
+                  method: 'PATCH',
+                  body: JSON.stringify({ exitUnlockCode: exitCodeDraft }),
+                })
+                  .then(async (r) => {
+                    setHasExitCode(r.hasExitUnlockCode === true);
+                    setExitCodeDraft('');
+                    setGeneratedExitCode(null);
+                    setExitMsg('解除码已更新（请自行记入密码本）');
+                    await refreshExitLock().catch(() => undefined);
+                  })
+                  .catch((e) => setExitMsg(e instanceof Error ? e.message : '保存解除码失败'))
+              }
+            >
+              保存解除码
+            </button>
+            <button
+              type="button"
+              className="secondary"
+              data-testid="exit-unlock-generate-btn"
+              disabled={exitCodeGenerateBusy}
+              onClick={() => {
+                if (
+                  !window.confirm(
+                    '系统将生成新解除码（明文仅显示一次）。旧码立即失效。轮换最快间隔 30 秒。确认？',
+                  )
+                ) {
+                  return;
+                }
+                setExitCodeGenerateBusy(true);
+                void api<{
+                  hasExitUnlockCode?: boolean;
+                  generatedExitUnlockCode?: string;
+                }>('/api/v1/settings', {
+                  method: 'PATCH',
+                  body: JSON.stringify({ exitUnlockCodeGenerate: true }),
+                })
+                  .then(async (r) => {
+                    setHasExitCode(r.hasExitUnlockCode === true);
+                    setExitCodeDraft('');
+                    const plain = r.generatedExitUnlockCode?.trim() ?? '';
+                    if (plain) {
+                      setGeneratedExitCode(plain);
+                      setExitMsg('新解除码已生成 — 请立即复制并记入密码本（关闭后无法再查看明文）');
+                    } else {
+                      setGeneratedExitCode(null);
+                      setExitMsg('解除码已轮换，但响应未含明文，请重试生成');
+                    }
+                    await refreshExitLock().catch(() => undefined);
+                  })
+                  .catch((e) => setExitMsg(e instanceof Error ? e.message : '系统生成解除码失败'))
+                  .finally(() => setExitCodeGenerateBusy(false));
+              }}
+            >
+              {exitCodeGenerateBusy ? '生成中…' : '系统生成并轮换'}
+            </button>
+          </div>
+          {generatedExitCode ? (
+            <div className="card" data-testid="exit-unlock-generated-reveal">
+              <p className="hint">新解除码（仅此一次，请写入密码本）：</p>
+              <p>
+                <code data-testid="exit-unlock-generated-code">{generatedExitCode}</code>
+              </p>
+              <div className="row">
+                <button
+                  type="button"
+                  data-testid="exit-unlock-generated-copy"
+                  onClick={() => {
+                    void navigator.clipboard
+                      .writeText(generatedExitCode)
+                      .then(() => setExitMsg('已复制到剪贴板 — 请同步记入密码本'))
+                      .catch(() => setExitMsg('复制失败，请手动选中上方码值'));
+                  }}
                 >
-                  批量允许关闭学生端
+                  复制
                 </button>
                 <button
                   type="button"
                   className="secondary"
                   onClick={() => {
-                    if (!window.confirm('确认重新锁定？学生端将无法退出。')) return;
-                    void api<{
-                      clientExitAllowed?: boolean;
-                      clientExitUnlockUntil?: string | null;
-                    }>('/api/v1/settings', {
-                      method: 'PATCH',
-                      body: JSON.stringify({ clientExitRelock: true }),
-                    })
-                      .then(async (r) => {
-                        setExitAllowed(r.clientExitAllowed === true);
-                        setExitUnlockUntil(r.clientExitUnlockUntil ?? null);
-                        setExitMsg('已重新锁定：学生端无法退出');
-                        await refreshExitLock().catch(() => undefined);
-                      })
-                      .catch((e) => setExitMsg(e instanceof Error ? e.message : '锁定失败'));
+                    setGeneratedExitCode(null);
+                    setExitMsg('已关闭明文显示（服务端仅存哈希，无法再找回）');
                   }}
                 >
-                  重新锁定
+                  已记入密码本并关闭
                 </button>
               </div>
-              <label>
-                设置/更换解除码（至少 6 位，不预填）
-                <input
-                  type="password"
-                  value={exitCodeDraft}
-                  onChange={(e) => setExitCodeDraft(e.target.value)}
-                  autoComplete="new-password"
-                  placeholder="输入新解除码后点保存"
-                />
-              </label>
-              <button
-                type="button"
-                onClick={() =>
-                  void api<{ hasExitUnlockCode?: boolean }>('/api/v1/settings', {
-                    method: 'PATCH',
-                    body: JSON.stringify({ exitUnlockCode: exitCodeDraft }),
-                  })
-                    .then(async (r) => {
-                      setHasExitCode(r.hasExitUnlockCode === true);
-                      setExitCodeDraft('');
-                      setExitMsg('解除码已更新');
-                      await refreshExitLock().catch(() => undefined);
-                    })
-                    .catch((e) => setExitMsg(e instanceof Error ? e.message : '保存解除码失败'))
-                }
-              >
-                保存解除码
-              </button>
-              {exitMsg ? <p className="hint">{exitMsg}</p> : null}
+            </div>
+          ) : null}
+          {exitMsg ? <p className="hint">{exitMsg}</p> : null}
 
               <h4>解除码限流 / 轮换</h4>
+              <p className="hint" data-testid="exit-unlock-rotate-days-display">
+                当前轮换提醒天数：{rotateDays}
+              </p>
               <div className="row">
                 <label>
                   失败次数上限
@@ -5567,6 +5884,7 @@ export function SettingsPanel({
                     min={7}
                     max={365}
                     value={rotateDays}
+                    data-testid="exit-unlock-rotate-days-input"
                     onChange={(e) => setRotateDays(Number(e.target.value))}
                   />
                 </label>
@@ -5801,6 +6119,22 @@ stateDiagram-v2
                   ))}
                 </select>
               </label>
+              <button
+                type="button"
+                className="secondary"
+                data-testid="audit-filter-unhardened-threshold"
+                onClick={() => {
+                  setAuditAction('settings.unhardened_threshold');
+                  // Ensure action is in the select options even if actions list lagged.
+                  setAuditActions((prev) =>
+                    prev.includes('settings.unhardened_threshold')
+                      ? prev
+                      : [...prev, 'settings.unhardened_threshold'],
+                  );
+                }}
+              >
+                筛 settings.unhardened_threshold
+              </button>
             </div>
             <div className="row">
               <button type="button" className="secondary" onClick={() => void loadAudit().catch(() => undefined)}>
@@ -5917,8 +6251,8 @@ stateDiagram-v2
           </div>
 
           {!isAssistant() ? (
-            <p className="hint">
-              数据库：服务进程每天自动备份一次（保留约 14 份）；也可手动 `npm run backup:db`。确认 /health 无
+          <p className="hint">
+            数据库：服务进程每天自动备份一次（保留约 14 份）；也可手动 `npm run backup:db`。确认 /health 无
               backup/audit lastError。
               <a
                 href={permissionsDocHref()}

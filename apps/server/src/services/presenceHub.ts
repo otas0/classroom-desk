@@ -11,6 +11,8 @@ export type PresenceClientRow = {
   clientPlatform: string;
   /** Stable machine id from student desktop (for seat-scoped input lock). */
   clientId: string;
+  /** Student-reported Assigned Access / MDM signal (0/1). */
+  hardened: boolean;
   displayName: string;
   studentNo: string | null;
   seatId: string | null;
@@ -23,6 +25,8 @@ type PresencePayload = {
   at: string;
   count: number;
   versions: string[];
+  hardenedCount: number;
+  unhardenedCount: number;
   items: PresenceClientRow[];
 };
 
@@ -32,11 +36,12 @@ const sseClients = new Set<Sub>();
 
 export function listPresenceClients(classId: string, sinceMs = ONLINE_MS): PresenceClientRow[] {
   const cutoff = new Date(Date.now() - (Number.isFinite(sinceMs) && sinceMs > 0 ? sinceMs : ONLINE_MS)).toISOString();
-  return openDb()
+  const rows = openDb()
     .prepare(
       `SELECT p.student_id AS studentId, p.class_id AS classId, p.last_seen_at AS lastSeenAt,
               p.client_version AS clientVersion, p.client_platform AS clientPlatform,
               COALESCE(p.client_id, '') AS clientId,
+              COALESCE(p.hardened, 0) AS hardenedInt,
               u.display_name AS displayName, u.student_no AS studentNo,
               s.id AS seatId, s.label AS seatLabel
        FROM presence_heartbeats p
@@ -45,18 +50,27 @@ export function listPresenceClients(classId: string, sinceMs = ONLINE_MS): Prese
        WHERE p.class_id = ? AND p.last_seen_at >= ?
        ORDER BY p.last_seen_at DESC`,
     )
-    .all(classId, cutoff) as PresenceClientRow[];
+    .all(classId, cutoff) as Array<
+    Omit<PresenceClientRow, 'hardened'> & { hardenedInt?: number }
+  >;
+  return rows.map((r) => {
+    const { hardenedInt, ...rest } = r;
+    return { ...rest, hardened: Number(hardenedInt ?? 0) === 1 };
+  });
 }
 
 export function presenceSnapshot(classId: string): PresencePayload {
   const items = listPresenceClients(classId);
   const versions = [...new Set(items.map((r) => r.clientVersion).filter(Boolean))];
+  const hardenedCount = items.filter((i) => i.hardened).length;
   return {
     type: 'presence',
     classId,
     at: new Date().toISOString(),
     count: items.length,
     versions,
+    hardenedCount,
+    unhardenedCount: items.length - hardenedCount,
     items,
   };
 }

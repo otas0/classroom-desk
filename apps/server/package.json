@@ -7,7 +7,7 @@
     "dev": "tsx watch src/index.ts",
     "start": "tsx src/index.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "tsx src/test/schema.integration.test.ts && tsx src/test/points.cleanup.integration.test.ts && tsx src/test/recycleRetention.test.ts && tsx src/test/exportXlsxStream.test.ts && tsx src/test/auditRetry.test.ts && tsx src/test/qRecycleVirtual.test.ts && tsx src/test/purgeAllStress.test.ts && tsx src/test/recycleRetentionMigrate.test.ts && tsx src/test/notifyEmail.test.ts"
+    "test": "tsx src/test/schema.integration.test.ts && tsx src/test/points.cleanup.integration.test.ts && tsx src/test/recycleRetention.test.ts && tsx src/test/exportXlsxStream.test.ts && tsx src/test/auditRetry.test.ts && tsx src/test/qRecycleVirtual.test.ts && tsx src/test/purgeAllStress.test.ts && tsx src/test/recycleRetentionMigrate.test.ts && tsx src/test/notifyEmail.test.ts && tsx src/test/inputLockTtl.test.ts"
   },
   "dependencies": {
     "@classroom-desk/shared": "*",

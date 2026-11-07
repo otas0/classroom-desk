@@ -226,7 +226,16 @@ export function LiveBoard({
       setInputLockSseFallback(true);
       setFsHint(`输入锁实时通道已切到轮询（${reason}）`);
       pollTimer = window.setInterval(() => void loadInputLock(), 5_000);
+      try {
+        es?.close();
+      } catch {
+        /* ignore */
+      }
+      es = null;
     }
+    // e2e / DevTools: force projection SSE → poll fallback without waiting for network errors.
+    (window as unknown as { __cdForceInputLockSseFallback?: () => void }).__cdForceInputLockSseFallback =
+      () => startPollFallback('e2e 强制断流');
     if (typeof EventSource !== 'undefined') {
       es = new EventSource(`${API_BASE}/api/v1/input-lock/stream`);
       const onLock = (ev: MessageEvent) => {
@@ -267,6 +276,12 @@ export function LiveBoard({
     }
     return () => {
       cancelled = true;
+      try {
+        delete (window as unknown as { __cdForceInputLockSseFallback?: () => void })
+          .__cdForceInputLockSseFallback;
+      } catch {
+        /* ignore */
+      }
       try {
         es?.close();
       } catch {

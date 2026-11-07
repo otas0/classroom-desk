@@ -10,6 +10,11 @@ type Dash = {
     onlineRate: number;
     driftClients: number;
     driftRate: number;
+    hardenedOnline?: number;
+    unhardenedOnline?: number;
+    unhardenedRate?: number;
+    unhardenedAlertThreshold?: number;
+    unhardenedAlert?: boolean;
   };
   readiness: {
     ctaCount: number;
@@ -31,6 +36,8 @@ type Dash = {
     online: number;
     onlineRate: number;
     driftCount: number;
+    hardenedCount?: number;
+    unhardenedCount?: number;
     versions: string[];
   }>;
 };
@@ -41,7 +48,11 @@ function fmtMs(ms: number | null): string {
   return `${(ms / 1000).toFixed(1)} s`;
 }
 
-export function OpsDashboard() {
+export function OpsDashboard({
+  onGoUnhardenedThreshold,
+}: {
+  onGoUnhardenedThreshold?: () => void;
+} = {}) {
   const [dash, setDash] = useState<Dash | null>(null);
   const [err, setErr] = useState('');
   const [upgradeTip, setUpgradeTip] = useState('');
@@ -78,6 +89,38 @@ export function OpsDashboard() {
       {!dash ? <p className="hint">加载中…</p> : null}
       {dash ? (
         <>
+          <p className="hint" data-testid="ops-unhardened-threshold">
+            未加固告警阈值：
+            {((dash.fleet.unhardenedAlertThreshold ?? 0.25) * 100).toFixed(0)}%
+            {onGoUnhardenedThreshold ? (
+              <>
+                （
+                <button
+                  type="button"
+                  className="linkish"
+                  data-testid="ops-unhardened-threshold-link"
+                  onClick={() => onGoUnhardenedThreshold()}
+                >
+                  设置 → 运维调度锚点
+                </button>
+                ）
+              </>
+            ) : (
+              '（设置 → 运维调度可改）'
+            )}
+            {dash.fleet.onlineTotal > 0
+              ? ` · 当前占比 ${((dash.fleet.unhardenedRate ?? 0) * 100).toFixed(0)}%`
+              : ' · 当前无在线机'}
+          </p>
+          {dash.fleet.unhardenedAlert ? (
+            <p className="error" role="alert" data-testid="ops-unhardened-alert">
+              未加固机位占比{' '}
+              {((dash.fleet.unhardenedRate ?? 0) * 100).toFixed(0)}%（
+              {dash.fleet.unhardenedOnline ?? 0}/{dash.fleet.onlineTotal}
+              ）≥ 阈值 {((dash.fleet.unhardenedAlertThreshold ?? 0.25) * 100).toFixed(0)}
+              %。请到「加固体检」核对 Assigned Access / MDM。
+            </p>
+          ) : null}
           <div className="ops-kpis">
             <div>
               <strong>{(dash.fleet.onlineRate * 100).toFixed(0)}%</strong>
@@ -86,6 +129,17 @@ export function OpsDashboard() {
             <div>
               <strong>{(dash.fleet.driftRate * 100).toFixed(0)}%</strong>
               <span>漂移率（{dash.fleet.driftClients} 台 · 期望 v{dash.expectedStudentVersion}）</span>
+            </div>
+            <div>
+              <strong>
+                {dash.fleet.onlineTotal > 0
+                  ? `${(((dash.fleet.hardenedOnline ?? 0) / dash.fleet.onlineTotal) * 100).toFixed(0)}%`
+                  : '—'}
+              </strong>
+              <span>
+                加固率（已加固 {dash.fleet.hardenedOnline ?? 0} / 未加固{' '}
+                {dash.fleet.unhardenedOnline ?? 0}）
+              </span>
             </div>
             <div>
               <strong>{dash.backup.ageHours != null ? `${dash.backup.ageHours.toFixed(1)}h` : '—'}</strong>
@@ -168,17 +222,24 @@ export function OpsDashboard() {
                 <th>在线</th>
                 <th>在线率</th>
                 <th>漂移</th>
+                <th>未加固</th>
                 <th>版本</th>
               </tr>
             </thead>
             <tbody>
               {dash.classes.map((c) => (
-                <tr key={c.classId} className={c.driftCount ? 'row-warn' : undefined}>
+                <tr
+                  key={c.classId}
+                  className={
+                    c.driftCount || (c.unhardenedCount ?? 0) > 0 ? 'row-warn' : undefined
+                  }
+                >
                   <td>{c.name}</td>
                   <td>{c.roster}</td>
                   <td>{c.online}</td>
                   <td>{(c.onlineRate * 100).toFixed(0)}%</td>
                   <td>{c.driftCount}</td>
+                  <td>{c.unhardenedCount ?? 0}</td>
                   <td>{c.versions.join(' / ') || '—'}</td>
                 </tr>
               ))}

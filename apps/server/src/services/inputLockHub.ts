@@ -3,6 +3,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import {
   getInputLockStore,
   inputLockActive,
+  inputLockClearedReasonNow,
   inputLockFlagsLabel,
   resolveInputLock,
   type InputLockFlags,
@@ -15,6 +16,10 @@ export type InputLockPayload = {
   inputLock: InputLockFlags;
   inputLockStore: InputLockStore;
   inputLockActive: boolean;
+  inputLockExpiresAt: string | null;
+  inputLockAttendanceSessionId: string | null;
+  /** Present briefly after TTL auto-clear so students can toast. */
+  inputLockClearedReason: 'ttl_expire' | null;
   summary: {
     global: string;
     byClass: Array<{ classId: string; className: string; label: string }>;
@@ -81,6 +86,9 @@ export function buildInputLockPayload(db: DatabaseSync): InputLockPayload {
     inputLock,
     inputLockStore: store,
     inputLockActive: inputLockActive(inputLock) || byClass.length > 0 || bySeat.length > 0,
+    inputLockExpiresAt: store.expiresAt ?? null,
+    inputLockAttendanceSessionId: store.attendanceSessionId ?? null,
+    inputLockClearedReason: inputLockClearedReasonNow(),
     summary: {
       global: inputLockFlagsLabel(store.global),
       byClass,

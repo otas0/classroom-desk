@@ -19,6 +19,7 @@ import {
   listExitLockEvents,
   relockClientExit,
   setClientExitLockedFlag,
+  rotateExitUnlockCodeGenerated,
   setExitUnlockCode,
   setExitUnlockRateConfig,
 } from '../services/exitLock.js';
@@ -30,7 +31,12 @@ import {
   inputLockActive,
   resolveInputLock,
   restoreExamModeInputLock,
+  clearInputLockSeatsBulk,
+  inputLockClearedReasonNow,
+  purgeExpiredInputLocks,
+  setInputLockSeatsBulk,
   setInputLockStore,
+  setInputLockTtl,
   type InputLockFlags,
 } from '../services/inputLock.js';
 import { addExitLockSseClient, broadcastExitLockPayload } from '../services/exitLockHub.js';
@@ -58,7 +64,8 @@ settingsRouter.get('/api/v1/settings/public', (req, res) => {
   const exit = getClientExitLockState(db);
   const classId = String(req.query.classId ?? '').trim();
   const seatId = String(req.query.seatId ?? '').trim();
-  const store = getInputLockStore(db);
+  const { store, purged } = purgeExpiredInputLocks(db);
+  if (purged) broadcastInputLock(db);
   const resolved = resolveInputLock(store, {
     classId: classId || null,
     seatId: seatId || null,
@@ -83,6 +90,9 @@ settingsRouter.get('/api/v1/settings/public', (req, res) => {
     inputLockStore: store,
     inputLockActive: inputLockActive(resolved),
     inputLockSummary: buildInputLockPayload(db).summary,
+    inputLockExpiresAt: store.expiresAt ?? null,
+    inputLockAttendanceSessionId: store.attendanceSessionId ?? null,
+    inputLockClearedReason: inputLockClearedReasonNow(),
     examModeSnapshot: hasExamModeSnapshot(db),
   });
 });
@@ -114,6 +124,10 @@ settingsRouter.get('/api/v1/settings', requireAuth, requireRoles('teacher', 'adm
     ),
     recycleUrgentDays: Number(getSetting(db, 'recycle_urgent_days') ?? RECYCLE_URGENT_DAYS),
     fleetDriftSnapshotMinutes: Number(getSetting(db, 'fleet_drift_snapshot_minutes') ?? 5),
+    unhardenedAlertThreshold: (() => {
+      const n = Number(getSetting(db, 'unhardened_alert_threshold') ?? 0.25);
+      return Number.isFinite(n) && n >= 0 && n <= 1 ? n : 0.25;
+    })(),
     fleetDriftSnapshotLastAt:
       (
         db
@@ -138,9 +152,17 @@ settingsRouter.get('/api/v1/settings', requireAuth, requireRoles('teacher', 'adm
     lastCleanupRemovedCount: lastCleanup?.removedCount ?? null,
     backup: getBackupStatus(getSetting(db, 'last_auto_backup_at')),
     ...exit,
-    inputLockStore: getInputLockStore(db),
+    ...(() => {
+      const store = getInputLockStore(db);
+      return {
+        inputLockStore: store,
+        inputLock: resolveInputLock(store),
+        inputLockExpiresAt: store.expiresAt ?? null,
+        inputLockAttendanceSessionId: store.attendanceSessionId ?? null,
+        inputLockSummary: buildInputLockPayload(db).summary,
+      };
+    })(),
     examModeSnapshot: hasExamModeSnapshot(db),
-    inputLockSummary: buildInputLockPayload(db).summary,
   });
 });
 
@@ -220,6 +242,38 @@ settingsRouter.patch('/api/v1/settings', requireAuth, requireRoles('teacher', 'a
       `INSERT INTO settings (key, value) VALUES ('recycle_retention_days', ?)
        ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
     ).run(String(Math.trunc(days)));
+  }
+
+  if (req.body?.unhardenedAlertThreshold != null) {
+    const t = Number(req.body.unhardenedAlertThreshold);
+    if (!Number.isFinite(t) || t < 0 || t > 1) {
+      res.status(400).json({
+        error: 'invalid_unhardened_threshold',
+        message: '未加固告警阈值须为 0–1（如 0.25=25%）',
+      });
+      return;
+    }
+    const prevRaw = getSetting(db, 'unhardened_alert_threshold');
+    const prev = prevRaw != null && Number.isFinite(Number(prevRaw)) ? Number(prevRaw) : 0.25;
+    db.prepare(
+      `INSERT INTO settings (key, value) VALUES ('unhardened_alert_threshold', ?)
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+    ).run(String(t));
+    writeAudit(
+      {
+        action: 'settings.unhardened_threshold',
+        actorUserId: req.user?.id ?? null,
+        actorRole: req.user?.role ?? null,
+        classId: null,
+        detail: JSON.stringify({
+          previous: prev,
+          next: t,
+          summary: `未加固告警阈值 ${(prev * 100).toFixed(0)}% → ${(t * 100).toFixed(0)}%`,
+        }),
+        clientIp: req.ip ?? null,
+      },
+      db,
+    );
   }
 
   if (req.body?.fleetDriftSnapshotMinutes != null) {
@@ -388,10 +442,17 @@ settingsRouter.patch('/api/v1/settings', requireAuth, requireRoles('teacher', 'a
     const raw = req.body.inputLock as Partial<InputLockFlags> & {
       classId?: string;
       seatId?: string;
+      seatIds?: string[];
+      /** Clear bySeat for these ids (batch unlock). */
+      clearSeatIds?: string[];
       clearClass?: boolean;
       clearSeat?: boolean;
       clearAll?: boolean;
+      clearTtl?: boolean;
       scope?: 'global' | 'class' | 'seat';
+      /** Bind auto-expiry to attendance_sessions.end_at */
+      bindAttendanceSessionId?: string | null;
+      expiresAt?: string | null;
     };
     if (raw.clearAll === true) {
       clearAllInputLocks(db, actor);
@@ -408,27 +469,106 @@ settingsRouter.patch('/api/v1/settings', requireAuth, requireRoles('teacher', 'a
     }
     const classId = String(raw.classId ?? req.body?.classId ?? '').trim();
     const seatId = String(raw.seatId ?? req.body?.seatId ?? '').trim();
-    const scope = raw.scope ?? (seatId ? 'seat' : classId ? 'class' : 'global');
-    setInputLockStore(
-      db,
-      {
-        classId: scope === 'global' ? null : classId || null,
-        seatId: scope === 'seat' ? seatId || null : null,
-        flags: {
-          keyboard: raw.keyboard,
-          mouse: raw.mouse,
-          voice: raw.voice,
-          camera: raw.camera,
+    const seatIds = Array.isArray(raw.seatIds)
+      ? raw.seatIds.map((s) => String(s).trim()).filter(Boolean)
+      : [];
+    const clearSeatIds = Array.isArray(raw.clearSeatIds)
+      ? raw.clearSeatIds.map((s) => String(s).trim()).filter(Boolean)
+      : [];
+    const hasFlagKeys =
+      raw.keyboard != null ||
+      raw.mouse != null ||
+      raw.voice != null ||
+      raw.camera != null ||
+      raw.clearClass === true ||
+      raw.clearSeat === true ||
+      seatIds.length > 0 ||
+      clearSeatIds.length > 0 ||
+      Boolean(raw.scope) ||
+      Boolean(seatId);
+
+    if (hasFlagKeys) {
+      if (clearSeatIds.length && classId) {
+        clearInputLockSeatsBulk(db, { classId, seatIds: clearSeatIds }, actor);
+      } else if (seatIds.length && classId) {
+        setInputLockSeatsBulk(
+          db,
+          {
+            classId,
+            seatIds,
+            flags: {
+              keyboard: raw.keyboard,
+              mouse: raw.mouse,
+              voice: raw.voice,
+              camera: raw.camera,
+            },
+          },
+          actor,
+        );
+      } else {
+        const scope = raw.scope ?? (seatId ? 'seat' : classId ? 'class' : 'global');
+        setInputLockStore(
+          db,
+          {
+            classId: scope === 'global' ? null : classId || null,
+            seatId: scope === 'seat' ? seatId || null : null,
+            flags: {
+              keyboard: raw.keyboard,
+              mouse: raw.mouse,
+              voice: raw.voice,
+              camera: raw.camera,
+            },
+            clearClass: raw.clearClass === true,
+            clearSeat: raw.clearSeat === true,
+          },
+          actor,
+        );
+      }
+    }
+
+    if (raw.clearTtl === true) {
+      setInputLockTtl(db, { clearTtl: true }, actor);
+    } else if (raw.bindAttendanceSessionId != null && String(raw.bindAttendanceSessionId).trim()) {
+      const sid = String(raw.bindAttendanceSessionId).trim();
+      const session = db
+        .prepare(`SELECT id, end_at AS endAt FROM attendance_sessions WHERE id = ?`)
+        .get(sid) as { id?: string; endAt?: string } | undefined;
+      if (!session?.endAt) {
+        res.status(400).json({
+          error: 'attendance_session_not_found',
+          message: '找不到该出勤课次，无法绑定输入锁到期',
+        });
+        return;
+      }
+      setInputLockTtl(
+        db,
+        { expiresAt: String(session.endAt), attendanceSessionId: String(session.id) },
+        actor,
+      );
+    } else if (raw.expiresAt !== undefined) {
+      setInputLockTtl(
+        db,
+        {
+          expiresAt: raw.expiresAt ? String(raw.expiresAt) : null,
+          attendanceSessionId: raw.bindAttendanceSessionId
+            ? String(raw.bindAttendanceSessionId)
+            : undefined,
         },
-        clearClass: raw.clearClass === true,
-        clearSeat: raw.clearSeat === true,
-      },
-      actor,
-    );
+        actor,
+      );
+    }
+
+    const store = getInputLockStore(db);
     const state = getClientExitLockState(db);
     broadcastExitLockPayload(state);
     broadcastInputLock(db);
-    res.json({ ok: true, ...state, inputLockStore: getInputLockStore(db) });
+    res.json({
+      ok: true,
+      ...state,
+      inputLockStore: store,
+      inputLockExpiresAt: store.expiresAt ?? null,
+      inputLockAttendanceSessionId: store.attendanceSessionId ?? null,
+    });
     return;
   }
 
@@ -436,7 +576,19 @@ settingsRouter.patch('/api/v1/settings', requireAuth, requireRoles('teacher', 'a
     setClientExitLockedFlag(db, Boolean(req.body.clientExitLocked), actor);
   }
 
-  if (req.body?.exitUnlockCode != null) {
+  let generatedExitUnlockCode: string | undefined;
+  if (req.body?.exitUnlockCodeGenerate === true) {
+    const set = await rotateExitUnlockCodeGenerated(db, actor);
+    if (!set.ok) {
+      res.status(400).json({
+        error: set.error,
+        message: set.message,
+        ...('retryAfterSec' in set ? { retryAfterSec: set.retryAfterSec } : {}),
+      });
+      return;
+    }
+    generatedExitUnlockCode = set.generatedExitUnlockCode;
+  } else if (req.body?.exitUnlockCode != null) {
     const code = String(req.body.exitUnlockCode);
     if (code.trim() === '') {
       res.status(400).json({ error: 'invalid_exit_unlock_code', message: '解除码不能为空' });
@@ -444,7 +596,11 @@ settingsRouter.patch('/api/v1/settings', requireAuth, requireRoles('teacher', 'a
     }
     const set = await setExitUnlockCode(db, code, actor);
     if (!set.ok) {
-      res.status(400).json({ error: set.error, message: set.message });
+      res.status(400).json({
+        error: set.error,
+        message: set.message,
+        ...('retryAfterSec' in set ? { retryAfterSec: set.retryAfterSec } : {}),
+      });
       return;
     }
   }
@@ -494,6 +650,7 @@ settingsRouter.patch('/api/v1/settings', requireAuth, requireRoles('teacher', 'a
     ok: true,
     ...getClientExitLockState(db),
     ...(upgradesPruned ? { pruned: upgradesPruned } : {}),
+    ...(generatedExitUnlockCode ? { generatedExitUnlockCode } : {}),
   });
 });
 

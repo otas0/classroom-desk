@@ -109,18 +109,21 @@ EOF
 #   CD_TOKEN=… CD_CLASS_ID=… bash scripts/prepare-usb-pack.sh <ip>
 if [[ -n "${CD_CLASS_ID:-}" && -n "${CD_TOKEN:-}" ]]; then
   API_BASE="${CD_API_BASE:-http://127.0.0.1:8787}"
+  # Default --filter all（页内仍可切「仅空座 / 仅已排」再打印；见 docs/LOCAL_USB_CHECKLIST.md）
+  SEAT_FILTER="${CD_SEAT_FILTER:-all}"
   if node "$ROOT/scripts/gen-seat-map-sheet.mjs" \
     --api "$API_BASE" \
     --token "$CD_TOKEN" \
     --class "$CD_CLASS_ID" \
+    --filter "$SEAT_FILTER" \
     --out "$DEST/SEAT-MAP-ID-SHEET.html"
   then
-    echo "seat sheet → $DEST/SEAT-MAP-ID-SHEET.html"
+    echo "seat sheet → $DEST/SEAT-MAP-ID-SHEET.html (filter=$SEAT_FILTER)"
   else
     echo "WARN: seat_map.id sheet skipped (API/auth/class?)" >&2
   fi
 else
-  echo "Tip: set CD_TOKEN + CD_CLASS_ID to emit SEAT-MAP-ID-SHEET.html (scannable seat_map.id 对照表)"
+  echo "Tip: set CD_TOKEN + CD_CLASS_ID to emit SEAT-MAP-ID-SHEET.html (scannable seat_map.id 对照表；默认 --filter all)"
 fi
 
 echo "Prepared $DEST"

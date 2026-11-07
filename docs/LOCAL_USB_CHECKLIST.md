@@ -42,6 +42,9 @@ CD_TOKEN="$TOKEN" CD_CLASS_ID="<classId>" CD_API_BASE=http://127.0.0.1:8787 \
 # 或单独生成：
 CD_TOKEN="$TOKEN" CD_CLASS_ID="<classId>" \
   node scripts/gen-seat-map-sheet.mjs --out releases/demo/SEAT-MAP-ID-SHEET.html
+  # 可选：--filter empty|seated 设初始「仅空座 / 仅已排」；页内按钮可再切换后打印
+  # 无障碍：筛选按钮有 aria-pressed / title；说明文案「筛选说明」在表上方；
+  # aria-live 播报「当前筛选：全部/仅空座/仅已排」；Tab+Enter 可切换；打印时隐藏 aria-live
 ```
 
 ## 原则
@@ -82,15 +85,33 @@ npm run prepare:live -- --apiBase http://192.168.x.x:8787 --className 高一(3)�
 ## C2. 锁退出（须 Windows 真机）
 
 操作员一页纸：[SAMPLE_MACHINE_OPS.md](./SAMPLE_MACHINE_OPS.md)。  
-详见 [EXIT_LOCK_MDM.md](./EXIT_LOCK_MDM.md)（C2 证据表 + Assigned Access 真实 NSIS 路径 + Intune XML [`intune-student-kiosk.example.xml`](./intune-student-kiosk.example.xml)）。  
+详见 [EXIT_LOCK_MDM.md](./EXIT_LOCK_MDM.md)（C2 证据表 + Assigned Access 真实 NSIS 路径 + Intune XML）。  
 静态检查（CI / `dist:win`）：`npm run verify:exit-lock-packaged`（`REQUIRE_WIN_EXE=1` 无 exe 硬失败；Artifact 保留 30 天）。
 
+### 联调口令旁注（证据目录 · AA · Intune · 回滚）
+
+> 口令仅用于样机联调，**禁止**写进正式 UI 默认值（见 `.cursor/rules/no-mock`）。
+
+| 用途 | 路径 / 命令 |
+|---|---|
+| 建今日证据目录（gitignore `证据/`） | `npm run init:c2-evidence` → `证据/C2-YYYYMMDD/` |
+| Intune 勾选模板（拷入证据目录） | `docs/C2_intune-version.example.txt` → 目录内 `C2-intune-version.txt` |
+| Intune 下发 XML（试验组） | [`docs/intune-student-kiosk.example.xml`](./intune-student-kiosk.example.xml) |
+| Intune **回滚** XML | [`docs/intune-student-kiosk.rollback.xml`](./intune-student-kiosk.rollback.xml) |
+| Assigned Access 清单示例 | [`docs/assigned-access-checklist.example.json`](./assigned-access-checklist.example.json) |
+| 真机 Alt+Tab 负向视频 | 删 `C2-alttab-win.mp4.PLACEHOLDER`，放入真 `C2-alttab-win.mp4` |
+| 归档说明 | [C2_EVIDENCE_ARCHIVE.md](./C2_EVIDENCE_ARCHIVE.md) |
+
+联调登录（e2e / 样机，勿预填登录框）：教师 `teacher` + 本机 `.env` 的 `TEACHER_PASSWORD`；API `http://<教师机局域网IP>:8787`。
+
+- [ ] `npm run init:c2-evidence`；填满 `C2-intune-version.txt`（22H2 / 24H2）  
+- [ ] 真 `C2-alttab-win.mp4` 替换 PLACEHOLDER；另录 `C2-taskmgr-deny.mp4` / `C2-titlebar.png`  
 - [ ] 标题栏「已锁定」+ 讲述人 10s（`C2-narrator.mp4`）；关窗 / Alt+F4 无效并 toast「向教师申请解除」  
 - [ ] 教师批量解除二次确认后，学生秒级「可退出 m:ss」并可关  
 - [ ] 重新锁定后无法关闭  
 - [ ] 解除码可退；错码限流；审计中文标签含「轮换解除码」；CSV 当前页/全部；超期横幅可点「去设置」  
-- [ ] Assigned Access 路径 `C:\Program Files\Classroom Desk\Classroom Desk.exe` + 任务管理器负向（`C2-taskmgr-deny.mp4`）  
-- [ ] （可选）试验组 Intune HideTaskManager；填 `C2-intune-version.txt`（含 Setup 0.1.7）
+- [ ] Assigned Access 路径 `C:\Program Files\Classroom Desk\Classroom Desk.exe` + 任务管理器负向  
+- [ ] （可选）试验组 Intune HideTaskManager；试验结束用 **rollback.xml** 撤回  
 - [ ] 实机 Electron DevTools 关 `/exit-lock/ws` → toast「实时通道已切到备用」+ SSE  
 
 网络不通先查 [NETWORK.md](./NETWORK.md)。
