@@ -85,6 +85,19 @@ function createWindow() {
     mainWindow?.show();
   });
 
+  // Packaged kiosk: block DevTools shortcuts (visible app lock; OS still needs Assigned Access).
+  if (app.isPackaged) {
+    mainWindow.webContents.on('before-input-event', (event, input) => {
+      const key = String(input.key || '').toLowerCase();
+      const openDevtools =
+        key === 'f12' ||
+        ((input.control || input.meta) && input.shift && (key === 'i' || key === 'j' || key === 'c'));
+      if (openDevtools) {
+        event.preventDefault();
+      }
+    });
+  }
+
   mainWindow.on('close', (event) => {
     if (exitAllowed) return;
     event.preventDefault();

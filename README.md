@@ -2,6 +2,12 @@
 
 学校课堂答题（正确率/错误率）、名单积分请求、留言工具。学生端 Electron 小窗；教师端 Web；教师机跑 Express + SQLite。无班级码进入：上课前教师把班级 `classId` 指派到每台学生机，学生在名单点自己的名字。
 
+[![Release](https://img.shields.io/github/v/release/otas0/classroom-desk?display_name=tag&label=release)](https://github.com/otas0/classroom-desk/releases/latest)
+[![CI](https://img.shields.io/github/actions/workflow/status/otas0/classroom-desk/ci.yml?branch=main&label=CI)](https://github.com/otas0/classroom-desk/actions/workflows/ci.yml)
+[![Nightly](https://img.shields.io/github/actions/workflow/status/otas0/classroom-desk/e2e-nightly.yml?branch=main&label=nightly)](https://github.com/otas0/classroom-desk/actions/workflows/e2e-nightly.yml)
+
+> Badge 以 **Release tag / Actions** 为准。若曾用 Git Data API 推送，本地 commit SHA 可能与 GitHub tip 字面不同——对 **tree SHA** 或 tag（见 [docs/ARTIFACTS.md](docs/ARTIFACTS.md)）。
+
 ## 从 GitHub 安装（推荐 · 任意机房 · 无优盘 · 可未签名）
 
 开源自托管：任意教室一台教师机跑 API，学生机装客户端并写入**本教室**的 `apiBase` + `classId`。不绑定固定示范 IP。

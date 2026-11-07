@@ -92,6 +92,15 @@ jobs:
         run: npx playwright install --with-deps chromium
       - name: Build teacher SPA
         run: npm run build:teacher
+      - name: Record tip / tree SHA (badge-friendly)
+        run: |
+          TREE=$(git rev-parse 'HEAD^{tree}')
+          {
+            echo "### Tip identity"
+            echo "- github.sha: \`${{ github.sha }}\`"
+            echo "- tree: \`${TREE}\`"
+            echo "- watch audit-jump flake until **2026-11-14** (see docs/E2E_FLAKE_BOARD.md)"
+          } >> "$GITHUB_STEP_SUMMARY"
       - name: Start API + teacher web
         run: |
           JWT_SECRET=ci-secret-not-for-prod \

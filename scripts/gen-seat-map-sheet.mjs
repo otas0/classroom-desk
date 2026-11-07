@@ -10,6 +10,11 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
+import { createRequire } from 'node:module';
+
+const require = createRequire(import.meta.url);
+/** Prefer workspace-hoisted `qrcode` (offline SVG); no network at print time. */
+const QRCode = require('qrcode');
 
 function arg(name, env) {
   const i = process.argv.indexOf(name);
@@ -30,13 +35,25 @@ if (!TOKEN || !CLASS_ID) {
   process.exit(2);
 }
 
-/** Minimal QR (byte mode) → SVG. Enough for seat_map.id UUIDs. */
-function qrSvg(text, size = 120) {
-  // Use a data-URL that printers can rasterize via a public QR endpoint when online;
-  // also embed the raw id as large text for offline OCR / manual copy.
-  const enc = encodeURIComponent(text);
-  const img = `https://quickchart.io/qr?text=${enc}&size=${size}&margin=1`;
-  return `<img width="${size}" height="${size}" alt="QR ${text}" src="${img}" loading="lazy" />`;
+function escapeHtml(s) {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+/** Inline SVG QR — printable offline (no CDN / quickchart). */
+async function qrSvg(text, size = 120) {
+  const raw = await QRCode.toString(String(text), {
+    type: 'svg',
+    margin: 1,
+    width: size,
+    errorCorrectionLevel: 'M',
+  });
+  // Strip XML prolog if present; keep a single <svg>…</svg>
+  const svg = String(raw).replace(/<\?xml[^>]*>\s*/i, '').trim();
+  return `<div class="qr-wrap" aria-label="QR ${escapeHtml(text)}">${svg}</div>`;
 }
 
 const headers = { Authorization: `Bearer ${TOKEN}` };
@@ -61,23 +78,25 @@ try {
   /* keep CLASS_ID */
 }
 
-const rows = items
-  .map((s) => {
+const rowHtml = await Promise.all(
+  items.map(async (s) => {
     const id = String(s.id ?? '');
     const label = String(s.label ?? '');
     const who = s.displayName
       ? `${s.displayName}${s.studentNo ? ` (${s.studentNo})` : ''}`
       : '空座';
     const status = s.studentId ? '已排' : '空座';
+    const qr = id ? await qrSvg(id) : '';
     return `<tr>
   <td>${escapeHtml(label)}</td>
   <td>${escapeHtml(status)}</td>
   <td>${escapeHtml(who)}</td>
   <td><code class="seat-id">${escapeHtml(id)}</code></td>
-  <td class="qr">${qrSvg(id)}</td>
+  <td class="qr">${qr}</td>
 </tr>`;
-  })
-  .join('\n');
+  }),
+);
+const rows = rowHtml.join('\n');
 
 const html = `<!DOCTYPE html>
 <html lang="zh-CN">
@@ -92,14 +111,14 @@ const html = `<!DOCTYPE html>
   th, td { border: 1px solid #ccc; padding: 0.5rem; vertical-align: middle; text-align: left; }
   th { background: #f4f4f4; }
   code.seat-id { font-size: 0.85rem; word-break: break-all; }
-  .qr img { display: block; }
+  .qr-wrap svg { display: block; width: 120px; height: 120px; }
   @media print { body { margin: 0.5rem; } a { display: none; } }
 </style>
 </head>
 <body>
 <h1>座位 seat_map.id 对照表</h1>
 <p class="hint">班级：${escapeHtml(className)}（${escapeHtml(CLASS_ID)}）· 主键为 seat_map.id（非学号）· 空座/已排均可扫码对账</p>
-<p class="hint">生成于 ${new Date().toISOString()} · 共 ${items.length} 座 · 打印前需能加载 QR 图（quickchart）；离线时请对照 code 列</p>
+<p class="hint">生成于 ${new Date().toISOString()} · 共 ${items.length} 座 · QR 为内嵌 SVG，离线打印可用</p>
 <table>
   <thead><tr><th>座位 label</th><th>状态</th><th>学生</th><th>seat_map.id</th><th>扫码</th></tr></thead>
   <tbody>
@@ -109,14 +128,6 @@ ${rows || '<tr><td colspan="5">本班尚无座位网格</td></tr>'}
 </body>
 </html>
 `;
-
-function escapeHtml(s) {
-  return String(s)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
-}
 
 const outPath = path.resolve(OUT);
 fs.mkdirSync(path.dirname(outPath), { recursive: true });

@@ -61,7 +61,15 @@ gh api repos/otas0/classroom-desk/git/ref/heads/main --jq .object.sha
 gh api repos/otas0/classroom-desk/git/commits/$(gh api repos/otas0/classroom-desk/git/ref/heads/main --jq .object.sha) --jq .tree.sha
 ```
 
-两 tree 一致即可认为内容已上 main；本地再 `git fetch && git reset --hard origin/main` 对齐指针（需 443 通）。
+两 tree 一致即可认为内容已上 main。
+
+**推荐顺序（API push 后）：**
+
+1. 先对 **tree SHA**（上表命令），确认内容已上远程；  
+2. 再 `git fetch origin main && git reset --hard origin/main` 对齐**指针**（需 HTTPS:443 通）。  
+勿先 reset 到过期的本地 `origin/main`（会把未 fetch 到的工作冲掉）。
+
+README CI badge 优先挂 **Release tag**（`vX.Y.Z`）；commit 字面不一致时以 tree / tag 为准。
 
 ## Nightly `verify_issues_write` dry-run
 

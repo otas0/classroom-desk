@@ -2914,6 +2914,13 @@ export function SettingsPanel({
   const [inputLockClassCount, setInputLockClassCount] = useState(0);
   const [inputLockSeatCount, setInputLockSeatCount] = useState(0);
   const [seatIdCopied, setSeatIdCopied] = useState(false);
+  const [clearAllOpen, setClearAllOpen] = useState(false);
+  const [clearAllBusy, setClearAllBusy] = useState(false);
+  const [clearAllMeta, setClearAllMeta] = useState<{
+    classN: number;
+    seatN: number;
+    clearExamSnap: boolean;
+  } | null>(null);
   const [exitEvents, setExitEvents] = useState<
     Array<{ id: string; kind: string; detail: string; createdAt: string; actorRole?: string | null }>
   >([]);
@@ -3420,6 +3427,15 @@ export function SettingsPanel({
         sessionStorage.removeItem('cd_goto_input_lock_seat');
         sessionStorage.removeItem('cd_input_lock_scope');
         window.setTimeout(() => {
+          const pick = document.querySelector(
+            '[data-testid="input-lock-seat-pick"]',
+          ) as HTMLSelectElement | null;
+          if (pick) {
+            pick.value = seat;
+            pick.classList.add('cd-audit-jump-hl');
+            pick.focus();
+            window.setTimeout(() => pick.classList.remove('cd-audit-jump-hl'), 4000);
+          }
           const el = document.querySelector(
             '[data-testid="input-lock-seat-id-readonly"]',
           ) as HTMLElement | null;
@@ -5293,55 +5309,16 @@ export function SettingsPanel({
                 <button
                   type="button"
                   className="secondary"
-                  disabled={inputLockBusy}
+                  disabled={inputLockBusy || clearAllBusy}
                   data-testid="input-lock-none"
                   title="清空全局 / 班级 / 机位全部物理输入锁"
                   onClick={() => {
-                    const classN = inputLockClassCount;
-                    const seatN = inputLockSeatCount;
-                    const willClearExamSnap = examModeSnapshot;
-                    const examNote = willClearExamSnap
-                      ? '；同时清除考试模式输入锁快照'
-                      : '';
-                    if (
-                      !window.confirm(
-                        `全部解除将清空：班级覆盖 ${classN} 条 · 机位覆盖 ${seatN} 条，以及全局标志${examNote}。确认？`,
-                      )
-                    ) {
-                      return;
-                    }
-                    setInputLockBusy(true);
-                    void api<{
-                      inputLock?: typeof inputLock;
-                      examModeSnapshot?: boolean;
-                    }>('/api/v1/settings', {
-                      method: 'PATCH',
-                      body: JSON.stringify({ inputLock: { clearAll: true } }),
-                    })
-                      .then((r) => {
-                        setInputLock({
-                          keyboard: Boolean(r.inputLock?.keyboard),
-                          mouse: Boolean(r.inputLock?.mouse),
-                          voice: Boolean(r.inputLock?.voice),
-                          camera: Boolean(r.inputLock?.camera),
-                        });
-                        setInputLockCoverage('global');
-                        setInputLockScopeLabel('全校全局');
-                        setInputLockClassCount(0);
-                        setInputLockSeatCount(0);
-                        setExamModeSnapshot(r.examModeSnapshot === true);
-                        setExitMsg(
-                          willClearExamSnap
-                            ? '已全部解除物理输入锁，并清除考试模式快照'
-                            : '已全部解除物理输入锁（清空全局/班级/机位）',
-                        );
-                        void loadAudit().catch(() => undefined);
-                        void refreshExitLock().catch(() => undefined);
-                      })
-                      .catch((err) =>
-                        setExitMsg(err instanceof Error ? err.message : '全部解除失败'),
-                      )
-                      .finally(() => setInputLockBusy(false));
+                    setClearAllMeta({
+                      classN: inputLockClassCount,
+                      seatN: inputLockSeatCount,
+                      clearExamSnap: examModeSnapshot,
+                    });
+                    setClearAllOpen(true);
                   }}
                 >
                   全部解除
@@ -5989,6 +5966,78 @@ stateDiagram-v2
             })
             .catch((e) => setGrantMsg(e instanceof Error ? e.message : '保存失败'))
             .finally(() => setGrantMigrateBusy(false));
+        }}
+      />
+      <ConfirmModal
+        open={clearAllOpen}
+        title="全部解除物理输入锁"
+        busy={clearAllBusy}
+        confirmLabel="确认全部解除"
+        body={
+          <div data-testid="input-lock-clear-all-confirm">
+            <p>
+              将清空：班级覆盖{' '}
+              <strong data-testid="input-lock-clear-all-class-count">
+                {clearAllMeta?.classN ?? 0}
+              </strong>{' '}
+              条 · 机位覆盖{' '}
+              <strong data-testid="input-lock-clear-all-seat-count">
+                {clearAllMeta?.seatN ?? 0}
+              </strong>{' '}
+              条，以及全局标志。
+            </p>
+            {clearAllMeta?.clearExamSnap ? (
+              <p className="hint" data-testid="input-lock-clear-all-exam-note">
+                同时清除考试模式输入锁快照（无法再「解除考试模式」恢复旧锁）。
+              </p>
+            ) : (
+              <p className="hint">当前无考试模式快照。</p>
+            )}
+          </div>
+        }
+        onCancel={() => {
+          if (clearAllBusy) return;
+          setClearAllOpen(false);
+          setClearAllMeta(null);
+        }}
+        onConfirm={() => {
+          const willClearExamSnap = Boolean(clearAllMeta?.clearExamSnap);
+          setClearAllBusy(true);
+          setInputLockBusy(true);
+          void api<{
+            inputLock?: typeof inputLock;
+            examModeSnapshot?: boolean;
+          }>('/api/v1/settings', {
+            method: 'PATCH',
+            body: JSON.stringify({ inputLock: { clearAll: true } }),
+          })
+            .then((r) => {
+              setInputLock({
+                keyboard: Boolean(r.inputLock?.keyboard),
+                mouse: Boolean(r.inputLock?.mouse),
+                voice: Boolean(r.inputLock?.voice),
+                camera: Boolean(r.inputLock?.camera),
+              });
+              setInputLockCoverage('global');
+              setInputLockScopeLabel('全校全局');
+              setInputLockClassCount(0);
+              setInputLockSeatCount(0);
+              setExamModeSnapshot(r.examModeSnapshot === true);
+              setExitMsg(
+                willClearExamSnap
+                  ? '已全部解除物理输入锁，并清除考试模式快照'
+                  : '已全部解除物理输入锁（清空全局/班级/机位）',
+              );
+              setClearAllOpen(false);
+              setClearAllMeta(null);
+              void loadAudit().catch(() => undefined);
+              void refreshExitLock().catch(() => undefined);
+            })
+            .catch((err) => setExitMsg(err instanceof Error ? err.message : '全部解除失败'))
+            .finally(() => {
+              setClearAllBusy(false);
+              setInputLockBusy(false);
+            });
         }}
       />
       <ConfirmModal

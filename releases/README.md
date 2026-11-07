@@ -31,3 +31,15 @@ node scripts/pack-classroom-config.mjs --apiBase http://教师IP:8787 --classId 
 ```
 
 对照表：[docs/ARTIFACTS.md](../docs/ARTIFACTS.md)；C2：[docs/C2_EVIDENCE_ARCHIVE.md](../docs/C2_EVIDENCE_ARCHIVE.md)。
+
+## seat_map.id 对照表（可扫码）
+
+```bash
+CD_TOKEN=<teacherJWT> CD_CLASS_ID=<classId> CD_API_BASE=http://127.0.0.1:8787 \
+  bash scripts/prepare-usb-pack.sh 192.168.x.x
+# 或：
+node scripts/gen-seat-map-sheet.mjs --api http://127.0.0.1:8787 --token "$TOKEN" --class "$CLASS_ID" \
+  --out releases/192.168.x.x/SEAT-MAP-ID-SHEET.html
+```
+
+输出 `SEAT-MAP-ID-SHEET.html`：空座/已排 + **内嵌 SVG QR**（离线打印）。详见 [LOCAL_USB_CHECKLIST.md](../docs/LOCAL_USB_CHECKLIST.md)。

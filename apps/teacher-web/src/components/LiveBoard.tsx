@@ -40,6 +40,7 @@ export function LiveBoard({
   const [sessionStartAt, setSessionStartAt] = useState<string | null>(null);
   const [autoReadonlyHint, setAutoReadonlyHint] = useState('');
   const [inputLockSummary, setInputLockSummary] = useState('');
+  const [inputLockSseFallback, setInputLockSseFallback] = useState(false);
   const [inputLockDetailOpen, setInputLockDetailOpen] = useState(false);
   const [inputLockDetail, setInputLockDetail] = useState<{
     global: string;
@@ -214,11 +215,30 @@ export function LiveBoard({
       }
     }
     void loadInputLock();
-    // Same channel as assistant coverage badge — real-time, no 5s poll.
+    // Same channel as assistant coverage badge; on SSE failure fall back to 5s poll.
     let es: EventSource | null = null;
+    let pollTimer: number | undefined;
+    let failStreak = 0;
+    let usingPoll = false;
+    function startPollFallback(reason: string) {
+      if (cancelled || usingPoll) return;
+      usingPoll = true;
+      setInputLockSseFallback(true);
+      setFsHint(`输入锁实时通道已切到轮询（${reason}）`);
+      pollTimer = window.setInterval(() => void loadInputLock(), 5_000);
+    }
     if (typeof EventSource !== 'undefined') {
       es = new EventSource(`${API_BASE}/api/v1/input-lock/stream`);
       const onLock = (ev: MessageEvent) => {
+        failStreak = 0;
+        if (usingPoll) {
+          usingPoll = false;
+          setInputLockSseFallback(false);
+          if (pollTimer != null) {
+            window.clearInterval(pollTimer);
+            pollTimer = undefined;
+          }
+        }
         try {
           const data = JSON.parse(String(ev.data)) as {
             inputLock?: {
@@ -238,6 +258,12 @@ export function LiveBoard({
       };
       es.addEventListener('input_lock', onLock as EventListener);
       es.onmessage = onLock;
+      es.onerror = () => {
+        failStreak += 1;
+        if (failStreak >= 2) startPollFallback('SSE 断开');
+      };
+    } else {
+      startPollFallback('无 EventSource');
     }
     return () => {
       cancelled = true;
@@ -246,6 +272,7 @@ export function LiveBoard({
       } catch {
         /* ignore */
       }
+      if (pollTimer != null) window.clearInterval(pollTimer);
     };
   }, [projection, classId]);
 
@@ -387,6 +414,11 @@ export function LiveBoard({
       style={barStyle}
     >
       <h2>大屏答题态势</h2>
+      {projection && inputLockSseFallback ? (
+        <p className="hint" data-testid="projection-input-lock-sse-fallback" role="status">
+          输入锁实时通道已切到 5 秒轮询
+        </p>
+      ) : null}
       {projection && inputLockSummary ? (
         <div data-testid="projection-input-lock-summary" role="status">
           <p className="hint">{inputLockSummary}</p>

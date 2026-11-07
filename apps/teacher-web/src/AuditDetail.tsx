@@ -78,6 +78,7 @@ export function AuditDetail({
     typeof obj.className === 'string' && obj.className.trim() ? obj.className.trim() : '';
   const humanSummary =
     typeof obj.summary === 'string' && obj.summary.trim() ? obj.summary.trim() : '';
+  const clearedExamSnapshot = obj.clearedExamSnapshot === true;
   const seatReadable = seatLabel
     ? `座位 ${seatLabel}${seatId ? `（id ${seatId}）` : ''}`
     : '';
@@ -85,7 +86,16 @@ export function AuditDetail({
   const kvSummary = Object.entries(obj)
     .filter(
       ([k]) =>
-        !['ids', 'byClass', 'summary', 'seatLabel', 'seatId', 'className', 'flags'].includes(k),
+        ![
+          'ids',
+          'byClass',
+          'summary',
+          'seatLabel',
+          'seatId',
+          'className',
+          'flags',
+          'clearedExamSnapshot',
+        ].includes(k),
     )
     .map(([k, v]) => `${k}=${typeof v === 'string' ? v : JSON.stringify(v)}`)
     .slice(0, 3)
@@ -129,6 +139,14 @@ export function AuditDetail({
       ) : (
         summary || '详情'
       )}
+      {clearedExamSnapshot ? (
+        <>
+          {' '}
+          <span className="badge" data-testid="audit-cleared-exam-snapshot">
+            已清考试快照
+          </span>
+        </>
+      ) : null}
       {purgeJump}
       {ids && ids.length ? (
         <>

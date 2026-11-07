@@ -28,6 +28,22 @@ bash scripts/prepare-usb-pack.sh 192.168.x.x
 bash scripts/copy-usb-release.sh /Volumes/YOUR_USB 192.168.x.x
 ```
 
+可选：生成可扫码 **seat_map.id 对照表**（内嵌 SVG QR，离线打印）：
+
+```bash
+# 先拿教师 JWT，再指定班级
+TOKEN=$(curl -sS -X POST http://127.0.0.1:8787/api/v1/auth/login \
+  -H 'content-type: application/json' \
+  -d '{"username":"teacher","password":"YOUR_PASSWORD"}' | jq -r .token)
+CD_TOKEN="$TOKEN" CD_CLASS_ID="<classId>" CD_API_BASE=http://127.0.0.1:8787 \
+  bash scripts/prepare-usb-pack.sh 192.168.x.x
+# → releases/<IP>/SEAT-MAP-ID-SHEET.html
+
+# 或单独生成：
+CD_TOKEN="$TOKEN" CD_CLASS_ID="<classId>" \
+  node scripts/gen-seat-map-sheet.mjs --out releases/demo/SEAT-MAP-ID-SHEET.html
+```
+
 ## 原则
 
 - `apiBase=http://<教师机局域网IP>:8787`（写入 settings + 学生 `config.json`）  

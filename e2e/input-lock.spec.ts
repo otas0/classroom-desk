@@ -240,6 +240,8 @@ test.describe('physical input lock', () => {
     await expect(student.getByTestId('input-lock-banner')).toBeVisible({ timeout: 15_000 });
     await expect(student.getByTestId('input-lock-unseated-note')).toBeVisible({ timeout: 10_000 });
     await expect(student.getByTestId('input-lock-unseated-note')).toContainText(/本机未排座/);
+    // Mutual exclusion: global/class path must not show seat-miss tip.
+    await expect(student.getByTestId('input-lock-seat-miss-note')).toHaveCount(0);
     await student.close();
   });
 
@@ -365,9 +367,10 @@ test.describe('physical input lock', () => {
     await pageB.goto(`${STUDENT_WEB}/?e2e=1`, { waitUntil: 'domcontentloaded' });
     // Unseated student: no seat-scoped banner; may show unseated note only if global/class lock on.
     await expect(pageB.getByTestId('input-lock-banner')).toHaveCount(0, { timeout: 12_000 });
-    // Seat-only lock + unseated: tip without global banner.
+    // Seat-only lock + unseated: tip without global banner; no unseated-note.
     await expect(pageB.getByTestId('input-lock-seat-miss-note')).toBeVisible({ timeout: 12_000 });
     await expect(pageB.getByTestId('input-lock-seat-miss-note')).toContainText(/座锁未命中/);
+    await expect(pageB.getByTestId('input-lock-unseated-note')).toHaveCount(0);
 
     // 换人同座：unbind A → A's stale clientId must not keep seat lock (clears cd_seat_id on refresh).
     await request.patch(`${API}/api/v1/classes/${classId}/seats/${seatA.id}`, {
@@ -476,5 +479,61 @@ test.describe('physical input lock', () => {
     expect(settings.ok()).toBeTruthy();
     const s = (await settings.json()) as { examModeSnapshot?: boolean };
     expect(s.examModeSnapshot).toBeFalsy();
+
+    const audit = await request.get(`${API}/api/v1/audit?limit=20`, { headers: auth });
+    expect(audit.ok()).toBeTruthy();
+    const items = ((await audit.json()) as { items: Array<{ action: string; detail: string }> })
+      .items;
+    const row = items.find((i) => i.action === 'settings.input_lock' && /clear_all/.test(i.detail));
+    expect(row?.detail ?? '').toMatch(/clearedExamSnapshot":\s*true/);
+  });
+
+  test('clearAll ConfirmModal shows byClass/bySeat counts', async ({ page, request }) => {
+    const { password } = await loginTeacherWeb(page, request);
+    const login = await request.post(`${API}/api/v1/auth/login`, {
+      data: { username: TEACHER_USER, password },
+    });
+    expect(login.ok()).toBeTruthy();
+    const { token } = (await login.json()) as { token: string };
+    const auth = { Authorization: `Bearer ${token}` };
+
+    const stamp = Date.now();
+    const createdClass = await request.post(`${API}/api/v1/classes`, {
+      headers: auth,
+      data: { name: `ClearAllUI_${stamp}` },
+    });
+    expect(createdClass.ok()).toBeTruthy();
+    const classId = ((await createdClass.json()) as { id: string }).id;
+
+    await request.patch(`${API}/api/v1/settings`, {
+      headers: auth,
+      data: {
+        inputLock: {
+          scope: 'class',
+          classId,
+          keyboard: true,
+          mouse: false,
+          voice: false,
+          camera: false,
+        },
+      },
+    });
+
+    await openPrepTab(page, '设置');
+    await expect(page.getByTestId('input-lock-controls')).toBeVisible({ timeout: 15_000 });
+    // Refresh settings so counts include the class lock we just set.
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await openPrepTab(page, '设置');
+    await expect(page.getByTestId('input-lock-controls')).toBeVisible({ timeout: 15_000 });
+
+    await page.getByTestId('input-lock-none').click();
+    const modal = page.getByTestId('input-lock-clear-all-confirm');
+    await expect(modal).toBeVisible({ timeout: 8_000 });
+    await expect(page.getByTestId('input-lock-clear-all-class-count')).toBeVisible();
+    const classCountText = await page.getByTestId('input-lock-clear-all-class-count').innerText();
+    expect(Number(classCountText)).toBeGreaterThanOrEqual(1);
+    await page.getByRole('button', { name: '确认全部解除' }).click();
+    await expect(modal).toHaveCount(0, { timeout: 10_000 });
+    await expect(page.getByText(/已全部解除物理输入锁/).first()).toBeVisible({ timeout: 10_000 });
   });
 });
