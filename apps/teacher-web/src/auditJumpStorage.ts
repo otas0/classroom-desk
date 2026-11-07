@@ -18,7 +18,7 @@ function scheduleClear() {
       /* ignore */
     }
     clearTimer = null;
-  }, 4000);
+  }, 12_000);
 }
 
 export function stashAuditJumpIds(ids: string[], openRecycle = false) {

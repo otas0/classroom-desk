@@ -1856,14 +1856,19 @@ export function QuestionRecyclePanel({ classId }: { classId: string }) {
   useEffect(() => {
     void load().catch(() => setItems([]));
     setScrollTop(0);
-    const ids = consumeAuditJumpIds();
-    if (ids.length) setJumpIds(new Set(ids));
     void api<{ recycleUrgentDays?: number }>('/api/v1/settings')
       .then((s) => {
         if (s.recycleUrgentDays != null) setUrgentDays(Number(s.recycleUrgentDays));
       })
       .catch(() => undefined);
   }, [classId]);
+
+  // Consume jump stash once on mount (hard-reload from audit). Do not re-consume on
+  // classId sync — that raced the clear timer and dropped cd-audit-jump-hl in CI.
+  useEffect(() => {
+    const ids = consumeAuditJumpIds();
+    if (ids.length) setJumpIds(new Set(ids));
+  }, []);
 
   const virt = useMemo(() => {
     const start = Math.max(0, Math.floor(scrollTop / ROW_H) - 4);
