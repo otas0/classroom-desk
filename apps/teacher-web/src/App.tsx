@@ -105,11 +105,26 @@ export function App() {
     };
   }, [tokenReady]);
 
+  function openExitLockSettings() {
+    if (isAssistant()) {
+      setTab('settings');
+    } else {
+      setTab('prep');
+      setPrepTab('settings');
+    }
+    window.requestAnimationFrame(() => {
+      document.getElementById('exit-lock-settings')?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'start',
+      });
+    });
+  }
+
   useEffect(() => {
     if (!tokenReady) return;
     if (sessionStorage.getItem('cd_goto_exit_lock') === '1') {
       sessionStorage.removeItem('cd_goto_exit_lock');
-      setTab('settings');
+      openExitLockSettings();
     }
   }, [tokenReady]);
 
@@ -470,19 +485,7 @@ export function App() {
           {codeRotationBanner && tokenReady ? (
             <div className="banner-alert" role="status">
               <p>{codeRotationBanner}</p>
-              <button
-                type="button"
-                className="linkish"
-                onClick={() => {
-                  setTab('settings');
-                  window.requestAnimationFrame(() => {
-                    document.getElementById('exit-lock-settings')?.scrollIntoView({
-                      behavior: 'smooth',
-                      block: 'start',
-                    });
-                  });
-                }}
-              >
+              <button type="button" className="linkish" onClick={() => openExitLockSettings()}>
                 去设置更换解除码
               </button>
             </div>
@@ -680,7 +683,10 @@ export function App() {
                 {prepTab === 'settings' && <SettingsPanel onMessagesChange={setMessagesEnabled} />}
               </>
             )}
-            {tab === 'settings' && <SettingsPanel onMessagesChange={setMessagesEnabled} />}
+            {/* Assistant top-nav「设置」；教师走备课→设置，勿双挂载以免 settings-save-msg 重复 */}
+            {tab === 'settings' && isAssistant() ? (
+              <SettingsPanel onMessagesChange={setMessagesEnabled} />
+            ) : null}
           </>
         )}
       </main>
