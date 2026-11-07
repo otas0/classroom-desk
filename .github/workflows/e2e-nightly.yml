@@ -20,8 +20,10 @@ permissions:
 
 jobs:
   # Manual-only ACL check: intentional fail → Open Issue step (issues:write).
+  # continue-on-error: do not paint the whole nightly red when this opt-in job exits 1.
   issues-write-dry-run:
     if: github.event_name == 'workflow_dispatch' && inputs.verify_issues_write == true
+    continue-on-error: true
     runs-on: ubuntu-latest
     steps:
       - name: Intentional fail (dry-run)

@@ -40,6 +40,7 @@ Get-FileHash -Algorithm SHA256 .\ClassroomDesk-Setup-*.exe
 | 日期 | 提交线 | job | Playwright bulk | teacher dist |
 |---|---|---|---|---|
 | 2026-11-07 | `8d60e7d` 隔离 bulk 共享班后 | ≈52s | ≈15s | **Download ≈1s**（复用 server artifact；旧路径 Build ≈5s） |
+| 2026-11-07 | `b10f44c` homework/point 隔离后（[CI 42369458852](https://github.com/otas0/classroom-desk/actions/runs/42369458852)） | ≈52s | ≈11s | **Download ≈1s** |
 
 若 `q-recycle-purge` 再红：先查 `selectTeacherClass` / `loadClasses` 竞态（专用班 option 未就绪或 preferClassroomId 抢回「本教室」）。
 
