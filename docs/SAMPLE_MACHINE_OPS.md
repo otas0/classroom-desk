@@ -76,9 +76,16 @@ npm run copy:usb -- /Volumes/YOUR_USB <IP>
 
 ## 7. 操作员勾选（教室网）
 
-- [ ] `artifacts/C2-intune-version.txt` 填满 + `C2-intune-policy.png`
-- [ ] DevTools 关 `/exit-lock/ws` → toast + SSE
-- [ ] `C2-narrator.mp4` / `C2-taskmgr-deny.mp4` / `C2-titlebar.png`
-- [ ] U 盘仅 0.1.7，样机 `Get-FileHash` = `992ee805…898b57`
-- [ ] CSV「下载已拉取部分」
-- [ ] 健康轮询「当前生效间隔」
+开发机公网**不能**代勾。到教室/机房后按序：
+
+1. [ ] `npm run prepare:usb -- <教师IP>`（或拷已备好的 `releases/<IP>/`）→ U 盘 → 样机安装  
+2. [ ] 样机 `Get-FileHash -Algorithm SHA256` = `992ee805ff2a8e92f66dfaee6d26068b29ac598d08082af0ebc399408f898b57`  
+3. [ ] 填满 `artifacts/C2-intune-version.txt` + 截 `C2-intune-policy.png`  
+4. [ ] DevTools 关 `/exit-lock/ws` → toast + SSE（§4）  
+5. [ ] 录 `C2-narrator.mp4` / `C2-taskmgr-deny.mp4` + `C2-titlebar.png`  
+6. [ ] 教师 Web：CSV「下载已拉取部分」  
+7. [ ] 教师 Web：健康轮询「当前生效间隔」  
+
+下个 Release tag 发版后：目视 Release 安装说明含 [ARTIFACTS.md](./ARTIFACTS.md) 链接（`extract-release-notes.mjs` 已自动附）。  
+purge CI 再红：先查 `selectTeacherClass` / `preferClassroomId`（见 ARTIFACTS 基线节）。  
+Issue ACL 复验（可选）：`gh workflow run e2e-nightly.yml -f verify_issues_write=true`（dry-run job `continue-on-error`，不染红整 suite）。
