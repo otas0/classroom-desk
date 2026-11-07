@@ -398,7 +398,12 @@ settingsRouter.patch('/api/v1/settings', requireAuth, requireRoles('teacher', 'a
       const state = getClientExitLockState(db);
       broadcastExitLockPayload(state);
       broadcastInputLock(db);
-      res.json({ ok: true, ...state, inputLockStore: getInputLockStore(db) });
+      res.json({
+        ok: true,
+        ...state,
+        inputLockStore: getInputLockStore(db),
+        examModeSnapshot: hasExamModeSnapshot(db),
+      });
       return;
     }
     const classId = String(raw.classId ?? req.body?.classId ?? '').trim();

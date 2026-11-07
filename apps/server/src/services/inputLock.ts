@@ -361,19 +361,29 @@ export function hasExamModeSnapshot(db: DatabaseSync): boolean {
   return Boolean(raw && raw.trim());
 }
 
-/** Wipe global + byClass + bySeat (e2e / emergency unlock). */
+/**
+ * Wipe global + byClass + bySeat (e2e / emergency unlock).
+ * Also clears exam-mode input-lock snapshot — after clearAll there is nothing
+ * meaningful to「解除考试模式」restore; leaving a stale snap would re-apply old locks.
+ */
 export function clearAllInputLocks(
   db: DatabaseSync,
   meta?: { actorUserId?: string; actorRole?: string; clientIp?: string },
 ): InputLockStore {
+  const hadExamSnap = hasExamModeSnapshot(db);
   const store = emptyInputLockStore();
   upsertSetting(db, KEY_V2, JSON.stringify(store));
   upsertSetting(db, KEY_V1, JSON.stringify(store.global));
+  if (hadExamSnap) {
+    upsertSetting(db, KEY_EXAM_SNAP, '');
+  }
   recordExitLockEvent(db, {
     kind: 'input_lock',
     actorUserId: meta?.actorUserId,
     actorRole: meta?.actorRole,
-    detail: '物理输入锁：已清空全部范围（全局/班级/机位）',
+    detail: hadExamSnap
+      ? '物理输入锁：已清空全部范围（全局/班级/机位），并清除考试模式快照'
+      : '物理输入锁：已清空全部范围（全局/班级/机位）',
     clientIp: meta?.clientIp,
   });
   writeAudit(
@@ -384,7 +394,10 @@ export function clearAllInputLocks(
       classId: null,
       detail: JSON.stringify({
         scope: 'clear_all',
-        summary: '清空全部物理输入锁',
+        summary: hadExamSnap
+          ? '清空全部物理输入锁（含考试模式快照）'
+          : '清空全部物理输入锁',
+        clearedExamSnapshot: hadExamSnap,
       }),
       clientIp: meta?.clientIp,
     },

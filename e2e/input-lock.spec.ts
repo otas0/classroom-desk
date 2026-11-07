@@ -365,6 +365,9 @@ test.describe('physical input lock', () => {
     await pageB.goto(`${STUDENT_WEB}/?e2e=1`, { waitUntil: 'domcontentloaded' });
     // Unseated student: no seat-scoped banner; may show unseated note only if global/class lock on.
     await expect(pageB.getByTestId('input-lock-banner')).toHaveCount(0, { timeout: 12_000 });
+    // Seat-only lock + unseated: tip without global banner.
+    await expect(pageB.getByTestId('input-lock-seat-miss-note')).toBeVisible({ timeout: 12_000 });
+    await expect(pageB.getByTestId('input-lock-seat-miss-note')).toContainText(/座锁未命中/);
 
     // 换人同座：unbind A → A's stale clientId must not keep seat lock (clears cd_seat_id on refresh).
     await request.patch(`${API}/api/v1/classes/${classId}/seats/${seatA.id}`, {
@@ -376,5 +379,102 @@ test.describe('physical input lock', () => {
 
     await pageA.close();
     await pageB.close();
+  });
+
+  test('seat-bind SSE updates student seat chip within 2s', async ({ page, request }) => {
+    test.skip(!(await studentReachable()), 'student vite required');
+
+    const password = await ensureTeacherPasswordReady(request);
+    const login = await request.post(`${API}/api/v1/auth/login`, {
+      data: { username: TEACHER_USER, password },
+    });
+    expect(login.ok()).toBeTruthy();
+    const { token } = (await login.json()) as { token: string };
+    const auth = { Authorization: `Bearer ${token}` };
+
+    const stamp = Date.now();
+    const createdClass = await request.post(`${API}/api/v1/classes`, {
+      headers: auth,
+      data: { name: `SeatBindSSE_${stamp}` },
+    });
+    expect(createdClass.ok()).toBeTruthy();
+    const classId = ((await createdClass.json()) as { id: string }).id;
+    const stu = await request.post(`${API}/api/v1/classes/${classId}/students`, {
+      headers: auth,
+      data: { displayName: `绑座${stamp}`, studentNo: `SB${stamp % 100000}` },
+    });
+    expect(stu.ok()).toBeTruthy();
+    const studentId = ((await stu.json()) as { id: string }).id;
+
+    const grid = await request.put(`${API}/api/v1/classes/${classId}/seats`, {
+      headers: auth,
+      data: { rows: 1, cols: 1 },
+    });
+    expect(grid.ok()).toBeTruthy();
+    const seatsRes = await request.get(`${API}/api/v1/classes/${classId}/seats`, { headers: auth });
+    const seats = ((await seatsRes.json()) as { items: Array<{ id: string; label: string }> }).items;
+    expect(seats[0]).toBeTruthy();
+    const seat = seats[0]!;
+    const seatLabel = `SSE-${stamp % 10000}`;
+
+    const sel = await request.post(`${API}/api/v1/auth/student-select`, {
+      data: { classId, studentId },
+    });
+    expect(sel.ok()).toBeTruthy();
+    const tok = ((await sel.json()) as { token: string }).token;
+
+    const student = await page.context().newPage();
+    await student.addInitScript(
+      ({ apiBase, tok }) => {
+        localStorage.setItem('classroom-desk.api-base', apiBase);
+        localStorage.setItem('classroom-desk.token', tok);
+        localStorage.removeItem('cd_seat_id');
+        localStorage.removeItem('cd_seat_label');
+      },
+      { apiBase: API, tok },
+    );
+    await student.goto(`${STUDENT_WEB}/?e2e=1`, { waitUntil: 'domcontentloaded' });
+    await expect(student.getByTestId('student-seat-unbound')).toBeVisible({ timeout: 15_000 });
+
+    const bind = await request.patch(`${API}/api/v1/classes/${classId}/seats/${seat.id}`, {
+      headers: auth,
+      data: { studentId, label: seatLabel },
+    });
+    expect(bind.ok()).toBeTruthy();
+
+    await expect(student.getByTestId('student-seat-binding')).toBeVisible({ timeout: 2_000 });
+    await expect(student.getByTestId('student-seat-binding')).toContainText(seatLabel);
+    await student.close();
+  });
+
+  test('clearAll clears exam-mode snapshot', async ({ request }) => {
+    const password = await ensureTeacherPasswordReady(request);
+    const login = await request.post(`${API}/api/v1/auth/login`, {
+      data: { username: TEACHER_USER, password },
+    });
+    expect(login.ok()).toBeTruthy();
+    const { token } = (await login.json()) as { token: string };
+    const auth = { Authorization: `Bearer ${token}` };
+
+    const exam = await request.patch(`${API}/api/v1/settings`, {
+      headers: auth,
+      data: { examMode: true },
+    });
+    expect(exam.ok()).toBeTruthy();
+    const examBody = (await exam.json()) as { examModeSnapshot?: boolean };
+    expect(examBody.examModeSnapshot).toBeTruthy();
+
+    const cleared = await request.patch(`${API}/api/v1/settings`, {
+      headers: auth,
+      data: { inputLock: { clearAll: true } },
+    });
+    expect(cleared.ok()).toBeTruthy();
+    const body = (await cleared.json()) as { examModeSnapshot?: boolean };
+    expect(body.examModeSnapshot).toBeFalsy();
+
+    const settings = await request.get(`${API}/api/v1/settings`, { headers: auth });
+    expect(settings.ok()).toBeTruthy();
+    const s = (await settings.json()) as { examModeSnapshot?: boolean };
+    expect(s.examModeSnapshot).toBeFalsy();
   });
 });

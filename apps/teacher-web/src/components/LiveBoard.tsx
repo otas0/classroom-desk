@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
-import { api } from '../api';
+import { API_BASE, api } from '../api';
 
 export function LiveBoard({
   classId,
@@ -141,6 +141,53 @@ export function LiveBoard({
       return;
     }
     let cancelled = false;
+    type Summary = {
+      global: string;
+      byClass: Array<{ classId: string; className?: string; label: string }>;
+      bySeat: Array<{
+        key: string;
+        classId: string;
+        className?: string;
+        seatId: string;
+        seatLabel?: string;
+        label: string;
+      }>;
+    };
+    function applySummary(
+      summary: Summary,
+      inputLock?: {
+        keyboard?: boolean;
+        mouse?: boolean;
+        voice?: boolean;
+        camera?: boolean;
+      } | null,
+      inputLockActive?: boolean,
+    ) {
+      setInputLockDetail(summary);
+      const classCount = summary.byClass.length;
+      const seatCount = summary.bySeat.length;
+      const active =
+        inputLockActive === true ||
+        Boolean(inputLock?.keyboard || inputLock?.mouse || inputLock?.voice || inputLock?.camera) ||
+        classCount > 0 ||
+        seatCount > 0;
+      if (!active) {
+        setInputLockSummary('全班输入锁：未启用');
+        return;
+      }
+      const parts: string[] = [];
+      if (inputLock?.keyboard) parts.push('键盘');
+      if (inputLock?.mouse) parts.push('鼠标');
+      if (inputLock?.voice) parts.push('语音');
+      if (inputLock?.camera) parts.push('相机');
+      const scoped =
+        classCount || seatCount
+          ? ` · 班级覆盖 ${classCount} · 机位覆盖 ${seatCount}`
+          : '';
+      setInputLockSummary(
+        `全班输入锁：已锁 ${parts.join('、') || summary.global || '—'}${scoped}`,
+      );
+    }
     async function loadInputLock() {
       try {
         const s = await api<{
@@ -151,43 +198,13 @@ export function LiveBoard({
             camera?: boolean;
           };
           inputLockActive?: boolean;
-          inputLockSummary?: {
-            global: string;
-            byClass: Array<{ classId: string; className?: string; label: string }>;
-            bySeat: Array<{
-              key: string;
-              classId: string;
-              className?: string;
-              seatId: string;
-              seatLabel?: string;
-              label: string;
-            }>;
-          };
+          inputLockSummary?: Summary;
         }>(`/api/v1/settings/public?classId=${encodeURIComponent(classId)}`);
         if (cancelled) return;
-        const summary = s.inputLockSummary ?? {
-          global: '无',
-          byClass: [],
-          bySeat: [],
-        };
-        setInputLockDetail(summary);
-        const classCount = summary.byClass.length;
-        const seatCount = summary.bySeat.length;
-        if (!s.inputLockActive && classCount === 0 && seatCount === 0) {
-          setInputLockSummary('全班输入锁：未启用');
-          return;
-        }
-        const parts: string[] = [];
-        if (s.inputLock?.keyboard) parts.push('键盘');
-        if (s.inputLock?.mouse) parts.push('鼠标');
-        if (s.inputLock?.voice) parts.push('语音');
-        if (s.inputLock?.camera) parts.push('相机');
-        const scoped =
-          classCount || seatCount
-            ? ` · 班级覆盖 ${classCount} · 机位覆盖 ${seatCount}`
-            : '';
-        setInputLockSummary(
-          `全班输入锁：已锁 ${parts.join('、') || summary.global || '—'}${scoped}`,
+        applySummary(
+          s.inputLockSummary ?? { global: '无', byClass: [], bySeat: [] },
+          s.inputLock,
+          s.inputLockActive,
         );
       } catch {
         if (!cancelled) {
@@ -197,10 +214,38 @@ export function LiveBoard({
       }
     }
     void loadInputLock();
-    const t = window.setInterval(() => void loadInputLock(), 5000);
+    // Same channel as assistant coverage badge — real-time, no 5s poll.
+    let es: EventSource | null = null;
+    if (typeof EventSource !== 'undefined') {
+      es = new EventSource(`${API_BASE}/api/v1/input-lock/stream`);
+      const onLock = (ev: MessageEvent) => {
+        try {
+          const data = JSON.parse(String(ev.data)) as {
+            inputLock?: {
+              keyboard?: boolean;
+              mouse?: boolean;
+              voice?: boolean;
+              camera?: boolean;
+            };
+            inputLockActive?: boolean;
+            summary?: Summary;
+          };
+          if (!data.summary) return;
+          applySummary(data.summary, data.inputLock, data.inputLockActive);
+        } catch {
+          /* ignore */
+        }
+      };
+      es.addEventListener('input_lock', onLock as EventListener);
+      es.onmessage = onLock;
+    }
     return () => {
       cancelled = true;
-      window.clearInterval(t);
+      try {
+        es?.close();
+      } catch {
+        /* ignore */
+      }
     };
   }, [projection, classId]);
 

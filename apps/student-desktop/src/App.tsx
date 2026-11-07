@@ -26,6 +26,8 @@ import {
   normalizeInputLock,
   normalizeInputLockStore,
   resolveInputLockClient,
+  storeHasActiveNonSeatLocks,
+  storeHasActiveSeatLocks,
   type InputLockFlags,
   type InputLockStore,
 } from './inputLock';
@@ -137,6 +139,7 @@ export function App() {
   lockSeatIdsRef.current = lockSeatIds;
   /** True when /auth/me reports a seat_map row for this student. */
   const [hasSeatBinding, setHasSeatBinding] = useState(false);
+  const [seatBindLabel, setSeatBindLabel] = useState('');
 
   const applyResolvedInputLock = useCallback(
     (store: InputLockStore | null, flat: unknown, cid: string, seatIds?: string[]) => {
@@ -506,6 +509,7 @@ export function App() {
       // Write/clear cd_seat_id on seat change so 换人同座 won't keep hitting the old seat lock.
       if (me.seat?.id) {
         setHasSeatBinding(true);
+        setSeatBindLabel(me.seat.label || me.seat.id);
         try {
           localStorage.setItem('cd_seat_id', me.seat.id);
           if (me.seat.label) localStorage.setItem('cd_seat_label', me.seat.label);
@@ -515,6 +519,7 @@ export function App() {
         }
       } else {
         setHasSeatBinding(false);
+        setSeatBindLabel('');
         try {
           localStorage.removeItem('cd_seat_id');
           localStorage.removeItem('cd_seat_label');
@@ -670,6 +675,7 @@ export function App() {
         if (!mine) return;
         if (mine.seat?.id) {
           setHasSeatBinding(true);
+          setSeatBindLabel(mine.seat.label || mine.seat.id);
           try {
             localStorage.setItem('cd_seat_id', mine.seat.id);
             if (mine.seat.label) localStorage.setItem('cd_seat_label', mine.seat.label);
@@ -683,6 +689,7 @@ export function App() {
           setLockSeatIds([...new Set(nextSeats)]);
         } else {
           setHasSeatBinding(false);
+          setSeatBindLabel('');
           try {
             localStorage.removeItem('cd_seat_id');
             localStorage.removeItem('cd_seat_label');
@@ -1059,6 +1066,15 @@ export function App() {
                 <span className="chip-action">换人</span>
               </button>
             ) : null}
+            {hasSeatBinding ? (
+              <span className="meta" data-testid="student-seat-binding" title="当前座位绑定">
+                座位 {seatBindLabel || '已排'}
+              </span>
+            ) : user ? (
+              <span className="meta" data-testid="student-seat-unbound">
+                未排座
+              </span>
+            ) : null}
           </div>
           <span className="meta">{meta}</span>
         </div>
@@ -1214,11 +1230,17 @@ export function App() {
           <p>
             教师已启用物理输入锁：{inputLockSummary(inputLock) || '—'}。本应用内对应输入已禁用，请向教师申请解除。
           </p>
-          {!hasSeatBinding ? (
+          {!hasSeatBinding && storeHasActiveNonSeatLocks(inputLockStoreState, classId) ? (
             <p className="hint" data-testid="input-lock-unseated-note">
               本机未排座，座锁未生效。
             </p>
           ) : null}
+        </div>
+      ) : !hasSeatBinding &&
+        storeHasActiveSeatLocks(inputLockStoreState, classId) &&
+        !storeHasActiveNonSeatLocks(inputLockStoreState, classId) ? (
+        <div className="banner-alert" role="status" data-testid="input-lock-seat-miss-note">
+          <p>座锁未命中：本机未排座，教师机位锁对本机不生效。</p>
         </div>
       ) : null}
 

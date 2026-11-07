@@ -2910,6 +2910,10 @@ export function SettingsPanel({
   const [inputLockScopeLabel, setInputLockScopeLabel] = useState('全校全局');
   /** Effective coverage from store summary (assistant badge). */
   const [inputLockCoverage, setInputLockCoverage] = useState<'global' | 'class' | 'seat'>('global');
+  /** Last known store summary counts for clearAll confirm. */
+  const [inputLockClassCount, setInputLockClassCount] = useState(0);
+  const [inputLockSeatCount, setInputLockSeatCount] = useState(0);
+  const [seatIdCopied, setSeatIdCopied] = useState(false);
   const [exitEvents, setExitEvents] = useState<
     Array<{ id: string; kind: string; detail: string; createdAt: string; actorRole?: string | null }>
   >([]);
@@ -3098,12 +3102,16 @@ export function SettingsPanel({
     }
     setExamModeSnapshot(s.examModeSnapshot === true);
     const sum = s.inputLockSummary;
-    if (sum?.bySeat && Array.isArray(sum.bySeat) && sum.bySeat.length > 0) {
+    const classN = Array.isArray(sum?.byClass) ? sum!.byClass!.length : 0;
+    const seatN = Array.isArray(sum?.bySeat) ? sum!.bySeat!.length : 0;
+    setInputLockClassCount(classN);
+    setInputLockSeatCount(seatN);
+    if (seatN > 0) {
       setInputLockCoverage('seat');
-      setInputLockScopeLabel(`机位覆盖 ${sum.bySeat.length}`);
-    } else if (sum?.byClass && Array.isArray(sum.byClass) && sum.byClass.length > 0) {
+      setInputLockScopeLabel(`机位覆盖 ${seatN}`);
+    } else if (classN > 0) {
       setInputLockCoverage('class');
-      setInputLockScopeLabel(`班级覆盖 ${sum.byClass.length}`);
+      setInputLockScopeLabel(`班级覆盖 ${classN}`);
     } else {
       setInputLockCoverage('global');
       setInputLockScopeLabel(sum?.global && sum.global !== '无' ? `全局 ${sum.global}` : '全校全局');
@@ -3197,8 +3205,15 @@ export function SettingsPanel({
     return map[action] ? `${map[action]}（${action}）` : action;
   }
 
-  function jumpToInputLockSettings() {
+  function jumpToInputLockSettings(opts?: { seatId?: string | null; classId?: string | null }) {
     sessionStorage.setItem('cd_goto_input_lock', '1');
+    const seat = String(opts?.seatId ?? '').trim();
+    if (seat) {
+      sessionStorage.setItem('cd_goto_input_lock_seat', seat);
+      sessionStorage.setItem('cd_input_lock_scope', 'seat');
+    }
+    const cid = String(opts?.classId ?? '').trim();
+    if (cid) localStorage.setItem('cd_teacher_class_id', cid);
     try {
       window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}#input-lock-settings`);
     } catch {
@@ -3207,7 +3222,7 @@ export function SettingsPanel({
     hardReloadTeacherNav({
       tab: isAssistant() ? 'settings' : 'prep',
       prepTab: 'settings',
-      classId: currentTeacherClassId() || undefined,
+      classId: cid || currentTeacherClassId() || undefined,
     });
   }
 
@@ -3396,6 +3411,28 @@ export function SettingsPanel({
   }
 
   useEffect(() => {
+    try {
+      const seat = sessionStorage.getItem('cd_goto_input_lock_seat')?.trim();
+      const scope = sessionStorage.getItem('cd_input_lock_scope')?.trim();
+      if (scope === 'seat' || seat) setInputLockScope('seat');
+      if (seat) {
+        setInputLockSeatId(seat);
+        sessionStorage.removeItem('cd_goto_input_lock_seat');
+        sessionStorage.removeItem('cd_input_lock_scope');
+        window.setTimeout(() => {
+          const el = document.querySelector(
+            '[data-testid="input-lock-seat-id-readonly"]',
+          ) as HTMLElement | null;
+          el?.classList.add('cd-audit-jump-hl');
+          window.setTimeout(() => el?.classList.remove('cd-audit-jump-hl'), 4000);
+        }, 400);
+      }
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  useEffect(() => {
     void refreshExitLock().catch(() => undefined);
     void loadAudit().catch(() => setAuditItems([]));
     void loadAssistants().catch(() => setAssistants([]));
@@ -3488,12 +3525,16 @@ export function SettingsPanel({
       bySeat?: unknown[];
     } | null | undefined) {
       if (!summary) return;
-      if (Array.isArray(summary.bySeat) && summary.bySeat.length > 0) {
+      const classN = Array.isArray(summary.byClass) ? summary.byClass.length : 0;
+      const seatN = Array.isArray(summary.bySeat) ? summary.bySeat.length : 0;
+      setInputLockClassCount(classN);
+      setInputLockSeatCount(seatN);
+      if (seatN > 0) {
         setInputLockCoverage('seat');
-        setInputLockScopeLabel(`机位覆盖 ${summary.bySeat.length}`);
-      } else if (Array.isArray(summary.byClass) && summary.byClass.length > 0) {
+        setInputLockScopeLabel(`机位覆盖 ${seatN}`);
+      } else if (classN > 0) {
         setInputLockCoverage('class');
-        setInputLockScopeLabel(`班级覆盖 ${summary.byClass.length}`);
+        setInputLockScopeLabel(`班级覆盖 ${classN}`);
       } else {
         setInputLockCoverage('global');
         setInputLockScopeLabel(
@@ -5188,9 +5229,27 @@ export function SettingsPanel({
                     />
                   </label>
                   {inputLockSeatId.trim() ? (
-                    <p className="hint" data-testid="input-lock-seat-id-readonly">
+                    <p className="hint row" data-testid="input-lock-seat-id-readonly">
                       当前选中 seat_map.id（只读核对）：
                       <code>{inputLockSeatId.trim()}</code>
+                      <button
+                        type="button"
+                        className="secondary"
+                        data-testid="input-lock-seat-id-copy"
+                        onClick={() => {
+                          const id = inputLockSeatId.trim();
+                          void navigator.clipboard
+                            ?.writeText(id)
+                            .then(() => {
+                              setSeatIdCopied(true);
+                              setExitMsg(`已复制 seat_map.id：${id}`);
+                              window.setTimeout(() => setSeatIdCopied(false), 2000);
+                            })
+                            .catch(() => setExitMsg('复制失败，请手动选中复制'));
+                        }}
+                      >
+                        {seatIdCopied ? '已复制' : '复制 id'}
+                      </button>
                     </p>
                   ) : null}
                 </>
@@ -5238,15 +5297,24 @@ export function SettingsPanel({
                   data-testid="input-lock-none"
                   title="清空全局 / 班级 / 机位全部物理输入锁"
                   onClick={() => {
+                    const classN = inputLockClassCount;
+                    const seatN = inputLockSeatCount;
+                    const willClearExamSnap = examModeSnapshot;
+                    const examNote = willClearExamSnap
+                      ? '；同时清除考试模式输入锁快照'
+                      : '';
                     if (
                       !window.confirm(
-                        '全部解除将清空全局、班级与机位范围的全部物理输入锁，确认？',
+                        `全部解除将清空：班级覆盖 ${classN} 条 · 机位覆盖 ${seatN} 条，以及全局标志${examNote}。确认？`,
                       )
                     ) {
                       return;
                     }
                     setInputLockBusy(true);
-                    void api<{ inputLock?: typeof inputLock }>('/api/v1/settings', {
+                    void api<{
+                      inputLock?: typeof inputLock;
+                      examModeSnapshot?: boolean;
+                    }>('/api/v1/settings', {
                       method: 'PATCH',
                       body: JSON.stringify({ inputLock: { clearAll: true } }),
                     })
@@ -5259,7 +5327,14 @@ export function SettingsPanel({
                         });
                         setInputLockCoverage('global');
                         setInputLockScopeLabel('全校全局');
-                        setExitMsg('已全部解除物理输入锁（清空全局/班级/机位）');
+                        setInputLockClassCount(0);
+                        setInputLockSeatCount(0);
+                        setExamModeSnapshot(r.examModeSnapshot === true);
+                        setExitMsg(
+                          willClearExamSnap
+                            ? '已全部解除物理输入锁，并清除考试模式快照'
+                            : '已全部解除物理输入锁（清空全局/班级/机位）',
+                        );
                         void loadAudit().catch(() => undefined);
                         void refreshExitLock().catch(() => undefined);
                       })
@@ -5794,7 +5869,26 @@ stateDiagram-v2
                         type="button"
                         className="linkish"
                         data-testid="audit-jump-input-lock"
-                        onClick={() => jumpToInputLockSettings()}
+                        onClick={() => {
+                          try {
+                            const obj = JSON.parse(a.detail) as {
+                              seatId?: string | null;
+                              classId?: string | null;
+                            };
+                            jumpToInputLockSettings({
+                              seatId: obj.seatId ? String(obj.seatId) : null,
+                              classId: obj.classId
+                                ? String(obj.classId)
+                                : a.classId
+                                  ? String(a.classId)
+                                  : null,
+                            });
+                          } catch {
+                            jumpToInputLockSettings({
+                              classId: a.classId ? String(a.classId) : null,
+                            });
+                          }
+                        }}
                       >
                         跳转物理输入锁
                       </button>

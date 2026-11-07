@@ -43,4 +43,41 @@ Get-FileHash -Algorithm SHA256 .\ClassroomDesk-Setup-*.exe
 
 若 `q-recycle-purge` 再红：先查 `selectTeacherClass` / `loadClasses` 竞态（专用班 option 未就绪或 preferClassroomId 抢回「本教室」）。
 
+## Commit SHA vs tree SHA（API push / 本地 tip）
+
+HTTPS `git push` 偶发不通时，可能用 Git Data API 推送，**远程 commit SHA ≠ 本地 commit SHA**，但 **tree 相同**。
+
+| 用途 | 用什么 |
+|---|---|
+| 代码内容是否对齐 | `git rev-parse HEAD^{tree}` ↔ `gh api repos/.../git/commits/<sha> --jq .tree.sha` |
+| CI badge / Actions run | **Actions 的 `github.sha`（远程 tip）** 或 **git tag `vX.Y.Z`** |
+| 文档/样机核对 | 优先写 **tag** 或 **tree SHA**；勿假设本地 `git log -1` 与 GitHub commit 字面相同 |
+
+例：
+
+```bash
+git rev-parse HEAD^{tree}
+gh api repos/otas0/classroom-desk/git/ref/heads/main --jq .object.sha
+gh api repos/otas0/classroom-desk/git/commits/$(gh api repos/otas0/classroom-desk/git/ref/heads/main --jq .object.sha) --jq .tree.sha
+```
+
+两 tree 一致即可认为内容已上 main；本地再 `git fetch && git reset --hard origin/main` 对齐指针（需 443 通）。
+
+## Nightly `verify_issues_write` dry-run
+
+`.github/workflows/e2e-nightly.yml` 的 `workflow_dispatch` 输入 **`verify_issues_write` 默认 `false`**。
+
+仅在以下情况手动打开一次：
+
+1. 改过 `permissions.issues` / Issue 通知脚本；或
+2. Org/repo ACL 变更后怀疑 `issues:write` 又 403。
+
+```bash
+gh workflow run e2e-nightly.yml -f verify_issues_write=true
+```
+
+会跑临时失败 job → 开 Issue（标题含 dry-run）→ 验证后关掉该 Issue。日常 cron **不要**开。
+
+Flake 跟踪见 [E2E_FLAKE_BOARD.md](./E2E_FLAKE_BOARD.md)。
+
 下个 Release tag：`scripts/extract-release-notes.mjs` 已在安装说明末自动附 [ARTIFACTS.md](./ARTIFACTS.md) 链接；发版后核对 Release body。

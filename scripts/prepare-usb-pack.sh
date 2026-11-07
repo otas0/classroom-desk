@@ -77,6 +77,7 @@ SHA256: $ACTUAL
 2. Teacher: open http://$IP:8787/ready from a student browser.
 3. C2 evidence: follow SAMPLE_MACHINE_OPS.md / C2_EVIDENCE_ARCHIVE.md; fill C2-intune-version.txt after Intune sync.
 4. 打印 C2-PRINT-CHECKLIST.txt：含「物理输入锁须告知学生」勾选。
+5. 若有 SEAT-MAP-ID-SHEET.html：浏览器打开后打印（seat_map.id 主键对照；空座/已排均可扫码）。
 EOF
 
 # Printable one-pager for sample machine (Chinese checklist).
@@ -102,6 +103,25 @@ Classroom Desk · C2 样机打印勾选（勿提交填好的扫描件）
 证据目录：证据/C2-YYYYMMDD/（音视频勿入库）
 详见 C2_EVIDENCE_ARCHIVE.md / EXIT_LOCK_MDM.md
 EOF
+
+# Optional: printable seat_map.id对照表（空座/已排 + 可扫码）
+# Requires running API + teacher JWT for the target class:
+#   CD_TOKEN=… CD_CLASS_ID=… bash scripts/prepare-usb-pack.sh <ip>
+if [[ -n "${CD_CLASS_ID:-}" && -n "${CD_TOKEN:-}" ]]; then
+  API_BASE="${CD_API_BASE:-http://127.0.0.1:8787}"
+  if node "$ROOT/scripts/gen-seat-map-sheet.mjs" \
+    --api "$API_BASE" \
+    --token "$CD_TOKEN" \
+    --class "$CD_CLASS_ID" \
+    --out "$DEST/SEAT-MAP-ID-SHEET.html"
+  then
+    echo "seat sheet → $DEST/SEAT-MAP-ID-SHEET.html"
+  else
+    echo "WARN: seat_map.id sheet skipped (API/auth/class?)" >&2
+  fi
+else
+  echo "Tip: set CD_TOKEN + CD_CLASS_ID to emit SEAT-MAP-ID-SHEET.html (scannable seat_map.id 对照表)"
+fi
 
 echo "Prepared $DEST"
 ls -lh "$DEST"

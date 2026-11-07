@@ -33,6 +33,7 @@
 - 回收站默认保留 **7 天**（`RECYCLE_RETENTION_DAYS` / `recycle_retention_days`，与 `@classroom-desk/shared` 一致；教师设置页不得默认写成 30）。升级一次性把历史默认 `30` 迁到 `7`（`recycle_retention_align_shared_v1`）；自定义天数（如 14）不动。设置页在与 shared 不一致时提示。列表展示剩余天数；剩余 ≤ `recycle_urgent_days`（默认 1）时醒目高亮。到期由调度器硬删（级联清除关联记录）。
 - 旧助教在迁移 `assistant_password_ok_backfill_v1` 时批量 `password_ok=1`，避免升级后全员被首次改密闸拦截；新创建助教仍为 `password_ok=0`。
 - PR CI 跑 bulk + rbac 并行门禁；完整 Playwright 在 `e2e-nightly`（cron / 手动）。
+- Nightly Issue 失败通知需 `permissions.issues: write`。ACL 自检：手动 `gh workflow run e2e-nightly.yml -f verify_issues_write=true`（默认 false；见 [ARTIFACTS.md](./ARTIFACTS.md)）。
 
 ## 创建助教
 

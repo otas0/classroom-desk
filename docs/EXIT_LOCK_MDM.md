@@ -140,7 +140,11 @@ JSON 片段（Intune「展台」或多应用 Assigned Access）：
 - 输入锁实时通道：`GET /api/v1/input-lock/stream`（独立 SSE，避免 exit-lock 大包）；退出锁定仍走 `/exit-lock/ws` + SSE。  
 - 审计 kind=`input_lock` / `exam_mode` / `exam_mode_end`；教师操作审计可一键跳转 `#input-lock-settings`。  
 - **机位锁主键**：`seat_map.id`（`bySeat["${classId}:${seatId}"]`）。教师下拉优先座位图；`clientId` 仅用于未排座机位的机器锁。换人同座后旧生清掉 `cd_seat_id`，不会继续命中该座锁。  
-- 学生端绑定当前 `seat_map.id` + label，并上报稳定 `presenceClientId`（localStorage）；未排座横幅注明「本机未排座，座锁未生效」。座位变更走 `/api/v1/seat-bind/stream`，无需等 `/auth/me` 轮询。  
+- 学生端绑定当前 `seat_map.id` + label，并上报稳定 `presenceClientId`（localStorage）。座位变更走 `/api/v1/seat-bind/stream`，无需等 `/auth/me` 轮询。  
+  - **全局/班级锁 + 未排座**：横幅 +「本机未排座，座锁未生效」。  
+  - **仅机位锁 + 未排座**：无全局横幅，仅提示「座锁未命中」。  
+- 「全部解除」（`clearAll`）清空全局/班级/机位，**并清除考试模式输入锁快照**（避免误恢复旧锁）。  
+- USB：`CD_TOKEN` + `CD_CLASS_ID` 时 `prepare-usb-pack` 生成 `SEAT-MAP-ID-SHEET.html`（可扫码 seat_map.id 对照）。  
 - 考试模式保存进考前快照，可一键「解除考试模式」恢复。  
 - 断线对账 `POST /api/v1/auth/exit-lock-reconcile` 的 `clientId`：**机位/机器 id**（`cd_presence_client_id`），不是 classId、不是学号。  
 - **不做** OS 级键鼠钩子、隐蔽监控或对抗杀软；系统热键/其它进程仍依赖 Assigned Access。  

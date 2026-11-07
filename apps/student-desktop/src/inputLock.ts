@@ -103,6 +103,33 @@ export function anyInputLocked(flags: InputLockFlags): boolean {
   return flags.keyboard || flags.mouse || flags.voice || flags.camera;
 }
 
+/** True when store has any active bySeat entry (optionally scoped to classId). */
+export function storeHasActiveSeatLocks(
+  store: InputLockStore | null | undefined,
+  classId?: string | null,
+): boolean {
+  if (!store) return false;
+  const cid = String(classId ?? '').trim();
+  for (const [key, flags] of Object.entries(store.bySeat ?? {})) {
+    if (!anyInputLocked(flags)) continue;
+    if (!cid) return true;
+    if (key === cid || key.startsWith(`${cid}:`)) return true;
+  }
+  return false;
+}
+
+/** Global or class-scope locks that apply without a seat binding. */
+export function storeHasActiveNonSeatLocks(
+  store: InputLockStore | null | undefined,
+  classId?: string | null,
+): boolean {
+  if (!store) return false;
+  if (anyInputLocked(store.global)) return true;
+  const cid = String(classId ?? '').trim();
+  if (cid && store.byClass[cid] && anyInputLocked(store.byClass[cid]!)) return true;
+  return false;
+}
+
 export function stopAllMediaTracks(): void {
   try {
     document.querySelectorAll('video, audio').forEach((el) => {
