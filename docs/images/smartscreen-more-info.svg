@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="420" viewBox="0 0 720 420" role="img" aria-label="SmartScreen 更多信息示意">
+  <rect width="720" height="420" fill="#0078d4"/>
+  <rect x="80" y="60" width="560" height="300" rx="8" fill="#fff"/>
+  <text x="110" y="110" font-family="Segoe UI, sans-serif" font-size="22" fill="#1b1b1b">Windows 已保护你的电脑</text>
+  <text x="110" y="150" font-family="Segoe UI, sans-serif" font-size="14" fill="#5b5b5b">Microsoft Defender SmartScreen 阻止了无法识别的应用启动。</text>
+  <text x="110" y="190" font-family="Segoe UI, sans-serif" font-size="14" fill="#5b5b5b">应用：ClassroomDesk-Setup-*.exe · 发布者：未知</text>
+  <text x="110" y="280" font-family="Segoe UI, sans-serif" font-size="15" fill="#0078d4" text-decoration="underline">更多信息</text>
+  <rect x="430" y="300" width="160" height="36" rx="4" fill="#0078d4"/>
+  <text x="510" y="323" text-anchor="middle" font-family="Segoe UI, sans-serif" font-size="14" fill="#fff">不运行</text>
+  <text x="110" y="400" font-family="Segoe UI, sans-serif" font-size="12" fill="#e6f2fb">示意截图 · 机房请替换为本校实拍 docs/images/</text>
+</svg>

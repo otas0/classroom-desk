@@ -28,3 +28,4 @@ apps/student-desktop/resources/config.local.json
 apps/student-desktop/.electron-off
 docs/CLASSROOM_IDENTITY.md
 data/
+RELEASE_NOTES.md

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { APP_NAME } from '@classroom-desk/shared';
+import jsQR from 'jsqr';
 import {
   ApiOfflineError,
   api,
@@ -10,6 +11,7 @@ import {
   setApiBase,
   setToken,
 } from './api';
+import { CLIENT_VERSION } from './version';
 
 type TabId = 'points' | 'attendance' | 'quiz' | 'messages' | 'admin';
 
@@ -230,7 +232,13 @@ export function App() {
         setClassId(me.class.id);
       }
       try {
-        await api('/api/v1/presence/heartbeat', { method: 'POST', body: '{}' });
+        await api('/api/v1/presence/heartbeat', {
+          method: 'POST',
+          body: JSON.stringify({
+            clientVersion: CLIENT_VERSION,
+            clientPlatform: navigator.userAgent.includes('Electron') ? 'electron' : 'web',
+          }),
+        });
       } catch {
         /* optional */
       }
@@ -764,6 +772,24 @@ function needsLocalConfigSetup(apiBase: string, classId: string): boolean {
   return false;
 }
 
+function parseClassroomQrPayload(raw: string): { apiBase: string; classId: string } | null {
+  const text = raw.trim();
+  if (!text) return null;
+  try {
+    const obj = JSON.parse(text) as { apiBase?: string; classId?: string; serverUrl?: string; seat?: string };
+    const apiBase = String(obj.apiBase ?? obj.serverUrl ?? '')
+      .trim()
+      .replace(/\/$/, '');
+    const classId = String(obj.classId ?? obj.seat ?? '').trim();
+    if (apiBase && classId) return { apiBase, classId };
+  } catch {
+    /* not JSON */
+  }
+  const m = text.match(/apiBase["\s:=]+(https?:\/\/[^\s"',}]+).*classId["\s:=]+([^\s"',}]+)/i);
+  if (m) return { apiBase: m[1].replace(/\/$/, ''), classId: m[2].trim() };
+  return null;
+}
+
 function FirstRunSetup({
   onDone,
 }: {
@@ -773,6 +799,92 @@ function FirstRunSetup({
   const [seat, setSeat] = useState('');
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
+  const [scanning, setScanning] = useState(false);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const scanTimerRef = useRef<number | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+
+  function applyPayload(apiBase: string, classId: string) {
+    setServerUrl(apiBase);
+    setSeat(classId);
+    setMsg('已从教师 QR 填入，请点「保存并检测 /health」');
+  }
+
+  function stopScan() {
+    setScanning(false);
+    if (scanTimerRef.current != null) {
+      window.clearInterval(scanTimerRef.current);
+      scanTimerRef.current = null;
+    }
+    streamRef.current?.getTracks().forEach((t) => t.stop());
+    streamRef.current = null;
+    if (videoRef.current) videoRef.current.srcObject = null;
+  }
+
+  useEffect(() => () => stopScan(), []);
+
+  async function startScan() {
+    setMsg('');
+    stopScan();
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: 'environment' } },
+        audio: false,
+      });
+      streamRef.current = stream;
+      setScanning(true);
+      window.setTimeout(() => {
+        const video = videoRef.current;
+        if (!video) return;
+        video.srcObject = stream;
+        void video.play().catch(() => undefined);
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        scanTimerRef.current = window.setInterval(() => {
+          if (!ctx || !video || video.readyState < 2) return;
+          canvas.width = video.videoWidth;
+          canvas.height = video.videoHeight;
+          if (!canvas.width || !canvas.height) return;
+          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+          const image = ctx.getImageData(0, 0, canvas.width, canvas.height);
+          const code = jsQR(image.data, image.width, image.height);
+          if (!code?.data) return;
+          const parsed = parseClassroomQrPayload(code.data);
+          if (!parsed) {
+            setMsg('识别到二维码，但不是教师指派格式');
+            return;
+          }
+          applyPayload(parsed.apiBase, parsed.classId);
+          stopScan();
+        }, 400);
+      }, 50);
+    } catch (e) {
+      setMsg(e instanceof Error ? `无法打开摄像头：${e.message}` : '无法打开摄像头');
+      stopScan();
+    }
+  }
+
+  async function onQrImage(file: File | null) {
+    if (!file) return;
+    setMsg('');
+    try {
+      const bmp = await createImageBitmap(file);
+      const canvas = document.createElement('canvas');
+      canvas.width = bmp.width;
+      canvas.height = bmp.height;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) throw new Error('canvas unavailable');
+      ctx.drawImage(bmp, 0, 0);
+      const image = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const code = jsQR(image.data, image.width, image.height);
+      if (!code?.data) throw new Error('图片中未识别到二维码');
+      const parsed = parseClassroomQrPayload(code.data);
+      if (!parsed) throw new Error('二维码内容不是教师指派 JSON');
+      applyPayload(parsed.apiBase, parsed.classId);
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : '读图失败');
+    }
+  }
 
   async function saveAndProbe() {
     setMsg('');
@@ -800,7 +912,7 @@ function FirstRunSetup({
       if (window.classroomDesk?.setConfig) {
         await window.classroomDesk.setConfig({ apiBase, classId });
       }
-      setMsg(`已写入本机 config.json · 服务端 v${body.version ?? '—'} · 连通正常`);
+      setMsg(`已写入本机 config.json · 服务端 v${body.version ?? '—'} · 本机 v${CLIENT_VERSION}`);
       await onDone({ apiBase, classId });
     } catch (e) {
       setMsg(e instanceof Error ? e.message : '保存或连通失败');
@@ -812,7 +924,32 @@ function FirstRunSetup({
   return (
     <section className="panel">
       <h1>首次配置本机</h1>
-      <p className="lead">安装后由老师填写本教室服务器与机位班级，写入本机 config.json 并校验连通。</p>
+      <p className="lead">扫教师「指派学生机」二维码，或手动填写后写入 config.json 并校验连通。</p>
+      <div className="row">
+        <button type="button" className="secondary" disabled={scanning} onClick={() => void startScan()}>
+          {scanning ? '扫码中…' : '扫教师 QR'}
+        </button>
+        {scanning ? (
+          <button type="button" className="secondary" onClick={stopScan}>
+            停止摄像头
+          </button>
+        ) : null}
+        <label className="secondary" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          选 QR 图片
+          <input
+            type="file"
+            accept="image/*"
+            hidden
+            onChange={(e) => {
+              void onQrImage(e.target.files?.[0] ?? null);
+              e.target.value = '';
+            }}
+          />
+        </label>
+      </div>
+      {scanning ? (
+        <video ref={videoRef} className="qr-scan-video" playsInline muted style={{ width: '100%', maxHeight: 220 }} />
+      ) : null}
       <label className="field">
         服务器地址（serverUrl / apiBase）
         <input
@@ -835,7 +972,7 @@ function FirstRunSetup({
         {busy ? '检测中…' : '保存并检测 /health'}
       </button>
       {msg ? <p className="hint">{msg}</p> : null}
-      <p className="hint">禁止 127.0.0.1。配置保存在本机用户目录 config.json，可随时在「设置」修改。</p>
+      <p className="hint">禁止 127.0.0.1。本机版本 v{CLIENT_VERSION}。</p>
     </section>
   );
 }

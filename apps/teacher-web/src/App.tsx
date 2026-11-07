@@ -173,6 +173,8 @@ export function App() {
         const body = (await res.json()) as {
           ok?: boolean;
           degraded?: boolean;
+          version?: string;
+          studentDesktopVersion?: string;
           lanIps?: string[];
           backup?: { lastError?: { message?: string } | null };
           audit?: { lastError?: { message?: string } | null };
@@ -181,6 +183,21 @@ export function App() {
         setHealthLanIps(body.lanIps ?? []);
         const err = body.backup?.lastError;
         const auditErr = body.audit?.lastError;
+        let drift = '';
+        if (classId && body.ok) {
+          try {
+            const clients = await api<{ versions: string[]; count: number }>(
+              `/api/v1/presence/clients?classId=${encodeURIComponent(classId)}`,
+            );
+            const expected = String(body.studentDesktopVersion ?? body.version ?? '').trim();
+            const odd = (clients.versions ?? []).filter((v) => v && expected && v !== expected);
+            if (odd.length) {
+              drift = `学生端版本漂移：已连 ${clients.count} 台，上报 ${[...new Set(odd)].join(' / ')}，服务期望 v${expected}`;
+            }
+          } catch {
+            /* presence optional */
+          }
+        }
         setHealthAlert(
           !body.ok
             ? '服务异常：/health 未就绪'
@@ -188,7 +205,7 @@ export function App() {
               ? `审计写入异常：${auditErr.message}`
               : err
                 ? `备份异常：${err.message ?? JSON.stringify(err)}（自动备份或 npm run backup:db）`
-                : '',
+                : drift,
         );
       } catch {
         if (!cancelled) {
@@ -203,7 +220,7 @@ export function App() {
       cancelled = true;
       window.clearInterval(t);
     };
-  }, [tokenReady, healthTick]);
+  }, [tokenReady, healthTick, classId]);
 
   useEffect(() => {
     if (!mustChangePassword) return;

@@ -26,6 +26,8 @@ export function SetupChecklist({
   const [serverOk, setServerOk] = useState<boolean | null>(null);
   const [serverVersion, setServerVersion] = useState('');
   const [studentPkgVersion, setStudentPkgVersion] = useState('');
+  const [connectedVersions, setConnectedVersions] = useState<string[]>([]);
+  const [connectedCount, setConnectedCount] = useState(0);
 
   useEffect(() => {
     if (!classId) {
@@ -71,11 +73,28 @@ export function SetupChecklist({
         setServerVersion('');
         setStudentPkgVersion('');
       }
+      if (!classId) {
+        setConnectedVersions([]);
+        setConnectedCount(0);
+        return;
+      }
+      try {
+        const clients = await api<{ count: number; versions: string[] }>(
+          `/api/v1/presence/clients?classId=${encodeURIComponent(classId)}`,
+        );
+        if (cancelled) return;
+        setConnectedCount(clients.count);
+        setConnectedVersions(clients.versions ?? []);
+      } catch {
+        if (cancelled) return;
+        setConnectedCount(0);
+        setConnectedVersions([]);
+      }
     })();
     return () => {
       cancelled = true;
     };
-  }, [refreshTick]);
+  }, [refreshTick, classId]);
 
   const rosterDone = classes.length > 0 && Boolean(classId) && studentCount > 0;
   const assignDone = hasApiBase && Boolean(classId);
@@ -145,6 +164,11 @@ export function SetupChecklist({
     cta = () => onGo('assign');
   }
 
+  const connectedLabel =
+    connectedCount === 0
+      ? '暂无在线桌面端'
+      : `已连桌面端 ${connectedCount} 台 · 版本 ${connectedVersions.length ? connectedVersions.join(' / ') : '未上报'}`;
+
   return (
     <section className="setup-checklist">
       <h2>开课准备</h2>
@@ -161,8 +185,8 @@ export function SetupChecklist({
                   {serverOk === null
                     ? '检测中…'
                     : serverOk
-                      ? `可达 · 服务端 v${serverVersion || '—'}${
-                          studentPkgVersion ? ` · 学生机包应对齐 v${studentPkgVersion}` : ''
+                      ? `可达 · 服务端 v${serverVersion || '—'} · ${connectedLabel}${
+                          studentPkgVersion ? ` · 安装包应对齐 v${studentPkgVersion}` : ''
                         }`
                       : '不可达，请检查教师机服务'}
                 </span>

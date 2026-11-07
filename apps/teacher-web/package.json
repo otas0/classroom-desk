@@ -4,7 +4,9 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "predev": "node ../../scripts/sync-permissions-md.mjs",
     "dev": "vite",
+    "prebuild": "node ../../scripts/sync-permissions-md.mjs",
     "build": "tsc -p tsconfig.json --noEmit && vite build --mode production",
     "preview": "vite preview"
   },

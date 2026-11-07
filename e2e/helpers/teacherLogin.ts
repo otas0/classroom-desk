@@ -11,38 +11,33 @@ export const TEACHER_PASSWORD = process.env.TEACHER_PASSWORD || 'TeacherPass123'
  */
 export const TEACHER_NEW_PASSWORD = process.env.TEACHER_NEW_PASSWORD || 'E2eTeacherPass9';
 
-export async function ensureTeacherPasswordReady(request: APIRequestContext): Promise<string> {
-  const tryLogin = async (password: string) =>
-    request.post(`${API}/api/v1/auth/login`, {
-      data: { username: TEACHER_USER, password },
-    });
-
-  let login = await tryLogin(TEACHER_PASSWORD);
-  let passwordUsed = TEACHER_PASSWORD;
-
-  if (!login.ok() && TEACHER_NEW_PASSWORD !== TEACHER_PASSWORD) {
-    login = await tryLogin(TEACHER_NEW_PASSWORD);
-    passwordUsed = TEACHER_NEW_PASSWORD;
-  }
-
-  if (!login.ok()) {
-    throw new Error(`teacher login failed: HTTP ${login.status()}`);
-  }
-  const body = (await login.json()) as {
-    token: string;
-    mustChangePassword?: boolean;
-  };
-  if (!body.mustChangePassword) return passwordUsed;
-
-  const changed = await request.post(`${API}/api/v1/auth/change-password`, {
-    headers: { Authorization: `Bearer ${body.token}` },
-    data: { currentPassword: passwordUsed, newPassword: TEACHER_NEW_PASSWORD },
+async function tryLogin(request: APIRequestContext, password: string) {
+  const login = await request.post(`${API}/api/v1/auth/login`, {
+    data: { username: TEACHER_USER, password },
   });
-  if (!changed.ok()) {
-    const err = await changed.text();
-    throw new Error(`change-password failed: HTTP ${changed.status()} ${err}`);
+  if (!login.ok()) return null;
+  return (await login.json()) as { token: string; mustChangePassword?: boolean };
+}
+
+export async function ensureTeacherPasswordReady(request: APIRequestContext): Promise<string> {
+  // Prefer already-changed password (common after earlier e2e runs on same DB).
+  for (const candidate of [TEACHER_PASSWORD, TEACHER_NEW_PASSWORD]) {
+    const body = await tryLogin(request, candidate);
+    if (!body) continue;
+    if (!body.mustChangePassword) return candidate;
+    if (candidate === TEACHER_PASSWORD) {
+      const changed = await request.post(`${API}/api/v1/auth/change-password`, {
+        headers: { Authorization: `Bearer ${body.token}` },
+        data: { currentPassword: TEACHER_PASSWORD, newPassword: TEACHER_NEW_PASSWORD },
+      });
+      if (!changed.ok()) {
+        const err = await changed.text();
+        throw new Error(`change-password failed: HTTP ${changed.status()} ${err}`);
+      }
+      return TEACHER_NEW_PASSWORD;
+    }
   }
-  return TEACHER_NEW_PASSWORD;
+  throw new Error('teacher login failed for TEACHER_PASSWORD and TEACHER_NEW_PASSWORD');
 }
 
 /** UI login that completes forced password change when needed, then reaches 上课. */

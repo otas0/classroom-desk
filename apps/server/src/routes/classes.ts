@@ -4,6 +4,7 @@ import * as XLSX from 'xlsx';
 import { openDb } from '../db/client.js';
 import { requireAuth, requireRoles, type AuthedRequest } from '../middleware/auth.js';
 import { RECYCLE_RETENTION_DAYS, writeAudit } from '../services/audit.js';
+import { recycleTiming } from '../utils/recycleRetention.js';
 import { clearSessionKick, kickStudents } from '../services/sessionKick.js';
 import {
   parseCsvToRows,
@@ -846,14 +847,7 @@ classesRouter.get(
     }>;
     const now = Date.now();
     const items = raw.map((row) => {
-      const deletedMs = Date.parse(row.deletedAt);
-      const expiresAt = Number.isFinite(deletedMs)
-        ? new Date(deletedMs + RECYCLE_RETENTION_DAYS * 86_400_000).toISOString()
-        : null;
-      const daysLeft =
-        expiresAt != null
-          ? Math.max(0, Math.ceil((Date.parse(expiresAt) - now) / 86_400_000))
-          : null;
+      const { expiresAt, daysLeft } = recycleTiming(row.deletedAt, now);
       return { ...row, expiresAt, daysLeft, retentionDays: RECYCLE_RETENTION_DAYS };
     });
     res.json({ items, retentionDays: RECYCLE_RETENTION_DAYS });

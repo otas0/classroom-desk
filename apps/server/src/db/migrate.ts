@@ -34,6 +34,8 @@ export function migrate(database?: DatabaseSync): DatabaseSync {
   ensureColumn(conn, 'questions', 'deleted_at', 'TEXT');
   ensureColumn(conn, 'messages', 'to_student_id', 'TEXT');
   ensureColumn(conn, 'messages', 'read_at', 'TEXT');
+  ensureColumn(conn, 'presence_heartbeats', 'client_version', `TEXT NOT NULL DEFAULT ''`);
+  ensureColumn(conn, 'presence_heartbeats', 'client_platform', `TEXT NOT NULL DEFAULT ''`);
   conn.exec(`CREATE INDEX IF NOT EXISTS idx_users_student_no ON users(class_id, student_no)`);
   conn.exec(`CREATE INDEX IF NOT EXISTS idx_users_deleted ON users(class_id, deleted_at)`);
   conn.exec(`CREATE INDEX IF NOT EXISTS idx_messages_to_student ON messages(to_student_id, created_at)`);

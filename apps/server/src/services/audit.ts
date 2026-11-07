@@ -1,8 +1,11 @@
 import type { DatabaseSync } from 'node:sqlite';
 import { openDb } from '../db/client.js';
 import { newId, nowIso } from '../utils/id.js';
+import { recyclePurgeCutoffIso, RECYCLE_RETENTION_DAYS } from '../utils/recycleRetention.js';
 import { clearAuditWriteFailure, recordAuditWriteFailure } from './auditFail.js';
 import { enqueueAuditRetry } from './auditRetry.js';
+
+export { RECYCLE_RETENTION_DAYS };
 
 export type AuditAction =
   | 'students.bulk_soft_delete'
@@ -109,14 +112,11 @@ export function listAuditActions(): string[] {
   return rows.map((r) => r.action);
 }
 
-/** Soft-deleted rows older than this many days are hard-purged. */
-export const RECYCLE_RETENTION_DAYS = 7;
-
 export function purgeExpiredSoftDeletes(db: DatabaseSync = openDb()): {
   students: number;
   questions: number;
 } {
-  const cutoff = new Date(Date.now() - RECYCLE_RETENTION_DAYS * 24 * 60 * 60 * 1000).toISOString();
+  const cutoff = recyclePurgeCutoffIso();
   const s = db
     .prepare(
       `DELETE FROM users

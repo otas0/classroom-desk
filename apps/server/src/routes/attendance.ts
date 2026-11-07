@@ -306,36 +306,75 @@ attendanceRouter.get(
       return;
     }
     const { start, end } = range;
+    const sessionId = String(req.query.sessionId ?? '').trim();
     const db = openDb();
     const students = db
       .prepare(
         `SELECT id, display_name AS displayName, student_no AS studentNo
-         FROM users WHERE role = 'student' AND class_id = ?`,
+         FROM users WHERE role = 'student' AND class_id = ?
+           AND (deleted_at IS NULL OR deleted_at = '')`,
       )
       .all(classId) as Array<{ id: string; displayName: string; studentNo: string | null }>;
-    const sessionCount = (
-      db
+    if (sessionId) {
+      const sess = db
         .prepare(
-          `SELECT COUNT(*) AS c FROM attendance_sessions
-           WHERE class_id = ? AND start_at >= ? AND start_at < ?`,
+          `SELECT id FROM attendance_sessions WHERE id = ? AND class_id = ?`,
         )
-        .get(classId, start, end) as { c: number }
-    ).c;
+        .get(sessionId, classId) as { id: string } | undefined;
+      if (!sess) {
+        res.status(404).json({ error: 'session_not_found' });
+        return;
+      }
+    }
+    const sessionCount = sessionId
+      ? 1
+      : (
+          db
+            .prepare(
+              `SELECT COUNT(*) AS c FROM attendance_sessions
+               WHERE class_id = ? AND start_at >= ? AND start_at < ?`,
+            )
+            .get(classId, start, end) as { c: number }
+        ).c;
     const byStudent = students.map((s) => {
-      const row = db
-        .prepare(
-          `SELECT COUNT(*) AS c FROM attendance_records r
-           JOIN attendance_sessions sess ON sess.id = r.session_id
-           WHERE r.student_id = ? AND sess.class_id = ? AND sess.start_at >= ? AND sess.start_at < ?
-             AND r.status IN ('present','late')`,
-        )
-        .get(s.id, classId, start, end) as { c: number };
-      const count = Number(row.c);
+      let count: number;
+      if (sessionId) {
+        count = Number(
+          (
+            db
+              .prepare(
+                `SELECT COUNT(*) AS c FROM attendance_records r
+                 WHERE r.student_id = ? AND r.session_id = ?
+                   AND r.status IN ('present','late')`,
+              )
+              .get(s.id, sessionId) as { c: number }
+          ).c,
+        );
+      } else {
+        count = Number(
+          (
+            db
+              .prepare(
+                `SELECT COUNT(*) AS c FROM attendance_records r
+                 JOIN attendance_sessions sess ON sess.id = r.session_id
+                 WHERE r.student_id = ? AND sess.class_id = ? AND sess.start_at >= ? AND sess.start_at < ?
+                   AND r.status IN ('present','late')`,
+              )
+              .get(s.id, classId, start, end) as { c: number }
+          ).c,
+        );
+      }
       const rate = sessionCount > 0 ? Number((count / sessionCount).toFixed(4)) : 0;
       return { ...s, presentCount: count, sessionCount, attendanceRate: rate };
     });
     if (req.user?.role === 'student') {
-      res.json({ month, classId, sessionCount, items: byStudent.filter((s) => s.id === req.user!.id) });
+      res.json({
+        month,
+        classId,
+        sessionId: sessionId || null,
+        sessionCount,
+        items: byStudent.filter((s) => s.id === req.user!.id),
+      });
       return;
     }
     const classPresent = byStudent.reduce((a, s) => a + s.presentCount, 0);
@@ -343,6 +382,7 @@ attendanceRouter.get(
     res.json({
       month,
       classId,
+      sessionId: sessionId || null,
       sessionCount,
       studentCount: students.length,
       classPresentCount: classPresent,

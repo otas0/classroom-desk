@@ -5,7 +5,14 @@ import { canBulkDelete, canWriteClass, isAssistant } from './authRole';
 import { ConfirmModal } from './ConfirmModal';
 import { downloadPost } from './download';
 import { hardReloadTeacherNav } from './navStorage';
+import {
+  formatRecycleDaysLeft,
+  RECYCLE_DAYS_LEFT_TESTID,
+  RECYCLE_RETENTION_DAYS,
+  recycleDaysLeft,
+} from './recycleRetention';
 import { useToast } from './toast';
+import { permissionsDocHref } from './permissionsHref';
 import {
   IMPORT_ERROR_ZH,
   POINT_REASON_CHIPS,
@@ -363,7 +370,10 @@ export function RosterPanel({
       ) : null}
 
       <h3>当前班名单（{classes.find((c) => c.id === classId)?.name ?? ''}）· 按学号排序</h3>
-      <p className="hint">可直接改姓名/学号并保存；勾选后可批量处理。删除先入回收站，{7} 日内可恢复。</p>
+      <p className="hint">
+        可直接改姓名/学号并保存；勾选后可批量处理。删除先入回收站，{RECYCLE_RETENTION_DAYS}{' '}
+        日内可恢复。
+      </p>
       <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="搜索姓名/学号" />
       <div className="row bulk-bar">
         <label className="row">
@@ -565,8 +575,8 @@ export function RosterPanel({
             <>
               <p>
                 {impactModal.label
-                  ? `将「${impactModal.label}」移入回收站（7 日内可恢复）。`
-                  : `将 ${impactModal.studentCount} 名学生移入回收站（7 日内可恢复）。`}
+                  ? `将「${impactModal.label}」移入回收站（${RECYCLE_RETENTION_DAYS} 日内可恢复）。`
+                  : `将 ${impactModal.studentCount} 名学生移入回收站（${RECYCLE_RETENTION_DAYS} 日内可恢复）。`}
               </p>
               <p>
                 关联数据暂保留：签到 {impactModal.attendanceRecords} · 积分流水 {impactModal.pointsLog} ·
@@ -685,9 +695,17 @@ export function RosterPanel({
                     {String(s.displayName)}
                     {s.studentNo ? ` · ${String(s.studentNo)}` : ''}
                     {s.deletedAt ? ` · 删除于 ${String(s.deletedAt).slice(0, 19)}` : ''}
-                    {s.daysLeft != null ? (
-                      <span className="days-left"> · 剩余 {String(s.daysLeft)} 天</span>
-                    ) : null}
+                    {(() => {
+                      const label = formatRecycleDaysLeft(
+                        s.daysLeft != null ? Number(s.daysLeft) : recycleDaysLeft(s.deletedAt),
+                      );
+                      return label ? (
+                        <span className="days-left" data-testid={RECYCLE_DAYS_LEFT_TESTID}>
+                          {' '}
+                          · {label}
+                        </span>
+                      ) : null;
+                    })()}
                   </span>
                   {allowDelete ? (
                     <>
@@ -1318,9 +1336,34 @@ export function QuestionsPanel({ classId }: { classId: string }) {
           ))}
         </ul>
       ) : null}
-      <button type="button" onClick={() => void create()} disabled={uploading}>
+      <button
+        type="button"
+        onClick={() => void create()}
+        disabled={
+          uploading ||
+          !title.trim() ||
+          !stem.trim() ||
+          (type === 'blank' && !blankKey.trim()) ||
+          (type === 'multi' &&
+            (!optA.trim() ||
+              !optB.trim() ||
+              !optC.trim() ||
+              (!correctMulti.A && !correctMulti.B && !correctMulti.C))) ||
+          ((type === 'single' || type === 'bool') &&
+            type === 'single' &&
+            (!optA.trim() || !optB.trim()))
+        }
+        title={
+          type === 'multi' && !correctMulti.A && !correctMulti.B && !correctMulti.C
+            ? '多选题请至少勾选一个正确答案'
+            : undefined
+        }
+      >
         发布题目
       </button>
+      {type === 'multi' && !correctMulti.A && !correctMulti.B && !correctMulti.C ? (
+        <p className="error">请至少勾选一个正确答案后再发布</p>
+      ) : null}
       {createMsg ? <p className="hint">{createMsg}</p> : null}
       </>
       ) : null}
@@ -1623,13 +1666,6 @@ export function QuestionsPanel({ classId }: { classId: string }) {
   );
 }
 
-function recycleDaysLeft(deletedAt: unknown, retentionDays = 7): number | null {
-  const ms = Date.parse(String(deletedAt ?? ''));
-  if (!Number.isFinite(ms)) return null;
-  const expires = ms + retentionDays * 86_400_000;
-  return Math.max(0, Math.ceil((expires - Date.now()) / 86_400_000));
-}
-
 export function QuestionRecyclePanel({ classId }: { classId: string }) {
   const [items, setItems] = useState<Array<Record<string, unknown>>>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -1681,7 +1717,9 @@ export function QuestionRecyclePanel({ classId }: { classId: string }) {
   return (
     <section>
       <h2>题目回收站</h2>
-      <p className="hint">软删除题目在此恢复或永久清除；与「含已下线」无关。默认保留 7 天。</p>
+      <p className="hint">
+        软删除题目在此恢复或永久清除；与「含已下线」无关。默认保留 {RECYCLE_RETENTION_DAYS} 天。
+      </p>
       <div className="row bulk-bar">
         <label className="row">
           <input
@@ -1771,12 +1809,15 @@ export function QuestionRecyclePanel({ classId }: { classId: string }) {
           {items.slice(virt.start, virt.end).map((q, i) => {
             const idx = virt.start + i;
             const qid = String(q.id);
-            const days = recycleDaysLeft(q.deletedAt);
+            const days =
+              q.daysLeft != null ? Number(q.daysLeft) : recycleDaysLeft(q.deletedAt);
+            const daysLabel = formatRecycleDaysLeft(days);
             return (
               <div
                 key={qid}
                 className="q-virtual-row question-item"
                 style={{ top: idx * ROW_H, height: ROW_H }}
+                data-testid={`q-recycle-row-${qid}`}
               >
                 <label className="choice">
                   <input
@@ -1795,7 +1836,12 @@ export function QuestionRecyclePanel({ classId }: { classId: string }) {
                 <span className="title">
                   [{String(q.type)}] {String(q.title)}
                   {q.deletedAt ? ` · ${String(q.deletedAt).slice(0, 19)}` : ''}
-                  {days != null ? <span className="days-left"> · 剩余 {days} 天</span> : null}
+                  {daysLabel ? (
+                    <span className="days-left" data-testid={RECYCLE_DAYS_LEFT_TESTID}>
+                      {' '}
+                      · {daysLabel}
+                    </span>
+                  ) : null}
                 </span>
               </div>
             );
@@ -1993,11 +2039,13 @@ export function AttendancePanel({ classId }: { classId: string }) {
   } | null>(null);
 
   async function load() {
+    const q = new URLSearchParams({ classId, month });
+    if (sessionId) q.set('sessionId', sessionId);
     const r = await api<{
       sessionCount: number;
       classAttendanceRate: number;
       items: Array<{ displayName: string; studentNo: string | null; presentCount: number; attendanceRate: number }>;
-    }>(`/api/v1/attendance/stats?classId=${classId}&month=${month}`);
+    }>(`/api/v1/attendance/stats?${q}`);
     setStats(r);
   }
 
@@ -2041,15 +2089,18 @@ export function AttendancePanel({ classId }: { classId: string }) {
   }
 
   useEffect(() => {
-    void load().catch(() => setStats(null));
     void loadSessions().catch(() => setSessions([]));
-  }, [classId, month]);
+  }, [classId]);
+
+  useEffect(() => {
+    void load().catch(() => setStats(null));
+  }, [classId, month, sessionId]);
 
   return (
     <section>
       <h2>出勤报表</h2>
       <p className="hint">
-        按教师机本地时区自然月统计（非 UTC）。可按课次筛选并导出 CSV / Excel。
+        按教师机本地时区自然月统计（非 UTC）。选课次后表格与导出一并按该场重算。
       </p>
       <div className="row">
         <label>
@@ -2090,15 +2141,16 @@ export function AttendancePanel({ classId }: { classId: string }) {
       {stats ? (
         <>
           <p>
-            本月场次 {stats.sessionCount} · 班级出勤率 {(stats.classAttendanceRate * 100).toFixed(1)}%
-            {sessionId ? ' · 已选单场（导出按课次过滤）' : ''}
+            {sessionId ? '本场' : '本月'}场次 {stats.sessionCount} · 班级出勤率{' '}
+            {(stats.classAttendanceRate * 100).toFixed(1)}%
+            {sessionId ? ' · 表格已按单场重算' : ''}
           </p>
           <table className="data-table">
             <thead>
               <tr>
                 <th>学号</th>
                 <th>姓名</th>
-                <th>出勤次数</th>
+                <th>{sessionId ? '本场出勤' : '出勤次数'}</th>
                 <th>出勤率</th>
               </tr>
             </thead>
@@ -2517,6 +2569,8 @@ export function SettingsPanel({
   const [messagesOn, setMessagesOn] = useState(true);
   const [quizConfirmOn, setQuizConfirmOn] = useState(true);
   const [backupInfo, setBackupInfo] = useState<{
+    dir?: string;
+    keep?: number;
     latestAt: string | null;
     ageHours: number | null;
     lastError: { at?: string; message?: string } | null;
@@ -2602,6 +2656,8 @@ export function SettingsPanel({
       exitUnlockCodeAgeDays?: number | null;
       exitUnlockCodeRotationDue?: boolean;
       backup?: {
+        dir?: string;
+        keep?: number;
         latestAt: string | null;
         ageHours: number | null;
         lastError: { at?: string; message?: string } | null;
@@ -2680,14 +2736,32 @@ export function SettingsPanel({
     }
   }
 
+  const WEAK_PASSWORDS = new Set([
+    'ChangeMe123',
+    'TeacherPass123',
+    'Classroom2026!',
+    'Desk@179#2026',
+    'AdminPass123',
+    'password',
+    '123456',
+    'Password1',
+    'password123',
+  ]);
+  const pwdWeakExact = WEAK_PASSWORDS.has(newPwd);
+  const pwdTooShort = newPwd.length > 0 && newPwd.length < 8;
+  const pwdNeedMixed =
+    newPwd.length >= 8 && (!/[A-Za-z]/.test(newPwd) || !/[0-9]/.test(newPwd));
+  const pwdOk = newPwd.length >= 8 && /[A-Za-z]/.test(newPwd) && /[0-9]/.test(newPwd) && !pwdWeakExact;
   const pwdHint =
     newPwd.length === 0
-      ? '至少 8 位，须含字母与数字；勿用 ChangeMe123 等联调口令'
-      : newPwd.length < 8
-        ? '还差字符：至少 8 位'
-        : !/[A-Za-z]/.test(newPwd) || !/[0-9]/.test(newPwd)
-          ? '还需同时包含字母与数字'
-          : '强度看起来可以提交';
+      ? '至少 8 位，须含字母与数字；勿用 TeacherPass123 / ChangeMe123 等联调口令'
+      : pwdWeakExact
+        ? '不可使用常见联调/弱口令，请换个人密码'
+        : pwdTooShort
+          ? `还差 ${8 - newPwd.length} 个字符（至少 8 位）`
+          : pwdNeedMixed
+            ? '还需同时包含字母与数字'
+            : '强度看起来可以提交';
 
   return (
     <section>
@@ -2705,7 +2779,14 @@ export function SettingsPanel({
       ) : null}
 
       <h3>教师登录密码</h3>
-      <p className="hint">{pwdHint}</p>
+      <p className={pwdWeakExact || pwdTooShort || pwdNeedMixed ? 'error' : 'hint'}>{pwdHint}</p>
+      {newPwd.length > 0 ? (
+        <div className="pwd-meter" aria-hidden>
+          <span className={newPwd.length >= 8 ? 'on' : ''} />
+          <span className={/[A-Za-z]/.test(newPwd) && /[0-9]/.test(newPwd) ? 'on' : ''} />
+          <span className={pwdOk ? 'on' : ''} />
+        </div>
+      ) : null}
       <label>
         当前密码
         <input type="password" value={curPwd} onChange={(e) => setCurPwd(e.target.value)} autoComplete="current-password" />
@@ -2716,6 +2797,7 @@ export function SettingsPanel({
       </label>
       <button
         type="button"
+        disabled={!curPwd || !pwdOk}
         onClick={() =>
           void api<{ message?: string }>('/api/v1/auth/change-password', {
             method: 'POST',
@@ -2741,7 +2823,7 @@ export function SettingsPanel({
           <h3>数据库备份</h3>
           <p className="hint">
             {backupInfo
-              ? `上次成功：${
+              ? `目录：${backupInfo.dir ?? '—'} · 保留最新 ${backupInfo.keep ?? '—'} 份 · 上次成功：${
                   backupInfo.latestAt
                     ? new Date(backupInfo.latestAt).toLocaleString()
                     : '尚无'
@@ -2758,32 +2840,74 @@ export function SettingsPanel({
                 }`
               : '加载备份状态…'}
           </p>
-          <button
-            type="button"
-            className="secondary"
-            onClick={() =>
-              void api<{
-                ok?: boolean;
-                error?: string;
-                latestAt?: string | null;
-                ageHours?: number | null;
-                lastError?: { at?: string; message?: string } | null;
-                lastAutoBackupAt?: string | null;
-              }>('/api/v1/settings/backup-now', { method: 'POST', body: '{}' })
-                .then((r) => {
-                  setBackupInfo({
-                    latestAt: r.latestAt ?? null,
-                    ageHours: r.ageHours ?? null,
-                    lastError: r.lastError ?? null,
-                    lastAutoBackupAt: r.lastAutoBackupAt ?? null,
-                  });
-                  setBackupMsg(r.ok ? '备份成功' : r.error ?? '备份失败');
-                })
-                .catch((e) => setBackupMsg(e instanceof Error ? e.message : '备份失败'))
-            }
-          >
-            立即备份
-          </button>
+          <p className="hint">
+            可用环境变量 <code>CLASSROOM_DESK_BACKUP_DIR</code> / <code>CLASSROOM_DESK_BACKUP_KEEP</code> 调整路径与保留份数。说明见仓库{' '}
+            <code>docs/EXIT_LOCK_MDM.md</code>（备份段落）与 <code>npm run backup:db</code>。
+          </p>
+          <div className="row">
+            <button
+              type="button"
+              className="secondary"
+              onClick={() =>
+                void api<{
+                  ok?: boolean;
+                  error?: string;
+                  dir?: string;
+                  keep?: number;
+                  latestAt?: string | null;
+                  ageHours?: number | null;
+                  lastError?: { at?: string; message?: string } | null;
+                  lastAutoBackupAt?: string | null;
+                }>('/api/v1/settings/backup-now', { method: 'POST', body: '{}' })
+                  .then((r) => {
+                    setBackupInfo({
+                      dir: r.dir,
+                      keep: r.keep,
+                      latestAt: r.latestAt ?? null,
+                      ageHours: r.ageHours ?? null,
+                      lastError: r.lastError ?? null,
+                      lastAutoBackupAt: r.lastAutoBackupAt ?? null,
+                    });
+                    setBackupMsg(r.ok ? '备份成功' : r.error ?? '备份失败');
+                  })
+                  .catch((e) => setBackupMsg(e instanceof Error ? e.message : '备份失败'))
+              }
+            >
+              立即备份
+            </button>
+            <button
+              type="button"
+              className="secondary"
+              onClick={() =>
+                void api<{
+                  dir?: string;
+                  keep?: number;
+                  latestAt?: string | null;
+                  ageHours?: number | null;
+                  lastError?: { at?: string; message?: string } | null;
+                  lastAutoBackupAt?: string | null;
+                }>('/api/v1/settings/backup')
+                  .then((r) => {
+                    setBackupInfo({
+                      dir: r.dir,
+                      keep: r.keep,
+                      latestAt: r.latestAt ?? null,
+                      ageHours: r.ageHours ?? null,
+                      lastError: r.lastError ?? null,
+                      lastAutoBackupAt: r.lastAutoBackupAt ?? null,
+                    });
+                    setBackupMsg(
+                      r.dir
+                        ? `备份目录：${r.dir}（请在教师机资源管理器中打开该路径）`
+                        : '无法读取备份目录',
+                    );
+                  })
+                  .catch((e) => setBackupMsg(e instanceof Error ? e.message : '读取失败'))
+              }
+            >
+              显示备份目录
+            </button>
+          </div>
           {backupMsg ? <p className="hint">{backupMsg}</p> : null}
 
           <h3>留言</h3>
@@ -3251,7 +3375,7 @@ export function SettingsPanel({
               <p className="hint">尚无助教账号</p>
             )}
             <p className="hint">
-              <a href="/PERMISSIONS.md" target="_blank" rel="noreferrer">
+              <a href={permissionsDocHref()} target="_blank" rel="noreferrer">
                 权限说明（PERMISSIONS.md）
               </a>
             </p>
@@ -3260,7 +3384,7 @@ export function SettingsPanel({
           ) : (
             <p className="hint">
               助教可改本人密码、查看审计与导出；完整权限见{' '}
-              <a href="/PERMISSIONS.md" target="_blank" rel="noreferrer">
+              <a href={permissionsDocHref()} target="_blank" rel="noreferrer" data-testid="permissions-doc-link">
                 权限说明
               </a>
               。
@@ -3342,7 +3466,7 @@ export function SettingsPanel({
           <p className="hint">
             数据库：服务进程每天自动备份一次（保留约 14 份）；也可手动 `npm run backup:db`。确认 /health 无
             backup/audit lastError。
-            <a href="/PERMISSIONS.md" target="_blank" rel="noreferrer">
+            <a href={permissionsDocHref()} target="_blank" rel="noreferrer" data-testid="permissions-doc-link">
               权限说明
             </a>
             。

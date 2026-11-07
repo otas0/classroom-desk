@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="420" viewBox="0 0 720 420" role="img" aria-label="学生端首次配置示意">
+  <rect width="720" height="420" fill="#f4f6f8"/>
+  <rect x="60" y="40" width="600" height="340" rx="10" fill="#fff" stroke="#d0d7de"/>
+  <text x="90" y="90" font-family="system-ui, sans-serif" font-size="24" fill="#111">首次配置本机</text>
+  <text x="90" y="125" font-family="system-ui, sans-serif" font-size="14" fill="#57606a">扫教师 QR 或填写服务器地址 / 机位班级</text>
+  <rect x="90" y="150" width="120" height="32" rx="6" fill="#0969da"/>
+  <text x="150" y="171" text-anchor="middle" font-family="system-ui, sans-serif" font-size="13" fill="#fff">扫教师 QR</text>
+  <rect x="90" y="200" width="480" height="36" rx="6" fill="#f6f8fa" stroke="#d0d7de"/>
+  <text x="105" y="223" font-family="system-ui, sans-serif" font-size="13" fill="#656d76">http://教师机局域网IP:8787</text>
+  <rect x="90" y="250" width="480" height="36" rx="6" fill="#f6f8fa" stroke="#d0d7de"/>
+  <text x="105" y="273" font-family="system-ui, sans-serif" font-size="13" fill="#656d76">classId（从教师后台复制）</text>
+  <rect x="90" y="310" width="180" height="36" rx="6" fill="#1a7f37"/>
+  <text x="180" y="333" text-anchor="middle" font-family="system-ui, sans-serif" font-size="13" fill="#fff">保存并检测 /health</text>
+  <text x="90" y="400" font-family="system-ui, sans-serif" font-size="12" fill="#57606a">示意 · 可用本校实拍覆盖本文件</text>
+</svg>

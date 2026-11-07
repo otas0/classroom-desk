@@ -7,6 +7,7 @@ import { chunkIds, parseIdList, sqlInPlaceholders } from '../utils/bulkIds.js';
 import { newId, nowIso } from '../utils/id.js';
 import { toCsv } from '../utils/csv.js';
 import { paramId } from '../utils/params.js';
+import { recycleTiming } from '../utils/recycleRetention.js';
 
 export const questionsRouter = Router();
 
@@ -47,9 +48,14 @@ questionsRouter.get('/api/v1/questions', requireAuth, (req: AuthedRequest, res) 
     return;
   }
   const db = openDb();
-  const teacher = req.user?.role === 'teacher' || req.user?.role === 'admin';
+  const teacher =
+    req.user?.role === 'teacher' ||
+    req.user?.role === 'admin' ||
+    req.user?.role === 'assistant';
   const includeArchived = teacher && String(req.query.includeArchived ?? '') === '1';
-  const includeDeleted = teacher && String(req.query.includeDeleted ?? '') === '1';
+  const includeDeleted =
+    (req.user?.role === 'teacher' || req.user?.role === 'admin') &&
+    String(req.query.includeDeleted ?? '') === '1';
   const rows = db
     .prepare(
       `SELECT id, class_id AS classId, title, stem, type, answer_key AS answerKey, points,
@@ -103,7 +109,9 @@ questionsRouter.get('/api/v1/questions', requireAuth, (req: AuthedRequest, res) 
             )
             .get(q.id, req.user.id)
         : null;
-    const { attachments: rawAtt, ...rest } = q;
+    const { attachments: rawAtt, deletedAt, ...rest } = q as typeof q & {
+      deletedAt?: string | null;
+    };
     const closed = isClosed({ closed_at: q.closedAt, closes_at: q.closesAt }, now);
     const mineRow = mine as { isCorrect?: number; answeredAt?: string } | null;
     const canRetryWrong =
@@ -111,8 +119,13 @@ questionsRouter.get('/api/v1/questions', requireAuth, (req: AuthedRequest, res) 
       closed &&
       mineRow != null &&
       Number(mineRow.isCorrect) === 0;
+    const timing = deletedAt ? recycleTiming(deletedAt) : null;
     return {
       ...rest,
+      deletedAt: deletedAt ?? null,
+      expiresAt: timing?.expiresAt ?? null,
+      daysLeft: timing?.daysLeft ?? null,
+      retentionDays: timing ? RECYCLE_RETENTION_DAYS : undefined,
       answerKey: teacher ? q.answerKey : undefined,
       attachments: parseAttachments(rawAtt),
       options,
@@ -125,7 +138,7 @@ questionsRouter.get('/api/v1/questions', requireAuth, (req: AuthedRequest, res) 
     };
   });
 
-  res.json({ items });
+  res.json({ items, retentionDays: includeDeleted ? RECYCLE_RETENTION_DAYS : undefined });
 });
 
 questionsRouter.post(

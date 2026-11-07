@@ -38,7 +38,7 @@ jobs:
         shell: pwsh
         run: |
           Copy-Item apps/student-desktop/resources/config.example.json apps/student-desktop/release/config.example.json -Force
-          Copy-Item CHANGELOG.md apps/student-desktop/release/CHANGELOG.md -Force
+          node scripts/extract-release-notes.mjs $env:GITHUB_REF_NAME
       - name: Upload to GitHub Release
         uses: softprops/action-gh-release@v3
         with:
@@ -48,6 +48,6 @@ jobs:
             apps/student-desktop/release/config.example.json
           fail_on_unmatched_files: true
           generate_release_notes: true
-          body_path: CHANGELOG.md
+          body_path: RELEASE_NOTES.md
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

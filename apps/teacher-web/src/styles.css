@@ -243,6 +243,21 @@ section label.choice input {
   font-size: 12px;
 }
 
+.pwd-meter {
+  display: flex;
+  gap: 0.35rem;
+  margin: 0.35rem 0 0.75rem;
+}
+.pwd-meter span {
+  flex: 1;
+  height: 4px;
+  border-radius: 2px;
+  background: #d0d7de;
+}
+.pwd-meter span.on {
+  background: #1a7f37;
+}
+
 .error {
   color: var(--ink);
   font-weight: 700;

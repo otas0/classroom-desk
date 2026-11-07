@@ -29,6 +29,13 @@ export function LiveBoard({
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [err, setErr] = useState('');
   const [fsHint, setFsHint] = useState('');
+  const [readOnlyScreen, setReadOnlyScreen] = useState(() => {
+    try {
+      return localStorage.getItem('cd_liveboard_readonly') === '1';
+    } catch {
+      return false;
+    }
+  });
 
   async function load() {
     if (!classId) return;
@@ -61,6 +68,18 @@ export function LiveBoard({
         e.preventDefault();
         void toggleFullscreen();
       }
+      if (e.key === 'r' || e.key === 'R') {
+        e.preventDefault();
+        setReadOnlyScreen((prev) => {
+          const next = !prev;
+          try {
+            localStorage.setItem('cd_liveboard_readonly', next ? '1' : '0');
+          } catch {
+            /* ignore */
+          }
+          return next;
+        });
+      }
     }
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -70,7 +89,7 @@ export function LiveBoard({
     try {
       if (!document.fullscreenElement) {
         await document.documentElement.requestFullscreen();
-        setFsHint('已进入全屏（Esc 退出投影，F 切换全屏）');
+        setFsHint('已进入全屏（Esc 退出投影，F 全屏，R 只读大屏）');
       } else {
         await document.exitFullscreen();
         setFsHint('已退出全屏');
@@ -79,6 +98,17 @@ export function LiveBoard({
       setFsHint(e instanceof Error ? e.message : '全屏失败');
     }
   }
+
+  function setReadOnly(next: boolean) {
+    setReadOnlyScreen(next);
+    try {
+      localStorage.setItem('cd_liveboard_readonly', next ? '1' : '0');
+    } catch {
+      /* ignore */
+    }
+  }
+
+  const hideControls = projection && readOnlyScreen;
 
   return (
     <section className={projection ? 'live-board projection-mode' : 'live-board'}>
@@ -91,11 +121,19 @@ export function LiveBoard({
           <button type="button" className="secondary" onClick={() => void toggleFullscreen()}>
             全屏（F）
           </button>
+          <label className="row">
+            <input
+              type="checkbox"
+              checked={readOnlyScreen}
+              onChange={(e) => setReadOnly(e.target.checked)}
+            />
+            只读大屏（隐藏收卷等操作，R）
+          </label>
         </div>
       ) : null}
       <p className="hint">
         全班 {rosterTotal} 人 · 约每 3 秒刷新 · 投影可读
-        {projection ? ' · 快捷键：Esc 退出投影，F 全屏' : ''}
+        {projection ? ' · Esc 退出 · F 全屏 · R 只读' : ''}
       </p>
       {fsHint ? <p className="hint">{fsHint}</p> : null}
       {err ? <p className="error">{err}</p> : null}
@@ -122,41 +160,43 @@ export function LiveBoard({
             <div className="bar-track tall">
               <div className="bar option" style={{ width: `${correctPct}%` }} title="正确率" />
             </div>
-            <div className="row">
-              <button
-                type="button"
-                className="secondary"
-                onClick={() =>
-                  void api(`/api/v1/questions/${q.id}/${q.closed ? 'reopen' : 'close'}`, {
-                    method: 'POST',
-                    body: '{}',
-                  }).then(load)
-                }
-              >
-                {q.closed ? '重开' : '一键收卷'}
-              </button>
-              <button
-                type="button"
-                className="secondary"
-                disabled={!q.closed}
-                onClick={() =>
-                  void api(`/api/v1/questions/${q.id}`, {
-                    method: 'PATCH',
-                    body: JSON.stringify({ retryWrong: !q.retryWrong }),
-                  }).then(load)
-                }
-              >
-                {q.retryWrong ? '关闭错题重练' : '开启错题重练'}
-              </button>
-              <button
-                type="button"
-                className="secondary"
-                onClick={() => setExpanded((prev) => ({ ...prev, [q.id]: !prev[q.id] }))}
-              >
-                {openPending ? '收起未交名单' : `未交名单（${q.pendingCount}）`}
-              </button>
-            </div>
-            {openPending ? (
+            {hideControls ? null : (
+              <div className="row">
+                <button
+                  type="button"
+                  className="secondary"
+                  onClick={() =>
+                    void api(`/api/v1/questions/${q.id}/${q.closed ? 'reopen' : 'close'}`, {
+                      method: 'POST',
+                      body: '{}',
+                    }).then(load)
+                  }
+                >
+                  {q.closed ? '重开' : '一键收卷'}
+                </button>
+                <button
+                  type="button"
+                  className="secondary"
+                  disabled={!q.closed}
+                  onClick={() =>
+                    void api(`/api/v1/questions/${q.id}`, {
+                      method: 'PATCH',
+                      body: JSON.stringify({ retryWrong: !q.retryWrong }),
+                    }).then(load)
+                  }
+                >
+                  {q.retryWrong ? '关闭错题重练' : '开启错题重练'}
+                </button>
+                <button
+                  type="button"
+                  className="secondary"
+                  onClick={() => setExpanded((prev) => ({ ...prev, [q.id]: !prev[q.id] }))}
+                >
+                  {openPending ? '收起未交名单' : `未交名单（${q.pendingCount}）`}
+                </button>
+              </div>
+            )}
+            {!hideControls && openPending ? (
               <div className="pending-list">
                 {pending.length === 0 ? (
                   <p className="hint">全班已交</p>

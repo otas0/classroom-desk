@@ -196,7 +196,9 @@ CREATE INDEX IF NOT EXISTS idx_point_requests_class ON point_requests(class_id, 
 CREATE TABLE IF NOT EXISTS presence_heartbeats (
   student_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
   class_id TEXT NOT NULL REFERENCES classes(id) ON DELETE CASCADE,
-  last_seen_at TEXT NOT NULL
+  last_seen_at TEXT NOT NULL,
+  client_version TEXT NOT NULL DEFAULT '',
+  client_platform TEXT NOT NULL DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS session_kicks (

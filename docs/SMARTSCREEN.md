@@ -15,16 +15,21 @@
 ## A. 单机操作（无组策略时）
 
 1. 只安装来自 **本校网盘 / 教师分发 / GitHub Release** 的安装包（核对下方 SHA256）。
-2. SmartScreen 蓝屏拦截 → 点 **更多信息** → **仍要运行**。  
-   （界面示意：蓝色「Windows 已保护你的电脑」→ 左下「更多信息」→ 出现「仍要运行」。）
+2. SmartScreen 蓝屏拦截 → 点 **更多信息** → **仍要运行**。
+
+![SmartScreen 更多信息示意](./images/smartscreen-more-info.svg)
+
+![SmartScreen 仍要运行示意](./images/smartscreen-run-anyway.svg)
+
+> 上图为界面示意。请把本校实拍 PNG/JPG 覆盖到 `docs/images/smartscreen-*.svg` 同名位置（或改链接），打印给机房管理员。
+
 3. 若被 Defender「严重威胁」拦下：打开 **Windows 安全中心 → 病毒和威胁防护 → 保护历史记录** → 对该文件选 **允许**。
-4. 安装结束：学生端弹出 **首次配置**，填写  
+4. 安装结束：学生端弹出 **首次配置**（可 **扫教师 QR**），填写  
    - 服务器地址 `http://教师机局域网IP:8787`  
-   - 机位班级 `classId`（教师后台「指派学生机」复制）  
+   - 机位班级 `classId`  
    → **保存并检测 /health**。禁止 `127.0.0.1`。
 
-> 截图占位（机房打印时可贴本校实际截图）：  
-> `[图1] SmartScreen「更多信息」` · `[图2]「仍要运行」` · `[图3] 首次配置页]`
+![学生端首次配置示意](./images/smartscreen-first-run.svg)
 
 ---
 
@@ -58,8 +63,8 @@
 U 盘 / 网盘解压后若仍被拦，可在教师机 PowerShell（管理员）对安装包去区域标记：
 
 ```powershell
-Unblock-File -Path .\ClassroomDesk-Setup-0.1.2.exe
-Get-FileHash .\ClassroomDesk-Setup-0.1.2.exe -Algorithm SHA256
+Unblock-File -Path .\ClassroomDesk-Setup-0.1.3.exe
+Get-FileHash .\ClassroomDesk-Setup-0.1.3.exe -Algorithm SHA256
 ```
 
 与 Release 旁 `.sha256` 文件对照，不一致则**不要安装**。
