@@ -1867,7 +1867,6 @@ function QuizTab({
   }, [items, onlyWrongRetry]);
 
   async function flushOfflineQueue(manual = false) {
-    const key = 'cd_offline_answers';
     const queue = readOfflineQueue();
     if (!queue.length) {
       setQueueCount(0);
