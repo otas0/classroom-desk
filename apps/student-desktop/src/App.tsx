@@ -174,7 +174,8 @@ export function App() {
             body: JSON.stringify({
               allowed: cache?.allowed ?? false,
               until: cache?.until ?? null,
-              clientId: classId || undefined,
+              // Machine id — not classId (explore: presence PK is student; seat lock uses seat_map.id).
+              clientId: getOrCreatePresenceClientId(),
             }),
           });
         } catch {
@@ -184,7 +185,7 @@ export function App() {
       setExitUnlockUntil(serverUntil);
       await syncExitLock(serverAllowed, serverUntil);
     },
-    [classId, syncExitLock],
+    [syncExitLock],
   );
 
   const notifyExitBlocked = useCallback(() => {
@@ -454,7 +455,15 @@ export function App() {
 
   const refreshMe = useCallback(async () => {
     try {
-      const q = classId ? `?classId=${encodeURIComponent(classId)}` : '';
+      const params = new URLSearchParams();
+      if (classId) params.set('classId', classId);
+      try {
+        const seat = localStorage.getItem('cd_seat_id')?.trim();
+        if (seat) params.set('seatId', seat);
+      } catch {
+        /* ignore */
+      }
+      const qs = params.toString();
       const pub = await api<{
         messagesEnabled?: boolean;
         quizConfirmSubmit?: boolean;
@@ -462,7 +471,7 @@ export function App() {
         clientExitUnlockUntil?: string | null;
         inputLock?: InputLockFlags;
         inputLockStore?: InputLockStore;
-      }>(`/api/v1/settings/public${q}`);
+      }>(`/api/v1/settings/public${qs ? `?${qs}` : ''}`);
       setMessagesEnabled(pub.messagesEnabled !== false);
       setQuizConfirmSubmit(pub.quizConfirmSubmit !== false);
       if (pub.inputLockStore != null || pub.inputLock != null) {
@@ -489,11 +498,27 @@ export function App() {
       }>('/api/v1/auth/me');
       setUser(me.user);
       const presenceClientId = getOrCreatePresenceClientId();
+      // Prefer seat_map.id (stable physical seat) over presence/student ids for bySeat keys.
+      if (me.seat?.id) {
+        try {
+          localStorage.setItem('cd_seat_id', me.seat.id);
+          if (me.seat.label) localStorage.setItem('cd_seat_label', me.seat.label);
+        } catch {
+          /* ignore */
+        }
+      }
+      let cachedSeatId = '';
+      try {
+        cachedSeatId = localStorage.getItem('cd_seat_id')?.trim() || '';
+      } catch {
+        /* ignore */
+      }
       const nextSeats = [
+        me.seat?.id,
+        cachedSeatId,
+        me.seat?.label,
         presenceClientId,
         me.user?.id,
-        me.seat?.id,
-        me.seat?.label,
       ]
         .map((s) => String(s ?? '').trim())
         .filter(Boolean);

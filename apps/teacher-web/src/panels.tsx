@@ -3121,16 +3121,7 @@ export function SettingsPanel({
         ]);
         const opts: Array<{ value: string; label: string }> = [];
         const seen = new Set<string>();
-        for (const p of presence.items ?? []) {
-          const value = (p.clientId || p.seatId || p.studentId || '').trim();
-          if (!value || seen.has(value)) continue;
-          seen.add(value);
-          const seatHint = p.seatLabel ? ` · 座位 ${p.seatLabel}` : '';
-          opts.push({
-            value,
-            label: `${p.displayName || p.studentId}${seatHint}（${value.slice(0, 8)}…）`,
-          });
-        }
+        // Prefer seat_map.id (physical seat) — teacher seat-scope PATCH keys by classId:seatId.
         for (const s of seats.items ?? []) {
           if (!s.id || seen.has(s.id)) continue;
           seen.add(s.id);
@@ -3138,10 +3129,16 @@ export function SettingsPanel({
             value: s.id,
             label: `座位 ${s.label || s.id}${s.displayName ? ` · ${s.displayName}` : ''}`,
           });
-          if (s.label && !seen.has(s.label)) {
-            seen.add(s.label);
-            opts.push({ value: s.label, label: `座位号 ${s.label}` });
-          }
+        }
+        for (const p of presence.items ?? []) {
+          const value = (p.seatId || p.clientId || '').trim();
+          if (!value || seen.has(value)) continue;
+          seen.add(value);
+          const seatHint = p.seatLabel ? ` · ${p.seatLabel}` : '';
+          opts.push({
+            value,
+            label: `${p.displayName || p.studentId}${seatHint}（${value.slice(0, 8)}…）`,
+          });
         }
         setInputLockSeatOptions(opts);
       } catch {
