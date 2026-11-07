@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { openPrepTab } from './helpers/navPrep';
 import { ensureTeacherPasswordReady, TEACHER_USER } from './helpers/teacherLogin';
 import { loginStaffWeb, loginTeacherWeb } from './helpers/teacherWebLogin';
 
@@ -62,8 +63,10 @@ test.describe('exit-lock system generate + cooldown', () => {
   });
 
   test('teacher settings shows rotate days 90 and generate button', async ({ page, request }) => {
+    test.setTimeout(90_000);
     await loginTeacherWeb(page, request);
-    await page.locator('aside').getByRole('button', { name: '设置', exact: true }).click();
+    // Session view has no settings; prep-subnav owns「设置」.
+    await openPrepTab(page, '设置');
     await expect(page.getByRole('heading', { name: '学生端退出锁定' })).toBeVisible({
       timeout: 15_000,
     });
@@ -85,6 +88,7 @@ test.describe('exit-lock system generate + cooldown', () => {
     expect(created.ok()).toBeTruthy();
 
     await loginStaffWeb(page, user, pass);
+    // Assistants land on attendance (prep shell); settings is in aside.
     await page.locator('aside').getByRole('button', { name: '设置', exact: true }).click();
     await expect(page.getByTestId('exit-lock-readonly')).toBeVisible({ timeout: 15_000 });
     await expect(page.getByTestId('exit-lock-readonly-rotate')).toContainText(/90/);
