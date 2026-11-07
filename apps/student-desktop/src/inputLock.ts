@@ -99,18 +99,16 @@ export function stopAllMediaTracks(): void {
   }
 }
 
-type MediaConstraint = MediaStreamConstraints | boolean | undefined;
-
-function wantsAudio(c: MediaConstraint): boolean {
+function wantsAudio(c: boolean | MediaTrackConstraints | undefined): boolean {
   if (c === true) return true;
   if (!c || typeof c !== 'object') return false;
-  return Boolean((c as MediaStreamConstraints).audio);
+  return true;
 }
 
-function wantsVideo(c: MediaConstraint): boolean {
+function wantsVideo(c: boolean | MediaTrackConstraints | undefined): boolean {
   if (c === true) return true;
   if (!c || typeof c !== 'object') return false;
-  return Boolean((c as MediaStreamConstraints).video);
+  return true;
 }
 
 function isWhitelistedTarget(target: EventTarget | null): boolean {

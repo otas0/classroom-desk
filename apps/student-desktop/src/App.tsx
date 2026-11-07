@@ -117,7 +117,7 @@ export function App() {
   const [nowTick, setNowTick] = useState(() => Date.now());
   const [hardeningTip, setHardeningTip] = useState(false);
   const [inputLock, setInputLock] = useState<InputLockFlags>(EMPTY_INPUT_LOCK);
-  const [inputLockStore, setInputLockStore] = useState<InputLockStore | null>(null);
+  const [, setInputLockStore] = useState<InputLockStore | null>(null);
   const [raiseHandBusy, setRaiseHandBusy] = useState(false);
   const inputLockToastAtRef = useRef(0);
   const knownQuestionIdsRef = useRef(new Set<string>());
