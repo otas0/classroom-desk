@@ -429,6 +429,34 @@ section label.choice input {
   background: hsl(calc(40 + var(--bar-hue, 0) * 1deg), 85%, 42%);
 }
 
+/* Okabe–Ito-ish: bluish green + vermillion (colorblind-safe) */
+.live-board.bar-preset-okabe .bar.correct,
+.live-board.bar-preset-okabe .legend-swatch.correct {
+  background: #009e73;
+}
+.live-board.bar-preset-okabe .bar.option,
+.live-board.bar-preset-okabe .legend-swatch.option {
+  background: #d55e00;
+}
+
+.live-board.bar-preset-blueorange .bar.correct,
+.live-board.bar-preset-blueorange .legend-swatch.correct {
+  background: #0072b2;
+}
+.live-board.bar-preset-blueorange .bar.option,
+.live-board.bar-preset-blueorange .legend-swatch.option {
+  background: #e69f00;
+}
+
+.live-board.bar-preset-gray .bar.correct,
+.live-board.bar-preset-gray .legend-swatch.correct {
+  background: #222;
+}
+.live-board.bar-preset-gray .bar.option,
+.live-board.bar-preset-gray .legend-swatch.option {
+  background: #888;
+}
+
 .ops-chart {
   display: flex;
   align-items: flex-end;

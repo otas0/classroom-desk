@@ -1783,6 +1783,9 @@ function QuizTab({
   const [queueCount, setQueueCount] = useState(0);
   const [queueFail, setQueueFail] = useState('');
 
+  const OFFLINE_QUEUE_MAX_ITEMS = 40;
+  const OFFLINE_QUEUE_MAX_CHARS = 120_000;
+
   function readOfflineQueue(): Array<{ questionId: string; answerPayload: unknown; queuedAt: string }> {
     try {
       return JSON.parse(localStorage.getItem('cd_offline_answers') || '[]') as Array<{
@@ -1793,6 +1796,17 @@ function QuizTab({
     } catch {
       return [];
     }
+  }
+
+  /** Drop oldest entries when over count or serialized size. */
+  function writeOfflineQueue(
+    queue: Array<{ questionId: string; answerPayload: unknown; queuedAt: string }>,
+  ): typeof queue {
+    let next = [...queue];
+    while (next.length > OFFLINE_QUEUE_MAX_ITEMS) next.shift();
+    while (next.length > 1 && JSON.stringify(next).length > OFFLINE_QUEUE_MAX_CHARS) next.shift();
+    localStorage.setItem('cd_offline_answers', JSON.stringify(next));
+    return next;
   }
 
   function syncQueueCount() {
@@ -1877,7 +1891,7 @@ function QuizTab({
         lastErr = e instanceof Error ? e.message : '补交失败';
       }
     }
-    localStorage.setItem(key, JSON.stringify(remain));
+    writeOfflineQueue(remain);
     setQueueCount(remain.length);
     if (remain.length && (manual || lastErr)) {
       setQueueFail(lastErr || `仍有 ${remain.length} 条待补交`);
@@ -1935,16 +1949,9 @@ function QuizTab({
         e instanceof ApiOfflineError ||
         /network|fetch|Failed to fetch|断线|offline|ECONNREFUSED/i.test(msg);
       if (isNet) {
-        const key = 'cd_offline_answers';
-        let queue: Array<{ questionId: string; answerPayload: unknown; queuedAt: string }> = [];
-        try {
-          queue = JSON.parse(localStorage.getItem(key) || '[]') as typeof queue;
-        } catch {
-          queue = [];
-        }
-        queue = queue.filter((q) => q.questionId !== id);
+        let queue = readOfflineQueue().filter((q) => q.questionId !== id);
         queue.push({ questionId: id, answerPayload: payload, queuedAt: new Date().toISOString() });
-        localStorage.setItem(key, JSON.stringify(queue));
+        queue = writeOfflineQueue(queue);
         setQueueCount(queue.length);
         onAnswered(`已离线缓存（待补交 ${queue.length}），恢复网络后自动补交`);
         setPicked((prev) => {

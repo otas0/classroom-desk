@@ -16,6 +16,7 @@
     "express": "^4.21.2",
     "jose": "^6.2.15",
     "multer": "^2.5.0",
+    "pdf-lib": "^1.17.1",
     "xlsx": "^0.18.5"
   },
   "devDependencies": {

@@ -132,8 +132,8 @@ opsRouter.get(
     const driftAudit = db
       .prepare(
         `SELECT created_at AS createdAt, detail FROM teacher_audit_log
-         WHERE action IN ('presence.version_drift', 'setup.classroom_ready', 'fleet.drift_snapshot')
-         ORDER BY created_at DESC LIMIT 200`,
+         WHERE action = 'fleet.drift_snapshot'
+         ORDER BY created_at DESC LIMIT 500`,
       )
       .all() as Array<{ createdAt: string; detail: string }>;
     const driftByDay: Record<string, { samples: number; driftSum: number }> = {};
@@ -144,7 +144,7 @@ opsRouter.get(
       try {
         const d = JSON.parse(row.detail) as { driftCount?: number; driftRate?: number };
         if (typeof d.driftCount === 'number') slot.driftSum += d.driftCount;
-        else if (typeof d.driftRate === 'number') slot.driftSum += d.driftRate;
+        else if (typeof d.driftRate === 'number') slot.driftSum += d.driftRate * 100;
       } catch {
         /* ignore */
       }

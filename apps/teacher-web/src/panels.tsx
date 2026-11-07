@@ -2745,6 +2745,8 @@ export function SettingsPanel({
   const [restorePass, setRestorePass] = useState('');
   const [restoreChecklist, setRestoreChecklist] = useState<string[]>([]);
   const [restoreSha, setRestoreSha] = useState('');
+  const [restoreConfirmCode, setRestoreConfirmCode] = useState('');
+  const [restoreConfirmInput, setRestoreConfirmInput] = useState('');
   const [upgradeMsg, setUpgradeMsg] = useState('');
   const [upgradeFiles, setUpgradeFiles] = useState<string[]>([]);
   const [grantEditId, setGrantEditId] = useState<string | null>(null);
@@ -3228,20 +3230,50 @@ export function SettingsPanel({
               }}
             />
           </label>
-          <button
-            type="button"
-            className="secondary"
-            onClick={() =>
-              void api<{ message?: string; students?: number; questions?: number }>(
-                '/api/v1/settings/recycle-purge-now',
-                { method: 'POST', body: '{}' },
-              )
-                .then((r) => setSaveMsg(r.message ?? `已清理 学生${r.students} 题目${r.questions}`))
-                .catch((e) => setSaveMsg(e instanceof Error ? e.message : '清理失败'))
-            }
-          >
-            立即按保留天数 purge
-          </button>
+          <div className="row">
+            <button
+              type="button"
+              className="secondary"
+              onClick={() =>
+                void api<{ message?: string; students?: number; questions?: number }>(
+                  '/api/v1/settings/recycle-purge-now',
+                  { method: 'POST', body: JSON.stringify({ dryRun: true }) },
+                )
+                  .then((r) => setSaveMsg(r.message ?? `预览 学生${r.students} 题目${r.questions}`))
+                  .catch((e) => setSaveMsg(e instanceof Error ? e.message : '预览失败'))
+              }
+            >
+              预览将 purge 数量
+            </button>
+            <button
+              type="button"
+              className="secondary"
+              onClick={() => {
+                void api<{ message?: string; students?: number; questions?: number }>(
+                  '/api/v1/settings/recycle-purge-now',
+                  { method: 'POST', body: JSON.stringify({ dryRun: true }) },
+                )
+                  .then((preview) => {
+                    if (
+                      !window.confirm(
+                        `${preview.message ?? `将删学生 ${preview.students} · 题目 ${preview.questions}`}\n确认执行硬删？`,
+                      )
+                    ) {
+                      return;
+                    }
+                    return api<{ message?: string; students?: number; questions?: number }>(
+                      '/api/v1/settings/recycle-purge-now',
+                      { method: 'POST', body: JSON.stringify({ dryRun: false }) },
+                    ).then((r) =>
+                      setSaveMsg(r.message ?? `已清理 学生${r.students} 题目${r.questions}`),
+                    );
+                  })
+                  .catch((e) => setSaveMsg(e instanceof Error ? e.message : '清理失败'));
+              }}
+            >
+              预览后执行 purge
+            </button>
+          </div>
           <label>
             备份加密口令（可留空）
             <input
@@ -3287,6 +3319,7 @@ export function SettingsPanel({
                   message?: string;
                   sha256?: string;
                   checklist?: string[];
+                  confirmCode?: string;
                 }>('/api/v1/settings/backup-restore-preview', {
                   method: 'POST',
                   body: JSON.stringify({
@@ -3298,7 +3331,13 @@ export function SettingsPanel({
                   .then((r) => {
                     setRestoreChecklist(r.checklist ?? []);
                     setRestoreSha(r.sha256 ?? '');
-                    setBackupMsg(r.message ? `${r.message} → ${r.restoredPath}` : '已准备');
+                    setRestoreConfirmCode(r.confirmCode ?? '');
+                    setRestoreConfirmInput('');
+                    setBackupMsg(
+                      r.message
+                        ? `${r.message}${r.confirmCode ? ` · 确认码 ${r.confirmCode}` : ''} → ${r.restoredPath}`
+                        : '已准备',
+                    );
                   })
                   .catch((e) => setBackupMsg(e instanceof Error ? e.message : '恢复失败'));
               }}
@@ -3307,7 +3346,7 @@ export function SettingsPanel({
             </button>
             <button
               type="button"
-              disabled={!restoreSha}
+              disabled={!restoreSha || restoreConfirmInput.trim().length < 6}
               onClick={() => {
                 if (
                   !window.confirm(
@@ -3324,21 +3363,35 @@ export function SettingsPanel({
                       fileName: restoreFile,
                       passphrase: restorePass,
                       commit: true,
+                      confirmCode: restoreConfirmInput.trim(),
                     }),
                   },
                 )
                   .then((r) => {
                     setRestoreChecklist(r.checklist ?? []);
                     setRestoreSha(r.sha256 ?? restoreSha);
+                    setRestoreConfirmCode('');
+                    setRestoreConfirmInput('');
                     setBackupMsg(r.message ?? '已替换 live DB，请重启服务');
                   })
                   .catch((e) => setBackupMsg(e instanceof Error ? e.message : '替换失败'));
               }}
             >
-              2. 校验后替换 live DB
+              2. 输入确认码后替换 live DB
             </button>
           </div>
           {restoreSha ? <p className="hint">sha256={restoreSha}</p> : null}
+          {restoreConfirmCode ? (
+            <label>
+              二次确认码（校验步骤下发，10 分钟有效）
+              <input
+                value={restoreConfirmInput}
+                onChange={(e) => setRestoreConfirmInput(e.target.value)}
+                placeholder={restoreConfirmCode}
+                autoComplete="one-time-code"
+              />
+            </label>
+          ) : null}
           {restoreChecklist.length ? (
             <ol className="hint">
               {restoreChecklist.map((line) => (
@@ -3395,7 +3448,55 @@ export function SettingsPanel({
           {upgradeFiles.length ? (
             <ul className="hint">
               {upgradeFiles.map((f) => (
-                <li key={f}>{f}</li>
+                <li key={f} className="row">
+                  <span>{f}</span>
+                  {/\.exe$/i.test(f) ? (
+                    <>
+                      <button
+                        type="button"
+                        className="secondary"
+                        onClick={() =>
+                          void api<{ message?: string; match?: boolean | null }>(
+                            '/api/v1/upgrades/verify-sha256',
+                            { method: 'POST', body: JSON.stringify({ name: f }) },
+                          )
+                            .then((r) => setUpgradeMsg(r.message ?? '已校验'))
+                            .catch((e) =>
+                              setUpgradeMsg(e instanceof Error ? e.message : '校验失败'),
+                            )
+                        }
+                      >
+                        校验 sha256
+                      </button>
+                      <button
+                        type="button"
+                        className="secondary"
+                        onClick={() => {
+                          if (!window.confirm(`删除 ${f}？`)) return;
+                          void api(`/api/v1/upgrades/${encodeURIComponent(f)}`, {
+                            method: 'DELETE',
+                          })
+                            .then(() =>
+                              api<{ files?: Array<{ name: string } | string> }>('/api/v1/upgrades'),
+                            )
+                            .then((r) => {
+                              setUpgradeFiles(
+                                (r.files ?? [])
+                                  .map((x) => (typeof x === 'string' ? x : x.name))
+                                  .filter(Boolean),
+                              );
+                              setUpgradeMsg(`已删除 ${f}`);
+                            })
+                            .catch((e) =>
+                              setUpgradeMsg(e instanceof Error ? e.message : '删除失败'),
+                            );
+                        }}
+                      >
+                        删除
+                      </button>
+                    </>
+                  ) : null}
+                </li>
               ))}
             </ul>
           ) : (

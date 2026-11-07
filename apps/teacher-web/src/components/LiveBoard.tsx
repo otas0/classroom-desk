@@ -54,7 +54,24 @@ export function LiveBoard({
       return 0;
     }
   });
+  const [barPreset, setBarPreset] = useState<'custom' | 'okabe' | 'blueorange' | 'gray'>(() => {
+    try {
+      const p = localStorage.getItem('cd_liveboard_bar_preset') ?? 'okabe';
+      return p === 'okabe' || p === 'blueorange' || p === 'gray' || p === 'custom' ? p : 'okabe';
+    } catch {
+      return 'okabe';
+    }
+  });
   const autoArmedRef = useRef(false);
+
+  function applyBarPreset(next: 'custom' | 'okabe' | 'blueorange' | 'gray') {
+    setBarPreset(next);
+    try {
+      localStorage.setItem('cd_liveboard_bar_preset', next);
+    } catch {
+      /* ignore */
+    }
+  }
 
   async function load() {
     if (!classId) return;
@@ -232,11 +249,12 @@ export function LiveBoard({
 
   const barStyle = {
     ['--bar-hue' as string]: String(barHue),
+    ['--bar-preset' as string]: barPreset,
   } as CSSProperties;
 
   return (
     <section
-      className={`live-board${projection ? ' projection-mode' : ''}${highContrast ? ' hc-theme' : ''}`}
+      className={`live-board bar-preset-${barPreset}${projection ? ' projection-mode' : ''}${highContrast ? ' hc-theme' : ''}`}
       style={barStyle}
     >
       <h2>大屏答题态势</h2>
@@ -271,47 +289,71 @@ export function LiveBoard({
             />
             高对比大字（H）
           </label>
-          <label className="row">
-            色盲色相
-            <input
-              type="range"
-              min={0}
-              max={360}
-              value={barHue}
-              onChange={(e) => {
-                const next = Number(e.target.value);
-                setBarHue(next);
-                try {
-                  localStorage.setItem('cd_liveboard_bar_hue', String(next));
-                } catch {
-                  /* ignore */
-                }
-              }}
-            />
-            <button
-              type="button"
-              className="secondary"
-              onClick={() => {
-                setBarHue((prev) => {
-                  const next = (prev + 60) % 360;
+          <div className="row">
+            <span className="hint">色盲预设</span>
+            {(
+              [
+                ['okabe', 'Okabe–Ito'],
+                ['blueorange', '蓝橙'],
+                ['gray', '灰阶'],
+                ['custom', '自定义色相'],
+              ] as const
+            ).map(([id, label]) => (
+              <button
+                key={id}
+                type="button"
+                className={barPreset === id ? 'chip active-chip' : 'chip'}
+                onClick={() => applyBarPreset(id)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          {barPreset === 'custom' ? (
+            <label className="row">
+              色盲色相
+              <input
+                type="range"
+                min={0}
+                max={360}
+                value={barHue}
+                onChange={(e) => {
+                  const next = Number(e.target.value);
+                  setBarHue(next);
                   try {
                     localStorage.setItem('cd_liveboard_bar_hue', String(next));
                   } catch {
                     /* ignore */
                   }
-                  return next;
-                });
-              }}
-            >
-              切换色相（C）
-            </button>
-          </label>
+                }}
+              />
+              <button
+                type="button"
+                className="secondary"
+                onClick={() => {
+                  setBarHue((prev) => {
+                    const next = (prev + 60) % 360;
+                    try {
+                      localStorage.setItem('cd_liveboard_bar_hue', String(next));
+                    } catch {
+                      /* ignore */
+                    }
+                    return next;
+                  });
+                }}
+              >
+                切换色相（C）
+              </button>
+            </label>
+          ) : null}
         </div>
       ) : null}
       <div className="bar-legend hint" aria-label="进度条图例">
         <span className="legend-swatch correct" /> 已交占比
         <span className="legend-swatch option" /> 正确率
-        {projection ? ' · Esc 退出 · F 全屏 · R 只读 · H 高对比 · C 色相' : ''}
+        {projection
+          ? ' · Esc 退出 · F 全屏 · R 只读 · H 高对比 · C 色相（自定义）'
+          : ''}
       </div>
       <p className="hint">
         全班 {rosterTotal} 人 · 约每 3 秒刷新 · 投影可读

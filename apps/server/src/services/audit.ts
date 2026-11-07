@@ -116,6 +116,53 @@ export function listAuditActions(): string[] {
   return rows.map((r) => r.action);
 }
 
+function resolveRetentionDays(db: DatabaseSync, retentionDays?: number): number {
+  let days = retentionDays;
+  if (days == null || !Number.isFinite(days)) {
+    days = Number(getSetting(db, 'recycle_retention_days') ?? RECYCLE_RETENTION_DAYS);
+  }
+  return Math.max(1, Math.min(365, Math.trunc(Number(days) || RECYCLE_RETENTION_DAYS)));
+}
+
+/** Preview how many soft-deleted rows would be hard-purged. */
+export function previewPurgeExpiredSoftDeletes(
+  db: DatabaseSync = openDb(),
+  retentionDays?: number,
+): {
+  students: number;
+  questions: number;
+  retentionDays: number;
+  cutoff: string;
+  dryRun: true;
+} {
+  const days = resolveRetentionDays(db, retentionDays);
+  const cutoff = recyclePurgeCutoffIso(Date.now(), days);
+  const students = Number(
+    (
+      db
+        .prepare(
+          `SELECT COUNT(*) AS n FROM users
+           WHERE role = 'student'
+             AND deleted_at IS NOT NULL AND deleted_at != ''
+             AND deleted_at < ?`,
+        )
+        .get(cutoff) as { n: number }
+    ).n,
+  );
+  const questions = Number(
+    (
+      db
+        .prepare(
+          `SELECT COUNT(*) AS n FROM questions
+           WHERE deleted_at IS NOT NULL AND deleted_at != ''
+             AND deleted_at < ?`,
+        )
+        .get(cutoff) as { n: number }
+    ).n,
+  );
+  return { students, questions, retentionDays: days, cutoff, dryRun: true };
+}
+
 export function purgeExpiredSoftDeletes(
   db: DatabaseSync = openDb(),
   retentionDays?: number,
@@ -124,11 +171,7 @@ export function purgeExpiredSoftDeletes(
   questions: number;
   retentionDays: number;
 } {
-  let days = retentionDays;
-  if (days == null || !Number.isFinite(days)) {
-    days = Number(getSetting(db, 'recycle_retention_days') ?? RECYCLE_RETENTION_DAYS);
-  }
-  days = Math.max(1, Math.min(365, Math.trunc(Number(days) || RECYCLE_RETENTION_DAYS)));
+  const days = resolveRetentionDays(db, retentionDays);
   const cutoff = recyclePurgeCutoffIso(Date.now(), days);
   const s = db
     .prepare(

@@ -96,10 +96,12 @@ upgradesRouter.post(
       return;
     }
     let sha256Name: string | null = null;
+    let pruned: string[] = [];
     if (/\.exe$/i.test(file.filename)) {
       const hash = createHash('sha256').update(fs.readFileSync(file.path)).digest('hex');
       sha256Name = `${file.filename}.sha256`;
       fs.writeFileSync(path.join(upgradesDir(), sha256Name), `${hash}  ${file.filename}\n`, 'utf8');
+      pruned = pruneOldSetupExes(3);
     }
     res.status(201).json({
       ok: true,
@@ -110,6 +112,105 @@ upgradesRouter.post(
       sha256Url: sha256Name
         ? `${publicBase(req)}/upgrades/${encodeURIComponent(sha256Name)}`
         : null,
+      pruned,
+    });
+  },
+);
+
+const KEEP_SETUP = Number(process.env.CLASSROOM_DESK_UPGRADES_KEEP ?? 3);
+
+/** Keep newest N Setup*.exe (+ paired .sha256); delete older. */
+function pruneOldSetupExes(keep = KEEP_SETUP): string[] {
+  const dir = upgradesDir();
+  const exes = fs
+    .readdirSync(dir)
+    .filter((n) => /\.exe$/i.test(n) && (/Setup/i.test(n) || /ClassroomDesk/i.test(n)))
+    .map((name) => {
+      const full = path.join(dir, name);
+      return { name, mtime: fs.statSync(full).mtimeMs };
+    })
+    .sort((a, b) => b.mtime - a.mtime);
+  const removed: string[] = [];
+  for (const row of exes.slice(Math.max(1, keep))) {
+    try {
+      fs.unlinkSync(path.join(dir, row.name));
+      removed.push(row.name);
+      const side = `${row.name}.sha256`;
+      if (fs.existsSync(path.join(dir, side))) {
+        fs.unlinkSync(path.join(dir, side));
+        removed.push(side);
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+  return removed;
+}
+
+upgradesRouter.delete(
+  '/api/v1/upgrades/:name',
+  requireAuth,
+  requireRoles('teacher', 'admin'),
+  (req: AuthedRequest, res) => {
+    const name = path.basename(String(req.params.name ?? ''));
+    if (!name || name.startsWith('.')) {
+      res.status(400).json({ error: 'invalid_name' });
+      return;
+    }
+    const full = path.join(upgradesDir(), name);
+    if (!fs.existsSync(full)) {
+      res.status(404).json({ error: 'file_not_found' });
+      return;
+    }
+    fs.unlinkSync(full);
+    const side = path.join(upgradesDir(), `${name}.sha256`);
+    let removedSha: string | null = null;
+    if (/\.exe$/i.test(name) && fs.existsSync(side)) {
+      fs.unlinkSync(side);
+      removedSha = `${name}.sha256`;
+    }
+    res.json({ ok: true, removed: name, removedSha256: removedSha });
+  },
+);
+
+/** Verify an .exe against its paired .sha256 (or recompute). */
+upgradesRouter.post(
+  '/api/v1/upgrades/verify-sha256',
+  requireAuth,
+  requireRoles('teacher', 'admin'),
+  (req: AuthedRequest, res) => {
+    const name = path.basename(String(req.body?.name ?? ''));
+    if (!name || !/\.exe$/i.test(name)) {
+      res.status(400).json({ error: 'exe_name_required' });
+      return;
+    }
+    const full = path.join(upgradesDir(), name);
+    if (!fs.existsSync(full)) {
+      res.status(404).json({ error: 'file_not_found' });
+      return;
+    }
+    const actual = createHash('sha256').update(fs.readFileSync(full)).digest('hex');
+    const sidePath = path.join(upgradesDir(), `${name}.sha256`);
+    let expected: string | null = null;
+    let sideExists = false;
+    if (fs.existsSync(sidePath)) {
+      sideExists = true;
+      const text = fs.readFileSync(sidePath, 'utf8').trim();
+      expected = (text.split(/\s+/)[0] || '').toLowerCase();
+    }
+    const match = expected != null && expected === actual.toLowerCase();
+    res.json({
+      ok: true,
+      name,
+      actual,
+      expected,
+      sideExists,
+      match: sideExists ? match : null,
+      message: !sideExists
+        ? '无配对 .sha256（可重新上传 exe 自动生成）'
+        : match
+          ? '哈希一致'
+          : '哈希不匹配',
     });
   },
 );

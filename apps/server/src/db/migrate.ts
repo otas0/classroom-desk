@@ -62,6 +62,11 @@ export function migrate(database?: DatabaseSync): DatabaseSync {
     UNIQUE(class_id, row_index, col_index)
   )`);
   conn.exec(`CREATE INDEX IF NOT EXISTS idx_seat_map_class ON seat_map(class_id)`);
+  // One student → at most one seat per class (NULLs allowed multiple times).
+  conn.exec(
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_seat_map_class_student
+     ON seat_map(class_id, student_id) WHERE student_id IS NOT NULL`,
+  );
   conn.exec(`CREATE TABLE IF NOT EXISTS parent_report_tokens (
     id TEXT PRIMARY KEY,
     class_id TEXT NOT NULL REFERENCES classes(id) ON DELETE CASCADE,

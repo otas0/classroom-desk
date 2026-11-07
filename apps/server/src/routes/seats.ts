@@ -206,6 +206,7 @@ seatsRouter.patch(
     }
     if (req.body?.studentId !== undefined) {
       const sid = req.body.studentId ? String(req.body.studentId) : null;
+      let clearedFrom: { id: string; label: string } | null = null;
       if (sid) {
         const stu = db
           .prepare(
@@ -217,10 +218,41 @@ seatsRouter.patch(
           res.status(400).json({ error: 'invalid_student' });
           return;
         }
-        // One seat per student
-        db.prepare(`UPDATE seat_map SET student_id = NULL WHERE class_id = ? AND student_id = ?`).run(classId, sid);
+        const prev = db
+          .prepare(
+            `SELECT id, label FROM seat_map
+             WHERE class_id = ? AND student_id = ? AND id != ?`,
+          )
+          .get(classId, sid, seatId) as { id: string; label: string } | undefined;
+        if (prev) clearedFrom = prev;
+        // One seat per student (also enforced by unique partial index)
+        db.prepare(`UPDATE seat_map SET student_id = NULL WHERE class_id = ? AND student_id = ?`).run(
+          classId,
+          sid,
+        );
       }
-      db.prepare(`UPDATE seat_map SET student_id = ? WHERE id = ?`).run(sid, seatId);
+      try {
+        db.prepare(`UPDATE seat_map SET student_id = ? WHERE id = ?`).run(sid, seatId);
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        if (/UNIQUE|unique/i.test(msg)) {
+          res.status(409).json({
+            error: 'student_already_seated',
+            message: '该学生已绑定其它座位，请先清空或拖拽换座',
+          });
+          return;
+        }
+        throw e;
+      }
+      res.json({
+        ok: true,
+        clearedFromSeatId: clearedFrom?.id ?? null,
+        clearedFromLabel: clearedFrom?.label ?? null,
+        message: clearedFrom
+          ? `已从座位 ${clearedFrom.label} 移开并绑到当前座（同班一人一座）`
+          : undefined,
+      });
+      return;
     }
     res.json({ ok: true });
   },

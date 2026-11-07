@@ -67,11 +67,16 @@ export function SeatMapPanel({ classId }: { classId: string }) {
   }
 
   async function bind(seatId: string, studentId: string | null) {
-    await api(`/api/v1/classes/${classId}/seats/${seatId}`, {
-      method: 'PATCH',
-      body: JSON.stringify({ studentId }),
-    });
+    const r = await api<{ message?: string; clearedFromLabel?: string | null }>(
+      `/api/v1/classes/${classId}/seats/${seatId}`,
+      {
+        method: 'PATCH',
+        body: JSON.stringify({ studentId }),
+      },
+    );
     setSelected(null);
+    if (r.message) setMsg(r.message);
+    else if (r.clearedFromLabel) setMsg(`已从 ${r.clearedFromLabel} 移开（同班一人一座）`);
     await load();
   }
 

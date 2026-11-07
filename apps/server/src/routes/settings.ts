@@ -18,13 +18,17 @@ import {
   setExitUnlockRateConfig,
 } from '../services/exitLock.js';
 import { addExitLockSseClient } from '../services/exitLockHub.js';
-import { purgeExpiredSoftDeletes } from '../services/audit.js';
+import { previewPurgeExpiredSoftDeletes, purgeExpiredSoftDeletes, writeAudit } from '../services/audit.js';
 import { toCsv } from '../utils/csv.js';
 import {
   decryptFileAesGcm,
   getBackupStatus,
   runDbBackup,
 } from '../services/backup.js';
+import {
+  consumeRestoreConfirmCode,
+  issueRestoreConfirmCode,
+} from '../services/restoreConfirm.js';
 import { getExtraWeakPasswords, setExtraWeakPasswords } from '../services/weakPasswords.js';
 import { nowIso } from '../utils/id.js';
 
@@ -368,9 +372,39 @@ settingsRouter.post(
         '6. 重启服务并打开 /health 确认 ok',
       ];
       if (commit) {
+        const confirmCode = String(req.body?.confirmCode ?? '').trim();
+        const check = consumeRestoreConfirmCode({
+          actorId: req.user!.id,
+          sha256: hash,
+          code: confirmCode,
+        });
+        if (!check.ok) {
+          res.status(400).json({
+            error: check.error,
+            message:
+              check.error === 'confirm_code_mismatch'
+                ? '二次确认码不正确'
+                : check.error === 'confirm_code_expired'
+                  ? '确认码已过期，请重新「校验哈希」'
+                  : '请先完成校验并输入六位确认码',
+          });
+          return;
+        }
         const bak = `${live}.pre-restore-${Date.now()}`;
         fs.copyFileSync(live, bak);
         fs.copyFileSync(restoredPath, live);
+        writeAudit({
+          actorUserId: req.user!.id,
+          actorRole: req.user!.role,
+          action: 'backup.restore_commit',
+          detail: {
+            fileName,
+            sha256: hash,
+            restoredPath,
+            backupOfLive: bak,
+            liveDb: live,
+          },
+        });
         res.json({
           ok: true,
           committed: true,
@@ -379,18 +413,25 @@ settingsRouter.post(
           sha256: hash,
           liveDb: live,
           checklist,
-          message: '已校验哈希并替换 live DB（已先备份为 .pre-restore-*）。请立即重启服务。',
+          message: '已校验哈希与确认码并替换 live DB（已先备份为 .pre-restore-*）。请立即重启服务。',
         });
         return;
       }
+      const confirmCode = issueRestoreConfirmCode({
+        actorId: req.user!.id,
+        sha256: hash,
+        fileName,
+      });
       res.json({
         ok: true,
         committed: false,
         restoredPath,
         liveDb: live,
         sha256: hash,
+        confirmCode,
         checklist,
-        message: '已准备恢复文件。确认哈希后可再次请求 commit:true 替换 live DB（或按清单手动替换）。',
+        message:
+          '已准备恢复文件。请抄下六位确认码，确认哈希后带 confirmCode 请求 commit:true（或按清单手动替换）。',
       });
     } catch (e) {
       res.status(400).json({
@@ -405,10 +446,27 @@ settingsRouter.post(
   '/api/v1/settings/recycle-purge-now',
   requireAuth,
   requireRoles('teacher', 'admin'),
-  (_req, res) => {
+  (req: AuthedRequest, res) => {
+    const dryRun = req.body?.dryRun === true || String(req.query.dryRun ?? '') === '1';
+    if (dryRun) {
+      const preview = previewPurgeExpiredSoftDeletes(openDb());
+      res.json({
+        ok: true,
+        ...preview,
+        message: `预览：将硬删学生 ${preview.students} · 题目 ${preview.questions}（保留 ${preview.retentionDays} 天，cutoff ${preview.cutoff}）`,
+      });
+      return;
+    }
     const result = purgeExpiredSoftDeletes(openDb());
+    writeAudit({
+      actorUserId: req.user!.id,
+      actorRole: req.user!.role,
+      action: 'recycle.purge_now',
+      detail: result,
+    });
     res.json({
       ok: true,
+      dryRun: false,
       ...result,
       message: `已按保留 ${result.retentionDays} 天清理：学生 ${result.students} · 题目 ${result.questions}`,
     });

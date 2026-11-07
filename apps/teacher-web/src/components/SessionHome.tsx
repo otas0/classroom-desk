@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
-import { API_BASE, api } from '../api';
+import { API_BASE, api, getToken } from '../api';
 import { POINT_REASON_CHIPS } from '../types';
 import { LiveBoard } from './LiveBoard';
+
+const OCR_DRAFT_KEY = 'cd_ocr_draft';
 
 type RosterStudent = {
   id: string;
@@ -240,13 +242,40 @@ export function SessionHome({
   }
 
   useEffect(() => {
+    function applyOcrDraft() {
+      try {
+        const raw = sessionStorage.getItem(OCR_DRAFT_KEY);
+        if (!raw?.trim()) return;
+        const text = raw.trim();
+        const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+        if (lines[0]) setTitle((t) => t || lines[0]!.slice(0, 80));
+        setStem((s) => s || text.slice(0, 2000));
+        setPublishMsg('已从 OCR 草稿填入快发题（可改后发布）');
+        sessionStorage.removeItem(OCR_DRAFT_KEY);
+      } catch {
+        /* ignore */
+      }
+    }
+    applyOcrDraft();
+    function onStorage(e: StorageEvent) {
+      if (e.key === OCR_DRAFT_KEY) applyOcrDraft();
+    }
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
+  }, []);
+
+  useEffect(() => {
     buzzWsRef.current?.close();
     buzzWsRef.current = null;
     setBuzzLive(false);
     if (!classId) return;
     void refreshBuzz().catch(() => undefined);
+    const token = getToken();
+    if (!token) return;
     const base = API_BASE.replace(/^http/, 'ws');
-    const ws = new WebSocket(`${base}/api/v1/session/buzz/ws?classId=${encodeURIComponent(classId)}`);
+    const ws = new WebSocket(
+      `${base}/api/v1/session/buzz/ws?classId=${encodeURIComponent(classId)}&token=${encodeURIComponent(token)}`,
+    );
     buzzWsRef.current = ws;
     ws.onopen = () => setBuzzLive(true);
     ws.onclose = () => setBuzzLive(false);

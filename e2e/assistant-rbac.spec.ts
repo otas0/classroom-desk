@@ -214,4 +214,93 @@ test.describe('assistant RBAC', () => {
       data: { classId, ids: [qid], action: 'purge' },
     });
   });
+
+  test('per-class grants: cross-class export 403, awarded class points 201', async ({ request }) => {
+    const auth = await teacherAuth(request);
+    const stamp = Date.now();
+    const cA = await request.post(`${API}/api/v1/classes`, {
+      headers: auth,
+      data: { name: `GrantA_${stamp}` },
+    });
+    expect(cA.ok()).toBeTruthy();
+    const classA = ((await cA.json()) as { id: string }).id;
+    const cB = await request.post(`${API}/api/v1/classes`, {
+      headers: auth,
+      data: { name: `GrantB_${stamp}` },
+    });
+    expect(cB.ok()).toBeTruthy();
+    const classB = ((await cB.json()) as { id: string }).id;
+
+    const stu = await request.post(`${API}/api/v1/classes/${classA}/students`, {
+      headers: auth,
+      data: { displayName: `学员${stamp}`, studentNo: `G${stamp % 100000}` },
+    });
+    expect(stu.ok()).toBeTruthy();
+    const studentId = ((await stu.json()) as { id: string }).id;
+
+    const user = `asst_grant_${stamp}`;
+    const pass = `AsstPass${stamp % 100000}g9`;
+    const created = await request.post(`${API}/api/v1/auth/assistants`, {
+      headers: auth,
+      data: { username: user, password: pass, displayName: '授权测' },
+    });
+    expect(created.ok()).toBeTruthy();
+    const assistantId = ((await created.json()) as { id: string }).id;
+
+    const grants = await request.put(`${API}/api/v1/auth/assistants/${assistantId}/grants`, {
+      headers: auth,
+      data: {
+        grants: [{ classId: classA, canExport: true, canAwardPoints: true }],
+      },
+    });
+    expect(grants.ok()).toBeTruthy();
+
+    const asstLogin = await request.post(`${API}/api/v1/auth/login`, {
+      data: { username: user, password: pass },
+    });
+    expect(asstLogin.ok()).toBeTruthy();
+    const { token } = (await asstLogin.json()) as { token: string };
+    const asstAuth = { Authorization: `Bearer ${token}` };
+
+    const denyExport = await request.get(
+      `${API}/api/v1/exports/attendance?classId=${encodeURIComponent(classB)}&format=csv`,
+      { headers: asstAuth },
+    );
+    expect(denyExport.status()).toBe(403);
+    expect(((await denyExport.json()) as { error?: string }).error).toBe('export_grant_required');
+
+    const okExport = await request.get(
+      `${API}/api/v1/exports/attendance?classId=${encodeURIComponent(classA)}&format=csv`,
+      { headers: asstAuth },
+    );
+    expect(okExport.status()).toBe(200);
+
+    const award = await request.post(`${API}/api/v1/points/manual`, {
+      headers: asstAuth,
+      data: {
+        classId: classA,
+        studentId,
+        points: 1,
+        reasonSummary: 'grant-e2e',
+      },
+    });
+    expect(award.status()).toBe(201);
+
+    const denyAward = await request.post(`${API}/api/v1/points/manual`, {
+      headers: asstAuth,
+      data: {
+        classId: classB,
+        studentId,
+        points: 1,
+        reasonSummary: 'grant-e2e-deny',
+      },
+    });
+    expect(denyAward.status()).toBe(403);
+    expect(((await denyAward.json()) as { error?: string }).error).toBe('award_grant_required');
+
+    await request.post(`${API}/api/v1/auth/assistants/${assistantId}/disable`, {
+      headers: auth,
+      data: {},
+    });
+  });
 });

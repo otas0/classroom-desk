@@ -2,7 +2,17 @@
 
 ## Unreleased
 
-（下一 tag 前把条目收到正式版本节。）
+- 助教 grants e2e：跨班导出 403、有 grant 加分 201
+- 抢答 WS：`?token=` JWT + teacher/admin/assistant 角色校验
+- 座位：同班学生唯一索引；绑座冲突提示（一人一座）
+- OCR 草稿 `sessionStorage` 打通 Packs → 上课快发题
+- 家长 PDF：嵌入开源 Noto Sans SC 子集（失败回退 ASCII）
+- 恢复向导：六位二次确认码 + 审计 `backup.restore_commit`
+- 升级包：删除 / 校验 sha256 / 保留最新 N 份 Setup.exe
+- 离线队列：条数与体积上限，淘汰最旧
+- 调度 `fleet.drift_snapshot`（约 5 分钟）充实漂移趋势
+- 投影色盲预设：Okabe–Ito / 蓝橙 / 灰阶
+- purge：先 dry-run 预览再确认执行
 
 ## v0.1.7 — 2026-11-07
 

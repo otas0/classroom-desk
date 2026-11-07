@@ -285,6 +285,8 @@ CREATE TABLE IF NOT EXISTS seat_map (
   UNIQUE(class_id, row_index, col_index)
 );
 CREATE INDEX IF NOT EXISTS idx_seat_map_class ON seat_map(class_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_seat_map_class_student
+  ON seat_map(class_id, student_id) WHERE student_id IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS parent_report_tokens (
   id TEXT PRIMARY KEY,

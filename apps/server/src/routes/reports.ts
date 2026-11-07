@@ -4,7 +4,7 @@ import { openDb } from '../db/client.js';
 import { requireAuth, requireRoles, type AuthedRequest } from '../middleware/auth.js';
 import { currentMonth, localMonthRange } from '../utils/csv.js';
 import { newId, nowIso } from '../utils/id.js';
-import { buildSimpleTablePdf } from '../utils/simplePdf.js';
+import { buildParentReportPdf } from '../utils/cjkPdf.js';
 
 export const reportsRouter = Router();
 
@@ -53,8 +53,8 @@ reportsRouter.post(
   },
 );
 
-/** Public HTML/JSON parent monthly summary — no auth. */
-reportsRouter.get('/api/v1/reports/parent/:token', (req, res) => {
+/** Public HTML/JSON/PDF parent monthly summary — no auth. */
+reportsRouter.get('/api/v1/reports/parent/:token', async (req, res) => {
   const raw = String(req.params.token ?? '').trim();
   if (!raw) {
     res.status(400).json({ error: 'token_required' });
@@ -148,10 +148,10 @@ reportsRouter.get('/api/v1/reports/parent/:token', (req, res) => {
   }
 
   if (String(req.query.format ?? '') === 'pdf') {
-    const pdf = buildSimpleTablePdf({
-      title: `${row.className} ${row.month} monthly report`,
-      subtitle: `sessions=${sessions.n} expires=${row.expiresAt}`,
-      headers: ['No', 'Name', 'MonthPts', 'Total', 'Attend'],
+    const pdf = await buildParentReportPdf({
+      title: `${row.className} ${row.month} 月报`,
+      subtitle: `场次 ${sessions.n} · 过期 ${row.expiresAt}`,
+      headers: ['学号', '姓名', '本月', '累计', '出勤'],
       rows: points.map((p) => {
         const att = attendance.find(
           (a) => a.displayName === p.displayName && a.studentNo === p.studentNo,

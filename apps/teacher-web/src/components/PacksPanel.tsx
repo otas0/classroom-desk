@@ -27,8 +27,24 @@ export function PacksPanel({ classId }: { classId: string }) {
     `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`,
   );
   const [shareUrl, setShareUrl] = useState('');
-  const [ocrDraft, setOcrDraft] = useState('');
+  const [ocrDraft, setOcrDraft] = useState(() => {
+    try {
+      return sessionStorage.getItem('cd_ocr_draft') ?? '';
+    } catch {
+      return '';
+    }
+  });
   const [ocrBusy, setOcrBusy] = useState(false);
+
+  function persistDraft(next: string) {
+    setOcrDraft(next);
+    try {
+      if (next.trim()) sessionStorage.setItem('cd_ocr_draft', next);
+      else sessionStorage.removeItem('cd_ocr_draft');
+    } catch {
+      /* ignore */
+    }
+  }
 
   async function exportPack() {
     if (!classId) return;
@@ -96,8 +112,8 @@ export function PacksPanel({ classId }: { classId: string }) {
       const T = await loadTesseract();
       const result = await T.recognize(file, 'chi_sim+eng');
       const text = (result.data?.text ?? '').trim();
-      setOcrDraft((prev) => (prev ? `${prev}\n\n${text}` : text));
-      setMsg(`OCR 完成 · ${text.length} 字（本地 Tesseract，未上传服务器）`);
+      persistDraft(ocrDraft ? `${ocrDraft}\n\n${text}` : text);
+      setMsg(`OCR 完成 · ${text.length} 字（本地 Tesseract）。可到「上课 → 快速发题」自动填入。`);
     } catch (e) {
       setMsg(e instanceof Error ? e.message : 'OCR 失败');
     } finally {
@@ -199,14 +215,24 @@ export function PacksPanel({ classId }: { classId: string }) {
         >
           复制草稿
         </button>
-        <button type="button" className="secondary" disabled={!ocrDraft} onClick={() => setOcrDraft('')}>
+        <button
+          type="button"
+          disabled={!ocrDraft}
+          onClick={() => {
+            persistDraft(ocrDraft);
+            setMsg('已写入上课快发题草稿（打开「上课」页自动填入）');
+          }}
+        >
+          送到快发题
+        </button>
+        <button type="button" className="secondary" disabled={!ocrDraft} onClick={() => persistDraft('')}>
           清空
         </button>
       </div>
       <textarea
         rows={8}
         value={ocrDraft}
-        onChange={(e) => setOcrDraft(e.target.value)}
+        onChange={(e) => persistDraft(e.target.value)}
         onPaste={onPasteDraft}
         placeholder="粘贴 Word 文本，或 Ctrl+V 粘贴截图自动 OCR…"
         disabled={ocrBusy}
