@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { api } from '../api';
 
 export function LiveBoard({
@@ -39,6 +39,21 @@ export function LiveBoard({
   const [autoReadonlyMins, setAutoReadonlyMins] = useState(5);
   const [sessionStartAt, setSessionStartAt] = useState<string | null>(null);
   const [autoReadonlyHint, setAutoReadonlyHint] = useState('');
+  const [highContrast, setHighContrast] = useState(() => {
+    try {
+      return localStorage.getItem('cd_liveboard_hc') === '1';
+    } catch {
+      return false;
+    }
+  });
+  const [barHue, setBarHue] = useState(() => {
+    try {
+      const n = Number(localStorage.getItem('cd_liveboard_bar_hue') ?? '0');
+      return Number.isFinite(n) ? Math.max(0, Math.min(360, n)) : 0;
+    } catch {
+      return 0;
+    }
+  });
   const autoArmedRef = useRef(false);
 
   async function load() {
@@ -161,6 +176,30 @@ export function LiveBoard({
           return next;
         });
       }
+      if (e.key === 'h' || e.key === 'H') {
+        e.preventDefault();
+        setHighContrast((prev) => {
+          const next = !prev;
+          try {
+            localStorage.setItem('cd_liveboard_hc', next ? '1' : '0');
+          } catch {
+            /* ignore */
+          }
+          return next;
+        });
+      }
+      if (e.key === 'c' || e.key === 'C') {
+        e.preventDefault();
+        setBarHue((prev) => {
+          const next = (prev + 60) % 360;
+          try {
+            localStorage.setItem('cd_liveboard_bar_hue', String(next));
+          } catch {
+            /* ignore */
+          }
+          return next;
+        });
+      }
     }
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -191,8 +230,15 @@ export function LiveBoard({
 
   const hideControls = projection && readOnlyScreen;
 
+  const barStyle = {
+    ['--bar-hue' as string]: String(barHue),
+  } as CSSProperties;
+
   return (
-    <section className={projection ? 'live-board projection-mode' : 'live-board'}>
+    <section
+      className={`live-board${projection ? ' projection-mode' : ''}${highContrast ? ' hc-theme' : ''}`}
+      style={barStyle}
+    >
       <h2>大屏答题态势</h2>
       {projection ? (
         <div className="row">
@@ -208,13 +254,67 @@ export function LiveBoard({
               checked={readOnlyScreen}
               onChange={(e) => setReadOnly(e.target.checked)}
             />
-            只读大屏（隐藏收卷等操作，R）
+            只读大屏（R）
+          </label>
+          <label className="row">
+            <input
+              type="checkbox"
+              checked={highContrast}
+              onChange={(e) => {
+                setHighContrast(e.target.checked);
+                try {
+                  localStorage.setItem('cd_liveboard_hc', e.target.checked ? '1' : '0');
+                } catch {
+                  /* ignore */
+                }
+              }}
+            />
+            高对比大字（H）
+          </label>
+          <label className="row">
+            色盲色相
+            <input
+              type="range"
+              min={0}
+              max={360}
+              value={barHue}
+              onChange={(e) => {
+                const next = Number(e.target.value);
+                setBarHue(next);
+                try {
+                  localStorage.setItem('cd_liveboard_bar_hue', String(next));
+                } catch {
+                  /* ignore */
+                }
+              }}
+            />
+            <button
+              type="button"
+              className="secondary"
+              onClick={() => {
+                setBarHue((prev) => {
+                  const next = (prev + 60) % 360;
+                  try {
+                    localStorage.setItem('cd_liveboard_bar_hue', String(next));
+                  } catch {
+                    /* ignore */
+                  }
+                  return next;
+                });
+              }}
+            >
+              切换色相（C）
+            </button>
           </label>
         </div>
       ) : null}
+      <div className="bar-legend hint" aria-label="进度条图例">
+        <span className="legend-swatch correct" /> 已交占比
+        <span className="legend-swatch option" /> 正确率
+        {projection ? ' · Esc 退出 · F 全屏 · R 只读 · H 高对比 · C 色相' : ''}
+      </div>
       <p className="hint">
         全班 {rosterTotal} 人 · 约每 3 秒刷新 · 投影可读
-        {projection ? ' · Esc 退出 · F 全屏 · R 只读' : ''}
       </p>
       {projection && autoReadonlyHint ? <p className="hint">{autoReadonlyHint}</p> : null}
       {fsHint ? <p className="hint">{fsHint}</p> : null}

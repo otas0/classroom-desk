@@ -1,5 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite';
 import { openDb } from '../db/client.js';
+import { getSetting } from '../db/migrate.js';
 import { newId, nowIso } from '../utils/id.js';
 import { recyclePurgeCutoffIso, RECYCLE_RETENTION_DAYS } from '../utils/recycleRetention.js';
 import { clearAuditWriteFailure, recordAuditWriteFailure } from './auditFail.js';
@@ -27,7 +28,8 @@ export type AuditAction =
   | 'auth.enable_assistant'
   | 'auth.reset_assistant_password'
   | 'setup.scan_assign_cta'
-  | 'setup.classroom_ready';
+  | 'setup.classroom_ready'
+  | 'session.reset';
 
 export function writeAudit(
   opts: {
@@ -114,11 +116,20 @@ export function listAuditActions(): string[] {
   return rows.map((r) => r.action);
 }
 
-export function purgeExpiredSoftDeletes(db: DatabaseSync = openDb()): {
+export function purgeExpiredSoftDeletes(
+  db: DatabaseSync = openDb(),
+  retentionDays?: number,
+): {
   students: number;
   questions: number;
+  retentionDays: number;
 } {
-  const cutoff = recyclePurgeCutoffIso();
+  let days = retentionDays;
+  if (days == null || !Number.isFinite(days)) {
+    days = Number(getSetting(db, 'recycle_retention_days') ?? RECYCLE_RETENTION_DAYS);
+  }
+  days = Math.max(1, Math.min(365, Math.trunc(Number(days) || RECYCLE_RETENTION_DAYS)));
+  const cutoff = recyclePurgeCutoffIso(Date.now(), days);
   const s = db
     .prepare(
       `DELETE FROM users
@@ -134,5 +145,9 @@ export function purgeExpiredSoftDeletes(db: DatabaseSync = openDb()): {
          AND deleted_at < ?`,
     )
     .run(cutoff);
-  return { students: Number(s.changes ?? 0), questions: Number(q.changes ?? 0) };
+  return {
+    students: Number(s.changes ?? 0),
+    questions: Number(q.changes ?? 0),
+    retentionDays: days,
+  };
 }

@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { api } from '../api';
+import { useEffect, useRef, useState } from 'react';
+import { API_BASE, api } from '../api';
 import { POINT_REASON_CHIPS } from '../types';
 import { LiveBoard } from './LiveBoard';
 
@@ -37,6 +37,15 @@ export function SessionHome({
   const [awardPts, setAwardPts] = useState(1);
   const [awardReason, setAwardReason] = useState('表扬');
   const [awardMsg, setAwardMsg] = useState('');
+  const [sessionMsg, setSessionMsg] = useState('');
+  const [buzzRound, setBuzzRound] = useState<{ id: string; reason: string; status: string } | null>(null);
+  const [buzzHits, setBuzzHits] = useState<
+    Array<{ studentId: string; displayName: string; studentNo: string | null; hitAt: string }>
+  >([]);
+  const [buzzLive, setBuzzLive] = useState(false);
+  const buzzWsRef = useRef<WebSocket | null>(null);
+  const [groupA, setGroupA] = useState(0);
+  const [groupB, setGroupB] = useState(0);
 
   const [requests, setRequests] = useState<Array<Record<string, unknown>>>([]);
   const [requestErr, setRequestErr] = useState('');
@@ -168,15 +177,110 @@ export function SessionHome({
     }
   }
 
-  function drawStudent() {
-    if (students.length === 0) {
-      setAwardMsg('名单为空，无法抽答');
-      setPicked(null);
-      return;
+  async function drawStudent() {
+    if (!classId) return;
+    try {
+      const r = await api<{ student: RosterStudent; poolSize: number }>('/api/v1/session/random-call', {
+        method: 'POST',
+        body: JSON.stringify({ classId, preferOnline: true }),
+      });
+      setPicked(r.student);
+      setAwardMsg(`随机点名（池 ${r.poolSize}，优先在线）· ${r.student.displayName}`);
+      setAwardReason('随机点名');
+    } catch {
+      if (students.length === 0) {
+        setAwardMsg('名单为空，无法抽答');
+        setPicked(null);
+        return;
+      }
+      const row = students[Math.floor(Math.random() * students.length)]!;
+      setPicked(row);
+      setAwardMsg(`抽到：${row.displayName}`);
     }
-    const row = students[Math.floor(Math.random() * students.length)]!;
-    setPicked(row);
-    setAwardMsg(`抽到：${row.displayName}`);
+  }
+
+  async function resetSession() {
+    if (!classId) return;
+    if (!window.confirm('本场重置：收卷全部进行中题目并关闭抢答。确定？')) return;
+    try {
+      const r = await api<{ closedQuestions: number }>('/api/v1/session/reset', {
+        method: 'POST',
+        body: JSON.stringify({ classId }),
+      });
+      setBoardKey((k) => k + 1);
+      setSessionMsg(`已收卷 ${r.closedQuestions} 题`);
+    } catch (e) {
+      setSessionMsg(e instanceof Error ? e.message : '重置失败');
+    }
+  }
+
+  async function openBuzz() {
+    if (!classId) return;
+    try {
+      const r = await api<{ id: string; reason: string; status: string }>('/api/v1/session/buzz/open', {
+        method: 'POST',
+        body: JSON.stringify({ classId, reason: '抢答' }),
+      });
+      setBuzzRound(r);
+      setBuzzHits([]);
+      setSessionMsg('抢答已开启，学生端可点「抢答」');
+    } catch (e) {
+      setSessionMsg(e instanceof Error ? e.message : '开启抢答失败');
+    }
+  }
+
+  async function refreshBuzz() {
+    if (!classId) return;
+    const r = await api<{
+      round: { id: string; reason: string; status: string } | null;
+      hits: Array<{ studentId: string; displayName: string; studentNo: string | null; hitAt: string }>;
+    }>(`/api/v1/session/buzz/current?classId=${encodeURIComponent(classId)}`);
+    setBuzzRound(r.round);
+    setBuzzHits(r.hits ?? []);
+  }
+
+  useEffect(() => {
+    buzzWsRef.current?.close();
+    buzzWsRef.current = null;
+    setBuzzLive(false);
+    if (!classId) return;
+    void refreshBuzz().catch(() => undefined);
+    const base = API_BASE.replace(/^http/, 'ws');
+    const ws = new WebSocket(`${base}/api/v1/session/buzz/ws?classId=${encodeURIComponent(classId)}`);
+    buzzWsRef.current = ws;
+    ws.onopen = () => setBuzzLive(true);
+    ws.onclose = () => setBuzzLive(false);
+    ws.onerror = () => setBuzzLive(false);
+    ws.onmessage = (ev) => {
+      try {
+        const data = JSON.parse(String(ev.data)) as {
+          round?: { id: string; reason: string; status: string } | null;
+          hits?: Array<{ studentId: string; displayName: string; studentNo: string | null; hitAt: string }>;
+        };
+        if ('round' in data) setBuzzRound(data.round ?? null);
+        if (Array.isArray(data.hits)) setBuzzHits(data.hits);
+      } catch {
+        /* ignore */
+      }
+    };
+    return () => {
+      ws.close();
+      buzzWsRef.current = null;
+    };
+  }, [classId]);
+
+  async function awardBuzzWinner() {
+    if (!buzzRound?.id) return;
+    try {
+      await api('/api/v1/session/buzz/award-winner', {
+        method: 'POST',
+        body: JSON.stringify({ roundId: buzzRound.id, points: awardPts }),
+      });
+      setSessionMsg(`已给抢答第一名 +${awardPts}`);
+      await refreshBuzz();
+    } catch (e) {
+      setSessionMsg(e instanceof Error ? e.message : '加分失败');
+    }
   }
 
   async function awardPicked() {
@@ -216,8 +320,17 @@ export function SessionHome({
         <button type="button" onClick={onEnterProjection} disabled={!classId}>
           投影全屏
         </button>
+        <button type="button" className="secondary" disabled={!classId} onClick={() => void resetSession()}>
+          本场重置
+        </button>
+        <button type="button" className="secondary" disabled={!classId} onClick={() => void openBuzz()}>
+          开启抢答
+        </button>
+        <button type="button" className="secondary" disabled={!classId} onClick={() => void refreshBuzz()}>
+          刷新抢答{buzzLive ? ' · 实时' : ''}
+        </button>
         <p className="hint help-bubble">
-          投影模式快捷键：<kbd>Esc</kbd> 退出投影，<kbd>F</kbd> 切换浏览器全屏。完整说明见仓库{' '}
+          投影：<kbd>Esc</kbd> 退出，<kbd>F</kbd> 全屏，<kbd>H</kbd> 高对比。详见{' '}
           <code>docs/TEACHER_PROJECTION.md</code>。
         </p>
         {onGoPrep ? (
@@ -231,6 +344,48 @@ export function SessionHome({
           </button>
         ) : null}
       </div>
+      {sessionMsg ? <p className="hint">{sessionMsg}</p> : null}
+      {buzzRound ? (
+        <section>
+          <h2>抢答器 · {buzzRound.status === 'open' ? '进行中' : '已结束'}</h2>
+          <p className="hint">
+            理由：{buzzRound.reason}
+            {buzzLive ? ' · WebSocket 实时榜' : ' · 连接中断时可点刷新'}
+          </p>
+          <ol>
+            {buzzHits.map((h, i) => (
+              <li key={h.studentId}>
+                #{i + 1} {h.displayName}
+                {h.studentNo ? ` · ${h.studentNo}` : ''}
+              </li>
+            ))}
+          </ol>
+          <button type="button" disabled={!buzzHits.length} onClick={() => void awardBuzzWinner()}>
+            给第一名加分（{awardPts}）
+          </button>
+        </section>
+      ) : null}
+      <section>
+        <h2>分组竞赛积分（本页记分）</h2>
+        <div className="row">
+          <button type="button" className="chip" onClick={() => setGroupA((n) => n + 1)}>
+            A 组 +1（{groupA}）
+          </button>
+          <button type="button" className="chip" onClick={() => setGroupB((n) => n + 1)}>
+            B 组 +1（{groupB}）
+          </button>
+          <button
+            type="button"
+            className="secondary"
+            onClick={() => {
+              setGroupA(0);
+              setGroupB(0);
+            }}
+          >
+            清零
+          </button>
+        </div>
+      </section>
 
       <section id="session-quick-publish">
         <h2>快速发题</h2>
@@ -286,8 +441,8 @@ export function SessionHome({
         <h2>抽答加分</h2>
         <p className="hint">本班 {students.length} 人</p>
         <div className="row">
-          <button type="button" disabled={!classId} onClick={drawStudent}>
-            抽一人
+          <button type="button" disabled={!classId} onClick={() => void drawStudent()}>
+            随机点名
           </button>
           <input
             type="number"

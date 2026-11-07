@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { openDb } from '../db/client.js';
 import { requireAuth, requireRoles, type AuthedRequest } from '../middleware/auth.js';
+import { assistantMayAward } from '../services/assistantGrants.js';
 import { addPoints } from '../services/points.js';
 import {
   currentMonth,
@@ -124,13 +125,24 @@ pointsRouter.get('/api/v1/points/leaderboard', requireAuth, (req: AuthedRequest,
   });
 });
 
-pointsRouter.post('/api/v1/points/manual', requireAuth, requireRoles('teacher', 'admin'), (req: AuthedRequest, res) => {
+pointsRouter.post(
+  '/api/v1/points/manual',
+  requireAuth,
+  requireRoles('teacher', 'admin', 'assistant'),
+  (req: AuthedRequest, res) => {
   const studentId = String(req.body?.studentId ?? '');
   const classId = String(req.body?.classId ?? '');
   const points = Number(req.body?.points ?? 0);
   const reasonSummary = String(req.body?.reasonSummary ?? '').trim() || '教师手动加分';
   if (!studentId || !classId || !Number.isFinite(points) || points === 0) {
     res.status(400).json({ error: 'invalid_points' });
+    return;
+  }
+  if (!assistantMayAward(req.user, classId)) {
+    res.status(403).json({
+      error: 'award_grant_required',
+      message: '助教未获本班加分授权（请教师在设置中按班勾选「可加分」）',
+    });
     return;
   }
   const idempotencyKey = String(req.body?.idempotencyKey ?? `manual:${studentId}:${newId()}`);

@@ -2665,6 +2665,18 @@ export function SettingsPanel({
   const [weakExtraDraft, setWeakExtraDraft] = useState('');
   const [readonlyAfterMins, setReadonlyAfterMins] = useState(5);
   const [backupDirPath, setBackupDirPath] = useState('');
+  const [recycleDays, setRecycleDays] = useState(30);
+  const [restoreFile, setRestoreFile] = useState('');
+  const [restorePass, setRestorePass] = useState('');
+  const [restoreChecklist, setRestoreChecklist] = useState<string[]>([]);
+  const [restoreSha, setRestoreSha] = useState('');
+  const [upgradeMsg, setUpgradeMsg] = useState('');
+  const [upgradeFiles, setUpgradeFiles] = useState<string[]>([]);
+  const [grantEditId, setGrantEditId] = useState<string | null>(null);
+  const [grantRows, setGrantRows] = useState<
+    Array<{ classId: string; name: string; canExport: boolean; canAwardPoints: boolean }>
+  >([]);
+  const [grantMsg, setGrantMsg] = useState('');
 
   async function loadAudit() {
     const q = new URLSearchParams({ limit: '80' });
@@ -2687,6 +2699,7 @@ export function SettingsPanel({
       quizConfirmSubmit?: boolean;
       liveboardReadonlyAfterMinutes?: number;
       weakTeacherPasswordsExtra?: string[];
+      recycleRetentionDays?: number;
       clientExitAllowed?: boolean;
       clientExitUnlockUntil?: string | null;
       hasExitUnlockCode?: boolean;
@@ -2710,6 +2723,9 @@ export function SettingsPanel({
     setQuizConfirmOn(s.quizConfirmSubmit !== false);
     if (s.liveboardReadonlyAfterMinutes != null) {
       setReadonlyAfterMins(Number(s.liveboardReadonlyAfterMinutes) || 0);
+    }
+    if (s.recycleRetentionDays != null && Number.isFinite(Number(s.recycleRetentionDays))) {
+      setRecycleDays(Number(s.recycleRetentionDays));
     }
     if (Array.isArray(s.weakTeacherPasswordsExtra)) {
       setWeakExtraDraft(s.weakTeacherPasswordsExtra.join('\n'));
@@ -2750,7 +2766,62 @@ export function SettingsPanel({
     void api<{ weakPasswords?: string[] }>('/api/v1/auth/password-policy')
       .then((r) => setWeakPasswords(new Set(r.weakPasswords ?? [])))
       .catch(() => setWeakPasswords(new Set()));
+    void api<{ files?: Array<{ name: string } | string> }>('/api/v1/upgrades')
+      .then((r) =>
+        setUpgradeFiles(
+          (r.files ?? []).map((f) => (typeof f === 'string' ? f : f.name)).filter(Boolean),
+        ),
+      )
+      .catch(() => setUpgradeFiles([]));
   }, [exitKindFilter, exitEventsPage]);
+
+  async function openAssistantGrants(assistantId: string) {
+    setGrantEditId(assistantId);
+    setGrantMsg('');
+    const [gr, classes] = await Promise.all([
+      api<{ items: Array<{ classId: string; canExport: number | boolean; canAwardPoints: number | boolean }> }>(
+        `/api/v1/auth/assistants/${assistantId}/grants`,
+      ),
+      api<{ items: ClassItem[] }>('/api/v1/classes'),
+    ]);
+    const byId = new Map(
+      (gr.items ?? []).map((g) => [
+        g.classId,
+        {
+          canExport: Boolean(g.canExport),
+          canAwardPoints: Boolean(g.canAwardPoints),
+        },
+      ]),
+    );
+    setGrantRows(
+      (classes.items ?? []).map((c) => ({
+        classId: c.id,
+        name: c.name,
+        canExport: byId.get(c.id)?.canExport ?? false,
+        canAwardPoints: byId.get(c.id)?.canAwardPoints ?? false,
+      })),
+    );
+  }
+
+  async function saveAssistantGrants() {
+    if (!grantEditId) return;
+    const grants = grantRows
+      .filter((r) => r.canExport || r.canAwardPoints)
+      .map((r) => ({
+        classId: r.classId,
+        canExport: r.canExport,
+        canAwardPoints: r.canAwardPoints,
+      }));
+    await api(`/api/v1/auth/assistants/${grantEditId}/grants`, {
+      method: 'PUT',
+      body: JSON.stringify({ grants }),
+    });
+    setGrantMsg(
+      grants.length === 0
+        ? '已清空按班授权（助教恢复全局只读导出）'
+        : `已保存 ${grants.length} 个班级授权`,
+    );
+  }
 
   useEffect(() => {
     void loadAudit().catch(() => undefined);
@@ -3016,6 +3087,204 @@ export function SettingsPanel({
           >
             保存弱口令扩展
           </button>
+
+          <h3>数据保留 / 备份加密</h3>
+          <p className="hint">
+            回收站按 recycle_retention_days 自动 purge；也可手动立即清理。备份 AES 口令生成 .enc。
+          </p>
+          <label>
+            回收站保留天数
+            <input
+              type="number"
+              min={1}
+              max={365}
+              value={recycleDays}
+              onChange={(e) => setRecycleDays(Number(e.target.value) || 1)}
+              onBlur={() => {
+                const days = Math.max(1, Math.min(365, Math.trunc(recycleDays) || 30));
+                setRecycleDays(days);
+                void api('/api/v1/settings', {
+                  method: 'PATCH',
+                  body: JSON.stringify({ recycleRetentionDays: days }),
+                })
+                  .then(() => setSaveMsg(`回收站保留 ${days} 天（调度按此 purge）`))
+                  .catch((err) => setSaveMsg(err instanceof Error ? err.message : '保存失败'));
+              }}
+            />
+          </label>
+          <button
+            type="button"
+            className="secondary"
+            onClick={() =>
+              void api<{ message?: string; students?: number; questions?: number }>(
+                '/api/v1/settings/recycle-purge-now',
+                { method: 'POST', body: '{}' },
+              )
+                .then((r) => setSaveMsg(r.message ?? `已清理 学生${r.students} 题目${r.questions}`))
+                .catch((e) => setSaveMsg(e instanceof Error ? e.message : '清理失败'))
+            }
+          >
+            立即按保留天数 purge
+          </button>
+          <label>
+            备份加密口令（可留空）
+            <input
+              type="password"
+              value={restorePass}
+              onChange={(e) => setRestorePass(e.target.value)}
+              autoComplete="new-password"
+              placeholder="设置后立即备份将额外写 .enc"
+            />
+          </label>
+          <button
+            type="button"
+            className="secondary"
+            onClick={() => {
+              void api('/api/v1/settings', {
+                method: 'PATCH',
+                body: JSON.stringify({ backupEncryptPassphrase: restorePass }),
+              })
+                .then(() => setSaveMsg(restorePass ? '已保存备份加密口令' : '已清空备份加密口令'))
+                .catch((e) => setSaveMsg(e instanceof Error ? e.message : '保存失败'));
+            }}
+          >
+            保存备份口令
+          </button>
+
+          <h3>备份恢复向导</h3>
+          <p className="hint">先解密/校验哈希并查看停服清单；确认后再 commit 替换 live DB（会先写 .pre-restore-*）。</p>
+          <label>
+            备份文件名（backups 目录下 .enc / .db）
+            <input
+              value={restoreFile}
+              onChange={(e) => setRestoreFile(e.target.value)}
+              placeholder="classroom-….db.enc"
+            />
+          </label>
+          <div className="row">
+            <button
+              type="button"
+              className="secondary"
+              onClick={() => {
+                void api<{
+                  restoredPath?: string;
+                  message?: string;
+                  sha256?: string;
+                  checklist?: string[];
+                }>('/api/v1/settings/backup-restore-preview', {
+                  method: 'POST',
+                  body: JSON.stringify({
+                    fileName: restoreFile,
+                    passphrase: restorePass,
+                    commit: false,
+                  }),
+                })
+                  .then((r) => {
+                    setRestoreChecklist(r.checklist ?? []);
+                    setRestoreSha(r.sha256 ?? '');
+                    setBackupMsg(r.message ? `${r.message} → ${r.restoredPath}` : '已准备');
+                  })
+                  .catch((e) => setBackupMsg(e instanceof Error ? e.message : '恢复失败'));
+              }}
+            >
+              1. 校验哈希 + 停服清单
+            </button>
+            <button
+              type="button"
+              disabled={!restoreSha}
+              onClick={() => {
+                if (
+                  !window.confirm(
+                    `确认用校验文件替换 live DB？\nsha256=${restoreSha}\n请确保已停服或即将重启。`,
+                  )
+                ) {
+                  return;
+                }
+                void api<{ message?: string; sha256?: string; checklist?: string[] }>(
+                  '/api/v1/settings/backup-restore-preview',
+                  {
+                    method: 'POST',
+                    body: JSON.stringify({
+                      fileName: restoreFile,
+                      passphrase: restorePass,
+                      commit: true,
+                    }),
+                  },
+                )
+                  .then((r) => {
+                    setRestoreChecklist(r.checklist ?? []);
+                    setRestoreSha(r.sha256 ?? restoreSha);
+                    setBackupMsg(r.message ?? '已替换 live DB，请重启服务');
+                  })
+                  .catch((e) => setBackupMsg(e instanceof Error ? e.message : '替换失败'));
+              }}
+            >
+              2. 校验后替换 live DB
+            </button>
+          </div>
+          {restoreSha ? <p className="hint">sha256={restoreSha}</p> : null}
+          {restoreChecklist.length ? (
+            <ol className="hint">
+              {restoreChecklist.map((line) => (
+                <li key={line}>{line}</li>
+              ))}
+            </ol>
+          ) : null}
+
+          <h3>LAN 升级包（Setup.exe）</h3>
+          <p className="hint">上传到服务器 /upgrades；.exe 自动配对生成 .sha256。</p>
+          <label className="secondary" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            上传 Setup.exe
+            <input
+              type="file"
+              accept=".exe,.sha256,.json,application/octet-stream"
+              hidden
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                e.target.value = '';
+                if (!file) return;
+                const fd = new FormData();
+                fd.append('file', file);
+                const token = getToken();
+                void fetch(`${API_BASE}/api/v1/upgrades`, {
+                  method: 'POST',
+                  headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+                  body: fd,
+                })
+                  .then(async (res) => {
+                    const body = (await res.json().catch(() => ({}))) as {
+                      message?: string;
+                      name?: string;
+                      sha256Name?: string | null;
+                      error?: string;
+                    };
+                    if (!res.ok) throw new Error(body.message || body.error || `HTTP ${res.status}`);
+                    setUpgradeMsg(
+                      body.sha256Name
+                        ? `已上传 ${body.name}，并生成 ${body.sha256Name}`
+                        : `已上传 ${body.name ?? file.name}`,
+                    );
+                    return api<{ files?: Array<{ name: string } | string> }>('/api/v1/upgrades');
+                  })
+                  .then((r) =>
+                    setUpgradeFiles(
+                      (r.files ?? []).map((f) => (typeof f === 'string' ? f : f.name)).filter(Boolean),
+                    ),
+                  )
+                  .catch((err) => setUpgradeMsg(err instanceof Error ? err.message : '上传失败'));
+              }}
+            />
+          </label>
+          {upgradeMsg ? <p className="hint">{upgradeMsg}</p> : null}
+          {upgradeFiles.length ? (
+            <ul className="hint">
+              {upgradeFiles.map((f) => (
+                <li key={f}>{f}</li>
+              ))}
+            </ul>
+          ) : (
+            <p className="hint">尚无升级包</p>
+          )}
 
           <h3>投影只读自动开启</h3>
           <p className="hint">按本场出勤课次 startAt 起算，N 分钟后投影自动只读。0 = 关闭。</p>
@@ -3521,7 +3790,90 @@ stateDiagram-v2
                       >
                         重置口令
                       </button>
+                      <button
+                        type="button"
+                        className="secondary"
+                        onClick={() =>
+                          void openAssistantGrants(a.id).catch((e) =>
+                            setAsstMsg(e instanceof Error ? e.message : '加载授权失败'),
+                          )
+                        }
+                      >
+                        按班授权
+                      </button>
                     </div>
+                    {grantEditId === a.id ? (
+                      <div style={{ marginTop: 8 }}>
+                        <p className="hint">勾选「可导出 / 可加分」；全不勾 = 清空授权（全局只读导出）。</p>
+                        {grantRows.length === 0 ? (
+                          <p className="hint">尚无班级</p>
+                        ) : (
+                          <ul>
+                            {grantRows.map((row) => (
+                              <li key={row.classId} className="row">
+                                <span style={{ minWidth: '8rem' }}>{row.name}</span>
+                                <label className="row">
+                                  <input
+                                    type="checkbox"
+                                    checked={row.canExport}
+                                    onChange={(e) =>
+                                      setGrantRows((prev) =>
+                                        prev.map((x) =>
+                                          x.classId === row.classId
+                                            ? { ...x, canExport: e.target.checked }
+                                            : x,
+                                        ),
+                                      )
+                                    }
+                                  />
+                                  可导出
+                                </label>
+                                <label className="row">
+                                  <input
+                                    type="checkbox"
+                                    checked={row.canAwardPoints}
+                                    onChange={(e) =>
+                                      setGrantRows((prev) =>
+                                        prev.map((x) =>
+                                          x.classId === row.classId
+                                            ? { ...x, canAwardPoints: e.target.checked }
+                                            : x,
+                                        ),
+                                      )
+                                    }
+                                  />
+                                  可加分
+                                </label>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                        <div className="row">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              void saveAssistantGrants().catch((e) =>
+                                setGrantMsg(e instanceof Error ? e.message : '保存失败'),
+                              )
+                            }
+                          >
+                            保存授权
+                          </button>
+                          <button
+                            type="button"
+                            className="secondary"
+                            onClick={() => {
+                              setGrantEditId(null);
+                              setGrantRows([]);
+                              setGrantMsg('');
+                            }}
+                          >
+                            关闭
+                          </button>
+                        </div>
+                        {grantMsg ? <p className="hint">{grantMsg}</p> : null}
+                      </div>
+                    ) : null}
                   </li>
                 ))}
               </ul>

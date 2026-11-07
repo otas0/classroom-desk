@@ -1,6 +1,8 @@
+import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { getDataDir, getDbPath } from '../db/client.js';
+import { getDataDir, getDbPath, openDb } from '../db/client.js';
+import { getSetting } from '../db/migrate.js';
 
 function backupDirPath(): string {
   return process.env.CLASSROOM_DESK_BACKUP_DIR
@@ -50,7 +52,13 @@ function pruneOld(dir: string, keep: number): void {
 }
 
 /** Copy classroom.db (+ WAL companions) into backups/, keep newest N files. */
-export function runDbBackup(): { ok: boolean; path?: string; error?: string; kept: number } {
+export function runDbBackup(): {
+  ok: boolean;
+  path?: string;
+  encryptedPath?: string;
+  error?: string;
+  kept: number;
+} {
   const dir = backupDirPath();
   const keep = keepCount();
   fs.mkdirSync(dir, { recursive: true });
@@ -68,14 +76,47 @@ export function runDbBackup(): { ok: boolean; path?: string; error?: string; kep
       const side = `${src}${suffix}`;
       if (fs.existsSync(side)) fs.copyFileSync(side, `${dest}${suffix}`);
     }
+    const passphrase = (getSetting(openDb(), 'backup_encrypt_passphrase') ?? '').trim();
+    let encryptedPath: string | undefined;
+    if (passphrase) {
+      encryptedPath = encryptFileAesGcm(dest, `${dest}.enc`, passphrase);
+    }
     pruneOld(dir, keep);
     clearError(dir);
-    return { ok: true, path: dest, kept: keep };
+    return { ok: true, path: dest, encryptedPath, kept: keep };
   } catch (err) {
     const error = err instanceof Error ? err.message : String(err);
     writeError(dir, error);
     return { ok: false, error, kept: keep };
   }
+}
+
+/** AES-256-GCM file: magic CDENC1 | iv(12) | tag(16) | ciphertext */
+export function encryptFileAesGcm(src: string, dest: string, passphrase: string): string {
+  const key = createHash('sha256').update(passphrase, 'utf8').digest();
+  const iv = randomBytes(12);
+  const cipher = createCipheriv('aes-256-gcm', key, iv);
+  const plain = fs.readFileSync(src);
+  const enc = Buffer.concat([cipher.update(plain), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  fs.writeFileSync(dest, Buffer.concat([Buffer.from('CDENC1'), iv, tag, enc]));
+  return dest;
+}
+
+export function decryptFileAesGcm(src: string, dest: string, passphrase: string): string {
+  const buf = fs.readFileSync(src);
+  if (buf.subarray(0, 6).toString('utf8') !== 'CDENC1') {
+    throw new Error('not_an_encrypted_backup');
+  }
+  const iv = buf.subarray(6, 18);
+  const tag = buf.subarray(18, 34);
+  const data = buf.subarray(34);
+  const key = createHash('sha256').update(passphrase, 'utf8').digest();
+  const decipher = createDecipheriv('aes-256-gcm', key, iv);
+  decipher.setAuthTag(tag);
+  const plain = Buffer.concat([decipher.update(data), decipher.final()]);
+  fs.writeFileSync(dest, plain);
+  return dest;
 }
 
 export function shouldRunDailyBackup(lastAtIso: string | null): boolean {

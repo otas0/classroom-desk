@@ -6,6 +6,9 @@ export type TeacherPrepTab =
   | 'requests'
   | 'attendance'
   | 'presence'
+  | 'seats'
+  | 'ops'
+  | 'packs'
   | 'exports'
   | 'messages'
   | 'settings';
@@ -22,6 +25,9 @@ const PREP_TABS: TeacherPrepTab[] = [
   'requests',
   'attendance',
   'presence',
+  'seats',
+  'ops',
+  'packs',
   'exports',
   'messages',
   'settings',

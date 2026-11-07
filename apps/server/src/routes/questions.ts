@@ -742,25 +742,51 @@ questionsRouter.post('/api/v1/questions/:id/answer', requireAuth, requireRoles('
   });
 
   const answeredAt = nowIso();
+  const queuedOffline = Boolean(req.body?.queuedOffline || req.body?.offlineQueue);
+  const isMakeup = Boolean(req.body?.isMakeup || queuedOffline);
   let id = existing?.id ?? newId();
   withTransaction(db, () => {
     if (isWrongRetry && existing) {
       db.prepare(
         `UPDATE student_answers
-         SET answer_payload = ?, is_correct = ?, answered_at = ?
+         SET answer_payload = ?, is_correct = ?, answered_at = ?, is_makeup = ?, queued_offline = ?
          WHERE id = ?`,
-      ).run(JSON.stringify(answerPayload), isCorrect ? 1 : 0, answeredAt, existing.id);
+      ).run(
+        JSON.stringify(answerPayload),
+        isCorrect ? 1 : 0,
+        answeredAt,
+        isMakeup ? 1 : 0,
+        queuedOffline ? 1 : 0,
+        existing.id,
+      );
       id = existing.id;
     } else {
       db.prepare(
-        `INSERT INTO student_answers (id, question_id, student_id, answer_payload, is_correct, answered_at)
-         VALUES (?, ?, ?, ?, ?, ?)`,
-      ).run(id, question.id, req.user!.id, JSON.stringify(answerPayload), isCorrect ? 1 : 0, answeredAt);
+        `INSERT INTO student_answers
+          (id, question_id, student_id, answer_payload, is_correct, answered_at, is_makeup, queued_offline)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).run(
+        id,
+        question.id,
+        req.user!.id,
+        JSON.stringify(answerPayload),
+        isCorrect ? 1 : 0,
+        answeredAt,
+        isMakeup ? 1 : 0,
+        queuedOffline ? 1 : 0,
+      );
     }
     refreshErrorStats(db, question.id, answeredAt);
   });
 
-  res.status(isWrongRetry ? 200 : 201).json({ id, isCorrect, answeredAt, retry: isWrongRetry });
+  res.status(isWrongRetry ? 200 : 201).json({
+    id,
+    isCorrect,
+    answeredAt,
+    retry: isWrongRetry,
+    makeup: isMakeup,
+    queuedOffline,
+  });
 });
 
 questionsRouter.get(

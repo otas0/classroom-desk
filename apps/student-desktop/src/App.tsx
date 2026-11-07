@@ -1225,12 +1225,30 @@ function HomePanel({
     }
   }
 
+  async function buzzHit() {
+    setBusy(true);
+    try {
+      const r = await api<{ rank: number }>('/api/v1/session/buzz/hit', {
+        method: 'POST',
+        body: '{}',
+      });
+      showToast(`抢答成功 · 第 ${r.rank} 名`);
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : '抢答失败（可能未开启）');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <section className="panel">
       <h1>你好，{user.displayName}</h1>
       <p className="hint">
         {openQuizCount > 0 ? `还有 ${openQuizCount} 道题没答` : '选一个下一步'}
       </p>
+      <button type="button" className="primary" disabled={busy} onClick={() => void buzzHit()}>
+        抢答
+      </button>
       <button type="button" className="primary" onClick={onGoAttendance}>
         去签到
       </button>
@@ -1735,12 +1753,31 @@ function QuizTab({
   const [err, setErr] = useState('');
   const [busyId, setBusyId] = useState<string | null>(null);
   const [onlyWrongRetry, setOnlyWrongRetry] = useState(false);
+  const [queueCount, setQueueCount] = useState(0);
+  const [queueFail, setQueueFail] = useState('');
+
+  function readOfflineQueue(): Array<{ questionId: string; answerPayload: unknown; queuedAt: string }> {
+    try {
+      return JSON.parse(localStorage.getItem('cd_offline_answers') || '[]') as Array<{
+        questionId: string;
+        answerPayload: unknown;
+        queuedAt: string;
+      }>;
+    } catch {
+      return [];
+    }
+  }
+
+  function syncQueueCount() {
+    setQueueCount(readOfflineQueue().length);
+  }
 
   async function load() {
     setErr('');
     const r = await api<{ items: Array<Record<string, unknown>> }>('/api/v1/questions');
     setItems(r.items);
     onOpenCount(countOpenUnanswered(r.items));
+    syncQueueCount();
   }
 
   useEffect(() => {
@@ -1788,21 +1825,75 @@ function QuizTab({
     return list;
   }, [items, onlyWrongRetry]);
 
+  async function flushOfflineQueue(manual = false) {
+    const key = 'cd_offline_answers';
+    const queue = readOfflineQueue();
+    if (!queue.length) {
+      setQueueCount(0);
+      if (manual) setQueueFail('');
+      return;
+    }
+    const remain: typeof queue = [];
+    let lastErr = '';
+    for (const item of queue) {
+      try {
+        await api(`/api/v1/questions/${item.questionId}/answer`, {
+          method: 'POST',
+          body: JSON.stringify({
+            answerPayload: item.answerPayload,
+            queuedOffline: true,
+            isMakeup: true,
+          }),
+        });
+      } catch (e) {
+        remain.push(item);
+        lastErr = e instanceof Error ? e.message : '补交失败';
+      }
+    }
+    localStorage.setItem(key, JSON.stringify(remain));
+    setQueueCount(remain.length);
+    if (remain.length && (manual || lastErr)) {
+      setQueueFail(lastErr || `仍有 ${remain.length} 条待补交`);
+    } else {
+      setQueueFail('');
+    }
+    if (queue.length !== remain.length) {
+      onAnswered(`已补交 ${queue.length - remain.length} 题（标补交）`);
+      await load();
+    } else if (manual && remain.length) {
+      onAnswered(`补交失败，仍有 ${remain.length} 条`);
+    }
+  }
+
+  useEffect(() => {
+    syncQueueCount();
+    void flushOfflineQueue().catch(() => undefined);
+    const t = window.setInterval(() => void flushOfflineQueue().catch(() => undefined), 12_000);
+    return () => window.clearInterval(t);
+  }, []);
+
   async function answer(id: string, payload: unknown) {
     setBusyId(id);
     try {
-      const res = await api<{ isCorrect: boolean; retry?: boolean }>(`/api/v1/questions/${id}/answer`, {
-        method: 'POST',
-        body: JSON.stringify({ answerPayload: payload }),
-      });
+      const res = await api<{ isCorrect: boolean; retry?: boolean; makeup?: boolean }>(
+        `/api/v1/questions/${id}/answer`,
+        {
+          method: 'POST',
+          body: JSON.stringify({ answerPayload: payload }),
+        },
+      );
       onAnswered(
         res.retry
           ? res.isCorrect
             ? '重练正确'
             : '重练仍错误'
-          : res.isCorrect
-            ? '回答正确'
-            : '回答错误',
+          : res.makeup
+            ? res.isCorrect
+              ? '补交正确'
+              : '补交已记录'
+            : res.isCorrect
+              ? '回答正确'
+              : '回答错误',
       );
       setPicked((prev) => {
         if (prev[id] == null) return prev;
@@ -1812,7 +1903,32 @@ function QuizTab({
       });
       await load();
     } catch (e) {
-      onAnswered(e instanceof Error ? e.message : '提交失败');
+      const msg = e instanceof Error ? e.message : '提交失败';
+      const isNet =
+        e instanceof ApiOfflineError ||
+        /network|fetch|Failed to fetch|断线|offline|ECONNREFUSED/i.test(msg);
+      if (isNet) {
+        const key = 'cd_offline_answers';
+        let queue: Array<{ questionId: string; answerPayload: unknown; queuedAt: string }> = [];
+        try {
+          queue = JSON.parse(localStorage.getItem(key) || '[]') as typeof queue;
+        } catch {
+          queue = [];
+        }
+        queue = queue.filter((q) => q.questionId !== id);
+        queue.push({ questionId: id, answerPayload: payload, queuedAt: new Date().toISOString() });
+        localStorage.setItem(key, JSON.stringify(queue));
+        setQueueCount(queue.length);
+        onAnswered(`已离线缓存（待补交 ${queue.length}），恢复网络后自动补交`);
+        setPicked((prev) => {
+          if (prev[id] == null) return prev;
+          const next = { ...prev };
+          delete next[id];
+          return next;
+        });
+      } else {
+        onAnswered(msg);
+      }
     } finally {
       setBusyId(null);
     }
@@ -1824,6 +1940,20 @@ function QuizTab({
     <section className="panel">
       <h1>答题</h1>
       {err ? <p className="error">{err}</p> : null}
+      {queueCount > 0 ? (
+        <div className="offline-banner" role="status">
+          待补交 {queueCount} 条
+          {queueFail ? ` · ${queueFail}` : ''}
+          <button
+            type="button"
+            className="secondary"
+            style={{ marginLeft: 8 }}
+            onClick={() => void flushOfflineQueue(true).catch((e) => setQueueFail(String(e)))}
+          >
+            立即重试
+          </button>
+        </div>
+      ) : null}
       <div className="row">
         <button type="button" className="secondary" onClick={() => void load().catch((e) => setErr(String(e)))}>
           刷新题目

@@ -82,15 +82,15 @@ jobs:
         id: bulk_gate
         run: |
           set +e
-          npx playwright test e2e/bulk-ui.spec.ts e2e/bulk-ops.spec.ts e2e/q-recycle-purge.spec.ts e2e/ops-polish.spec.ts e2e/ops-v015.spec.ts
+          npx playwright test e2e/bulk-ui.spec.ts e2e/bulk-ops.spec.ts e2e/q-recycle-purge.spec.ts e2e/ops-polish.spec.ts e2e/ops-v015.spec.ts e2e/ops-v016.spec.ts
           code=$?
           {
             echo "### e2e suite: bulk gate"
             if [ "$code" -eq 0 ]; then
-              echo "- result: **passed** (bulk-ui + bulk-ops + q-recycle-purge + ops-polish + ops-v015)"
+              echo "- result: **passed** (bulk + ops-polish + ops-v015 + ops-v016)"
             else
               echo "- result: **failed** — suite=**bulk gate** (not full suite)"
-              echo "- specs: \`e2e/bulk-ui.spec.ts\` \`e2e/bulk-ops.spec.ts\` \`e2e/q-recycle-purge.spec.ts\` \`e2e/ops-polish.spec.ts\` \`e2e/ops-v015.spec.ts\`"
+              echo "- specs: \`e2e/bulk-ui.spec.ts\` \`e2e/bulk-ops.spec.ts\` \`e2e/q-recycle-purge.spec.ts\` \`e2e/ops-polish.spec.ts\` \`e2e/ops-v015.spec.ts\` \`e2e/ops-v016.spec.ts\`"
             fi
           } >> "$GITHUB_STEP_SUMMARY"
           exit $code

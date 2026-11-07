@@ -1,7 +1,7 @@
 {
   "name": "classroom-desk",
   "private": true,
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "School classroom homework, attendance, and points toolkit",
   "workspaces": [
     "apps/*",
@@ -20,7 +20,7 @@
     "test:server": "npm run test --workspace=@classroom-desk/server",
     "sync:permissions": "node scripts/sync-permissions-md.mjs",
     "test:e2e": "playwright test",
-    "test:e2e:bulk": "playwright test e2e/bulk-ui.spec.ts e2e/bulk-ops.spec.ts e2e/q-recycle-purge.spec.ts e2e/ops-polish.spec.ts e2e/ops-v015.spec.ts",
+    "test:e2e:bulk": "playwright test e2e/bulk-ui.spec.ts e2e/bulk-ops.spec.ts e2e/q-recycle-purge.spec.ts e2e/ops-polish.spec.ts e2e/ops-v015.spec.ts e2e/ops-v016.spec.ts",
     "dist:win": "npm run dist:win --workspace=@classroom-desk/student-desktop",
     "typecheck:server": "npm run typecheck --workspace=@classroom-desk/server",
     "backup:db": "bash scripts/backup-db.sh",

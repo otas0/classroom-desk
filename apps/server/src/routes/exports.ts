@@ -1,16 +1,34 @@
 import { Router } from 'express';
 import { openDb } from '../db/client.js';
 import { requireAuth, requireRoles, type AuthedRequest } from '../middleware/auth.js';
+import { assistantMayExport } from '../services/assistantGrants.js';
 import { chunkIds, parseIdList, sqlInPlaceholders } from '../utils/bulkIds.js';
 import { currentMonth, localMonthRange, monthRange } from '../utils/csv.js';
 import { parseFormat, sendTableExport } from '../utils/exportFormats.js';
 
 export const exportsRouter = Router();
 
+function requireAssistantExportGrant(req: AuthedRequest, res: import('express').Response, next: import('express').NextFunction) {
+  if (req.user?.role !== 'assistant') {
+    next();
+    return;
+  }
+  const classId = String(req.query.classId ?? (req.body as { classId?: string })?.classId ?? '').trim();
+  if (!classId || !assistantMayExport(req.user, classId)) {
+    res.status(403).json({
+      error: 'export_grant_required',
+      message: '助教未获本班导出授权（请教师在设置中按班勾选「可导出」）',
+    });
+    return;
+  }
+  next();
+}
+
 exportsRouter.get(
   '/api/v1/exports/attendance',
   requireAuth,
   requireRoles('teacher', 'admin', 'assistant'),
+  requireAssistantExportGrant,
   (req, res) => {
     const month = String(req.query.month ?? currentMonth());
     const format = parseFormat(req.query.format);
@@ -73,6 +91,7 @@ exportsRouter.get(
   '/api/v1/exports/attendance-absent',
   requireAuth,
   requireRoles('teacher', 'admin', 'assistant'),
+  requireAssistantExportGrant,
   (req, res) => {
     const format = parseFormat(req.query.format);
     const classId = String(req.query.classId ?? '').trim();
@@ -164,6 +183,7 @@ exportsRouter.get(
   '/api/v1/exports/attendance-summary',
   requireAuth,
   requireRoles('teacher', 'admin', 'assistant'),
+  requireAssistantExportGrant,
   (req, res) => {
     const month = String(req.query.month ?? currentMonth());
     const format = parseFormat(req.query.format);
@@ -243,6 +263,7 @@ exportsRouter.get(
   '/api/v1/exports/points',
   requireAuth,
   requireRoles('teacher', 'admin', 'assistant'),
+  requireAssistantExportGrant,
   (req, res) => {
     const month = String(req.query.month ?? currentMonth());
     const format = parseFormat(req.query.format);
@@ -299,6 +320,7 @@ exportsRouter.get(
   '/api/v1/exports/questions',
   requireAuth,
   requireRoles('teacher', 'admin', 'assistant'),
+  requireAssistantExportGrant,
   (req, res) => {
     const format = parseFormat(req.query.format);
     const classId = String(req.query.classId ?? '');
@@ -331,6 +353,7 @@ exportsRouter.post(
   '/api/v1/exports/students-selected',
   requireAuth,
   requireRoles('teacher', 'admin', 'assistant'),
+  requireAssistantExportGrant,
   (req: AuthedRequest, res) => {
     const classId = String(req.body?.classId ?? '').trim();
     const ids = parseIdList(req.body?.ids, 500);
@@ -373,6 +396,7 @@ exportsRouter.post(
   '/api/v1/exports/questions-selected',
   requireAuth,
   requireRoles('teacher', 'admin', 'assistant'),
+  requireAssistantExportGrant,
   (req: AuthedRequest, res) => {
     const classId = String(req.body?.classId ?? '').trim();
     const ids = parseIdList(req.body?.ids, 200);

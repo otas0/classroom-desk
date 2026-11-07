@@ -20,6 +20,14 @@ const DEFAULT_SETTINGS: Record<string, string> = {
   last_auto_backup_at: '',
   server_bind: '0.0.0.0',
   schema_version: '1',
+  /** Recycle retention days for soft-deleted students/questions. */
+  recycle_retention_days: '30',
+  /** Optional AES passphrase for encrypted backup copies (empty = plain copy only). */
+  backup_encrypt_passphrase: '',
+  /** Public base for LAN upgrade cache (empty = derive from request host). */
+  lan_upgrade_base: '',
+  /** Projection high-contrast default for new projection sessions (0/1). */
+  projection_high_contrast: '0',
 };
 
 export function migrate(database?: DatabaseSync): DatabaseSync {
@@ -40,6 +48,52 @@ export function migrate(database?: DatabaseSync): DatabaseSync {
   ensureColumn(conn, 'messages', 'read_at', 'TEXT');
   ensureColumn(conn, 'presence_heartbeats', 'client_version', `TEXT NOT NULL DEFAULT ''`);
   ensureColumn(conn, 'presence_heartbeats', 'client_platform', `TEXT NOT NULL DEFAULT ''`);
+  ensureColumn(conn, 'student_answers', 'is_makeup', 'INTEGER NOT NULL DEFAULT 0');
+  ensureColumn(conn, 'student_answers', 'queued_offline', 'INTEGER NOT NULL DEFAULT 0');
+  conn.exec(`CREATE TABLE IF NOT EXISTS seat_map (
+    id TEXT PRIMARY KEY,
+    class_id TEXT NOT NULL REFERENCES classes(id) ON DELETE CASCADE,
+    row_index INTEGER NOT NULL,
+    col_index INTEGER NOT NULL,
+    label TEXT NOT NULL DEFAULT '',
+    student_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+    UNIQUE(class_id, row_index, col_index)
+  )`);
+  conn.exec(`CREATE INDEX IF NOT EXISTS idx_seat_map_class ON seat_map(class_id)`);
+  conn.exec(`CREATE TABLE IF NOT EXISTS parent_report_tokens (
+    id TEXT PRIMARY KEY,
+    class_id TEXT NOT NULL REFERENCES classes(id) ON DELETE CASCADE,
+    month TEXT NOT NULL,
+    token TEXT NOT NULL UNIQUE,
+    created_by TEXT,
+    expires_at TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  )`);
+  conn.exec(`CREATE INDEX IF NOT EXISTS idx_parent_report_token ON parent_report_tokens(token)`);
+  conn.exec(`CREATE TABLE IF NOT EXISTS assistant_class_grants (
+    assistant_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    class_id TEXT NOT NULL REFERENCES classes(id) ON DELETE CASCADE,
+    can_export INTEGER NOT NULL DEFAULT 1,
+    can_award_points INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (assistant_id, class_id)
+  )`);
+  conn.exec(`CREATE TABLE IF NOT EXISTS buzz_rounds (
+    id TEXT PRIMARY KEY,
+    class_id TEXT NOT NULL REFERENCES classes(id) ON DELETE CASCADE,
+    status TEXT NOT NULL DEFAULT 'open',
+    opened_at TEXT NOT NULL,
+    closed_at TEXT,
+    winner_student_id TEXT,
+    reason TEXT NOT NULL DEFAULT '抢答'
+  )`);
+  conn.exec(`CREATE TABLE IF NOT EXISTS buzz_hits (
+    id TEXT PRIMARY KEY,
+    round_id TEXT NOT NULL REFERENCES buzz_rounds(id) ON DELETE CASCADE,
+    student_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    hit_at TEXT NOT NULL,
+    UNIQUE(round_id, student_id)
+  )`);
+  conn.exec(`CREATE INDEX IF NOT EXISTS idx_teacher_audit_action ON teacher_audit_log(action, created_at DESC)`);
   conn.exec(`CREATE INDEX IF NOT EXISTS idx_users_student_no ON users(class_id, student_no)`);
   conn.exec(`CREATE INDEX IF NOT EXISTS idx_users_deleted ON users(class_id, deleted_at)`);
   conn.exec(`CREATE INDEX IF NOT EXISTS idx_messages_to_student ON messages(to_student_id, created_at)`);

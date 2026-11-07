@@ -1,0 +1,218 @@
+import { useState, type ClipboardEvent } from 'react';
+import { API_BASE, api, getToken } from '../api';
+
+async function loadTesseract(): Promise<{
+  recognize: (img: File | Blob | string, langs: string) => Promise<{ data: { text: string } }>;
+}> {
+  const w = window as unknown as { Tesseract?: { recognize: Function } };
+  if (!w.Tesseract) {
+    await new Promise<void>((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = 'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js';
+      s.async = true;
+      s.onload = () => resolve();
+      s.onerror = () => reject(new Error('Tesseract CDN 加载失败'));
+      document.head.appendChild(s);
+    });
+  }
+  if (!w.Tesseract) throw new Error('Tesseract 不可用');
+  return w.Tesseract as {
+    recognize: (img: File | Blob | string, langs: string) => Promise<{ data: { text: string } }>;
+  };
+}
+
+export function PacksPanel({ classId }: { classId: string }) {
+  const [msg, setMsg] = useState('');
+  const [month, setMonth] = useState(
+    `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`,
+  );
+  const [shareUrl, setShareUrl] = useState('');
+  const [ocrDraft, setOcrDraft] = useState('');
+  const [ocrBusy, setOcrBusy] = useState(false);
+
+  async function exportPack() {
+    if (!classId) return;
+    const token = getToken();
+    const res = await fetch(
+      `${API_BASE}/api/v1/packs/export?classId=${encodeURIComponent(classId)}`,
+      { headers: token ? { Authorization: `Bearer ${token}` } : undefined },
+    );
+    if (!res.ok) throw new Error(`导出失败 HTTP ${res.status}`);
+    const blob = await res.blob();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `question-pack-${classId.slice(0, 8)}.json`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+    setMsg(`已下载 ${a.download}`);
+  }
+
+  async function importFile(file: File | null) {
+    if (!file || !classId) return;
+    const text = await file.text();
+    const pack = JSON.parse(text) as { items?: unknown[] };
+    const r = await api<{ created: number }>('/api/v1/packs/import', {
+      method: 'POST',
+      body: JSON.stringify({ classId, pack, publish: true }),
+    });
+    setMsg(`已导入 ${r.created} 题`);
+  }
+
+  async function fromErrors() {
+    if (!classId) return;
+    const r = await api<{ pack: { items: unknown[] } }>('/api/v1/packs/from-errors', {
+      method: 'POST',
+      body: JSON.stringify({ classId, limit: 10 }),
+    });
+    const imp = await api<{ created: number }>('/api/v1/packs/import', {
+      method: 'POST',
+      body: JSON.stringify({ classId, pack: r.pack, publish: true }),
+    });
+    setMsg(`错题再练包已下发 ${imp.created} 题`);
+  }
+
+  async function parentShare() {
+    if (!classId) return;
+    const r = await api<{ url: string; expiresAt: string }>('/api/v1/reports/parent-month', {
+      method: 'POST',
+      body: JSON.stringify({ classId, month }),
+    });
+    setShareUrl(r.url);
+    setMsg(`家长月报链接已生成，过期 ${new Date(r.expiresAt).toLocaleString()}`);
+  }
+
+  function pdfUrlFromShare(url: string): string {
+    if (!url) return '';
+    const u = new URL(url, window.location.origin);
+    u.searchParams.set('format', 'pdf');
+    return u.toString();
+  }
+
+  async function runOcrImage(file: File | null) {
+    if (!file) return;
+    setOcrBusy(true);
+    setMsg('OCR 识别中…');
+    try {
+      const T = await loadTesseract();
+      const result = await T.recognize(file, 'chi_sim+eng');
+      const text = (result.data?.text ?? '').trim();
+      setOcrDraft((prev) => (prev ? `${prev}\n\n${text}` : text));
+      setMsg(`OCR 完成 · ${text.length} 字（本地 Tesseract，未上传服务器）`);
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : 'OCR 失败');
+    } finally {
+      setOcrBusy(false);
+    }
+  }
+
+  function onPasteDraft(e: ClipboardEvent<HTMLTextAreaElement>) {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    for (const item of items) {
+      if (item.type.startsWith('image/')) {
+        e.preventDefault();
+        const blob = item.getAsFile();
+        void runOcrImage(blob);
+        return;
+      }
+    }
+    // Word / plain text: let default paste happen; tip user
+  }
+
+  return (
+    <section>
+      <h2>题库章节包 / 家长月报</h2>
+      <p className="hint">导出 JSON 跨班复用；错题再练一键下发；家长只读月报分享码 7 天有效。</p>
+      <div className="row">
+        <button type="button" disabled={!classId} onClick={() => void exportPack().catch((e) => setMsg(String(e)))}>
+          导出题库包 JSON
+        </button>
+        <label className="secondary" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          导入 JSON
+          <input
+            type="file"
+            accept="application/json,.json"
+            hidden
+            onChange={(e) => {
+              void importFile(e.target.files?.[0] ?? null).catch((err) => setMsg(String(err)));
+              e.target.value = '';
+            }}
+          />
+        </label>
+        <button type="button" disabled={!classId} onClick={() => void fromErrors().catch((e) => setMsg(String(e)))}>
+          错题再练包下发
+        </button>
+      </div>
+      <h3>家长 / 教务只读月报</h3>
+      <div className="row">
+        <label>
+          月份
+          <input value={month} onChange={(e) => setMonth(e.target.value)} placeholder="YYYY-MM" />
+        </label>
+        <button type="button" disabled={!classId} onClick={() => void parentShare().catch((e) => setMsg(String(e)))}>
+          生成分享链接
+        </button>
+        {shareUrl ? (
+          <a className="button secondary" href={pdfUrlFromShare(shareUrl)} download={`parent-report-${month}.pdf`}>
+            下载 PDF
+          </a>
+        ) : null}
+      </div>
+      {shareUrl ? (
+        <p className="hint">
+          <a href={shareUrl} target="_blank" rel="noreferrer">
+            {shareUrl}
+          </a>{' '}
+          <button type="button" className="linkish" onClick={() => void navigator.clipboard.writeText(shareUrl)}>
+            复制
+          </button>
+          {' · '}
+          <a href={shareUrl} target="_blank" rel="noreferrer">
+            HTML 可打印
+          </a>
+        </p>
+      ) : null}
+
+      <h3>OCR 出题草稿（本地 Tesseract）</h3>
+      <p className="hint">粘贴 Word 文本或截图；选图走浏览器端识别，不上传服务器。草稿可复制到「快速发题」。</p>
+      <div className="row">
+        <label className="secondary" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          选图 OCR
+          <input
+            type="file"
+            accept="image/*"
+            hidden
+            disabled={ocrBusy}
+            onChange={(e) => {
+              void runOcrImage(e.target.files?.[0] ?? null);
+              e.target.value = '';
+            }}
+          />
+        </label>
+        <button
+          type="button"
+          className="secondary"
+          disabled={!ocrDraft}
+          onClick={() =>
+            void navigator.clipboard.writeText(ocrDraft).then(() => setMsg('草稿已复制'))
+          }
+        >
+          复制草稿
+        </button>
+        <button type="button" className="secondary" disabled={!ocrDraft} onClick={() => setOcrDraft('')}>
+          清空
+        </button>
+      </div>
+      <textarea
+        rows={8}
+        value={ocrDraft}
+        onChange={(e) => setOcrDraft(e.target.value)}
+        onPaste={onPasteDraft}
+        placeholder="粘贴 Word 文本，或 Ctrl+V 粘贴截图自动 OCR…"
+        disabled={ocrBusy}
+      />
+
+      {msg ? <p className="hint">{msg}</p> : null}
+    </section>
+  );
+}

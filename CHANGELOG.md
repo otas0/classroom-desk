@@ -1,5 +1,28 @@
 # Classroom Desk 更新日志
 
+## v0.1.6 — 2026-11-07
+
+助教按班授权、座位蛇形/拖拽、LAN 升级上传、抢答实时榜、家长 PDF、OCR 草稿、运维图表与恢复向导。
+
+- 助教设置：按班勾选「可导出 / 可加分」；`exports` / `points` 路由强制校验 grants
+- 座位图：拖拽换座；一键「按学号蛇形落座」
+- LAN 升级：设置页上传 Setup.exe，自动配对生成 `.sha256`
+- 学生端离线队列：显示待补交条数 + 失败重试
+- 抢答 WebSocket 实时榜（替代仅靠教师手动刷新）
+- 家长月报：分享链接一键下载 PDF（HTML 仍可打印）
+- OCR：粘贴 Word / 选图 → 浏览器本地 Tesseract 出题草稿
+- 健康仪表盘：就绪时长直方图、漂移趋势图
+- 备份恢复向导：停服清单 + sha256 校验后再替换 live DB
+- 投影色盲条：图例说明 + 色相可切换（C / 滑条）
+- 数据保留：`recycle_retention_days` 调度 purge 接设置 UI（可立即 purge）
+- e2e `ops-v016`：presence SSE + readiness + seats/session
+
+### 安装包
+
+- `ClassroomDesk-Setup-0.1.6.exe` + `.sha256` + `config.example.json`（由 tag `v0.1.6` Release workflow 产出）
+
+---
+
 ## v0.1.5 — 2026-11-07
 
 运维与上课台打磨：版本注入、机房就绪埋点、presence SSE、投影按课次计时、缺勤分列导出、可配置弱口令。
@@ -31,7 +54,8 @@
 - 出勤报表选课次后表格按场重算；发题未勾正确项禁用发布
 - 备份设置展示目录与保留份数；投影 `R` 只读大屏
 - `/health` 与学生端版本漂移教师横幅；改密页强度与弱口令即时提示
-- `docs/SMARTSCREEN.md` 配示意图；e2e `ops-polish`
+- `docs/SMARTSCREEN.md`：SmartScreen + 机房组策略放行说明
+- e2e `ops-polish`
 
 ---
 

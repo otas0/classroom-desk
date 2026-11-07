@@ -12,7 +12,7 @@ import { config } from '../config.js';
 
 export const healthRouter = Router();
 
-function packageVersion(): string {
+export function packageVersion(): string {
   try {
     const rootPkg = path.resolve(
       path.dirname(fileURLToPath(import.meta.url)),

@@ -3,9 +3,12 @@ import { APP_NAME, GITHUB_RELEASES_BASE } from '@classroom-desk/shared';
 import { API_BASE, api, getToken, setToken } from './api';
 import { ClassroomConnect } from './components/ClassroomConnect';
 import { LiveBoard } from './components/LiveBoard';
+import { OpsDashboard } from './components/OpsDashboard';
 import { PresenceClients } from './components/PresenceClients';
+import { SeatMapPanel } from './components/SeatMapPanel';
 import { SessionHome } from './components/SessionHome';
 import { SetupChecklist, type SetupDest } from './components/SetupChecklist';
+import { PacksPanel } from './components/PacksPanel';
 import {
   AttendancePanel,
   ExportsPanel,
@@ -38,6 +41,9 @@ const PREP_ITEMS: Array<[PrepTab, string]> = [
   ['requests', '加分'],
   ['attendance', '出勤报表'],
   ['presence', '在线机位'],
+  ['seats', '座位图'],
+  ['ops', '健康仪表盘'],
+  ['packs', '题库包'],
   ['exports', '导出'],
   ['messages', '留言'],
   ['settings', '设置'],
@@ -570,6 +576,9 @@ export function App() {
                 {prepTab === 'requests' && <RequestsPanel classId={classId} />}
                 {prepTab === 'attendance' && <AttendancePanel classId={classId} />}
                 {prepTab === 'presence' && <PresenceClients classId={classId} />}
+                {prepTab === 'seats' && <SeatMapPanel classId={classId} />}
+                {prepTab === 'ops' && <OpsDashboard />}
+                {prepTab === 'packs' && <PacksPanel classId={classId} />}
                 {prepTab === 'exports' && <ExportsPanel classId={classId} />}
                 {prepTab === 'messages' && messagesEnabled && (
                   <MessagesPanel classId={classId} onEnabledChange={setMessagesEnabled} />

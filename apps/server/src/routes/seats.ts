@@ -1,0 +1,227 @@
+import { Router } from 'express';
+import { openDb } from '../db/client.js';
+import { requireAuth, requireRoles, type AuthedRequest } from '../middleware/auth.js';
+import { listPresenceClients } from '../services/presenceHub.js';
+import { newId } from '../utils/id.js';
+
+export const seatsRouter = Router();
+
+const ONLINE_MS = 90_000;
+
+seatsRouter.get(
+  '/api/v1/classes/:id/seats',
+  requireAuth,
+  requireRoles('teacher', 'admin', 'assistant'),
+  (req: AuthedRequest, res) => {
+    const classId = String(req.params.id);
+    const db = openDb();
+    const seats = db
+      .prepare(
+        `SELECT s.id, s.row_index AS rowIndex, s.col_index AS colIndex, s.label,
+                s.student_id AS studentId,
+                u.display_name AS displayName, u.student_no AS studentNo
+         FROM seat_map s
+         LEFT JOIN users u ON u.id = s.student_id
+         WHERE s.class_id = ?
+         ORDER BY s.row_index, s.col_index`,
+      )
+      .all(classId) as Array<{
+      id: string;
+      rowIndex: number;
+      colIndex: number;
+      label: string;
+      studentId: string | null;
+      displayName: string | null;
+      studentNo: string | null;
+    }>;
+    const online = new Set(listPresenceClients(classId, ONLINE_MS).map((c) => c.studentId));
+    const items = seats.map((s) => ({
+      ...s,
+      online: Boolean(s.studentId && online.has(s.studentId)),
+    }));
+    const maxRow = items.reduce((m, s) => Math.max(m, s.rowIndex), -1);
+    const maxCol = items.reduce((m, s) => Math.max(m, s.colIndex), -1);
+    res.json({
+      classId,
+      rows: maxRow + 1,
+      cols: maxCol + 1,
+      onlineCount: online.size,
+      offlineBound: items.filter((s) => s.studentId && !s.online).length,
+      items,
+    });
+  },
+);
+
+/** Replace / expand grid. Body: { rows, cols } or { seats: [{rowIndex,colIndex,label?,studentId?}] } */
+seatsRouter.put(
+  '/api/v1/classes/:id/seats',
+  requireAuth,
+  requireRoles('teacher', 'admin'),
+  (req: AuthedRequest, res) => {
+    const classId = String(req.params.id);
+    const db = openDb();
+    if (!db.prepare(`SELECT id FROM classes WHERE id = ?`).get(classId)) {
+      res.status(404).json({ error: 'class_not_found' });
+      return;
+    }
+
+    if (Array.isArray(req.body?.seats)) {
+      const seats = req.body.seats as Array<{
+        rowIndex: number;
+        colIndex: number;
+        label?: string;
+        studentId?: string | null;
+      }>;
+      db.prepare(`DELETE FROM seat_map WHERE class_id = ?`).run(classId);
+      const ins = db.prepare(
+        `INSERT INTO seat_map (id, class_id, row_index, col_index, label, student_id)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+      );
+      for (const s of seats) {
+        const r = Math.trunc(Number(s.rowIndex));
+        const c = Math.trunc(Number(s.colIndex));
+        if (!Number.isFinite(r) || !Number.isFinite(c) || r < 0 || c < 0 || r > 40 || c > 40) continue;
+        ins.run(
+          newId(),
+          classId,
+          r,
+          c,
+          String(s.label ?? `${r + 1}-${c + 1}`).slice(0, 32),
+          s.studentId ? String(s.studentId) : null,
+        );
+      }
+    } else {
+      const rows = Math.min(40, Math.max(1, Math.trunc(Number(req.body?.rows ?? 5))));
+      const cols = Math.min(40, Math.max(1, Math.trunc(Number(req.body?.cols ?? 6))));
+      const existing = db
+        .prepare(`SELECT row_index AS r, col_index AS c, student_id AS studentId, label FROM seat_map WHERE class_id = ?`)
+        .all(classId) as Array<{ r: number; c: number; studentId: string | null; label: string }>;
+      const keep = new Map(existing.map((e) => [`${e.r},${e.c}`, e]));
+      db.prepare(`DELETE FROM seat_map WHERE class_id = ?`).run(classId);
+      const ins = db.prepare(
+        `INSERT INTO seat_map (id, class_id, row_index, col_index, label, student_id)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+      );
+      for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+          const prev = keep.get(`${r},${c}`);
+          ins.run(newId(), classId, r, c, prev?.label || `${r + 1}-${c + 1}`, prev?.studentId ?? null);
+        }
+      }
+    }
+    res.json({ ok: true });
+  },
+);
+
+/** Swap two seats' student bindings. */
+seatsRouter.post(
+  '/api/v1/classes/:id/seats/swap',
+  requireAuth,
+  requireRoles('teacher', 'admin'),
+  (req: AuthedRequest, res) => {
+    const classId = String(req.params.id);
+    const a = String(req.body?.seatIdA ?? '').trim();
+    const b = String(req.body?.seatIdB ?? '').trim();
+    if (!a || !b || a === b) {
+      res.status(400).json({ error: 'two_seat_ids_required' });
+      return;
+    }
+    const db = openDb();
+    const sa = db
+      .prepare(`SELECT id, student_id AS studentId FROM seat_map WHERE id = ? AND class_id = ?`)
+      .get(a, classId) as { id: string; studentId: string | null } | undefined;
+    const sb = db
+      .prepare(`SELECT id, student_id AS studentId FROM seat_map WHERE id = ? AND class_id = ?`)
+      .get(b, classId) as { id: string; studentId: string | null } | undefined;
+    if (!sa || !sb) {
+      res.status(404).json({ error: 'seat_not_found' });
+      return;
+    }
+    db.prepare(`UPDATE seat_map SET student_id = ? WHERE id = ?`).run(sb.studentId, sa.id);
+    db.prepare(`UPDATE seat_map SET student_id = ? WHERE id = ?`).run(sa.studentId, sb.id);
+    res.json({ ok: true });
+  },
+);
+
+/** Snake-fill seats by student_no ascending (row-major, alternate direction). */
+seatsRouter.post(
+  '/api/v1/classes/:id/seats/snake-fill',
+  requireAuth,
+  requireRoles('teacher', 'admin'),
+  (req: AuthedRequest, res) => {
+    const classId = String(req.params.id);
+    const db = openDb();
+    const seats = db
+      .prepare(
+        `SELECT id, row_index AS rowIndex, col_index AS colIndex FROM seat_map
+         WHERE class_id = ? ORDER BY row_index, col_index`,
+      )
+      .all(classId) as Array<{ id: string; rowIndex: number; colIndex: number }>;
+    if (!seats.length) {
+      res.status(400).json({ error: 'no_seats', message: '请先生成座位网格' });
+      return;
+    }
+    const students = db
+      .prepare(
+        `SELECT id FROM users WHERE role = 'student' AND class_id = ?
+           AND (deleted_at IS NULL OR deleted_at = '')
+         ORDER BY student_no COLLATE NOCASE, display_name COLLATE NOCASE`,
+      )
+      .all(classId) as Array<{ id: string }>;
+    const maxRow = Math.max(...seats.map((s) => s.rowIndex));
+    const ordered: typeof seats = [];
+    for (let r = 0; r <= maxRow; r++) {
+      const rowSeats = seats.filter((s) => s.rowIndex === r).sort((a, b) => a.colIndex - b.colIndex);
+      if (r % 2 === 1) rowSeats.reverse();
+      ordered.push(...rowSeats);
+    }
+    db.prepare(`UPDATE seat_map SET student_id = NULL WHERE class_id = ?`).run(classId);
+    const upd = db.prepare(`UPDATE seat_map SET student_id = ? WHERE id = ?`);
+    let n = 0;
+    for (let i = 0; i < ordered.length && i < students.length; i++) {
+      upd.run(students[i].id, ordered[i].id);
+      n++;
+    }
+    res.json({ ok: true, seated: n, seats: ordered.length, roster: students.length });
+  },
+);
+
+seatsRouter.patch(
+  '/api/v1/classes/:id/seats/:seatId',
+  requireAuth,
+  requireRoles('teacher', 'admin'),
+  (req: AuthedRequest, res) => {
+    const classId = String(req.params.id);
+    const seatId = String(req.params.seatId);
+    const db = openDb();
+    const seat = db
+      .prepare(`SELECT id FROM seat_map WHERE id = ? AND class_id = ?`)
+      .get(seatId, classId);
+    if (!seat) {
+      res.status(404).json({ error: 'seat_not_found' });
+      return;
+    }
+    if (req.body?.label != null) {
+      db.prepare(`UPDATE seat_map SET label = ? WHERE id = ?`).run(String(req.body.label).slice(0, 32), seatId);
+    }
+    if (req.body?.studentId !== undefined) {
+      const sid = req.body.studentId ? String(req.body.studentId) : null;
+      if (sid) {
+        const stu = db
+          .prepare(
+            `SELECT id FROM users WHERE id = ? AND class_id = ? AND role = 'student'
+               AND (deleted_at IS NULL OR deleted_at = '')`,
+          )
+          .get(sid, classId);
+        if (!stu) {
+          res.status(400).json({ error: 'invalid_student' });
+          return;
+        }
+        // One seat per student
+        db.prepare(`UPDATE seat_map SET student_id = NULL WHERE class_id = ? AND student_id = ?`).run(classId, sid);
+      }
+      db.prepare(`UPDATE seat_map SET student_id = ? WHERE id = ?`).run(sid, seatId);
+    }
+    res.json({ ok: true });
+  },
+);

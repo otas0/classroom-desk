@@ -18,6 +18,7 @@ export function PresenceClients({ classId }: { classId: string }) {
   const [expected, setExpected] = useState('');
   const [copyMsg, setCopyMsg] = useState('');
   const [live, setLive] = useState(false);
+  const [lanTip, setLanTip] = useState('');
 
   async function loadHealthExpected() {
     const health = (await fetch('/health', { cache: 'no-store' })
@@ -42,6 +43,12 @@ export function PresenceClients({ classId }: { classId: string }) {
     );
     applyClients(clients);
     await loadHealthExpected();
+    try {
+      const u = await api<{ tipTemplate?: string }>('/api/v1/upgrades');
+      setLanTip(u.tipTemplate ?? '');
+    } catch {
+      setLanTip('');
+    }
   }
 
   useEffect(() => {
@@ -118,8 +125,8 @@ export function PresenceClients({ classId }: { classId: string }) {
     }
     const lines = [
       `【Classroom Desk 升级提示】请安装学生端 v${expected}`,
-      `下载：${GITHUB_RELEASES_BASE}/tag/v${expected}`,
-      `全部版本：${GITHUB_RELEASES_BASE}`,
+      lanTip || `下载：${GITHUB_RELEASES_BASE}/tag/v${expected}`,
+      `GitHub：${GITHUB_RELEASES_BASE}/tag/v${expected}`,
       '',
       '需升级机位：',
       ...driftRows.map(

@@ -1,6 +1,9 @@
+import { createHash } from 'node:crypto';
 import { Router } from 'express';
 import { APP_NOTICE, ATTENDANCE_NOTICE } from '@classroom-desk/shared';
-import { openDb } from '../db/client.js';
+import fs from 'node:fs';
+import path from 'node:path';
+import { getDataDir, getDbPath, openDb } from '../db/client.js';
 import { getSetting } from '../db/migrate.js';
 import { requireAuth, requireRoles, type AuthedRequest } from '../middleware/auth.js';
 import { config } from '../config.js';
@@ -15,8 +18,13 @@ import {
   setExitUnlockRateConfig,
 } from '../services/exitLock.js';
 import { addExitLockSseClient } from '../services/exitLockHub.js';
+import { purgeExpiredSoftDeletes } from '../services/audit.js';
 import { toCsv } from '../utils/csv.js';
-import { getBackupStatus, runDbBackup } from '../services/backup.js';
+import {
+  decryptFileAesGcm,
+  getBackupStatus,
+  runDbBackup,
+} from '../services/backup.js';
 import { getExtraWeakPasswords, setExtraWeakPasswords } from '../services/weakPasswords.js';
 import { nowIso } from '../utils/id.js';
 
@@ -66,6 +74,9 @@ settingsRouter.get('/api/v1/settings', requireAuth, requireRoles('teacher', 'adm
     quizConfirmSubmit: (getSetting(db, 'quiz_confirm_submit') ?? '1') !== '0',
     liveboardReadonlyAfterMinutes: Number(getSetting(db, 'liveboard_readonly_after_minutes') ?? 5),
     weakTeacherPasswordsExtra: getExtraWeakPasswords(db),
+    recycleRetentionDays: Number(getSetting(db, 'recycle_retention_days') ?? 30),
+    hasBackupEncryptPassphrase: Boolean((getSetting(db, 'backup_encrypt_passphrase') ?? '').trim()),
+    projectionHighContrast: (getSetting(db, 'projection_high_contrast') ?? '0') === '1',
     classroomApiBase: getSetting(db, 'classroom_api_base') ?? '',
     noticeText: getSetting(db, 'notice_text') ?? APP_NOTICE,
     attendanceNoticeText: getSetting(db, 'attendance_notice_text') ?? ATTENDANCE_NOTICE,
@@ -143,6 +154,33 @@ settingsRouter.patch('/api/v1/settings', requireAuth, requireRoles('teacher', 'a
       (req.body.weakTeacherPasswordsExtra as unknown[]).map((x) => String(x)),
       db,
     );
+  }
+
+  if (req.body?.recycleRetentionDays != null) {
+    const days = Number(req.body.recycleRetentionDays);
+    if (!Number.isFinite(days) || days < 1 || days > 365) {
+      res.status(400).json({ error: 'invalid_retention_days', message: '回收站保留须为 1–365 天' });
+      return;
+    }
+    db.prepare(
+      `INSERT INTO settings (key, value) VALUES ('recycle_retention_days', ?)
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+    ).run(String(Math.trunc(days)));
+  }
+
+  if (req.body?.backupEncryptPassphrase !== undefined) {
+    const pass = String(req.body.backupEncryptPassphrase ?? '');
+    db.prepare(
+      `INSERT INTO settings (key, value) VALUES ('backup_encrypt_passphrase', ?)
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+    ).run(pass);
+  }
+
+  if (req.body?.projectionHighContrast != null) {
+    db.prepare(
+      `INSERT INTO settings (key, value) VALUES ('projection_high_contrast', ?)
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+    ).run(req.body.projectionHighContrast ? '1' : '0');
   }
 
   if (req.body?.classroomApiBase != null) {
@@ -283,6 +321,96 @@ settingsRouter.post(
     res.status(result.ok ? 200 : 500).json({
       ...result,
       ...getBackupStatus(getSetting(db, 'last_auto_backup_at')),
+    });
+  },
+);
+
+/** Restore wizard: decrypt .enc → sidecar, return checklist + sha256 for live replace. */
+settingsRouter.post(
+  '/api/v1/settings/backup-restore-preview',
+  requireAuth,
+  requireRoles('teacher', 'admin'),
+  (req: AuthedRequest, res) => {
+    const fileName = path.basename(String(req.body?.fileName ?? ''));
+    const passphrase = String(req.body?.passphrase ?? '');
+    const commit = req.body?.commit === true;
+    if (!fileName.endsWith('.enc') && !fileName.endsWith('.db')) {
+      res.status(400).json({
+        error: 'backup_file_required',
+        message: '请指定 backups 目录下的 .enc 或 .db 文件名',
+      });
+      return;
+    }
+    const status = getBackupStatus(getSetting(openDb(), 'last_auto_backup_at'));
+    const src = path.join(status.dir, fileName);
+    if (!fs.existsSync(src)) {
+      res.status(404).json({ error: 'file_not_found' });
+      return;
+    }
+    try {
+      let restoredPath = src;
+      if (fileName.endsWith('.enc')) {
+        restoredPath = path.join(getDataDir(), `classroom.db.restored-${Date.now()}`);
+        decryptFileAesGcm(
+          src,
+          restoredPath,
+          passphrase || getSetting(openDb(), 'backup_encrypt_passphrase') || '',
+        );
+      }
+      const hash = createHash('sha256').update(fs.readFileSync(restoredPath)).digest('hex');
+      const live = getDbPath();
+      const checklist = [
+        '1. 通知机房：暂停上课 / 学生端暂时离线',
+        '2. 停止 classroom-desk-server 进程（Ctrl+C 或 systemd stop）',
+        `3. 备份当前库：复制 ${live} → ${live}.bak-$(date +%Y%m%d)`,
+        `4. 校验哈希 sha256=${hash}`,
+        `5. 用恢复文件替换：cp "${restoredPath}" "${live}"`,
+        '6. 重启服务并打开 /health 确认 ok',
+      ];
+      if (commit) {
+        const bak = `${live}.pre-restore-${Date.now()}`;
+        fs.copyFileSync(live, bak);
+        fs.copyFileSync(restoredPath, live);
+        res.json({
+          ok: true,
+          committed: true,
+          restoredPath,
+          backupOfLive: bak,
+          sha256: hash,
+          liveDb: live,
+          checklist,
+          message: '已校验哈希并替换 live DB（已先备份为 .pre-restore-*）。请立即重启服务。',
+        });
+        return;
+      }
+      res.json({
+        ok: true,
+        committed: false,
+        restoredPath,
+        liveDb: live,
+        sha256: hash,
+        checklist,
+        message: '已准备恢复文件。确认哈希后可再次请求 commit:true 替换 live DB（或按清单手动替换）。',
+      });
+    } catch (e) {
+      res.status(400).json({
+        error: 'restore_failed',
+        message: e instanceof Error ? e.message : '恢复失败',
+      });
+    }
+  },
+);
+
+settingsRouter.post(
+  '/api/v1/settings/recycle-purge-now',
+  requireAuth,
+  requireRoles('teacher', 'admin'),
+  (_req, res) => {
+    const result = purgeExpiredSoftDeletes(openDb());
+    res.json({
+      ok: true,
+      ...result,
+      message: `已按保留 ${result.retentionDays} 天清理：学生 ${result.students} · 题目 ${result.questions}`,
     });
   },
 );

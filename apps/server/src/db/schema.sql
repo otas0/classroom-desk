@@ -133,6 +133,8 @@ CREATE TABLE IF NOT EXISTS student_answers (
   answer_payload TEXT NOT NULL,
   is_correct INTEGER NOT NULL DEFAULT 0,
   answered_at TEXT NOT NULL,
+  is_makeup INTEGER NOT NULL DEFAULT 0,
+  queued_offline INTEGER NOT NULL DEFAULT 0,
   UNIQUE (question_id, student_id)
 );
 
@@ -272,3 +274,53 @@ CREATE TABLE IF NOT EXISTS attendance_holidays (
 );
 
 CREATE INDEX IF NOT EXISTS idx_attendance_holidays_date ON attendance_holidays(holiday_date);
+
+CREATE TABLE IF NOT EXISTS seat_map (
+  id TEXT PRIMARY KEY,
+  class_id TEXT NOT NULL REFERENCES classes(id) ON DELETE CASCADE,
+  row_index INTEGER NOT NULL,
+  col_index INTEGER NOT NULL,
+  label TEXT NOT NULL DEFAULT '',
+  student_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+  UNIQUE(class_id, row_index, col_index)
+);
+CREATE INDEX IF NOT EXISTS idx_seat_map_class ON seat_map(class_id);
+
+CREATE TABLE IF NOT EXISTS parent_report_tokens (
+  id TEXT PRIMARY KEY,
+  class_id TEXT NOT NULL REFERENCES classes(id) ON DELETE CASCADE,
+  month TEXT NOT NULL,
+  token TEXT NOT NULL UNIQUE,
+  created_by TEXT,
+  expires_at TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_parent_report_token ON parent_report_tokens(token);
+
+CREATE TABLE IF NOT EXISTS assistant_class_grants (
+  assistant_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  class_id TEXT NOT NULL REFERENCES classes(id) ON DELETE CASCADE,
+  can_export INTEGER NOT NULL DEFAULT 1,
+  can_award_points INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (assistant_id, class_id)
+);
+
+CREATE TABLE IF NOT EXISTS buzz_rounds (
+  id TEXT PRIMARY KEY,
+  class_id TEXT NOT NULL REFERENCES classes(id) ON DELETE CASCADE,
+  status TEXT NOT NULL DEFAULT 'open',
+  opened_at TEXT NOT NULL,
+  closed_at TEXT,
+  winner_student_id TEXT,
+  reason TEXT NOT NULL DEFAULT '抢答'
+);
+
+CREATE TABLE IF NOT EXISTS buzz_hits (
+  id TEXT PRIMARY KEY,
+  round_id TEXT NOT NULL REFERENCES buzz_rounds(id) ON DELETE CASCADE,
+  student_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  hit_at TEXT NOT NULL,
+  UNIQUE(round_id, student_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_teacher_audit_action ON teacher_audit_log(action, created_at DESC);

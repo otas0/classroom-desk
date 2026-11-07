@@ -7,16 +7,23 @@ import { getDataDir } from './db/client.js';
 import { assignmentsRouter } from './routes/assignments.js';
 import { attendanceRouter } from './routes/attendance.js';
 import { auditRouter } from './routes/audit.js';
+import { assistantGrantsRouter } from './routes/assistantGrants.js';
 import { authRouter } from './routes/auth.js';
 import { classesRouter } from './routes/classes.js';
 import { exportsRouter } from './routes/exports.js';
 import { healthRouter } from './routes/health.js';
 import { messagesRouter } from './routes/messages.js';
+import { opsRouter } from './routes/ops.js';
+import { packsRouter } from './routes/packs.js';
 import { pointRequestsRouter } from './routes/pointRequests.js';
 import { pointsRouter } from './routes/points.js';
 import { presenceRouter } from './routes/presence.js';
 import { questionsRouter } from './routes/questions.js';
+import { reportsRouter } from './routes/reports.js';
+import { seatsRouter } from './routes/seats.js';
+import { sessionLiveRouter } from './routes/sessionLive.js';
 import { settingsRouter } from './routes/settings.js';
+import { upgradesRouter } from './routes/upgrades.js';
 import { uploadsRouter } from './routes/uploads.js';
 
 function resolveTeacherDist(): string | null {
@@ -37,19 +44,31 @@ export function createApp() {
   app.use(cors());
   app.use(express.json({ limit: '2mb' }));
   app.use('/uploads', express.static(path.join(getDataDir(), 'uploads')));
+  const upgradesPath = process.env.CLASSROOM_DESK_UPGRADES_DIR
+    ? path.resolve(process.env.CLASSROOM_DESK_UPGRADES_DIR)
+    : path.join(getDataDir(), 'upgrades');
+  fs.mkdirSync(upgradesPath, { recursive: true });
+  app.use('/upgrades', express.static(upgradesPath));
 
   app.use(healthRouter);
   app.use(settingsRouter);
   app.use(authRouter);
+  app.use(assistantGrantsRouter);
   app.use(auditRouter);
+  app.use(opsRouter);
   app.use(classesRouter);
+  app.use(seatsRouter);
   app.use(assignmentsRouter);
   app.use(pointRequestsRouter);
   app.use(pointsRouter);
   app.use(attendanceRouter);
   app.use(presenceRouter);
+  app.use(sessionLiveRouter);
   app.use(messagesRouter);
   app.use(questionsRouter);
+  app.use(packsRouter);
+  app.use(reportsRouter);
+  app.use(upgradesRouter);
   app.use(exportsRouter);
   app.use(uploadsRouter);
 
