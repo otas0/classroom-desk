@@ -20,42 +20,42 @@ jobs:
         run: npm run typecheck --workspace=@classroom-desk/server
       - name: Test server
         run: npm run test:server
-      - name: Health smoke + 1plus1 + exit-lock packaged
-        run: |
-          JWT_SECRET=ci-secret-not-for-prod \
-          ADMIN_PASSWORD=AdminPass123 \
-          TEACHER_PASSWORD=TeacherPass123 \
-          DEFAULT_CLASS_CODE=DEMO01 \
-          npm run start --workspace=@classroom-desk/server &
-          for i in $(seq 1 30); do
-            if curl -fsS http://127.0.0.1:8787/health | grep -q '"ok":true'; then
-              echo "health ok"
-              npm run verify:1plus1
-              npm run verify:exit-lock-packaged
-              npm run verify:exit-lock-audit
-              exit $?
-            fi
-            sleep 1
-          done
-          echo "health check failed"
-          exit 1
-      - name: Build teacher SPA + /admin/PERMISSIONS.md smoke
+      - name: Build teacher SPA + health / PERMISSIONS.md smoke
         run: |
           npm run build:teacher
           test -f apps/teacher-web/dist/PERMISSIONS.md
+          # Free :8787 from any leftover job process (fuser alone is flaky on ubuntu-latest).
+          free_8787() {
+            if command -v fuser >/dev/null 2>&1; then fuser -k 8787/tcp 2>/dev/null || true; fi
+            if command -v lsof >/dev/null 2>&1; then
+              pids=$(lsof -t -iTCP:8787 -sTCP:LISTEN 2>/dev/null || true)
+              if [ -n "${pids:-}" ]; then kill -9 $pids 2>/dev/null || true; fi
+            fi
+            pkill -f 'tsx src/index.ts' 2>/dev/null || true
+            sleep 1
+          }
+          free_8787
           JWT_SECRET=ci-secret-not-for-prod \
           ADMIN_PASSWORD=AdminPass123 \
           TEACHER_PASSWORD=TeacherPass123 \
           DEFAULT_CLASS_CODE=DEMO01 \
           npm run start --workspace=@classroom-desk/server &
-          for i in $(seq 1 30); do
-            curl -fsS http://127.0.0.1:8787/health >/dev/null && break
+          ready=
+          for i in $(seq 1 40); do
+            if curl -fsS http://127.0.0.1:8787/health | grep -q '"permissionsMd":true'; then
+              echo "health+permissionsMd ok"
+              ready=1
+              break
+            fi
             sleep 1
           done
+          test -n "$ready" || { echo "health permissionsMd never became true"; exit 1; }
           code=$(curl -fsS -o /tmp/permissions.md -w '%{http_code}' http://127.0.0.1:8787/admin/PERMISSIONS.md)
           test "$code" = "200"
           grep -q '角色权限矩阵' /tmp/permissions.md
-          curl -fsS http://127.0.0.1:8787/health | grep -q '"permissionsMd":true'
+          npm run verify:1plus1
+          npm run verify:exit-lock-packaged
+          npm run verify:exit-lock-audit
 
   # Shared setup pattern for Playwright gates (parallel matrix shortens wall clock).
   e2e-bulk:
@@ -109,6 +109,8 @@ jobs:
             e2e/bulk-ui.spec.ts \
             e2e/bulk-ops.spec.ts \
             e2e/q-recycle-purge.spec.ts \
+            e2e/questions-shift-select.spec.ts \
+            e2e/settings-health-alerts.spec.ts \
             e2e/ops-polish.spec.ts \
             e2e/ops-v015.spec.ts \
             e2e/ops-v016.spec.ts
@@ -116,7 +118,7 @@ jobs:
           {
             echo "### e2e suite: bulk gate"
             if [ "$code" -eq 0 ]; then
-              echo "- result: **passed** (bulk + ops-polish + ops-v015 + ops-v016)"
+              echo "- result: **passed** (bulk + shift/sticky + health alerts + ops)"
             else
               echo "- result: **failed** — suite=**bulk gate**"
             fi
@@ -184,16 +186,18 @@ jobs:
           # keep retries scoped to rbac/session-kick which hit auth races more often.
           npx playwright test --retries=1 \
             e2e/assistant-rbac.spec.ts \
+            e2e/assistants-sse.spec.ts \
             e2e/buzz-ws.spec.ts \
             e2e/session-kick.spec.ts \
             e2e/session-kick-ui.spec.ts \
             e2e/audit-detail.spec.ts \
+            e2e/audit-jump-highlight.spec.ts \
             e2e/permissions-doc.spec.ts
           code=$?
           {
             echo "### e2e suite: rbac"
             if [ "$code" -eq 0 ]; then
-              echo "- result: **passed** (assistant-rbac + buzz-ws + session-kick + audit-detail + permissions-doc; retries=1)"
+              echo "- result: **passed** (rbac + SSE + session-kick + audit jump + permissions; retries=1)"
             else
               echo "- result: **failed** — suite=**e2e:rbac**"
             fi
@@ -218,74 +222,7 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
-  e2e-full:
-    runs-on: ubuntu-latest
-    needs: [e2e-bulk, e2e-rbac]
-    env:
-      PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/.pw-browsers
-      API_BASE: http://127.0.0.1:8787
-      TEACHER_WEB: http://localhost:5174
-      STUDENT_WEB: http://127.0.0.1:5173
-    steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
-        with:
-          node-version: '24'
-          cache: npm
-      - name: Cache Playwright browsers
-        uses: actions/cache@v4
-        with:
-          path: ${{ github.workspace }}/.pw-browsers
-          key: pw-chromium-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
-          restore-keys: |
-            pw-chromium-${{ runner.os }}-
-      - name: Install
-        run: npm install
-      - name: Install Playwright
-        run: npx playwright install --with-deps chromium
-      - name: Build teacher SPA for /admin deep-link e2e
-        run: npm run build:teacher
-      - name: Start API + teacher web + student vite
-        run: |
-          JWT_SECRET=ci-secret-not-for-prod \
-          ADMIN_PASSWORD=AdminPass123 \
-          TEACHER_PASSWORD=TeacherPass123 \
-          DEFAULT_CLASS_CODE=DEMO01 \
-          npm run start --workspace=@classroom-desk/server &
-          npm run dev:teacher &
-          ELECTRON_OFF=1 npm run dev --workspace=@classroom-desk/student-desktop &
-          for i in $(seq 1 40); do
-            curl -fsS http://127.0.0.1:8787/health >/dev/null && \
-            curl -fsS http://127.0.0.1:5174/ >/dev/null && \
-            curl -fsS http://127.0.0.1:5173/ >/dev/null && \
-            curl -fsS -o /dev/null -w '%{http_code}' http://127.0.0.1:8787/admin/assignments | grep -q 200 && break
-            sleep 1
-          done
-      - name: Playwright e2e (full suite)
-        id: full_suite
-        run: |
-          set +e
-          npx playwright test
-          code=$?
-          {
-            echo "### e2e suite: full"
-            if [ "$code" -eq 0 ]; then
-              echo "- result: **passed** (full Playwright suite)"
-            else
-              echo "- result: **failed** — suite=**full suite** (prior gates may have passed)"
-            fi
-          } >> "$GITHUB_STEP_SUMMARY"
-          exit $code
-      - name: Upload Playwright traces (full suite failure)
-        if: failure() && steps.full_suite.outcome == 'failure'
-        uses: actions/upload-artifact@v4
-        with:
-          name: playwright-traces-full-suite
-          path: |
-            test-results/**
-            playwright-report/**
-          if-no-files-found: ignore
-          retention-days: 14
+  # Full Playwright suite moved to .github/workflows/e2e-nightly.yml (cron + workflow_dispatch).
 
   windows-pack:
     runs-on: windows-latest
