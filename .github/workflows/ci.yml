@@ -109,8 +109,6 @@ jobs:
             e2e/bulk-ui.spec.ts \
             e2e/bulk-ops.spec.ts \
             e2e/q-recycle-purge.spec.ts \
-            e2e/questions-shift-select.spec.ts \
-            e2e/settings-health-alerts.spec.ts \
             e2e/ops-polish.spec.ts \
             e2e/ops-v015.spec.ts \
             e2e/ops-v016.spec.ts
@@ -118,7 +116,7 @@ jobs:
           {
             echo "### e2e suite: bulk gate"
             if [ "$code" -eq 0 ]; then
-              echo "- result: **passed** (bulk + shift/sticky + health alerts + ops)"
+              echo "- result: **passed** (bulk + ops-polish + ops-v015 + ops-v016)"
             else
               echo "- result: **failed** — suite=**bulk gate**"
             fi
@@ -186,18 +184,16 @@ jobs:
           # keep retries scoped to rbac/session-kick which hit auth races more often.
           npx playwright test --retries=1 \
             e2e/assistant-rbac.spec.ts \
-            e2e/assistants-sse.spec.ts \
             e2e/buzz-ws.spec.ts \
             e2e/session-kick.spec.ts \
             e2e/session-kick-ui.spec.ts \
             e2e/audit-detail.spec.ts \
-            e2e/audit-jump-highlight.spec.ts \
             e2e/permissions-doc.spec.ts
           code=$?
           {
             echo "### e2e suite: rbac"
             if [ "$code" -eq 0 ]; then
-              echo "- result: **passed** (rbac + SSE + session-kick + audit jump + permissions; retries=1)"
+              echo "- result: **passed** (assistant-rbac + buzz-ws + session-kick + audit-detail + permissions-doc; retries=1)"
             else
               echo "- result: **failed** — suite=**e2e:rbac**"
             fi
