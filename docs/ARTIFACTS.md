@@ -114,8 +114,12 @@ npm run ops:webhook-dry-run
 # 期望频道出现 [classroom-desk] ops webhook dry-run …
 ```
 
-3. **双触达**：在验证分支临时让 `release.yml` → `record-artifacts` 失败（或手工触发会走到失败分支的路径）→ 应同时看到  
-   - GitHub Issue（labels `release`/`artifacts`）  
-   - 频道 POST（`Release record-artifacts failed for <tag>`）  
-   验完即还原；正式发版失败时同样双触达。  
+3. **双触达**（推荐，不污染 tag）：
+   ```bash
+   gh workflow run release.yml -f verify_ops_dual_touch=true
+   ```
+   跑 `ops-dual-touch-dry-run`（`continue-on-error`）→ 应同时看到  
+   - GitHub Issue（标题含 `Release ops dual-touch dry-run`；labels `release`/`artifacts`）  
+   - 频道 POST（`Release ops dual-touch dry-run`）  
+   验完关掉该 Issue。正式 `record-artifacts` 失败时同样双触达。  
 4. 未配置 secret 时 webhook 跳过，Issue 仍应创建。
