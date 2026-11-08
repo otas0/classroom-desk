@@ -31,6 +31,7 @@ import {
   type InputLockFlags,
   type InputLockStore,
 } from './inputLock';
+import { normalizeUiLocale, t, type UiLocale } from '@classroom-desk/i18n';
 declare const __APP_VERSION__: string;
 const CLIENT_VERSION = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.0.0';
 
@@ -47,11 +48,11 @@ type User = {
 type RosterRow = { id: string; displayName: string; studentNo: string | null; totalPoints: number };
 
 const TABS: { id: TabId; label: string }[] = [
-  { id: 'points', label: '首页' },
-  { id: 'attendance', label: '签到' },
-  { id: 'quiz', label: '答题' },
-  { id: 'messages', label: '留言' },
-  { id: 'admin', label: '设置' },
+  { id: 'points', label: t('首页') },
+  { id: 'attendance', label: t('签到') },
+  { id: 'quiz', label: t('答题') },
+  { id: 'messages', label: t('留言') },
+  { id: 'admin', label: t('设置') },
 ];
 
 function countOpenUnanswered(items: Array<Record<string, unknown>>): number {
@@ -63,15 +64,15 @@ function countOpenUnanswered(items: Array<Record<string, unknown>>): number {
 
 function questionTypeZh(type: string): string {
   const map: Record<string, string> = {
-    single: '单选',
-    multi: '多选',
-    bool: '判断',
-    blank: '填空',
+    single: t('单选'),
+    multi: t('多选'),
+    bool: t('判断'),
+    blank: t('填空'),
   };
   return map[type] ?? type;
 }
 
-export function App() {
+export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } = {}) {
   const [tab, setTab] = useState<TabId>('points');
   const [collapsed, setCollapsed] = useState(false);
   const [user, setUser] = useState<User | null>(null);
@@ -215,7 +216,7 @@ export function App() {
   );
 
   const notifyExitBlocked = useCallback(() => {
-    showToast('向教师申请解除');
+    showToast(t('向教师申请解除'));
     setTab('admin');
   }, [showToast]);
 
@@ -254,8 +255,8 @@ export function App() {
   }, [exitAllowed, notifyExitBlocked]);
 
   useEffect(() => {
-    const t = window.setInterval(() => setNowTick(Date.now()), 1000);
-    return () => window.clearInterval(t);
+    const _cdTimer = window.setInterval(() => setNowTick(Date.now()), 1000);
+    return () => window.clearInterval(_cdTimer);
   }, []);
 
   useEffect(() => {
@@ -266,12 +267,12 @@ export function App() {
       inputLockToastAtRef.current = now;
       const label =
         kind === 'keyboard'
-          ? '键盘'
+          ? t('键盘')
           : kind === 'mouse'
-            ? '鼠标'
+            ? t('鼠标')
             : kind === 'voice'
-              ? '语音'
-              : '相机';
+              ? t('语音')
+              : t('相机');
       showToast(`教师已锁定${label}输入，请向教师申请解除`);
     };
     return installInputLockGuards(inputLock, notify);
@@ -321,11 +322,11 @@ export function App() {
     const onLocal = () => refreshOfflineQueueCount();
     window.addEventListener('storage', onStorage);
     window.addEventListener('cd-offline-queue-changed', onLocal);
-    const t = window.setInterval(refreshOfflineQueueCount, 4000);
+    const _cdTimer = window.setInterval(refreshOfflineQueueCount, 4000);
     return () => {
       window.removeEventListener('storage', onStorage);
       window.removeEventListener('cd-offline-queue-changed', onLocal);
-      window.clearInterval(t);
+      window.clearInterval(_cdTimer);
     };
   }, [refreshOfflineQueueCount]);
 
@@ -398,7 +399,7 @@ export function App() {
       ws.onopen = () => {
         /* connected */
       };
-      const failOver = (reason = 'WebSocket 断开') => {
+      const failOver = (reason = t('WebSocket 断开')) => {
         if (closed) return;
         try {
           ws?.close();
@@ -408,9 +409,9 @@ export function App() {
         ws = null;
         startSse(reason);
       };
-      ws.onerror = () => failOver('WebSocket 断开');
+      ws.onerror = () => failOver(t('WebSocket 断开'));
       ws.onclose = () => {
-        if (!closed && !usingSse) startSse('WebSocket 关闭');
+        if (!closed && !usingSse) startSse(t('WebSocket 关闭'));
       };
       // DevTools / Playwright：?e2e=1 或 DEV 下可强制切 SSE（不进正式默认路径）
       const e2e =
@@ -418,10 +419,10 @@ export function App() {
         (typeof location !== 'undefined' && new URLSearchParams(location.search).has('e2e'));
       if (e2e && typeof window !== 'undefined') {
         (window as unknown as { __cdForceExitLockFailover?: () => void }).__cdForceExitLockFailover =
-          () => failOver('WebSocket 关闭');
+          () => failOver(t('WebSocket 关闭'));
       }
     } catch {
-      startSse('WebSocket 不可用');
+      startSse(t('WebSocket 不可用'));
     }
 
     return () => {
@@ -495,12 +496,18 @@ export function App() {
       const pub = await api<{
         messagesEnabled?: boolean;
         quizConfirmSubmit?: boolean;
+        uiLocale?: string;
         clientExitAllowed?: boolean;
         clientExitUnlockUntil?: string | null;
         inputLock?: InputLockFlags;
         inputLockStore?: InputLockStore;
         inputLockClearedReason?: string | null;
       }>(`/api/v1/settings/public${qs ? `?${qs}` : ''}`);
+      if (pub.uiLocale) {
+        const loc = normalizeUiLocale(pub.uiLocale);
+        onUiLocale?.(loc);
+        window.dispatchEvent(new CustomEvent('cd-ui-locale', { detail: { uiLocale: loc } }));
+      }
       setMessagesEnabled(pub.messagesEnabled !== false);
       setQuizConfirmSubmit(pub.quizConfirmSubmit !== false);
       if (pub.inputLockStore != null || pub.inputLock != null) {
@@ -599,7 +606,7 @@ export function App() {
       else {
         if (isSessionEndedError(e)) {
           setToken(null);
-          const msg = e instanceof Error ? e.message : '请重新选择身份';
+          const msg = e instanceof Error ? e.message : t('请重新选择身份');
           setToast(msg);
           setSessionEndedBanner(msg);
           // Auto-hide floating toast; banner on 选人页 stays until「知道了」.
@@ -608,7 +615,7 @@ export function App() {
         setUser(null);
       }
     }
-  }, [applyServerExitLock, applyResolvedInputLock, classId]);
+  }, [applyServerExitLock, applyResolvedInputLock, classId, onUiLocale]);
 
   const probeHealth = useCallback(async () => {
     const base = getApiBase();
@@ -680,8 +687,8 @@ export function App() {
   }, [loadRoster, refreshMe, probeHealth]);
 
   useEffect(() => {
-    const t = window.setInterval(() => void refreshMe(), 8000);
-    return () => window.clearInterval(t);
+    const _cdTimer = window.setInterval(() => void refreshMe(), 8000);
+    return () => window.clearInterval(_cdTimer);
   }, [refreshMe]);
 
   // Seat rebind SSE — avoid waiting for /auth/me poll after teacher seat change.
@@ -759,10 +766,10 @@ export function App() {
       }
     }
     void pollQuestions();
-    const t = window.setInterval(() => void pollQuestions(), 5000);
+    const _cdTimer = window.setInterval(() => void pollQuestions(), 5000);
     return () => {
       cancelled = true;
-      window.clearInterval(t);
+      window.clearInterval(_cdTimer);
     };
   }, [user, announceNewQuestions]);
 
@@ -795,7 +802,7 @@ export function App() {
   async function selectStudent(row: RosterRow) {
     setError('');
     if (!classId) {
-      setError('本机未指派班级，请老师在「教师设置」里填写班级');
+      setError(t('本机未指派班级，请老师在「教师设置」里填写班级'));
       return;
     }
     if (selecting) return;
@@ -838,10 +845,10 @@ export function App() {
 
   const exitLockLabel = useMemo(() => {
     void nowTick;
-    if (!exitAllowed) return '已锁定';
+    if (!exitAllowed) return t('已锁定');
     if (exitUnlockUntil) {
       const left = Math.max(0, Date.parse(exitUnlockUntil) - Date.now());
-      if (left <= 0) return '已锁定';
+      if (left <= 0) return t('已锁定');
       const sec = Math.ceil(left / 1000);
       const m = Math.floor(sec / 60);
       const s = String(sec % 60).padStart(2, '0');
@@ -860,7 +867,7 @@ export function App() {
   if (!ready) {
     return (
       <div className="shell">
-        <p className="hint">加载中…</p>
+        <p className="hint">{t('加载中…')}</p>
       </div>
     );
   }
@@ -958,7 +965,7 @@ export function App() {
         <header className="titlebar" data-drag>
           <div className="titlebar-main">
             <strong className="brand">{APP_NAME}</strong>
-            <span className="meta">首次配置</span>
+            <span className="meta">{t('首次配置')}</span>
           </div>
         </header>
         <main className="content" data-no-drag>
@@ -988,13 +995,13 @@ export function App() {
         <header className="titlebar" data-drag>
           <div className="titlebar-main">
             <strong className="brand">{APP_NAME}</strong>
-            <span className="meta">请找老师</span>
+            <span className="meta">{t('请找老师')}</span>
           </div>
         </header>
         <main className="content" data-no-drag>
           <section className="panel">
-            <h1>连不上老师电脑</h1>
-            <p className="lead">请找老师检查电脑和网络</p>
+            <h1>{t('连不上老师电脑')}</h1>
+            <p className="lead">{t('请找老师检查电脑和网络')}</p>
             <button
               type="button"
               className="primary"
@@ -1015,7 +1022,7 @@ export function App() {
               重试
             </button>
             <details className="teacher-debug">
-              <summary>教师调试</summary>
+              <summary>{t('教师调试')}</summary>
               <p className="hint">{healthDetail}</p>
               <label className="field">
                 临时改 apiBase（连通后再到设置里保存）
@@ -1097,7 +1104,7 @@ export function App() {
                 onClick={beginSwitch}
               >
                 <span className="chip-name">{user.displayName}</span>
-                <span className="chip-action">换人</span>
+                <span className="chip-action">{t('换人')}</span>
               </button>
             ) : null}
             {hasSeatBinding ? (
@@ -1274,7 +1281,7 @@ export function App() {
         storeHasActiveSeatLocks(inputLockStoreState, classId) &&
         !storeHasActiveNonSeatLocks(inputLockStoreState, classId) ? (
         <div className="banner-alert" role="status" data-testid="input-lock-seat-miss-note">
-          <p>座锁未命中：本机未排座，教师机位锁对本机不生效。</p>
+          <p>{t('座锁未命中：本机未排座，教师机位锁对本机不生效。')}</p>
         </div>
       ) : null}
 
@@ -1309,7 +1316,7 @@ export function App() {
 
       {hardeningTip ? (
         <div className="banner-alert" role="status" data-testid="hardening-tip">
-          <p>本机未加固（未检测到 Assigned Access / 展台模式）。课堂锁定仍生效，但系统层防护较弱；请学校 IT 配置后更安全。</p>
+          <p>{t('本机未加固（未检测到 Assigned Access / 展台模式）。课堂锁定仍生效，但系统层防护较弱；请学校 IT 配置后更安全。')}</p>
           <button
             type="button"
             className="linkish"
@@ -1422,10 +1429,10 @@ function FirstRunSetup({
       }
     }
     void probeCameraLock();
-    const t = window.setInterval(() => void probeCameraLock(), 8000);
+    const _cdTimer = window.setInterval(() => void probeCameraLock(), 8000);
     return () => {
       cancelled = true;
-      window.clearInterval(t);
+      window.clearInterval(_cdTimer);
     };
   }, [serverUrl]);
 
@@ -1576,8 +1583,8 @@ function FirstRunSetup({
 
   return (
     <section className="panel">
-      <h1>首次配置本机</h1>
-      <p className="lead">扫教师「指派学生机」二维码，或手动填写后写入 config.json 并校验连通。</p>
+      <h1>{t('首次配置本机')}</h1>
+      <p className="lead">{t('扫教师「指派学生机」二维码，或手动填写后写入 config.json 并校验连通。')}</p>
       <div className="row">
         <button
           type="button"
@@ -1667,7 +1674,7 @@ function FirstRunSetup({
         />
       </label>
       <button type="button" className="primary" disabled={busy} onClick={() => void saveAndProbe()}>
-        {busy ? '检测中…' : '保存并检测 /health'}
+        {busy ? t('检测中…') : t('保存并检测 /health')}
       </button>
       {msg ? <p className="hint">{msg}</p> : null}
       <p className="hint">禁止 127.0.0.1。本机版本 v{CLIENT_VERSION}。</p>
@@ -1759,7 +1766,7 @@ function IdentityGate({
         </div>
       ) : null}
       {error ? <p className="error">{error}</p> : null}
-      <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="搜索姓名或学号" />
+      <input value={q} onChange={(e) => setQ(e.target.value)} placeholder={t('搜索姓名或学号')} />
       {pending ? (
         <div className="confirm-bar">
           <p>
@@ -1777,7 +1784,7 @@ function IdentityGate({
       <button type="button" className="secondary" onClick={onRefresh}>
         刷新名单
       </button>
-      {filtered.length === 0 ? <p className="hint">暂无名单 · 找老师导入名单</p> : null}
+      {filtered.length === 0 ? <p className="hint">{t('暂无名单 · 找老师导入名单')}</p> : null}
       <div className="identity-list">
         {filtered.map((row) => (
           <button
@@ -1900,7 +1907,7 @@ function HomePanel({
         {openQuizCount > 0 ? `还有 ${openQuizCount} 道题没答` : '选一个下一步'}
       </p>
       <button type="button" className="primary" disabled={busy} onClick={() => void buzzHit()}>
-        抢答
+        {t('抢答')}
       </button>
       <button type="button" className="primary" onClick={onGoAttendance}>
         去签到
@@ -1909,7 +1916,7 @@ function HomePanel({
         等待老师出题
       </button>
       <button type="button" className="secondary" onClick={() => setShowPoints((v) => !v)}>
-        {showPoints ? '收起积分' : '积分'}
+        {showPoints ? '收起积分' : t('积分')}
       </button>
       {showPoints ? (
         <div className="card-block">
@@ -1929,10 +1936,10 @@ function HomePanel({
             min={1}
             value={points}
             onChange={(e) => setPoints(Number(e.target.value))}
-            placeholder="分值"
+            placeholder={t('分值')}
           />
           <button type="button" className="primary" disabled={busy} onClick={() => void requestPoints()}>
-            {busy ? '提交中…' : '请求加分'}
+            {busy ? t('提交中…') : '请求加分'}
           </button>
         </div>
       ) : null}
@@ -1973,7 +1980,7 @@ function AttendanceTab({
   }
 
   useEffect(() => {
-    void load().catch((e) => setErr(e instanceof Error ? e.message : '加载失败'));
+    void load().catch((e) => setErr(e instanceof Error ? e.message : t('加载失败')));
   }, [classId]);
 
   async function checkIn() {
@@ -1996,17 +2003,17 @@ function AttendanceTab({
 
   return (
     <section className="panel">
-      <h1>签到</h1>
+      <h1>{t('签到')}</h1>
       {err ? <p className="error">{err}</p> : null}
       <p>
         今日状态：<strong>{statusZh(status)}</strong>
         {checkedAt ? ` · ${new Date(checkedAt).toLocaleString()}` : ''}
       </p>
       <button type="button" className="primary" disabled={done || busy} onClick={() => void checkIn()}>
-        {done ? '今日已签到' : busy ? '签到中…' : '点击签到'}
+        {done ? t('今日已签到') : busy ? '签到中…' : '点击签到'}
       </button>
       <button type="button" className="secondary" onClick={() => void load().catch((e) => setErr(String(e)))}>
-        刷新
+        {t('刷新')}
       </button>
       {monthStats ? (
         <p className="hint">
@@ -2049,8 +2056,8 @@ function AdminTab({
 
   useEffect(() => {
     if (retryAfterSec <= 0) return;
-    const t = window.setTimeout(() => setRetryAfterSec((s) => Math.max(0, s - 1)), 1000);
-    return () => window.clearTimeout(t);
+    const _cdTimer = window.setTimeout(() => setRetryAfterSec((s) => Math.max(0, s - 1)), 1000);
+    return () => window.clearTimeout(_cdTimer);
   }, [retryAfterSec]);
 
   async function unlockConfig() {
@@ -2088,7 +2095,7 @@ function AdminTab({
       await onSaved({ apiBase, classId: cid.trim() });
       setMsg('已保存');
     } catch (e) {
-      setMsg(e instanceof Error ? e.message : '保存失败');
+      setMsg(e instanceof Error ? e.message : t('保存失败'));
     }
   }
 
@@ -2119,7 +2126,7 @@ function AdminTab({
         if (e.retryAfterSec != null && e.retryAfterSec > 0) setRetryAfterSec(e.retryAfterSec);
         setExitMsg(e.message);
       } else {
-        setExitMsg(e instanceof Error ? e.message : '解除失败');
+        setExitMsg(e instanceof Error ? e.message : t('解除失败'));
       }
     } finally {
       setBusyExit(false);
@@ -2128,8 +2135,8 @@ function AdminTab({
 
   return (
     <section className="panel">
-      <h1>设置</h1>
-      <h2>当前身份</h2>
+      <h1>{t('设置')}</h1>
+      <h2>{t('当前身份')}</h2>
       {user ? (
         <>
           <p>
@@ -2142,10 +2149,10 @@ function AdminTab({
           </button>
         </>
       ) : (
-        <p className="hint">尚未选择姓名</p>
+        <p className="hint">{t('尚未选择姓名')}</p>
       )}
 
-      <h2>退出锁定</h2>
+      <h2>{t('退出锁定')}</h2>
       <p className="hint">
         {exitAllowed
           ? '当前已允许退出（教师批量解除或已输入解除码）。'
@@ -2158,7 +2165,7 @@ function AdminTab({
             type="password"
             value={exitCode}
             onChange={(e) => setExitCode(e.target.value)}
-            placeholder="教师设置的解除码或管理密码"
+            placeholder={t('教师设置的解除码或管理密码')}
             autoComplete="off"
             disabled={retryAfterSec > 0}
           />
@@ -2181,14 +2188,14 @@ function AdminTab({
         disabled={busyExit || retryAfterSec > 0}
         onClick={() => void unlockAndQuit()}
       >
-        {busyExit ? '处理中…' : exitAllowed ? '退出程序' : '验证解除码并退出'}
+        {busyExit ? t('处理中…') : exitAllowed ? '退出程序' : '验证解除码并退出'}
       </button>
       {exitMsg ? <p className="error" data-testid="exit-unlock-msg">{exitMsg}</p> : null}
 
-      <h2>教师配置</h2>
+      <h2>{t('教师配置')}</h2>
       {!teacherOpen ? (
         <>
-          <p className="hint">服务器地址和班级由老师配置。直接展开后，保存仍需要管理密码。</p>
+          <p className="hint">{t('服务器地址和班级由老师配置。直接展开后，保存仍需要管理密码。')}</p>
           <label className="field">
             管理密码
             <input
@@ -2208,7 +2215,7 @@ function AdminTab({
         </>
       ) : (
         <>
-          <p className="hint">上课前由老师填写教室服务器地址和班级 ID（从教师后台复制）。</p>
+          <p className="hint">{t('上课前由老师填写教室服务器地址和班级 ID（从教师后台复制）。')}</p>
           <label className="field">
             服务器 apiBase
             <input value={apiBase} onChange={(e) => setApiBaseLocal(e.target.value)} placeholder="http://192.168.1.50:8787" />
@@ -2284,7 +2291,7 @@ function MessagesTab({
   }
 
   useEffect(() => {
-    void load().catch((e) => setErr(e instanceof Error ? e.message : '加载失败'));
+    void load().catch((e) => setErr(e instanceof Error ? e.message : t('加载失败')));
   }, []);
 
   async function send() {
@@ -2314,7 +2321,7 @@ function MessagesTab({
   async function sendReply(messageId: string) {
     const text = (replyDraft[messageId] ?? '').trim();
     if (!text) {
-      setErr('回复不能为空');
+      setErr(t('回复不能为空'));
       return;
     }
     setBusy(true);
@@ -2326,7 +2333,7 @@ function MessagesTab({
       setReplyDraft((prev) => ({ ...prev, [messageId]: '' }));
       await load();
     } catch (e) {
-      setErr(e instanceof Error ? e.message : '回复失败');
+      setErr(e instanceof Error ? e.message : t('回复失败'));
     } finally {
       setBusy(false);
     }
@@ -2334,13 +2341,13 @@ function MessagesTab({
 
   return (
     <section className="panel">
-      <h1>留言</h1>
-      <p className="hint">可发给老师，或发给本班同学。</p>
+      <h1>{t('留言')}</h1>
+      <p className="hint">{t('可发给老师，或发给本班同学。')}</p>
       {err ? <p className="error">{err}</p> : null}
       <label className="field">
         发给
         <select value={toId} onChange={(e) => setToId(e.target.value)}>
-          <option value="teacher">老师</option>
+          <option value="teacher">{t('老师')}</option>
           {peers.map((p) => (
             <option key={p.id} value={p.id}>
               {p.displayName}
@@ -2354,16 +2361,16 @@ function MessagesTab({
         {busy ? '发送中…' : '发送'}
       </button>
       <button type="button" className="secondary" onClick={() => void load().catch((e) => setErr(String(e)))}>
-        刷新
+        {t('刷新')}
       </button>
-      {peers.length === 0 ? <p className="hint">本班暂无其他同学可私信（需老师先导入名单）。</p> : null}
-      {items.length === 0 ? <p className="hint">暂无留言</p> : null}
+      {peers.length === 0 ? <p className="hint">{t('本班暂无其他同学可私信（需老师先导入名单）。')}</p> : null}
+      {items.length === 0 ? <p className="hint">{t('暂无留言')}</p> : null}
       {items.map((msg) => {
         const fromMe = String(msg.studentId) === userId;
         const toPeer = Boolean(msg.toStudentId);
         const title = toPeer
           ? fromMe
-            ? `我 → ${String(msg.toStudentName ?? '同学')}`
+            ? `我 → ${String(msg.toStudentName ?? t('同学'))}`
             : `${String(msg.studentName)} → 我`
           : fromMe
             ? '我 → 老师'
@@ -2377,17 +2384,17 @@ function MessagesTab({
             {((msg.replies as Array<{ id?: string; authorName?: string; authorRole?: string; body: string }>) ?? []).map(
               (r, i) => (
                 <p key={r.id ?? i} className="reply">
-                  {r.authorName ?? (r.authorRole === 'student' ? '同学' : '老师')}：{r.body}
+                  {r.authorName ?? (r.authorRole === 'student' ? t('同学') : t('老师'))}：{r.body}
                 </p>
               ),
             )}
             <input
               value={replyDraft[mid] ?? ''}
               onChange={(e) => setReplyDraft((prev) => ({ ...prev, [mid]: e.target.value }))}
-              placeholder="回复"
+              placeholder={t('回复')}
             />
             <button type="button" className="secondary" disabled={busy} onClick={() => void sendReply(mid)}>
-              回复
+              {t('回复')}
             </button>
           </article>
         );
@@ -2510,11 +2517,11 @@ function QuizTab({
   }
 
   useEffect(() => {
-    void load().catch((e) => setErr(e instanceof Error ? e.message : '加载失败'));
-    const t = window.setInterval(() => {
-      void load().catch((e) => setErr(e instanceof Error ? e.message : '加载失败'));
+    void load().catch((e) => setErr(e instanceof Error ? e.message : t('加载失败')));
+    const timer = window.setInterval(() => {
+      void load().catch((e) => setErr(e instanceof Error ? e.message : t('加载失败')));
     }, 5000);
-    return () => window.clearInterval(t);
+    return () => window.clearInterval(timer);
   }, []);
 
   useEffect(() => {
@@ -2601,8 +2608,8 @@ function QuizTab({
   useEffect(() => {
     syncQueueCount();
     if (!offlineFlushPending) void flushOfflineQueue().catch(() => undefined);
-    const t = window.setInterval(() => void flushOfflineQueue().catch(() => undefined), 12_000);
-    return () => window.clearInterval(t);
+    const _cdTimer = window.setInterval(() => void flushOfflineQueue().catch(() => undefined), 12_000);
+    return () => window.clearInterval(_cdTimer);
   }, []);
 
   useEffect(() => {
@@ -2675,7 +2682,7 @@ function QuizTab({
 
   return (
     <section className="panel">
-      <h1>答题</h1>
+      <h1>{t('答题')}</h1>
       {err ? <p className="error">{err}</p> : null}
       {queueCount > 0 ? (
         <div className="offline-banner" role="status">
@@ -2746,12 +2753,12 @@ function QuizTab({
             })}
             {answered && !canRetryWrong ? (
               <p className="hint">
-                已作答 · {mine?.isCorrect ? '正确' : '错误'}
+                已作答 · {mine?.isCorrect ? t('正确') : t('错误')}
                 {mine?.answeredAt ? ` · ${new Date(String(mine.answeredAt)).toLocaleString()}` : ''}
               </p>
             ) : null}
-            {canRetryWrong ? <p className="hint">上次错误 · 可再答一次</p> : null}
-            {closed && !canAnswer ? <p className="hint">已收卷，不能再交</p> : null}
+            {canRetryWrong ? <p className="hint">{t('上次错误 · 可再答一次')}</p> : null}
+            {closed && !canAnswer ? <p className="hint">{t('已收卷，不能再交')}</p> : null}
             {(type === 'single' || type === 'bool') && canAnswer ? (
               <>
                 {opts.map((opt) => (
@@ -2778,7 +2785,7 @@ function QuizTab({
                     disabled={busy || !picked[id]}
                     onClick={() => void answer(id, { optionIds: [picked[id]!] })}
                   >
-                    {busy ? '提交中…' : '确认提交'}
+                    {busy ? t('提交中…') : '确认提交'}
                   </button>
                 ) : null}
               </>
@@ -2811,7 +2818,7 @@ function QuizTab({
                   disabled={busy || (multi[id] ?? []).length === 0}
                   onClick={() => void answer(id, { optionIds: multi[id] ?? [] })}
                 >
-                  {busy ? '提交中…' : canRetryWrong ? '重练提交' : '提交多选'}
+                  {busy ? t('提交中…') : canRetryWrong ? t('重练提交') : '提交多选'}
                 </button>
               </>
             ) : null}
@@ -2828,7 +2835,7 @@ function QuizTab({
                   disabled={busy || !(blank[id] ?? '').trim()}
                   onClick={() => void answer(id, { text: (blank[id] ?? '').trim() })}
                 >
-                  {busy ? '提交中…' : canRetryWrong ? '重练提交' : '提交填空'}
+                  {busy ? t('提交中…') : canRetryWrong ? t('重练提交') : t('提交填空')}
                 </button>
               </>
             ) : null}

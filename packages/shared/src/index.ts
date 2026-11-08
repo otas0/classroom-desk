@@ -57,11 +57,17 @@ export function recycleDaysLeft(
   return Math.max(0, Math.ceil((expiresAtMs - nowMs) / MS_PER_DAY));
 }
 
-/** Unified copy for student & question recycle rows. */
-export function formatRecycleDaysLeft(daysLeft: number | null | undefined): string | null {
+/** Unified copy for student & question recycle rows. Pass `t` from @classroom-desk/i18n when localizing. */
+export function formatRecycleDaysLeft(
+  daysLeft: number | null | undefined,
+  t: (msgid: string, vars?: Record<string, string | number>) => string = (s, vars) => {
+    if (!vars) return s;
+    return s.replace(/\{([a-zA-Z0-9_]+)\}/g, (_, k) => String(vars[k] ?? ''));
+  },
+): string | null {
   if (daysLeft == null || !Number.isFinite(Number(daysLeft))) return null;
   const n = Math.max(0, Math.floor(Number(daysLeft)));
-  return n === 0 ? '剩余不足 1 天' : `剩余 ${n} 天`;
+  return n === 0 ? t('剩余不足 1 天') : t('剩余 {v0} 天', { v0: n });
 }
 
 /** Default days-left threshold for “即将 purge” highlight (inclusive). */

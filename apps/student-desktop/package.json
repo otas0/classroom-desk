@@ -13,6 +13,7 @@
     "dist:win": "node scripts/dist-win.mjs"
   },
   "dependencies": {
+    "@classroom-desk/i18n": "*",
     "@classroom-desk/shared": "*",
     "jsqr": "^1.4.0",
     "pdfjs-dist": "^5.4.296",

@@ -238,7 +238,8 @@ jobs:
             e2e/exit-lock-reconcile.spec.ts \
             e2e/exit-lock-toast.spec.ts \
             e2e/exit-lock-blocked-close.spec.ts \
-            e2e/input-lock.spec.ts
+            e2e/input-lock.spec.ts \
+            e2e/ui-locale.spec.ts
           code=$?
           {
             echo "### e2e suite: rbac"

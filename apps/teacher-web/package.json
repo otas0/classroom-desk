@@ -11,6 +11,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@classroom-desk/i18n": "*",
     "@classroom-desk/shared": "*",
     "qrcode": "^1.5.4",
     "react": "^19.0.0",

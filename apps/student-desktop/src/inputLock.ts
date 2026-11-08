@@ -1,3 +1,4 @@
+import { t } from '@classroom-desk/i18n';
 /** Teacher-controlled physical input lock (visible kiosk; app-scoped only). */
 
 export type InputLockFlags = {
@@ -92,10 +93,10 @@ export function getOrCreatePresenceClientId(): string {
 
 export function inputLockSummary(flags: InputLockFlags): string {
   const parts: string[] = [];
-  if (flags.keyboard) parts.push('键盘');
-  if (flags.mouse) parts.push('鼠标/点击');
-  if (flags.voice) parts.push('语音');
-  if (flags.camera) parts.push('相机');
+  if (flags.keyboard) parts.push(t('键盘'));
+  if (flags.mouse) parts.push(t('鼠标/点击'));
+  if (flags.voice) parts.push(t('语音'));
+  if (flags.camera) parts.push(t('相机'));
   return parts.length ? parts.join('、') : '';
 }
 
@@ -225,20 +226,20 @@ export function installInputLockGuards(
           onBlocked?.('camera');
           return Promise.reject(
             new DOMException(
-              '教师已锁定相机，无法打开摄像头。扫码请改用粘贴 JSON，或请教师解除相机锁。',
+              t('教师已锁定相机，无法打开摄像头。扫码请改用粘贴 JSON，或请教师解除相机锁。'),
               'NotAllowedError',
             ),
           );
         }
         if (flags.voice && wantsAudio(constraints?.audio)) {
           onBlocked?.('voice');
-          return Promise.reject(new DOMException('教师已锁定麦克风/语音输入', 'NotAllowedError'));
+          return Promise.reject(new DOMException(t('教师已锁定麦克风/语音输入'), 'NotAllowedError'));
         }
         const next: MediaStreamConstraints = { ...(constraints ?? {}) };
         if (flags.camera) next.video = false;
         if (flags.voice) next.audio = false;
         if (!next.audio && !next.video) {
-          return Promise.reject(new DOMException('媒体输入已被教师锁定', 'NotAllowedError'));
+          return Promise.reject(new DOMException(t('媒体输入已被教师锁定'), 'NotAllowedError'));
         }
         return original(next);
       };
@@ -258,7 +259,7 @@ export function installInputLockGuards(
       const Orig = Ctor;
       const Locked = function LockedSpeechRecognition(this: unknown) {
         onBlocked?.('voice');
-        throw new DOMException('语音输入已被教师锁定', 'NotAllowedError');
+        throw new DOMException(t('语音输入已被教师锁定'), 'NotAllowedError');
       } as unknown as typeof Ctor;
       w.SpeechRecognition = Locked;
       w.webkitSpeechRecognition = Locked;

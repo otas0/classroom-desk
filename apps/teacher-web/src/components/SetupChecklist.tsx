@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { API_BASE, api } from '../api';
 import type { ClassItem } from '../types';
+import { t } from '@classroom-desk/i18n';
 
 export type SetupDest = 'prep' | 'assign' | 'session' | 'prep-roster' | 'prep-questions' | 'prep-presence';
 
@@ -116,34 +117,34 @@ export function SetupChecklist({
   const steps: Step[] = [
     {
       n: 1,
-      label: '建班并导入名单',
+      label: t('建班并导入名单'),
       done: rosterDone,
       pending: false,
-      actionLabel: classes.length === 0 ? '去建班' : '去导入名单',
+      actionLabel: classes.length === 0 ? t('去建班') : t('去导入名单'),
       action: () => (classes.length === 0 ? (onCreateClass ? onCreateClass() : onGo('prep-roster')) : onGo('prep-roster')),
     },
     {
       n: 2,
-      label: '指派学生机',
+      label: t('指派学生机'),
       done: assignDone,
       pending: false,
-      actionLabel: '去指派',
+      actionLabel: t('去指派'),
       action: () => onGo('assign'),
     },
     {
       n: 3,
-      label: '发第一题',
+      label: t('发第一题'),
       done: questionDone,
       pending: !questionKnown,
-      actionLabel: '去发第一题',
+      actionLabel: t('去发第一题'),
       action: () => onGo('session'),
     },
     {
       n: 4,
-      label: '服务器可达 / 学生端版本',
+      label: t('服务器可达 / 学生端版本'),
       done: healthDone,
       pending: !clientsKnown,
-      actionLabel: connectedCount === 0 && healthDone ? '扫码指派学生机' : '重新检测',
+      actionLabel: connectedCount === 0 && healthDone ? t('扫码指派学生机') : t('重新检测'),
       action: () => {
         if (connectedCount === 0 && healthDone) {
           const at = Date.now();
@@ -166,24 +167,24 @@ export function SetupChecklist({
     },
   ];
 
-  let ctaLabel = '去发第一题';
+  let ctaLabel = t('去发第一题');
   let cta = () => onGo('session');
   if (!rosterDone) {
     if (classes.length === 0) {
-      ctaLabel = '创建班级';
+      ctaLabel = t('创建班级');
       cta = () => (onCreateClass ? onCreateClass() : onGo('prep-roster'));
     } else {
-      ctaLabel = '去导入名单';
+      ctaLabel = t('去导入名单');
       cta = () => onGo('prep-roster');
     }
   } else if (!assignDone) {
-    ctaLabel = '去指派学生机';
+    ctaLabel = t('去指派学生机');
     cta = () => onGo('assign');
   } else if (!healthDone) {
-    ctaLabel = '检查服务器';
+    ctaLabel = t('检查服务器');
     cta = () => onGo('assign');
   } else if (connectedCount === 0) {
-    ctaLabel = '扫码指派学生机';
+    ctaLabel = t('扫码指派学生机');
     cta = () => {
       const at = Date.now();
       try {
@@ -205,13 +206,13 @@ export function SetupChecklist({
 
   const connectedLabel =
     connectedCount === 0
-      ? '暂无在线桌面端'
-      : `已连桌面端 ${connectedCount} 台 · 版本 ${connectedVersions.length ? connectedVersions.join(' / ') : '未上报'}`;
+      ? t('暂无在线桌面端')
+      : `已连桌面端 ${connectedCount} 台 · 版本 ${connectedVersions.length ? connectedVersions.join(' / ') : t('未上报')}`;
 
   return (
     <section className="setup-checklist">
-      <h2>开课准备</h2>
-      <p className="hint">完成以下步骤后，本清单会自动收起。未完成项可一键跳转。</p>
+      <h2>{t('开课准备')}</h2>
+      <p className="hint">{t('完成以下步骤后，本清单会自动收起。未完成项可一键跳转。')}</p>
       <ol className="setup-steps">
         {steps.map((step) => (
           <li key={step.n} className={step.done ? 'setup-step done' : 'setup-step'}>
@@ -222,16 +223,16 @@ export function SetupChecklist({
                   {' '}
                   ·{' '}
                   {serverOk === null
-                    ? '检测中…'
+                    ? t('检测中…')
                     : serverOk
                       ? `可达 · 服务端 v${serverVersion || '—'} · ${connectedLabel}${
                           studentPkgVersion ? ` · 安装包应对齐 v${studentPkgVersion}` : ''
                         }`
-                      : '不可达，请检查教师机服务'}
+                      : t('不可达，请检查教师机服务')}
                 </span>
               ) : null}
             </span>
-            <span className="status">{step.done ? '已完成' : step.pending ? '检查中' : '未完成'}</span>
+            <span className="status">{step.done ? t('已完成') : step.pending ? t('检查中') : t('未完成')}</span>
             {!step.done && !step.pending && step.action && step.actionLabel ? (
               <button type="button" className="secondary setup-step-jump" onClick={step.action}>
                 {step.actionLabel}
@@ -244,7 +245,7 @@ export function SetupChecklist({
         <p className="hint">
           尚无学生机心跳。请在「指派学生机」展示 QR，让学生端首次引导扫码，或打开{' '}
           <button type="button" className="linkish" onClick={() => onGo('prep-presence')}>
-            在线机位
+            {t('在线机位')}
           </button>{' '}
           查看连接。
         </p>

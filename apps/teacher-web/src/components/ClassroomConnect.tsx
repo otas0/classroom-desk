@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import QRCode from 'qrcode';
 import { API_BASE, api } from '../api';
 import type { ClassItem } from '../types';
+import { t } from '@classroom-desk/i18n';
 
 export function ClassroomConnect({
   classId,
@@ -100,17 +101,17 @@ export function ClassroomConnect({
 
   return (
     <section>
-      <h2>上课前指派学生机</h2>
+      <h2>{t('上课前指派学生机')}</h2>
       {copyMsg ? <p className="toast-inline">{copyMsg}</p> : null}
       <div className="help-bubble">
-        每台学生机必须配置<strong>本教师机局域网地址</strong>与本班 <code>classId</code>。禁止 127.0.0.1。
+        每台学生机必须配置<strong>{t('本教师机局域网地址')}</strong>{t('与本班')} <code>classId</code>。禁止 127.0.0.1。
         学生浏览器先打开下方 /health；通过后再装客户端或写入 config。
       </div>
       <p>
         当前班级：<strong>{klass?.name ?? '—'}</strong>
       </p>
       <p>
-        classId：<code>{classId || '（请先选班）'}</code>{' '}
+        classId：<code>{classId || t('（请先选班）')}</code>{' '}
         <button
           type="button"
           className="secondary"
@@ -166,8 +167,8 @@ export function ClassroomConnect({
       </button>
       {qrDataUrl ? (
         <div className="qr-block">
-          <p className="hint">手机扫码查看 apiBase + classId（离线本地生成）</p>
-          <img src={qrDataUrl} alt="学生机配置二维码" width={220} height={220} />
+          <p className="hint">{t('手机扫码查看 apiBase + classId（离线本地生成）')}</p>
+          <img src={qrDataUrl} alt={t('学生机配置二维码')} width={220} height={220} />
         </div>
       ) : null}
       <p className="hint">
@@ -179,7 +180,7 @@ export function ClassroomConnect({
       <p className="hint">
         打本教室安装包：
         <code>
-          node scripts/pack-classroom-config.mjs --apiBase {apiBase || 'http://教师IP:8787'} --classId{' '}
+          node scripts/pack-classroom-config.mjs --apiBase {apiBase || t('http://教师IP:8787')} --classId{' '}
           {classId || '<id>'}
         </code>
       </p>

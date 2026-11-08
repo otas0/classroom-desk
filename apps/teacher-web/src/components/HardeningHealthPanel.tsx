@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { GITHUB_RELEASES_BASE } from '@classroom-desk/shared';
 import { api } from '../api';
+import { t } from '@classroom-desk/i18n';
 
 type HealthBody = {
   ok?: boolean;
@@ -55,7 +56,7 @@ export function HardeningHealthPanel({ classId }: { classId: string }) {
       setHealth(h);
     } catch (e) {
       setHealth(null);
-      setHealthErr(e instanceof Error ? e.message : '无法读取 /health');
+      setHealthErr(e instanceof Error ? e.message : t('无法读取 /health'));
     }
     try {
       const u = await api<{ tipTemplate?: string }>('/api/v1/upgrades');
@@ -93,31 +94,31 @@ export function HardeningHealthPanel({ classId }: { classId: string }) {
       setItems([]);
       setHardenedCount(0);
       setUnhardenedCount(0);
-      setPresenceErr(e instanceof Error ? e.message : 'presence 加载失败');
+      setPresenceErr(e instanceof Error ? e.message : t('presence 加载失败'));
     }
     setBusy(false);
   }
 
   useEffect(() => {
     void load();
-    const t = window.setInterval(() => void load(), 20_000);
-    return () => window.clearInterval(t);
+    const _cdTimer = window.setInterval(() => void load(), 20_000);
+    return () => window.clearInterval(_cdTimer);
   }, [classId]);
 
   async function copyUnhardenedTip() {
     setCopyMsg('');
     setCopyFallback('');
     if (!unhardenedRows.length) {
-      setCopyMsg('当前无未加固在线机位');
+      setCopyMsg(t('当前无未加固在线机位'));
       return;
     }
-    const ver = expected || '（见教师机 /health）';
+    const ver = expected || t('（见教师机 /health）');
     const lines = [
       `【Classroom Desk 加固 / 升级提示】学生端期望 v${ver}`,
       lanTip || `下载：${GITHUB_RELEASES_BASE}/tag/v${ver}`,
-      '请学校 IT 配置 Assigned Access / Intune（见 docs/EXIT_LOCK_MDM.md）；勿写隐蔽 Run 键。',
+      t('请学校 IT 配置 Assigned Access / Intune（见 docs/EXIT_LOCK_MDM.md）；勿写隐蔽 Run 键。'),
       '',
-      '未加固在线机位（真实 presence）：',
+      t('未加固在线机位（真实 presence）：'),
       ...unhardenedRows.map((r) => {
         const seat = r.seatLabel ? ` · 座 ${r.seatLabel}` : '';
         const verNow = r.clientVersion ? ` · v${r.clientVersion}` : '';
@@ -129,7 +130,7 @@ export function HardeningHealthPanel({ classId }: { classId: string }) {
       await navigator.clipboard.writeText(text);
       setCopyMsg(`已复制 ${unhardenedRows.length} 台未加固机位提示`);
     } catch {
-      setCopyMsg('剪贴板不可用，请手动选择下方文本');
+      setCopyMsg(t('剪贴板不可用，请手动选择下方文本'));
       setCopyFallback(text);
     }
   }
@@ -203,13 +204,13 @@ export function HardeningHealthPanel({ classId }: { classId: string }) {
 
   return (
     <section data-testid="hardening-health-panel">
-      <h2>加固体检</h2>
+      <h2>{t('加固体检')}</h2>
       <p className="hint">
         读取服务 <code>/health</code> 与本班学生 presence 的 Assigned Access / MDM 信号汇总。空班显示真实空状态；不写假机位。
       </p>
       <div className="row">
         <button type="button" disabled={busy} onClick={() => void load()}>
-          {busy ? '刷新中…' : '刷新'}
+          {busy ? t('刷新中…') : t('刷新')}
         </button>
         <button
           type="button"
@@ -241,7 +242,7 @@ export function HardeningHealthPanel({ classId }: { classId: string }) {
             readOnly
             rows={8}
             value={copyFallback}
-            aria-label="加固提示全文（剪贴板不可用时手动复制）"
+            aria-label={t('加固提示全文（剪贴板不可用时手动复制）')}
             style={{ width: '100%', fontFamily: 'inherit', fontSize: '0.9rem' }}
             onFocus={(e) => e.currentTarget.select()}
           />
@@ -263,7 +264,7 @@ export function HardeningHealthPanel({ classId }: { classId: string }) {
         </div>
       ) : null}
 
-      <h3>服务 /health</h3>
+      <h3>{t('服务 /health')}</h3>
       {healthErr ? (
         <p className="error" role="alert">
           {healthErr}
@@ -271,7 +272,7 @@ export function HardeningHealthPanel({ classId }: { classId: string }) {
       ) : health ? (
         <ul className="hint" data-testid="hardening-health-summary">
           <li>
-            状态：{health.ok ? 'ok' : '异常'}
+            状态：{health.ok ? 'ok' : t('异常')}
             {health.degraded ? '（degraded）' : ''}
           </li>
           <li>服务版本：{health.version || '—'}</li>
@@ -281,13 +282,13 @@ export function HardeningHealthPanel({ classId }: { classId: string }) {
           <li>时间：{health.time || '—'}</li>
         </ul>
       ) : (
-        <p className="hint">尚未拉取 /health</p>
+        <p className="hint">{t('尚未拉取 /health')}</p>
       )}
 
-      <h3>本班加固信号（presence）</h3>
+      <h3>{t('本班加固信号（presence）')}</h3>
       {!classId ? (
         <p className="hint" data-testid="hardening-need-class">
-          请先选择班级
+          {t('请先选择班级')}
         </p>
       ) : presenceErr ? (
         <p className="error" role="alert">
@@ -306,11 +307,11 @@ export function HardeningHealthPanel({ classId }: { classId: string }) {
             <table>
               <thead>
                 <tr>
-                  <th>学生</th>
-                  <th>座位</th>
-                  <th>版本</th>
-                  <th>加固</th>
-                  <th>最近心跳</th>
+                  <th>{t('学生')}</th>
+                  <th>{t('座位')}</th>
+                  <th>{t('版本')}</th>
+                  <th>{t('加固')}</th>
+                  <th>{t('最近心跳')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -322,7 +323,7 @@ export function HardeningHealthPanel({ classId }: { classId: string }) {
                     </td>
                     <td>{i.seatLabel || '—'}</td>
                     <td>{i.clientVersion || '—'}</td>
-                    <td>{i.hardened ? '是' : '否'}</td>
+                    <td>{i.hardened ? t('是') : t('否')}</td>
                     <td>{i.lastSeenAt ? new Date(i.lastSeenAt).toLocaleString() : '—'}</td>
                   </tr>
                 ))}
