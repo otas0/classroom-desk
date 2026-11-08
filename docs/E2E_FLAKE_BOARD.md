@@ -5,7 +5,7 @@
 | 规格 | 症状 | 缓解（已合入） | 再观察至 | 备注 |
 |---|---|---|---|---|
 | `e2e/audit-jump-highlight.spec.ts` | 首跑偶发无 `cd-audit-jump-hl`；e2e-full 偶发 retry | 班级+action 过滤；mount-once `consumeAuditJumpIds`；`scheduleClear` **20s**；hl assert timeout **20s**；nightly `audit-jump-smoke` `CD_E2E_RETRIES=0` | 2026-11-14 | **未删行**。删行条件见下「分开计数」。 |
-| `e2e/hardening-health.spec.ts`（助教 expiresAt） | cron `42411002869`：只读仍「未绑定」；SSE 未更新 | serial + 登录后再 bind + 断言 API `inputLockExpiresAt`；去掉 reload 竞态 | 2026-11-14 | Issue [#5](https://github.com/otas0/classroom-desk/issues/5)；**勿 dispatch 凑绿** |
+| `e2e/hardening-health.spec.ts`（助教 expiresAt） | cron `42411002869`：只读仍「未绑定」；SSE 未更新 | serial + 登录后再 bind + 断言 API `inputLockExpiresAt`；去掉 reload 竞态（**#6 已合 main**） | 2026-11-14 | Issue [#5](https://github.com/otas0/classroom-desk/issues/5)；**勿 dispatch 凑绿**；下次红优先看 expiresAt / `questions-shift-select` |
 
 ## 分开计数：cron vs workflow_dispatch
 
@@ -28,7 +28,7 @@ npm run check:nightly-flake -- --md
 | `dispatchStreak` | 仅 `workflow_dispatch` 连续 success（参考，**勿用于删行**） |
 | `anyStreak` | 混跑连续 success（参考） |
 
-截至 2026-11-08（#4 已合 main）：`cronStreak=0`（未到 11-14）。最近一次 **`schedule` 红**：`42411002869`（Issue #5）。workflow 仍 **active**，cron `30 16 * * *`（UTC）。**禁止**再 `workflow_dispatch` 凑数。
+截至 2026-11-08（#4/#6/#7 已合 main）：`cronStreak=0`（未到 11-14）。最近一次 **`schedule` 红**：`42411002869`（Issue #5）。workflow 仍 **active**，cron `30 16 * * *`（UTC ≈ 次日 00:30 CST）。**禁止**再 `workflow_dispatch` 凑数；Issue #5 等连续 `schedule` 绿后再关。
 
 ## 操作
 
