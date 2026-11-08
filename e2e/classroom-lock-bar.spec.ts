@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { loginTeacherWeb } from './helpers/teacherLogin';
+import { loginTeacherWeb } from './helpers/teacherWebLogin';
 
 test.describe('classroom lock quick bar', () => {
   test('session page shows lock shortcuts for current class', async ({ page, request }) => {

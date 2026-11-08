@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { loginTeacherWeb } from './helpers/teacherLogin';
+import { loginTeacherWeb } from './helpers/teacherWebLogin';
 
 const API = process.env.API_BASE ?? 'http://127.0.0.1:8787';
 
