@@ -6,6 +6,9 @@ import { ensureTeacherPasswordReady, TEACHER_USER } from './helpers/teacherLogin
 const API = process.env.API_BASE ?? 'http://127.0.0.1:8787';
 
 test.describe('hardening health panel', () => {
+  // TTL/SSE assistant cases share global inputLock store — isolate from parallel clearAll.
+  test.describe.configure({ mode: 'serial' });
+
   test('empty class shows presence empty + AA export filename', async ({ page, request }) => {
     const { password } = await loginTeacherWeb(page, request);
     const login = await request.post(`${API}/api/v1/auth/login`, {
@@ -197,8 +200,10 @@ test.describe('hardening health panel', () => {
     expect(created.ok()).toBeTruthy();
 
     await loginStaffWeb(page, user, pass);
-    // Re-bind after parallel suites may clearAll; then open settings.
-    await request.patch(`${API}/api/v1/settings`, {
+    await page.locator('aside').getByRole('button', { name: '设置', exact: true }).click();
+    await expect(page.getByTestId('input-lock-readonly')).toBeVisible({ timeout: 15_000 });
+    // Re-bind after login (parallel clearAll) — avoid reload wipe race; wait via SSE/poll.
+    const bind = await request.patch(`${API}/api/v1/settings`, {
       headers: auth,
       data: {
         inputLock: {
@@ -207,11 +212,13 @@ test.describe('hardening health panel', () => {
         },
       },
     });
-    await page.locator('aside').getByRole('button', { name: '设置', exact: true }).click();
-    await expect(page.getByTestId('input-lock-readonly')).toBeVisible({ timeout: 15_000 });
-    await page.reload({ waitUntil: 'domcontentloaded' });
-    await page.locator('aside').getByRole('button', { name: '设置', exact: true }).click();
+    expect(bind.ok()).toBeTruthy();
+    const bindBody = (await bind.json()) as { inputLockExpiresAt?: string | null };
+    expect(bindBody.inputLockExpiresAt).toBeTruthy();
     await expect(page.getByTestId('input-lock-expires-readonly')).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId('input-lock-expires-readonly')).not.toContainText('未绑定', {
+      timeout: 15_000,
+    });
     await expect(page.getByTestId('input-lock-expires-readonly')).toContainText(/\d/);
   });
 
@@ -262,7 +269,7 @@ test.describe('hardening health panel', () => {
     await expect(page.getByTestId('input-lock-expires-readonly')).toBeVisible({ timeout: 15_000 });
     await expect(page.getByTestId('input-lock-expires-readonly')).toContainText('未绑定');
 
-    await request.patch(`${API}/api/v1/settings`, {
+    const bind = await request.patch(`${API}/api/v1/settings`, {
       headers: auth,
       data: {
         inputLock: {
@@ -271,9 +278,11 @@ test.describe('hardening health panel', () => {
         },
       },
     });
+    expect(bind.ok()).toBeTruthy();
+    expect(((await bind.json()) as { inputLockExpiresAt?: string | null }).inputLockExpiresAt).toBeTruthy();
 
     await expect(page.getByTestId('input-lock-expires-readonly')).not.toContainText('未绑定', {
-      timeout: 12_000,
+      timeout: 15_000,
     });
   });
 
