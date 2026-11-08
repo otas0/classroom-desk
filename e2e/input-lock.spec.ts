@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { ensureTeacherPasswordReady, TEACHER_USER } from './helpers/teacherLogin';
 import { loginStaffWeb, loginTeacherWeb } from './helpers/teacherWebLogin';
-import { openPrepTab, selectTeacherClass } from './helpers/navPrep';
+import { openInputLockAdvanced, openPrepTab, selectTeacherClass } from './helpers/navPrep';
 
 const API = process.env.API_BASE ?? 'http://127.0.0.1:8787';
 const STUDENT_WEB = process.env.STUDENT_WEB ?? 'http://127.0.0.1:5173';
@@ -44,6 +44,7 @@ test.describe('physical input lock', () => {
 
     await openPrepTab(page, '设置');
     await expect(page.getByTestId('input-lock-controls')).toBeVisible({ timeout: 15_000 });
+    await openInputLockAdvanced(page);
     await expect(page.getByTestId('input-lock-scope')).toBeVisible();
     await page.getByTestId('input-lock-keyboard').check();
     await page.getByTestId('input-lock-camera').check();
@@ -525,6 +526,7 @@ test.describe('physical input lock', () => {
     await page.reload({ waitUntil: 'domcontentloaded' });
     await openPrepTab(page, '设置');
     await expect(page.getByTestId('input-lock-controls')).toBeVisible({ timeout: 15_000 });
+    await openInputLockAdvanced(page);
 
     await page.getByTestId('input-lock-none').click();
     const modal = page.getByTestId('input-lock-clear-all-confirm');

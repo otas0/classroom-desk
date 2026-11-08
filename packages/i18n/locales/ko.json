@@ -549,5 +549,8 @@
   "Tesseract CDN 加载失败": "Tesseract CDN을 불러오지 못했습니다",
   "WebSocket 不可用": "WebSocket을 사용할 수 없습니다",
   "WebSocket 断开": "WebSocket 연결이 끊겼습니다",
-  "WebSocket 关闭": "WebSocket이 닫혔습니다"
+  "WebSocket 关闭": "WebSocket이 닫혔습니다",
+  "未选班级时快捷锁作用于全校；选班后默认只锁本班。": "반을 선택하지 않으면 퀵 잠금이 전교에 적용되고, 선택하면 해당 반만 잠급니다.",
+  "已锁全校键鼠": "전교 키/마우스를 잠갔습니다",
+  "已解除全校输入锁": "전교 입력 잠금을 해제했습니다"
 }

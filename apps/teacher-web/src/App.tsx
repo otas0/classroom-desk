@@ -136,6 +136,10 @@ export function App() {
         behavior: 'smooth',
         block: 'start',
       });
+      const advanced = document.querySelector(
+        '[data-testid="input-lock-advanced"]',
+      ) as HTMLDetailsElement | null;
+      if (advanced) advanced.open = true;
     });
   }
 

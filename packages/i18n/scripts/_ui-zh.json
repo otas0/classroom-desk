@@ -549,5 +549,8 @@
   "Tesseract CDN 加载失败",
   "WebSocket 不可用",
   "WebSocket 断开",
-  "WebSocket 关闭"
+  "WebSocket 关闭",
+  "未选班级时快捷锁作用于全校；选班后默认只锁本班。",
+  "已锁全校键鼠",
+  "已解除全校输入锁"
 ]

@@ -549,5 +549,8 @@
   "Tesseract CDN 加载失败": "Failed to load the Tesseract CDN",
   "WebSocket 不可用": "WebSocket is unavailable",
   "WebSocket 断开": "WebSocket disconnected",
-  "WebSocket 关闭": "WebSocket closed"
+  "WebSocket 关闭": "WebSocket closed",
+  "未选班级时快捷锁作用于全校；选班后默认只锁本班。": "With no class selected, quick lock applies school-wide; with a class, it locks that class only.",
+  "已锁全校键鼠": "Keyboard/mouse locked school-wide",
+  "已解除全校输入锁": "School-wide input locks cleared"
 }

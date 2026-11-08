@@ -67,16 +67,17 @@ export function ClassroomLockBar({
   }, [refresh]);
 
   function patch(next: LockFlags, label: string) {
-    if (readonly || !classId) return;
+    if (readonly) return;
     setBusy(true);
     setFlags(next);
+    const scope = classId.trim() ? 'class' : 'global';
     void api<{ inputLock?: Partial<LockFlags> }>('/api/v1/settings', {
       method: 'PATCH',
       body: JSON.stringify({
         inputLock: {
           ...next,
-          scope: 'class',
-          classId,
+          scope,
+          classId: scope === 'class' ? classId : undefined,
         },
       }),
     })
@@ -100,15 +101,18 @@ export function ClassroomLockBar({
   }
 
   function lockKm() {
-    patch({ ...flags, keyboard: true, mouse: true }, t('已锁本班键鼠'));
+    patch(
+      { ...flags, keyboard: true, mouse: true },
+      classId.trim() ? t('已锁本班键鼠') : t('已锁全校键鼠'),
+    );
   }
 
   function unlockAllFeatures() {
-    patch(EMPTY, t('已解除本班输入锁'));
+    patch(EMPTY, classId.trim() ? t('已解除本班输入锁') : t('已解除全校输入锁'));
   }
 
   function examMode(on: boolean) {
-    if (readonly || !classId) return;
+    if (readonly) return;
     if (on && !window.confirm(t('开启考试模式？将锁定键鼠语音相机，并重新锁定学生端退出。'))) {
       return;
     }
@@ -117,7 +121,7 @@ export function ClassroomLockBar({
       method: 'PATCH',
       body: JSON.stringify({
         examMode: on,
-        examModeClassId: classId,
+        examModeClassId: classId.trim() || '',
       }),
     })
       .then(async () => {
@@ -138,83 +142,80 @@ export function ClassroomLockBar({
           {t('对本班学生端一键开关。默认只锁当前班级；指定机位/全校请用高级选项。')}
         </p>
       </div>
-      {!classId ? (
-        <p className="hint">{t('请先选择班级')}</p>
-      ) : (
-        <>
-          <div className="classroom-lock-actions row">
-            <button
-              type="button"
-              data-testid="lock-quick-km"
-              disabled={busy || readonly}
-              onClick={() => lockKm()}
-            >
-              {t('锁键鼠')}
-            </button>
-            <button
-              type="button"
-              data-testid="lock-quick-exam"
-              disabled={busy || readonly || examSnap}
-              onClick={() => examMode(true)}
-            >
-              {t('考试模式')}
-            </button>
-            <button
-              type="button"
-              className="secondary"
-              data-testid="lock-quick-unlock"
-              disabled={busy || readonly || (!anyLocked && !examSnap)}
-              onClick={() => {
-                if (examSnap) examMode(false);
-                else unlockAllFeatures();
-              }}
-            >
-              {examSnap ? t('结束考试') : t('全部解除')}
-            </button>
-          </div>
-          <div className="chip-row classroom-lock-chips" role="group" aria-label={t('锁定功能')}>
-            {FEATURES.map((f) => (
-              <button
-                key={f.key}
-                type="button"
-                className={`chip${flags[f.key] ? ' active-chip lock-on' : ''}`}
-                data-testid={f.testId}
-                disabled={busy || readonly}
-                aria-pressed={flags[f.key]}
-                onClick={() => toggle(f.key)}
-              >
-                {t(f.label)}
-                {flags[f.key] ? ` · ${t('锁')}` : ` · ${t('开')}`}
-              </button>
-            ))}
-          </div>
-          <p className="hint" data-testid="classroom-lock-status">
-            {examSnap
-              ? t('状态：考试模式中')
-              : anyLocked
-                ? `${t('状态：已锁')} ${FEATURES.filter((f) => flags[f.key])
-                    .map((f) => t(f.label))
-                    .join(' / ')}`
-                : t('状态：未锁定')}
-            {readonly ? ` · ${t('助教只读')}` : ''}
-          </p>
-          {msg ? (
-            <p className="hint" data-testid="classroom-lock-msg">
-              {msg}
-            </p>
-          ) : null}
-          {onOpenAdvanced ? (
-            <button
-              type="button"
-              className="linkish"
-              data-testid="lock-open-advanced"
-              onClick={onOpenAdvanced}
-            >
-              {t('高级：机位 / 全校 / 课次到期…')}
-            </button>
-          ) : null}
-        </>
-      )}
+      {!classId.trim() ? (
+        <p className="hint">{t('未选班级时快捷锁作用于全校；选班后默认只锁本班。')}</p>
+      ) : null}
+      <div className="classroom-lock-actions row">
+        <button
+          type="button"
+          data-testid="lock-quick-km"
+          disabled={busy || readonly}
+          onClick={() => lockKm()}
+        >
+          {t('锁键鼠')}
+        </button>
+        <button
+          type="button"
+          data-testid="lock-quick-exam"
+          disabled={busy || readonly || examSnap}
+          onClick={() => examMode(true)}
+        >
+          {t('考试模式')}
+        </button>
+        <button
+          type="button"
+          className="secondary"
+          data-testid="lock-quick-unlock"
+          disabled={busy || readonly || (!anyLocked && !examSnap)}
+          onClick={() => {
+            if (examSnap) examMode(false);
+            else unlockAllFeatures();
+          }}
+        >
+          {examSnap ? t('结束考试') : t('全部解除')}
+        </button>
+      </div>
+      <div className="chip-row classroom-lock-chips" role="group" aria-label={t('锁定功能')}>
+        {FEATURES.map((f) => (
+          <button
+            key={f.key}
+            type="button"
+            className={`chip${flags[f.key] ? ' active-chip lock-on' : ''}`}
+            data-testid={f.testId}
+            disabled={busy || readonly}
+            aria-pressed={flags[f.key]}
+            onClick={() => toggle(f.key)}
+          >
+            {t(f.label)}
+            {flags[f.key] ? ` · ${t('锁')}` : ` · ${t('开')}`}
+          </button>
+        ))}
+      </div>
+      <p className="hint" data-testid="classroom-lock-status">
+        {examSnap
+          ? t('状态：考试模式中')
+          : anyLocked
+            ? `${t('状态：已锁')} ${FEATURES.filter((f) => flags[f.key])
+                .map((f) => t(f.label))
+                .join(' / ')}`
+            : t('状态：未锁定')}
+        {readonly ? ` · ${t('助教只读')}` : ''}
+      </p>
+      {msg ? (
+        <p className="hint" data-testid="classroom-lock-msg">
+          {msg}
+        </p>
+      ) : null}
+      {onOpenAdvanced ? (
+        <button
+          type="button"
+          className="linkish"
+          data-testid="lock-open-advanced"
+          onClick={onOpenAdvanced}
+        >
+          {t('高级：机位 / 全校 / 课次到期…')}
+        </button>
+      ) : null}
     </section>
   );
 }
