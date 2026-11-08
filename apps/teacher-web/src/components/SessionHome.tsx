@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { API_BASE, api, getToken } from '../api';
 import { POINT_REASON_CHIPS } from '../types';
+import { ClassroomLockBar } from './ClassroomLockBar';
 import { LiveBoard } from './LiveBoard';
 import { t } from '@classroom-desk/i18n';
 
@@ -18,12 +19,14 @@ export function SessionHome({
   onGoPrep,
   onGoAssign,
   onSetupChanged,
+  onOpenLockAdvanced,
 }: {
   classId: string;
   onEnterProjection: () => void;
   onGoPrep?: () => void;
   onGoAssign?: () => void;
   onSetupChanged?: () => void;
+  onOpenLockAdvanced?: () => void;
 }) {
   const [kind, setKind] = useState<'bool' | 'blank'>('bool');
   const [boolCorrect, setBoolCorrect] = useState<'A' | 'B'>('A');
@@ -375,6 +378,7 @@ export function SessionHome({
         ) : null}
       </div>
       {sessionMsg ? <p className="hint">{sessionMsg}</p> : null}
+      <ClassroomLockBar classId={classId} onOpenAdvanced={onOpenLockAdvanced} />
       {buzzRound ? (
         <section>
           <h2>抢答器 · {buzzRound.status === 'open' ? t('进行中') : t('已结束')}</h2>

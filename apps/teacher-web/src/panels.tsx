@@ -43,6 +43,7 @@ import {
   t,
   type UiLocale,
 } from '@classroom-desk/i18n';
+import { ClassroomLockBar } from './components/ClassroomLockBar';
 
 export function RosterPanel({
   classId,
@@ -5438,9 +5439,9 @@ export function SettingsPanel({
           ) : null}
           <h4 id="input-lock-settings">{t('物理输入锁')}</h4>
           <p className="hint">
-            上课时可由教师关闭学生端键鼠点击、语音与摄像头采集。可按全局 / 当前班级 / 机位作用；学生端醒目提示。机位锁主键为座位图{' '}
-            <code>seat_map.id</code>（非学号）。仅限制本应用，不能代替 Assigned Access。须事先告知学生。
+            {t('上课页也有同样的快捷锁定。这里可改范围（全校/机位）与课次到期。仅限制本应用，不能代替 Assigned Access。')}
           </p>
+          <ClassroomLockBar classId={currentTeacherClassId()} />
           {isAssistant() ? (
             <div data-testid="input-lock-readonly">
               <p className="hint">
@@ -5485,6 +5486,8 @@ export function SettingsPanel({
             </div>
           ) : (
             <div className="card" data-testid="input-lock-controls">
+              <details className="lock-advanced" data-testid="input-lock-advanced">
+                <summary>{t('高级选项（范围 / 机位 / 课次到期）')}</summary>
           <label>
                 {t('作用范围')}
                 <select
@@ -5793,6 +5796,7 @@ export function SettingsPanel({
                   {t('解除考试模式')}
                 </button>
               </div>
+              </details>
             </div>
           )}
 
