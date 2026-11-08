@@ -228,7 +228,8 @@ jobs:
           set +e
           # Cost note: global retries=1 doubles flaky wall time across full suite;
           # keep retries scoped to rbac/session-kick which hit auth races more often.
-          npx playwright test --retries=1 \
+          # Shared settings DB (uiLocale / inputLock): keep workers=1 for this gate.
+          npx playwright test --retries=1 --workers=1 \
             e2e/assistant-rbac.spec.ts \
             e2e/assistants-sse.spec.ts \
             e2e/buzz-ws.spec.ts \
@@ -241,8 +242,8 @@ jobs:
             e2e/exit-lock-toast.spec.ts \
             e2e/exit-lock-blocked-close.spec.ts \
             e2e/input-lock.spec.ts \
-            e2e/ui-locale.spec.ts \
-            e2e/classroom-lock-bar.spec.ts
+            e2e/classroom-lock-bar.spec.ts \
+            e2e/ui-locale.spec.ts
           code=$?
           {
             echo "### e2e suite: rbac"

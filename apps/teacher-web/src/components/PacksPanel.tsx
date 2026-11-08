@@ -67,7 +67,7 @@ export function PacksPanel({
     a.download = `question-pack-${classId.slice(0, 8)}.json`;
     a.click();
     URL.revokeObjectURL(a.href);
-    setMsg(`已下载 ${a.download}`);
+    setMsg(t('已下载 {v0}', { v0: a.download }));
   }
 
   async function importFile(file: File | null) {
@@ -78,7 +78,7 @@ export function PacksPanel({
       method: 'POST',
       body: JSON.stringify({ classId, pack, publish: true }),
     });
-    setMsg(`已导入 ${r.created} 题`);
+    setMsg(t('已导入 {v0} 题', { v0: r.created }));
   }
 
   async function fromErrors() {
@@ -91,7 +91,7 @@ export function PacksPanel({
       method: 'POST',
       body: JSON.stringify({ classId, pack: r.pack, publish: true }),
     });
-    setMsg(`错题再练包已下发 ${imp.created} 题`);
+    setMsg(t('错题再练包已下发 {v0} 题', { v0: imp.created }));
   }
 
   async function parentShare() {
@@ -101,7 +101,11 @@ export function PacksPanel({
       body: JSON.stringify({ classId, month }),
     });
     setShareUrl(r.url);
-    setMsg(`家长月报链接已生成，过期 ${new Date(r.expiresAt).toLocaleString()}`);
+    setMsg(
+      t('家长月报链接已生成，过期 {v0}', {
+        v0: new Date(r.expiresAt).toLocaleString(),
+      }),
+    );
   }
 
   function pdfUrlFromShare(url: string): string {
@@ -120,7 +124,11 @@ export function PacksPanel({
       const result = await T.recognize(file, 'chi_sim+eng');
       const text = (result.data?.text ?? '').trim();
       persistDraft(ocrDraft ? `${ocrDraft}\n\n${text}` : text);
-      setMsg(`OCR 完成 · ${text.length} 字（本地 Tesseract）。可到「上课 → 快速发题」自动填入。`);
+      setMsg(
+        t('OCR 完成 · {v0} 字（本地 Tesseract）。可到「上课 → 快速发题」自动填入。', {
+          v0: text.length,
+        }),
+      );
     } catch (e) {
       setMsg(e instanceof Error ? e.message : t('OCR 失败'));
     } finally {

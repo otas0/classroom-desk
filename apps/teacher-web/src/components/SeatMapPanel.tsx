@@ -111,7 +111,7 @@ export function SeatMapPanel({ classId }: { classId: string }) {
       method: 'PUT',
       body: JSON.stringify({ rows, cols }),
     });
-    setMsg(`已生成 ${rows}×${cols} 座位`);
+    setMsg(t('已生成 {v0}×{v1} 座位', { v0: rows, v1: cols }));
     await load();
   }
 
@@ -126,7 +126,9 @@ export function SeatMapPanel({ classId }: { classId: string }) {
       );
       setSelected(null);
       if (r.message) setMsg(r.message);
-      else if (r.clearedFromLabel) setMsg(`已从 ${r.clearedFromLabel} 移开（同班一人一座）`);
+      else if (r.clearedFromLabel) {
+        setMsg(t('已从 {v0} 移开（同班一人一座）', { v0: r.clearedFromLabel }));
+      }
       await load();
     } catch (e) {
       flashShake([seatId], seatFailMessage(e, 'bind'));
@@ -188,7 +190,13 @@ export function SeatMapPanel({ classId }: { classId: string }) {
       `/api/v1/classes/${classId}/seats/snake-fill`,
       { method: 'POST', body: '{}' },
     );
-    setMsg(`蛇形落座 ${r.seated}/${r.roster}（网格 ${r.seats}）`);
+    setMsg(
+      t('蛇形落座 {v0}/{v1}（网格 {v2}）', {
+        v0: r.seated,
+        v1: r.roster,
+        v2: r.seats,
+      }),
+    );
     await load();
   }
 

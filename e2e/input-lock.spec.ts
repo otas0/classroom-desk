@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test';
 import { ensureTeacherPasswordReady, TEACHER_USER } from './helpers/teacherLogin';
 import { loginStaffWeb, loginTeacherWeb } from './helpers/teacherWebLogin';
 import { openInputLockAdvanced, openPrepTab, selectTeacherClass } from './helpers/navPrep';
+import { resetUiLocaleZhCN } from './helpers/uiLocale';
 
 const API = process.env.API_BASE ?? 'http://127.0.0.1:8787';
 const STUDENT_WEB = process.env.STUDENT_WEB ?? 'http://127.0.0.1:5173';
@@ -27,6 +28,7 @@ test.describe('physical input lock', () => {
       headers: { Authorization: `Bearer ${token}` },
       data: {
         inputLock: { clearAll: true },
+        uiLocale: 'zh-CN',
       },
     });
   });

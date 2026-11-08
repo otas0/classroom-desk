@@ -552,5 +552,22 @@
   "WebSocket 关闭": "WebSocket closed",
   "未选班级时快捷锁作用于全校；选班后默认只锁本班。": "With no class selected, quick lock applies school-wide; with a class, it locks that class only.",
   "已锁全校键鼠": "Keyboard/mouse locked school-wide",
-  "已解除全校输入锁": "School-wide input locks cleared"
+  "已解除全校输入锁": "School-wide input locks cleared",
+  "随机点名（池 {v0}，优先在线）· {v1}": "Random call (pool {v0}, online first) · {v1}",
+  "抽到：{v0}": "Picked: {v0}",
+  "已收卷 {v0} 题": "Closed {v0} question(s)",
+  "已给抢答第一名 +{v0}": "Awarded first buzz +{v0}",
+  "已给 {v0} +{v1}（{v2}）": "Gave {v0} +{v1} ({v2})",
+  "已生成 {v0}×{v1} 座位": "Created {v0}×{v1} seats",
+  "已从 {v0} 移开（同班一人一座）": "Moved off {v0} (one seat per student)",
+  "蛇形落座 {v0}/{v1}（网格 {v2}）": "Snake-seated {v0}/{v1} (grid {v2})",
+  "已下载 {v0}": "Downloaded {v0}",
+  "已导入 {v0} 题": "Imported {v0} question(s)",
+  "错题再练包已下发 {v0} 题": "Error-drill pack published · {v0} question(s)",
+  "家长月报链接已生成，过期 {v0}": "Parent monthly report link ready, expires {v0}",
+  "OCR 完成 · {v0} 字（本地 Tesseract）。可到「上课 → 快速发题」自动填入。": "OCR done · {v0} chars (local Tesseract). Open Session → Quick publish to autofill.",
+  "已添加 {v0}": "Added {v0}",
+  "已导出选中 {v0} 人": "Exported {v0} selected student(s)",
+  "为选中的 {v0} 人学号加上前缀「{v1}」？": "Prefix student numbers for {v0} selected with “{v1}”?",
+  "清空选中的 {v0} 人学号？": "Clear student numbers for {v0} selected?"
 }

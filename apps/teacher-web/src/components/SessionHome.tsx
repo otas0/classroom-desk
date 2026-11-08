@@ -191,7 +191,12 @@ export function SessionHome({
         body: JSON.stringify({ classId, preferOnline: true }),
       });
       setPicked(r.student);
-      setAwardMsg(`随机点名（池 ${r.poolSize}，优先在线）· ${r.student.displayName}`);
+      setAwardMsg(
+        t('随机点名（池 {v0}，优先在线）· {v1}', {
+          v0: r.poolSize,
+          v1: r.student.displayName,
+        }),
+      );
       setAwardReason(t('随机点名'));
     } catch {
       if (students.length === 0) {
@@ -201,7 +206,7 @@ export function SessionHome({
       }
       const row = students[Math.floor(Math.random() * students.length)]!;
       setPicked(row);
-      setAwardMsg(`抽到：${row.displayName}`);
+      setAwardMsg(t('抽到：{v0}', { v0: row.displayName }));
     }
   }
 
@@ -214,7 +219,7 @@ export function SessionHome({
         body: JSON.stringify({ classId }),
       });
       setBoardKey((k) => k + 1);
-      setSessionMsg(`已收卷 ${r.closedQuestions} 题`);
+      setSessionMsg(t('已收卷 {v0} 题', { v0: r.closedQuestions }));
     } catch (e) {
       setSessionMsg(e instanceof Error ? e.message : t('重置失败'));
     }
@@ -309,7 +314,7 @@ export function SessionHome({
         method: 'POST',
         body: JSON.stringify({ roundId: buzzRound.id, points: awardPts }),
       });
-      setSessionMsg(`已给抢答第一名 +${awardPts}`);
+      setSessionMsg(t('已给抢答第一名 +{v0}', { v0: awardPts }));
       await refreshBuzz();
     } catch (e) {
       setSessionMsg(e instanceof Error ? e.message : t('加分失败'));
@@ -328,7 +333,13 @@ export function SessionHome({
           reasonSummary: awardReason.trim() || t('课堂抽答'),
         }),
       });
-      setAwardMsg(`已给 ${picked.displayName} +${awardPts}（${awardReason.trim() || t('课堂抽答')}）`);
+      setAwardMsg(
+        t('已给 {v0} +{v1}（{v2}）', {
+          v0: picked.displayName,
+          v1: awardPts,
+          v2: awardReason.trim() || t('课堂抽答'),
+        }),
+      );
     } catch (e) {
       setAwardMsg(e instanceof Error ? e.message : t('加分失败'));
     }

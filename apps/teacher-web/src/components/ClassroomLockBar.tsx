@@ -39,16 +39,23 @@ export function ClassroomLockBar({
   const refresh = useCallback(async () => {
     const s = await api<{
       inputLock?: Partial<LockFlags>;
+      inputLockStore?: {
+        global?: Partial<LockFlags>;
+        byClass?: Record<string, Partial<LockFlags>>;
+      };
       examModeSnapshot?: boolean;
     }>('/api/v1/settings');
+    const cid = classId.trim();
+    const classFlags = cid ? s.inputLockStore?.byClass?.[cid] : undefined;
+    const src = classFlags ?? s.inputLockStore?.global ?? s.inputLock;
     setFlags({
-      keyboard: Boolean(s.inputLock?.keyboard),
-      mouse: Boolean(s.inputLock?.mouse),
-      voice: Boolean(s.inputLock?.voice),
-      camera: Boolean(s.inputLock?.camera),
+      keyboard: Boolean(src?.keyboard),
+      mouse: Boolean(src?.mouse),
+      voice: Boolean(src?.voice),
+      camera: Boolean(src?.camera),
     });
     setExamSnap(Boolean(s.examModeSnapshot));
-  }, []);
+  }, [classId]);
 
   useEffect(() => {
     void refresh().catch(() => undefined);
@@ -71,7 +78,7 @@ export function ClassroomLockBar({
     setBusy(true);
     setFlags(next);
     const scope = classId.trim() ? 'class' : 'global';
-    void api<{ inputLock?: Partial<LockFlags> }>('/api/v1/settings', {
+    void api('/api/v1/settings', {
       method: 'PATCH',
       body: JSON.stringify({
         inputLock: {
@@ -81,16 +88,9 @@ export function ClassroomLockBar({
         },
       }),
     })
-      .then((r) => {
-        if (r.inputLock) {
-          setFlags({
-            keyboard: Boolean(r.inputLock.keyboard),
-            mouse: Boolean(r.inputLock.mouse),
-            voice: Boolean(r.inputLock.voice),
-            camera: Boolean(r.inputLock.camera),
-          });
-        }
+      .then(async () => {
         setMsg(label);
+        await refresh();
       })
       .catch((e) => setMsg(e instanceof Error ? e.message : t('输入锁保存失败')))
       .finally(() => setBusy(false));

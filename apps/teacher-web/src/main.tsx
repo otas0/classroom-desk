@@ -48,7 +48,7 @@ function Root() {
   }, [applyLocale]);
 
   return (
-    <I18nProvider locale={locale} key={locale}>
+    <I18nProvider locale={locale}>
       <ToastProvider>
         <App />
       </ToastProvider>

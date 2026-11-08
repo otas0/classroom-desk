@@ -159,7 +159,7 @@ export function RosterPanel({
       });
       setNewStudentName('');
       setNewStudentNo('');
-      setImportResult(`已添加 ${displayName}`);
+      setImportResult(t('已添加 {v0}', { v0: displayName }));
       await loadStudents();
       onRosterChanged?.();
     } catch (e) {
@@ -175,7 +175,7 @@ export function RosterPanel({
     }
     const row = pool[Math.floor(Math.random() * pool.length)]!;
     setPicked(row);
-    setAwardMsg(`抽到：${String(row.displayName)}`);
+    setAwardMsg(t('抽到：{v0}', { v0: String(row.displayName) }));
   }
 
   async function awardPicked() {
@@ -190,7 +190,13 @@ export function RosterPanel({
           reasonSummary: awardReason.trim() || t('课堂抽答'),
         }),
       });
-      setAwardMsg(`已给 ${String(picked.displayName)} +${awardPts}（${awardReason}）`);
+      setAwardMsg(
+        t('已给 {v0} +{v1}（{v2}）', {
+          v0: String(picked.displayName),
+          v1: awardPts,
+          v2: awardReason,
+        }),
+      );
       await loadStudents();
     } catch (e) {
       setAwardMsg(e instanceof Error ? e.message : t('加分失败'));
@@ -494,7 +500,7 @@ export function RosterPanel({
                   { classId, ids: [...selectedIds], format: 'xlsx' },
                   `students-selected.xlsx`,
                 );
-                toast.ok(`已导出选中 ${selectedIds.size} 人`);
+                toast.ok(t('已导出选中 {v0} 人', { v0: selectedIds.size }));
               } catch (e) {
                 toast.err(e instanceof Error ? e.message : t('导出失败'));
               } finally {
@@ -519,7 +525,14 @@ export function RosterPanel({
           disabled={bulkBusy || selectedIds.size === 0 || !allowDelete || !stuNoPrefix.trim()}
           onClick={() =>
             void (async () => {
-              if (!window.confirm(`为选中的 ${selectedIds.size} 人学号加上前缀「${stuNoPrefix.trim()}」？`)) {
+              if (
+                !window.confirm(
+                  t('为选中的 {v0} 人学号加上前缀「{v1}」？', {
+                    v0: selectedIds.size,
+                    v1: stuNoPrefix.trim(),
+                  }),
+                )
+              ) {
                 return;
               }
               setBulkBusy(true);
@@ -553,7 +566,7 @@ export function RosterPanel({
           disabled={bulkBusy || selectedIds.size === 0 || !allowDelete}
           onClick={() =>
             void (async () => {
-              if (!window.confirm(`清空选中的 ${selectedIds.size} 人学号？`)) return;
+              if (!window.confirm(t('清空选中的 {v0} 人学号？', { v0: selectedIds.size }))) return;
               setBulkBusy(true);
               try {
                 const r = await api<{ message?: string }>(

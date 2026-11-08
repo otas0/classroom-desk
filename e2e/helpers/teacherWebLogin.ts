@@ -16,23 +16,31 @@ export async function loginTeacherWeb(
   const password = await ensureTeacherPasswordReady(request);
   await page.goto(TEACHER_WEB);
 
-  const loginHeading = page.getByRole('heading', { name: /教师后台/ });
-  const sessionNav = page.locator('aside').getByRole('button', { name: '上课', exact: true });
-  const prepNav = page.locator('aside').getByRole('button', { name: '备课', exact: true });
+  const loginHeading = page.getByRole('heading', { name: /教师后台|Teacher console|教師後台|教師コンソール|교사/ });
+  const sessionNav = page
+    .locator('aside')
+    .getByRole('button', { name: /上课|Live class|上課|授業|수업/ });
+  const prepNav = page
+    .locator('aside')
+    .getByRole('button', { name: /备课|Lesson prep|備課|授業準備|수업 준비/ });
   await loginHeading.or(sessionNav).or(prepNav).first().waitFor({ state: 'visible', timeout: 20_000 });
 
   if (await loginHeading.isVisible()) {
-    await page.getByLabel('用户名').fill(TEACHER_USER);
-    await page.getByLabel('密码').fill(password);
-    await page.getByRole('button', { name: '登录', exact: true }).click();
+    const user = page.getByLabel(/用户名|Username|使用者名稱|ユーザー名|사용자/);
+    const pass = page.getByLabel(/密码|Password|密碼|パスワード|비밀번호/);
+    await user.fill(TEACHER_USER);
+    await pass.fill(password);
+    await page.getByRole('button', { name: /登录|Sign in|登入|ログイン|로그인/ }).click();
   }
 
-  const forceGate = page.getByText('必须先改成个人密码才能使用其它功能');
+  const forceGate = page.getByText(
+    /必须先改成个人密码才能使用其它功能|Change your personal password|必須先改成個人密碼|個人パスワード|개인 비밀번호/,
+  );
   await expect(forceGate.or(sessionNav).or(prepNav).first()).toBeVisible({ timeout: 20_000 });
   if (await forceGate.isVisible().catch(() => false)) {
-    await page.getByLabel('当前密码').fill(password);
-    await page.getByLabel('新密码').fill(TEACHER_NEW_PASSWORD);
-    await page.getByRole('button', { name: '修改登录密码' }).click();
+    await page.getByLabel(/当前密码|Current password|目前密碼|現在のパスワード|현재 비밀번호/).fill(password);
+    await page.getByLabel(/新密码|New password|新密碼|新しいパスワード|새 비밀번호/).fill(TEACHER_NEW_PASSWORD);
+    await page.getByRole('button', { name: /修改登录密码|Change login password|變更登入密碼|ログインパスワード|로그인 비밀번호/ }).click();
     await expect(sessionNav.or(prepNav).first()).toBeVisible({ timeout: 20_000 });
     return { password: TEACHER_NEW_PASSWORD };
   }
@@ -50,21 +58,29 @@ export async function loginStaffWeb(
   await page.getByLabel('密码').fill(password);
   await page.getByRole('button', { name: '登录', exact: true }).click();
 
-  const forceGate = page.getByText('必须先改成个人密码才能使用其它功能');
-  const attendance = page.getByRole('heading', { name: '出勤报表' });
-  const prepNav = page.locator('aside').getByRole('button', { name: '备课', exact: true });
+  const forceGate = page.getByText(
+    /必须先改成个人密码才能使用其它功能|Change your personal password|必須先改成個人密碼|個人パスワード|개인 비밀번호/,
+  );
+  const attendance = page.getByRole('heading', {
+    name: /出勤报表|Attendance report|出勤報表|出席レポート|출석 보고서/,
+  });
+  const prepNav = page
+    .locator('aside')
+    .getByRole('button', { name: /备课|Lesson prep|備課|授業準備|수업 준비/ });
   await expect(forceGate.or(attendance).or(prepNav).first()).toBeVisible({ timeout: 20_000 });
 
   if (await forceGate.isVisible().catch(() => false)) {
     const next = `${password}Ok9`;
-    await page.getByLabel('当前密码').fill(password);
-    await page.getByLabel('新密码').fill(next);
-    await page.getByRole('button', { name: '修改登录密码' }).click();
+    await page.getByLabel(/当前密码|Current password|目前密碼|現在のパスワード|현재 비밀번호/).fill(password);
+    await page.getByLabel(/新密码|New password|新密碼|新しいパスワード|새 비밀번호/).fill(next);
+    await page.getByRole('button', { name: /修改登录密码|Change login password|變更登入密碼|ログインパスワード|로그인 비밀번호/ }).click();
     await expect(attendance.or(prepNav).first()).toBeVisible({ timeout: 20_000 });
     // Assistants land on 出勤 after force change; open 备课 if only nav is visible
     if (!(await attendance.isVisible().catch(() => false))) {
       await prepNav.click();
-      const attTab = page.locator('.prep-subnav').getByRole('button', { name: '出勤报表', exact: true });
+      const attTab = page
+        .locator('.prep-subnav')
+        .getByRole('button', { name: /出勤报表|Attendance report|出勤報表|出席レポート|출석 보고서/ });
       if (await attTab.isVisible().catch(() => false)) await attTab.click();
     }
     await expect(attendance).toBeVisible({ timeout: 15_000 });
