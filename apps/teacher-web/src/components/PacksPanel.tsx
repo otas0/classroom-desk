@@ -1,6 +1,6 @@
 import { useState, type ClipboardEvent } from 'react';
 import { API_BASE, api, getToken } from '../api';
-import { t } from '@classroom-desk/i18n';
+import { t, te } from '@classroom-desk/i18n';
 
 async function loadTesseract(): Promise<{
   recognize: (img: File | Blob | string, langs: string) => Promise<{ data: { text: string } }>;

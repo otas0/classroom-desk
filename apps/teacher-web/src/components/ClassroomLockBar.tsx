@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { t } from '@classroom-desk/i18n';
+import { t, te } from '@classroom-desk/i18n';
 import { API_BASE, api } from '../api';
 import { isAssistant } from '../authRole';
 
