@@ -31,7 +31,7 @@ import {
 } from './navStorage';
 import { assistantPrepTabs, isAssistant, setStaffRole } from './authRole';
 import { preferClassroomId, type ClassItem } from './types';
-import { t, te } from '@classroom-desk/i18n';
+import { t } from '@classroom-desk/i18n';
 
 type Tab = TeacherTab;
 type PrepTab = TeacherPrepTab;

@@ -30,13 +30,13 @@ function seatFailMessage(err: unknown, kind: 'bind' | 'swap'): string {
   );
   const network = isSeatNetworkError(err);
   if (kind === 'swap') {
-    if (conflict) return `换座冲突：${text}（已回滚本地预览）`;
-    if (network) return `换座网络失败：${text}（已回滚，请检查教师机连接后重试）`;
-    return `换座失败：${text}（已回滚）`;
+    if (conflict) return t('换座冲突：{v0}（已回滚本地预览）', { v0: text });
+    if (network) return t('换座网络失败：{v0}（已回滚，请检查教师机连接后重试）', { v0: text });
+    return t('换座失败：{v0}（已回滚）', { v0: text });
   }
   if (conflict) return text;
-  if (network) return `绑座网络失败：${text}`;
-  return `绑座失败：${text}`;
+  if (network) return t('绑座网络失败：{v0}', { v0: text });
+  return t('绑座失败：{v0}', { v0: text });
 }
 
 export function SeatMapPanel({ classId }: { classId: string }) {
@@ -295,10 +295,10 @@ export function SeatMapPanel({ classId }: { classId: string }) {
         });
         setMsg(
           mode === 'all'
-            ? `已锁全部空座 ${seatIds.length} 个（键鼠）`
+            ? t('已锁全部空座 {v0} 个（键鼠）', { v0: seatIds.length })
             : mode === 'row'
-              ? `已锁本行空座 ${seatIds.length} 个（键鼠）`
-              : `已锁本列空座 ${seatIds.length} 个（键鼠）`,
+              ? t('已锁本行空座 {v0} 个（键鼠）', { v0: seatIds.length })
+              : t('已锁本列空座 {v0} 个（键鼠）', { v0: seatIds.length }),
         );
       } else {
         await api('/api/v1/settings', {
@@ -309,10 +309,10 @@ export function SeatMapPanel({ classId }: { classId: string }) {
         });
         setMsg(
           mode === 'all'
-            ? `已解除 ${seatIds.length} 个机位锁`
+            ? t('已解除 {v0} 个机位锁', { v0: seatIds.length })
             : mode === 'row'
-              ? `已解除本行 ${seatIds.length} 个机位锁`
-              : `已解除本列 ${seatIds.length} 个机位锁`,
+              ? t('已解除本行 {v0} 个机位锁', { v0: seatIds.length })
+              : t('已解除本列 {v0} 个机位锁', { v0: seatIds.length }),
         );
       }
       setBatchConfirm(null);

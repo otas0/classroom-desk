@@ -275,7 +275,9 @@ export function RosterPanel({
       const n = students.length;
       return window.confirm(
         n > 0
-          ? `覆盖导入将清空本班现有 ${n} 名学生，再写入表格。此操作不可撤销，确定继续？`
+          ? t('覆盖导入将清空本班现有 {v0} 名学生，再写入表格。此操作不可撤销，确定继续？', {
+              v0: n,
+            })
           : t('将按覆盖模式导入（当前班暂无学生）。确定继续？'),
       );
     }
@@ -311,12 +313,19 @@ export function RosterPanel({
       );
     }
     const fail = (data.failures ?? [])
-      .map((f) => `第${f.line}行 ${f.name} → ${f.reasonText ?? f.reason}`)
+      .map((f) =>
+        t('第{v0}行 {v1} → {v2}', {
+          v0: f.line,
+          v1: f.name,
+          v2: f.reasonText ?? f.reason,
+        }),
+      )
       .join('；');
     setImportResult(
-      `${replaceRoster ? `覆盖清除 ${data.replaced ?? 0} 人后，` : ''}新建 ${data.created}，跳过 ${data.skipped}${
-        fail ? `。失败行：${fail}` : ''
-      }`,
+      `${replaceRoster ? t('覆盖清除 {v0} 人后，', { v0: data.replaced ?? 0 }) : ''}${t('新建 {v0}，跳过 {v1}', {
+        v0: data.created,
+        v1: data.skipped,
+      })}${fail ? t('。失败行：{v0}', { v0: fail }) : ''}`,
     );
     await loadStudents();
     onRosterChanged?.();
@@ -401,7 +410,7 @@ export function RosterPanel({
       </p>
       <label className="row">
         <input type="checkbox" checked={replaceRoster} onChange={(e) => setReplaceRoster(e.target.checked)} />
-        覆盖导入（先清空本班现有学生，再写入表格；请先 backup:db）
+        {t('覆盖导入（先清空本班现有学生，再写入表格；请先 backup:db）')}
       </label>
       <label className="dropzone dropzone-wrap">
         <strong>{t('点击选择文件')}</strong>
@@ -442,12 +451,19 @@ export function RosterPanel({
                 body: JSON.stringify({ csv, replace: replaceRoster }),
               });
               const fail = (r.failures ?? [])
-                .map((f) => `第${f.line}行 ${f.name} → ${f.reasonText ?? f.reason}`)
+                .map((f) =>
+                  t('第{v0}行 {v1} → {v2}', {
+                    v0: f.line,
+                    v1: f.name,
+                    v2: f.reasonText ?? f.reason,
+                  }),
+                )
                 .join('；');
               setImportResult(
-                `${replaceRoster ? `覆盖清除 ${r.replaced ?? 0} 人后，` : ''}新建 ${r.created}，跳过 ${r.skipped}${
-                  fail ? `。${fail}` : ''
-                }`,
+                `${replaceRoster ? t('覆盖清除 {v0} 人后，', { v0: r.replaced ?? 0 }) : ''}${t('新建 {v0}，跳过 {v1}', {
+                  v0: r.created,
+                  v1: r.skipped,
+                })}${fail ? t('。失败行：{v0}', { v0: fail }) : ''}`,
               );
               await loadStudents();
               onRosterChanged?.();
@@ -509,7 +525,7 @@ export function RosterPanel({
             })()
           }
         >
-          导出选中
+          {t('导出选中')}
         </button>
         <input
           value={stuNoPrefix}
@@ -772,7 +788,7 @@ export function RosterPanel({
                     })()
                   }
                 >
-                  一键恢复全部
+                  {t('一键恢复全部')}
                 </button>
                 <button
                   type="button"
@@ -826,7 +842,7 @@ export function RosterPanel({
                   <span className="title">
                     {String(s.displayName)}
                     {s.studentNo ? ` · ${String(s.studentNo)}` : ''}
-                    {s.deletedAt ? ` · 删除于 ${String(s.deletedAt).slice(0, 19)}` : ''}
+                    {s.deletedAt ? ` · ${t('删除于 {v0}', { v0: String(s.deletedAt).slice(0, 19) })}` : ''}
                     {(() => {
                       const days =
                         s.daysLeft != null ? Number(s.daysLeft) : recycleDaysLeft(s.deletedAt);
@@ -1588,7 +1604,7 @@ export function QuestionsPanel({ classId }: { classId: string }) {
               else setSelectedQIds(new Set());
             }}
           />
-          全选（{items.length}）· 已选 {selectedQIds.size}
+          {t('全选（{v0}）· 已选 {v1}', { v0: items.length, v1: selectedQIds.size })}
         </label>
         <button
           type="button"
@@ -1635,7 +1651,7 @@ export function QuestionsPanel({ classId }: { classId: string }) {
           disabled={bulkQBusy || selectedQIds.size === 0 || !allowDelete || !bulkClosesAt.trim()}
           onClick={() => void bulkQuestions('set_closes_at')}
         >
-          批量设截止
+          {t('批量设截止')}
         </button>
         <button
           type="button"
@@ -1692,10 +1708,10 @@ export function QuestionsPanel({ classId }: { classId: string }) {
             })()
           }
         >
-          导出选中
+          {t('导出选中')}
         </button>
         <button type="button" disabled={bulkQBusy || selectedQIds.size === 0 || !allowDelete} onClick={() => void bulkQuestions('delete')}>
-          批量删除
+          {t('批量删除')}
         </button>
         {!allowDelete ? <span className="hint">{t('助教不可删除/设截止')}</span> : null}
       </div>
@@ -2011,7 +2027,7 @@ export function QuestionRecyclePanel({ classId }: { classId: string }) {
               else setSelected(new Set());
             }}
           />
-          全选（{items.length}）
+          {t('全选（{v0}）', { v0: items.length })}
         </label>
         <button
           type="button"
@@ -2019,14 +2035,14 @@ export function QuestionRecyclePanel({ classId }: { classId: string }) {
           disabled={busy || selected.size === 0 || !allowDelete}
           onClick={() => void run('restore', [...selected])}
         >
-          恢复选中
+          {t('恢复选中')}
         </button>
         <button
           type="button"
           disabled={busy || selected.size === 0 || !allowDelete}
           onClick={() => void run('purge', [...selected])}
         >
-          永久删除选中
+          {t('永久删除选中')}
         </button>
         <button
           type="button"
@@ -2051,7 +2067,7 @@ export function QuestionRecyclePanel({ classId }: { classId: string }) {
             })()
           }
         >
-          一键恢复全部
+          {t('一键恢复全部')}
         </button>
         <button
           type="button"
