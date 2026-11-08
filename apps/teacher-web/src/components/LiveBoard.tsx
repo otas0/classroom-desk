@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { API_BASE, api } from '../api';
+import { t } from '@classroom-desk/i18n';
 
 export function LiveBoard({
   classId,
@@ -99,9 +100,9 @@ export function LiveBoard({
   }
 
   useEffect(() => {
-    void load().catch((e) => setErr(e instanceof Error ? e.message : '加载失败'));
-    const t = window.setInterval(() => void load().catch(() => undefined), 3000);
-    return () => window.clearInterval(t);
+    void load().catch((e) => setErr(e instanceof Error ? e.message : t('加载失败')));
+    const _cdTimer = window.setInterval(() => void load().catch(() => undefined), 3000);
+    return () => window.clearInterval(_cdTimer);
   }, [classId]);
 
   useEffect(() => {
@@ -173,14 +174,14 @@ export function LiveBoard({
         classCount > 0 ||
         seatCount > 0;
       if (!active) {
-        setInputLockSummary('全班输入锁：未启用');
+        setInputLockSummary(t('全班输入锁：未启用'));
         return;
       }
       const parts: string[] = [];
-      if (inputLock?.keyboard) parts.push('键盘');
-      if (inputLock?.mouse) parts.push('鼠标');
-      if (inputLock?.voice) parts.push('语音');
-      if (inputLock?.camera) parts.push('相机');
+      if (inputLock?.keyboard) parts.push(t('键盘'));
+      if (inputLock?.mouse) parts.push(t('鼠标'));
+      if (inputLock?.voice) parts.push(t('语音'));
+      if (inputLock?.camera) parts.push(t('相机'));
       const scoped =
         classCount || seatCount
           ? ` · 班级覆盖 ${classCount} · 机位覆盖 ${seatCount}`
@@ -203,7 +204,7 @@ export function LiveBoard({
         }>(`/api/v1/settings/public?classId=${encodeURIComponent(classId)}`);
         if (cancelled) return;
         applySummary(
-          s.inputLockSummary ?? { global: '无', byClass: [], bySeat: [] },
+          s.inputLockSummary ?? { global: t('无'), byClass: [], bySeat: [] },
           s.inputLock,
           s.inputLockActive,
         );
@@ -235,7 +236,7 @@ export function LiveBoard({
     }
     // e2e / DevTools: force projection SSE → poll fallback without waiting for network errors.
     (window as unknown as { __cdForceInputLockSseFallback?: () => void }).__cdForceInputLockSseFallback =
-      () => startPollFallback('e2e 强制断流');
+      () => startPollFallback(t('e2e 强制断流'));
     if (typeof EventSource !== 'undefined') {
       es = new EventSource(`${API_BASE}/api/v1/input-lock/stream`);
       const onLock = (ev: MessageEvent) => {
@@ -269,10 +270,10 @@ export function LiveBoard({
       es.onmessage = onLock;
       es.onerror = () => {
         failStreak += 1;
-        if (failStreak >= 2) startPollFallback('SSE 断开');
+        if (failStreak >= 2) startPollFallback(t('SSE 断开'));
       };
     } else {
-      startPollFallback('无 EventSource');
+      startPollFallback(t('无 EventSource'));
     }
     return () => {
       cancelled = true;
@@ -333,8 +334,8 @@ export function LiveBoard({
     setAutoReadonlyHint(
       `本场课次 ${new Date(sessionStartAt).toLocaleTimeString()} 起算，约 ${minsLeft} 分钟后自动只读（R 可手动）`,
     );
-    const t = window.setTimeout(enableAutoReadonly, remaining);
-    return () => window.clearTimeout(t);
+    const _cdTimer = window.setTimeout(enableAutoReadonly, remaining);
+    return () => window.clearTimeout(_cdTimer);
   }, [projection, autoReadonlyMins, sessionStartAt]);
 
   useEffect(() => {
@@ -403,7 +404,7 @@ export function LiveBoard({
         setFsHint('已退出全屏');
       }
     } catch (e) {
-      setFsHint(e instanceof Error ? e.message : '全屏失败');
+      setFsHint(e instanceof Error ? e.message : t('全屏失败'));
     }
   }
 
@@ -428,7 +429,7 @@ export function LiveBoard({
       className={`live-board bar-preset-${barPreset}${projection ? ' projection-mode' : ''}${highContrast ? ' hc-theme' : ''}`}
       style={barStyle}
     >
-      <h2>大屏答题态势</h2>
+      <h2>{t('大屏答题态势')}</h2>
       {projection && inputLockSseFallback ? (
         <p className="hint" data-testid="projection-input-lock-sse-fallback" role="status">
           输入锁实时通道已切到 5 秒轮询
@@ -446,11 +447,11 @@ export function LiveBoard({
                 data-testid="projection-input-lock-detail-toggle"
                 onClick={() => setInputLockDetailOpen((v) => !v)}
               >
-                {inputLockDetailOpen ? '收起按班/机位明细' : '展开按班/机位明细'}
+                {inputLockDetailOpen ? t('收起按班/机位明细') : t('展开按班/机位明细')}
               </button>
               {inputLockDetailOpen ? (
                 <ul className="hint" data-testid="projection-input-lock-detail">
-                  <li>全局：{inputLockDetail.global || '无'}</li>
+                  <li>全局：{inputLockDetail.global || t('无')}</li>
                   {inputLockDetail.byClass.map((c) => (
                     <li key={c.classId}>
                       班级 {c.className || c.classId}：{c.label}
@@ -501,13 +502,13 @@ export function LiveBoard({
             高对比大字（H）
           </label>
           <div className="row">
-            <span className="hint">色盲预设</span>
+            <span className="hint">{t('色盲预设')}</span>
             {(
               [
                 ['okabe', 'Okabe–Ito'],
-                ['blueorange', '蓝橙'],
-                ['gray', '灰阶'],
-                ['custom', '自定义色相'],
+                ['blueorange', t('蓝橙')],
+                ['gray', t('灰阶')],
+                ['custom', t('自定义色相')],
               ] as const
             ).map(([id, label]) => (
               <button
@@ -559,8 +560,8 @@ export function LiveBoard({
           ) : null}
         </div>
       ) : null}
-      <div className="bar-legend hint" aria-label="进度条图例">
-        <span className="legend-swatch correct" /> 已交占比
+      <div className="bar-legend hint" aria-label={t('进度条图例')}>
+        <span className="legend-swatch correct" /> {t('已交占比')}
         <span className="legend-swatch option" /> 正确率
         {projection
           ? ' · Esc 退出 · F 全屏 · R 只读 · H 高对比 · C 色相（自定义）'
@@ -572,7 +573,7 @@ export function LiveBoard({
       {projection && autoReadonlyHint ? <p className="hint">{autoReadonlyHint}</p> : null}
       {fsHint ? <p className="hint">{fsHint}</p> : null}
       {err ? <p className="error">{err}</p> : null}
-      {items.length === 0 ? <p className="hint">暂无进行中的已发布题目</p> : null}
+      {items.length === 0 ? <p className="hint">{t('暂无进行中的已发布题目')}</p> : null}
       {items.map((q) => {
         const answeredPct =
           q.rosterTotal > 0 ? Math.round((q.answeredCount / q.rosterTotal) * 100) : 0;
@@ -590,10 +591,10 @@ export function LiveBoard({
               已交 {q.answeredCount} · 未交 {q.pendingCount} · 正确率 {correctPct}%
             </p>
             <div className="bar-track tall">
-              <div className="bar correct" style={{ width: `${answeredPct}%` }} title="已交占比" />
+              <div className="bar correct" style={{ width: `${answeredPct}%` }} title={t('已交占比')} />
             </div>
             <div className="bar-track tall">
-              <div className="bar option" style={{ width: `${correctPct}%` }} title="正确率" />
+              <div className="bar option" style={{ width: `${correctPct}%` }} title={t('正确率')} />
             </div>
             {hideControls ? null : (
               <div className="row">
@@ -607,7 +608,7 @@ export function LiveBoard({
                     }).then(load)
                   }
                 >
-                  {q.closed ? '重开' : '一键收卷'}
+                  {q.closed ? t('重开') : t('一键收卷')}
                 </button>
                 <button
                   type="button"
@@ -620,21 +621,21 @@ export function LiveBoard({
                     }).then(load)
                   }
                 >
-                  {q.retryWrong ? '关闭错题重练' : '开启错题重练'}
+                  {q.retryWrong ? t('关闭错题重练') : t('开启错题重练')}
                 </button>
                 <button
                   type="button"
                   className="secondary"
                   onClick={() => setExpanded((prev) => ({ ...prev, [q.id]: !prev[q.id] }))}
                 >
-                  {openPending ? '收起未交名单' : `未交名单（${q.pendingCount}）`}
+                  {openPending ? t('收起未交名单') : `未交名单（${q.pendingCount}）`}
                 </button>
               </div>
             )}
             {!hideControls && openPending ? (
               <div className="pending-list">
                 {pending.length === 0 ? (
-                  <p className="hint">全班已交</p>
+                  <p className="hint">{t('全班已交')}</p>
                 ) : (
                   <ul>
                     {pending.map((s) => (

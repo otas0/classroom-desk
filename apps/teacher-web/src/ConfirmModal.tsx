@@ -1,12 +1,13 @@
 import { useEffect, useId, useRef, type ReactNode } from 'react';
 import { nextTabFocusIndex, shouldCancelOnEscape } from './confirmModalA11y';
+import { t } from '@classroom-desk/i18n';
 
 export function ConfirmModal({
   open,
   title,
   body,
-  confirmLabel = '确定',
-  cancelLabel = '取消',
+  confirmLabel = t('确定'),
+  cancelLabel = t('取消'),
   busy = false,
   onConfirm,
   onCancel,
@@ -29,7 +30,7 @@ export function ConfirmModal({
     if (!open) return;
     previouslyFocused.current =
       document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    const t = window.setTimeout(() => confirmRef.current?.focus(), 0);
+    const _cdTimer = window.setTimeout(() => confirmRef.current?.focus(), 0);
 
     function focusables(): HTMLElement[] {
       if (!cardRef.current) return [];
@@ -65,7 +66,7 @@ export function ConfirmModal({
 
     document.addEventListener('keydown', onKey);
     return () => {
-      window.clearTimeout(t);
+      window.clearTimeout(_cdTimer);
       document.removeEventListener('keydown', onKey);
       previouslyFocused.current?.focus?.();
     };
@@ -95,7 +96,7 @@ export function ConfirmModal({
             {cancelLabel}
           </button>
           <button ref={confirmRef} type="button" disabled={busy} onClick={onConfirm}>
-            {busy ? '处理中…' : confirmLabel}
+            {busy ? t('处理中…') : confirmLabel}
           </button>
         </div>
       </div>

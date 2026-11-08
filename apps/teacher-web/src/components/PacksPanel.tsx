@@ -1,5 +1,6 @@
 import { useState, type ClipboardEvent } from 'react';
 import { API_BASE, api, getToken } from '../api';
+import { t } from '@classroom-desk/i18n';
 
 async function loadTesseract(): Promise<{
   recognize: (img: File | Blob | string, langs: string) => Promise<{ data: { text: string } }>;
@@ -11,11 +12,11 @@ async function loadTesseract(): Promise<{
       s.src = 'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js';
       s.async = true;
       s.onload = () => resolve();
-      s.onerror = () => reject(new Error('Tesseract CDN 加载失败'));
+      s.onerror = () => reject(new Error(t('Tesseract CDN 加载失败')));
       document.head.appendChild(s);
     });
   }
-  if (!w.Tesseract) throw new Error('Tesseract 不可用');
+  if (!w.Tesseract) throw new Error(t('Tesseract 不可用'));
   return w.Tesseract as {
     recognize: (img: File | Blob | string, langs: string) => Promise<{ data: { text: string } }>;
   };
@@ -66,7 +67,7 @@ export function PacksPanel({
     a.download = `question-pack-${classId.slice(0, 8)}.json`;
     a.click();
     URL.revokeObjectURL(a.href);
-    setMsg(`已下载 ${a.download}`);
+    setMsg(t('已下载 {v0}', { v0: a.download }));
   }
 
   async function importFile(file: File | null) {
@@ -77,7 +78,7 @@ export function PacksPanel({
       method: 'POST',
       body: JSON.stringify({ classId, pack, publish: true }),
     });
-    setMsg(`已导入 ${r.created} 题`);
+    setMsg(t('已导入 {v0} 题', { v0: r.created }));
   }
 
   async function fromErrors() {
@@ -90,7 +91,7 @@ export function PacksPanel({
       method: 'POST',
       body: JSON.stringify({ classId, pack: r.pack, publish: true }),
     });
-    setMsg(`错题再练包已下发 ${imp.created} 题`);
+    setMsg(t('错题再练包已下发 {v0} 题', { v0: imp.created }));
   }
 
   async function parentShare() {
@@ -100,7 +101,11 @@ export function PacksPanel({
       body: JSON.stringify({ classId, month }),
     });
     setShareUrl(r.url);
-    setMsg(`家长月报链接已生成，过期 ${new Date(r.expiresAt).toLocaleString()}`);
+    setMsg(
+      t('家长月报链接已生成，过期 {v0}', {
+        v0: new Date(r.expiresAt).toLocaleString(),
+      }),
+    );
   }
 
   function pdfUrlFromShare(url: string): string {
@@ -113,15 +118,19 @@ export function PacksPanel({
   async function runOcrImage(file: File | null) {
     if (!file) return;
     setOcrBusy(true);
-    setMsg('OCR 识别中…');
+    setMsg(t('OCR 识别中…'));
     try {
       const T = await loadTesseract();
       const result = await T.recognize(file, 'chi_sim+eng');
       const text = (result.data?.text ?? '').trim();
       persistDraft(ocrDraft ? `${ocrDraft}\n\n${text}` : text);
-      setMsg(`OCR 完成 · ${text.length} 字（本地 Tesseract）。可到「上课 → 快速发题」自动填入。`);
+      setMsg(
+        t('OCR 完成 · {v0} 字（本地 Tesseract）。可到「上课 → 快速发题」自动填入。', {
+          v0: text.length,
+        }),
+      );
     } catch (e) {
-      setMsg(e instanceof Error ? e.message : 'OCR 失败');
+      setMsg(e instanceof Error ? e.message : t('OCR 失败'));
     } finally {
       setOcrBusy(false);
     }
@@ -143,8 +152,8 @@ export function PacksPanel({
 
   return (
     <section>
-      <h2>题库章节包 / 家长月报</h2>
-      <p className="hint">导出 JSON 跨班复用；错题再练一键下发；家长只读月报分享码 7 天有效。</p>
+      <h2>{t('题库章节包 / 家长月报')}</h2>
+      <p className="hint">{t('导出 JSON 跨班复用；错题再练一键下发；家长只读月报分享码 7 天有效。')}</p>
       <div className="row">
         <button type="button" disabled={!classId} onClick={() => void exportPack().catch((e) => setMsg(String(e)))}>
           导出题库包 JSON
@@ -165,7 +174,7 @@ export function PacksPanel({
           错题再练包下发
         </button>
       </div>
-      <h3>家长 / 教务只读月报</h3>
+      <h3>{t('家长 / 教务只读月报')}</h3>
       <div className="row">
         <label>
           月份
@@ -195,8 +204,8 @@ export function PacksPanel({
         </p>
       ) : null}
 
-      <h3>OCR 出题草稿（本地 Tesseract）</h3>
-      <p className="hint">粘贴 Word 文本或截图；选图走浏览器端识别，不上传服务器。草稿可复制到「快速发题」。</p>
+      <h3>{t('OCR 出题草稿（本地 Tesseract）')}</h3>
+      <p className="hint">{t('粘贴 Word 文本或截图；选图走浏览器端识别，不上传服务器。草稿可复制到「快速发题」。')}</p>
       <div className="row">
         <label className="secondary" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
           选图 OCR
@@ -216,7 +225,7 @@ export function PacksPanel({
           className="secondary"
           disabled={!ocrDraft}
           onClick={() =>
-            void navigator.clipboard.writeText(ocrDraft).then(() => setMsg('草稿已复制'))
+            void navigator.clipboard.writeText(ocrDraft).then(() => setMsg(t('草稿已复制')))
           }
         >
           复制草稿
@@ -226,11 +235,11 @@ export function PacksPanel({
           disabled={!ocrDraft}
           onClick={() => {
             if (!onGoSession) {
-              setMsg('无上课权限，无法送到快发题');
+              setMsg(t('无上课权限，无法送到快发题'));
               return;
             }
             persistDraft(ocrDraft);
-            setMsg('已写入上课快发题草稿');
+            setMsg(t('已写入上课快发题草稿'));
             onGoSession();
           }}
         >
@@ -246,7 +255,7 @@ export function PacksPanel({
             type="button"
             className="secondary"
             onClick={() =>
-              void navigator.clipboard.writeText(ocrDraft).then(() => setMsg('草稿已复制（可粘贴给任课教师）'))
+              void navigator.clipboard.writeText(ocrDraft).then(() => setMsg(t('草稿已复制（可粘贴给任课教师）')))
             }
           >
             复制草稿
@@ -256,9 +265,9 @@ export function PacksPanel({
             className="secondary"
             onClick={() => {
               const text =
-                '请开通上课权限，以便我将 OCR 草稿送到「快速发题」。班级可在教师后台「按班授权」外另开通上课入口。';
+                t('请开通上课权限，以便我将 OCR 草稿送到「快速发题」。班级可在教师后台「按班授权」外另开通上课入口。');
               void navigator.clipboard.writeText(text).then(() =>
-                setMsg('已复制申请文案，请发给任课教师开通上课权限'),
+                setMsg(t('已复制申请文案，请发给任课教师开通上课权限')),
               );
             }}
           >
@@ -271,12 +280,12 @@ export function PacksPanel({
         value={ocrDraft}
         onChange={(e) => persistDraft(e.target.value)}
         onPaste={onPasteDraft}
-        placeholder="粘贴 Word 文本，或 Ctrl+V 粘贴截图自动 OCR…"
+        placeholder={t('粘贴 Word 文本，或 Ctrl+V 粘贴截图自动 OCR…')}
         disabled={ocrBusy}
       />
 
       {msg ? (
-        <p className={msg.includes('无上课权限') || msg.includes('申请文案') ? 'error' : 'hint'} role="status">
+        <p className={msg.includes(t('无上课权限')) || msg.includes(t('申请文案')) ? 'error' : 'hint'} role="status">
           {msg}
         </p>
       ) : null}

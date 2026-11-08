@@ -36,6 +36,14 @@ import {
   shiftMonth,
   type ClassItem,
 } from './types';
+import {
+  UI_LOCALE_LABELS,
+  UI_LOCALES,
+  normalizeUiLocale,
+  t,
+  type UiLocale,
+} from '@classroom-desk/i18n';
+import { ClassroomLockBar } from './components/ClassroomLockBar';
 
 export function RosterPanel({
   classId,
@@ -58,7 +66,7 @@ export function RosterPanel({
   const [newStudentNo, setNewStudentNo] = useState('');
   const [picked, setPicked] = useState<Record<string, unknown> | null>(null);
   const [awardPts, setAwardPts] = useState(1);
-  const [awardReason, setAwardReason] = useState('表扬');
+  const [awardReason, setAwardReason] = useState(t('表扬'));
   const [awardMsg, setAwardMsg] = useState('');
   const [bulkBusy, setBulkBusy] = useState(false);
   const [stuNoPrefix, setStuNoPrefix] = useState('');
@@ -151,23 +159,23 @@ export function RosterPanel({
       });
       setNewStudentName('');
       setNewStudentNo('');
-      setImportResult(`已添加 ${displayName}`);
+      setImportResult(t('已添加 {v0}', { v0: displayName }));
       await loadStudents();
       onRosterChanged?.();
     } catch (e) {
-      setImportResult(e instanceof Error ? e.message : '添加失败');
+      setImportResult(e instanceof Error ? e.message : t('添加失败'));
     }
   }
 
   function drawStudent() {
     const pool = filteredStudents;
     if (pool.length === 0) {
-      setAwardMsg('名单为空，无法抽答');
+      setAwardMsg(t('名单为空，无法抽答'));
       return;
     }
     const row = pool[Math.floor(Math.random() * pool.length)]!;
     setPicked(row);
-    setAwardMsg(`抽到：${String(row.displayName)}`);
+    setAwardMsg(t('抽到：{v0}', { v0: String(row.displayName) }));
   }
 
   async function awardPicked() {
@@ -179,13 +187,19 @@ export function RosterPanel({
           classId,
           studentId: String(picked.id),
           points: awardPts,
-          reasonSummary: awardReason.trim() || '课堂抽答',
+          reasonSummary: awardReason.trim() || t('课堂抽答'),
         }),
       });
-      setAwardMsg(`已给 ${String(picked.displayName)} +${awardPts}（${awardReason}）`);
+      setAwardMsg(
+        t('已给 {v0} +{v1}（{v2}）', {
+          v0: String(picked.displayName),
+          v1: awardPts,
+          v2: awardReason,
+        }),
+      );
       await loadStudents();
     } catch (e) {
-      setAwardMsg(e instanceof Error ? e.message : '加分失败');
+      setAwardMsg(e instanceof Error ? e.message : t('加分失败'));
     }
   }
 
@@ -219,23 +233,23 @@ export function RosterPanel({
     if (showRecycle && recycle.length) {
       const first = recycle.findIndex((s) => jumpIds.has(String(s.id)));
       if (first >= 0) {
-        const t = window.setTimeout(() => {
+        const _cdTimer = window.setTimeout(() => {
           document
             .querySelector(`[data-row-id="${CSS.escape(String(recycle[first]!.id))}"]`)
             ?.scrollIntoView({ block: 'nearest' });
         }, 80);
-        return () => window.clearTimeout(t);
+        return () => window.clearTimeout(_cdTimer);
       }
     }
     const first = filteredStudents.findIndex((s) => jumpIds.has(String(s.id)));
     if (first < 0) return;
     setRosterScrollTop(Math.max(0, first * ROSTER_ROW_H - ROSTER_VIEW_H / 3));
-    const t = window.setTimeout(() => {
+    const _cdTimer = window.setTimeout(() => {
       document
         .querySelector(`[data-row-id="${CSS.escape(String(filteredStudents[first]!.id))}"]`)
         ?.scrollIntoView({ block: 'nearest' });
     }, 80);
-    return () => window.clearTimeout(t);
+    return () => window.clearTimeout(_cdTimer);
   }, [jumpIds, filteredStudents, showRecycle, recycle]);
 
   async function confirmBeforeImport(): Promise<boolean> {
@@ -249,12 +263,12 @@ export function RosterPanel({
       const err = body.backup?.lastError;
       if (err || stale) {
         const ok = window.confirm(
-          `${err ? '检测到备份异常。' : '近 24 小时内未见备份。'}导入前建议在教师机执行 npm run backup:db。\n仍要继续导入吗？`,
+          `${err ? t('检测到备份异常。') : t('近 24 小时内未见备份。')}导入前建议在教师机执行 npm run backup:db。\n仍要继续导入吗？`,
         );
         if (!ok) return false;
       }
     } catch {
-      const ok = window.confirm('无法确认备份状态。仍要继续导入吗？');
+      const ok = window.confirm(t('无法确认备份状态。仍要继续导入吗？'));
       if (!ok) return false;
     }
     if (replaceRoster) {
@@ -262,7 +276,7 @@ export function RosterPanel({
       return window.confirm(
         n > 0
           ? `覆盖导入将清空本班现有 ${n} 名学生，再写入表格。此操作不可撤销，确定继续？`
-          : '将按覆盖模式导入（当前班暂无学生）。确定继续？',
+          : t('将按覆盖模式导入（当前班暂无学生）。确定继续？'),
       );
     }
     return true;
@@ -289,7 +303,12 @@ export function RosterPanel({
       message?: string;
     };
     if (!res.ok) {
-      throw new Error(data.message ?? IMPORT_ERROR_ZH[data.error ?? ''] ?? data.error ?? '导入失败');
+      throw new Error(
+        data.message ??
+          (IMPORT_ERROR_ZH[data.error ?? ''] ? t(IMPORT_ERROR_ZH[data.error ?? '']) : undefined) ??
+          data.error ??
+          t('导入失败'),
+      );
     }
     const fail = (data.failures ?? [])
       .map((f) => `第${f.line}行 ${f.name} → ${f.reasonText ?? f.reason}`)
@@ -305,11 +324,11 @@ export function RosterPanel({
 
   return (
     <section>
-      <h2>班级与名单</h2>
-      {!allowWrite ? <p className="hint">助教只读名单，不可创建班级/导入/加分/删人</p> : null}
+      <h2>{t('班级与名单')}</h2>
+      {!allowWrite ? <p className="hint">{t('助教只读名单，不可创建班级/导入/加分/删人')}</p> : null}
       {allowWrite ? (
       <div className="row">
-        <input value={name} onChange={(e) => setName(e.target.value)} placeholder="新班级名称" />
+        <input value={name} onChange={(e) => setName(e.target.value)} placeholder={t('新班级名称')} />
         <button
           type="button"
           onClick={() =>
@@ -319,31 +338,31 @@ export function RosterPanel({
             })
           }
         >
-          创建班级
+          {t('创建班级')}
         </button>
       </div>
       ) : null}
 
       {allowWrite ? (
       <>
-      <h3>单个新增</h3>
+      <h3>{t('单个新增')}</h3>
       <div className="row">
         <input
           value={newStudentName}
           onChange={(e) => setNewStudentName(e.target.value)}
-          placeholder="姓名"
+          placeholder={t('姓名')}
         />
         <input
           value={newStudentNo}
           onChange={(e) => setNewStudentNo(e.target.value)}
-          placeholder="学号（可选）"
+          placeholder={t('学号（可选）')}
         />
         <button type="button" disabled={!classId} onClick={() => void addOneStudent()}>
           添加学生
         </button>
       </div>
 
-      <h3>随机抽答 / 加分</h3>
+      <h3>{t('随机抽答 / 加分')}</h3>
       <div className="row">
         <button type="button" disabled={!classId} onClick={drawStudent}>
           抽一人
@@ -355,7 +374,7 @@ export function RosterPanel({
           onChange={(e) => setAwardPts(Number(e.target.value) || 1)}
           style={{ width: 72 }}
         />
-        <input value={awardReason} onChange={(e) => setAwardReason(e.target.value)} placeholder="理由" />
+        <input value={awardReason} onChange={(e) => setAwardReason(e.target.value)} placeholder={t('理由')} />
         <button type="button" disabled={!picked} onClick={() => void awardPicked()}>
           给抽中的人加分
         </button>
@@ -363,7 +382,7 @@ export function RosterPanel({
       <div className="chip-row">
         {POINT_REASON_CHIPS.map((c) => (
           <button key={c} type="button" className="chip" onClick={() => setAwardReason(c)}>
-            {c}
+            {t(c)}
           </button>
         ))}
       </div>
@@ -375,7 +394,7 @@ export function RosterPanel({
       ) : null}
       {awardMsg ? <p className="hint">{awardMsg}</p> : null}
 
-      <h3>批量导入（Excel / CSV）</h3>
+      <h3>{t('批量导入（Excel / CSV）')}</h3>
       <p className="hint">
         支持 .xlsx / .xls / .csv。不必是「姓名,学号」逗号格式：自动识别「姓名/学号」表头、制表符、中文逗号、空格分隔，以及「学号在前/姓名在前」、Excel
         数字学号。无表头也会尝试拆分。
@@ -385,8 +404,8 @@ export function RosterPanel({
         覆盖导入（先清空本班现有学生，再写入表格；请先 backup:db）
       </label>
       <label className="dropzone dropzone-wrap">
-        <strong>点击选择文件</strong>
-        <p className="hint">或拖入 Excel / CSV（真实上传到本班名单）</p>
+        <strong>{t('点击选择文件')}</strong>
+        <p className="hint">{t('或拖入 Excel / CSV（真实上传到本班名单）')}</p>
         <input
           type="file"
           accept=".csv,.xlsx,.xls"
@@ -449,7 +468,7 @@ export function RosterPanel({
         可直接改姓名/学号并保存；勾选后可批量处理。删除先入回收站，{RECYCLE_RETENTION_DAYS}{' '}
         日内可恢复。
       </p>
-      <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="搜索姓名/学号" />
+      <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder={t('搜索姓名/学号')} />
       <div className="row bulk-bar">
         <label className="row">
           <input
@@ -481,9 +500,9 @@ export function RosterPanel({
                   { classId, ids: [...selectedIds], format: 'xlsx' },
                   `students-selected.xlsx`,
                 );
-                toast.ok(`已导出选中 ${selectedIds.size} 人`);
+                toast.ok(t('已导出选中 {v0} 人', { v0: selectedIds.size }));
               } catch (e) {
-                toast.err(e instanceof Error ? e.message : '导出失败');
+                toast.err(e instanceof Error ? e.message : t('导出失败'));
               } finally {
                 setBulkBusy(false);
               }
@@ -495,8 +514,8 @@ export function RosterPanel({
         <input
           value={stuNoPrefix}
           onChange={(e) => setStuNoPrefix(e.target.value)}
-          placeholder="学号前缀"
-          aria-label="学号前缀"
+          placeholder={t('学号前缀')}
+          aria-label={t('学号前缀')}
           style={{ width: '7rem' }}
           disabled={!allowDelete}
         />
@@ -506,7 +525,14 @@ export function RosterPanel({
           disabled={bulkBusy || selectedIds.size === 0 || !allowDelete || !stuNoPrefix.trim()}
           onClick={() =>
             void (async () => {
-              if (!window.confirm(`为选中的 ${selectedIds.size} 人学号加上前缀「${stuNoPrefix.trim()}」？`)) {
+              if (
+                !window.confirm(
+                  t('为选中的 {v0} 人学号加上前缀「{v1}」？', {
+                    v0: selectedIds.size,
+                    v1: stuNoPrefix.trim(),
+                  }),
+                )
+              ) {
                 return;
               }
               setBulkBusy(true);
@@ -522,10 +548,10 @@ export function RosterPanel({
                     }),
                   },
                 );
-                toast.ok(r.message ?? '已更新学号');
+                toast.ok(r.message ?? t('已更新学号'));
                 await loadStudents();
               } catch (e) {
-                toast.err(e instanceof Error ? e.message : '学号更新失败');
+                toast.err(e instanceof Error ? e.message : t('学号更新失败'));
               } finally {
                 setBulkBusy(false);
               }
@@ -540,7 +566,7 @@ export function RosterPanel({
           disabled={bulkBusy || selectedIds.size === 0 || !allowDelete}
           onClick={() =>
             void (async () => {
-              if (!window.confirm(`清空选中的 ${selectedIds.size} 人学号？`)) return;
+              if (!window.confirm(t('清空选中的 {v0} 人学号？', { v0: selectedIds.size }))) return;
               setBulkBusy(true);
               try {
                 const r = await api<{ message?: string }>(
@@ -550,10 +576,10 @@ export function RosterPanel({
                     body: JSON.stringify({ ids: [...selectedIds], action: 'clear' }),
                   },
                 );
-                toast.ok(r.message ?? '已清空学号');
+                toast.ok(r.message ?? t('已清空学号'));
                 await loadStudents();
               } catch (e) {
-                toast.err(e instanceof Error ? e.message : '清空失败');
+                toast.err(e instanceof Error ? e.message : t('清空失败'));
               } finally {
                 setBulkBusy(false);
               }
@@ -584,7 +610,7 @@ export function RosterPanel({
                 });
                 setImpactModal({ ...impact, ids: [...selectedIds] });
               } catch (e) {
-                toast.err(e instanceof Error ? e.message : '无法获取影响汇总');
+                toast.err(e instanceof Error ? e.message : t('无法获取影响汇总'));
               } finally {
                 setBulkBusy(false);
               }
@@ -593,7 +619,7 @@ export function RosterPanel({
         >
           批量删除（{selectedIds.size}）
         </button>
-        {!allowDelete ? <span className="hint">助教不可批量删除/改学号</span> : null}
+        {!allowDelete ? <span className="hint">{t('助教不可批量删除/改学号')}</span> : null}
       </div>
       {selectedIds.size > 0 ? (
         <div className="selection-sticky" data-testid="roster-selection-sticky">
@@ -601,13 +627,13 @@ export function RosterPanel({
         </div>
       ) : null}
       <div className="row" style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 4 }}>
-        <span style={{ width: '2.5rem' }}>选</span>
-        <span style={{ flex: 1 }}>学号</span>
-        <span style={{ flex: 1.2 }}>姓名</span>
-        <span style={{ width: '4rem' }}>积分</span>
-        <span>操作</span>
+        <span style={{ width: '2.5rem' }}>{t('选')}</span>
+        <span style={{ flex: 1 }}>{t('学号')}</span>
+        <span style={{ flex: 1.2 }}>{t('姓名')}</span>
+        <span style={{ width: '4rem' }}>{t('积分')}</span>
+        <span>{t('操作')}</span>
       </div>
-      {filteredStudents.length === 0 ? <p className="hint">暂无学生</p> : null}
+      {filteredStudents.length === 0 ? <p className="hint">{t('暂无学生')}</p> : null}
       <div
         className="roster-virtual"
         style={{ height: ROSTER_VIEW_H }}
@@ -615,7 +641,7 @@ export function RosterPanel({
         tabIndex={0}
         role="listbox"
         aria-multiselectable
-        aria-label="学生名单，可用方向键与空格多选"
+        aria-label={t('学生名单，可用方向键与空格多选')}
         onScroll={(e: UIEvent<HTMLDivElement>) => setRosterScrollTop(e.currentTarget.scrollTop)}
         onKeyDown={(e) =>
           onRosterKeyDown(e, { ensureVisible: (index) => ensureRosterVisible(index) })
@@ -638,7 +664,7 @@ export function RosterPanel({
               onChanged={() => void loadStudents()}
                 onRemoved={() => {
                   onRosterChanged?.();
-                  toast.ok('已移入回收站');
+                  toast.ok(t('已移入回收站'));
                 }}
                 onError={(msg) => toast.err(msg)}
                 onRequestDelete={allowWrite ? (payload) => setImpactModal(payload) : undefined}
@@ -650,8 +676,8 @@ export function RosterPanel({
       </div>
       <ConfirmModal
         open={Boolean(impactModal)}
-        title="确认移入回收站"
-        confirmLabel="移入回收站"
+        title={t('确认移入回收站')}
+        confirmLabel={t('移入回收站')}
         busy={bulkBusy}
         body={
           impactModal ? (
@@ -666,7 +692,7 @@ export function RosterPanel({
                 作答 {impactModal.answers} · 留言 {impactModal.messages} · 加分请求{' '}
                 {impactModal.pointRequests}（共 {impactModal.total} 条）。
               </p>
-              <p>永久删除或到期清理时才会清除关联记录；在线学生端将被踢下线。</p>
+              <p>{t('永久删除或到期清理时才会清除关联记录；在线学生端将被踢下线。')}</p>
             </>
           ) : null
         }
@@ -686,7 +712,7 @@ export function RosterPanel({
               onRosterChanged?.();
               if (showRecycle) await loadRecycle();
             } catch (e) {
-              toast.err(e instanceof Error ? e.message : '批量删除失败');
+              toast.err(e instanceof Error ? e.message : t('批量删除失败'));
             } finally {
               setBulkBusy(false);
             }
@@ -706,17 +732,17 @@ export function RosterPanel({
                 try {
                   await loadRecycle();
                 } catch (e) {
-                  toast.err(e instanceof Error ? e.message : '加载回收站失败');
+                  toast.err(e instanceof Error ? e.message : t('加载回收站失败'));
                 }
               }
             })()
           }
         >
-          {showRecycle ? '收起回收站' : '学生回收站'}
+          {showRecycle ? t('收起回收站') : t('学生回收站')}
         </button>
         {showRecycle ? (
           <>
-            <p className="hint">软删除学生可恢复；永久删除会级联清除关联记录。</p>
+            <p className="hint">{t('软删除学生可恢复；永久删除会级联清除关联记录。')}</p>
             {allowDelete && recycle.length > 0 ? (
               <div className="row bulk-bar">
                 <button
@@ -730,12 +756,12 @@ export function RosterPanel({
                           `/api/v1/classes/${classId}/students/recycle/restore-all`,
                           { method: 'POST', body: '{}' },
                         );
-                        toast.ok(r.message ?? '已全部恢复');
+                        toast.ok(r.message ?? t('已全部恢复'));
                         await loadRecycle();
                         await loadStudents();
                         onRosterChanged?.();
                       } catch (e) {
-                        toast.err(e instanceof Error ? e.message : '恢复失败');
+                        toast.err(e instanceof Error ? e.message : t('恢复失败'));
                       }
                     })()
                   }
@@ -763,10 +789,10 @@ export function RosterPanel({
                             }
                           },
                         );
-                        toast.ok(r.message ?? '已清空');
+                        toast.ok(r.message ?? t('已清空'));
                         await loadRecycle();
                       } catch (e) {
-                        toast.err(e instanceof Error ? e.message : '清空失败');
+                        toast.err(e instanceof Error ? e.message : t('清空失败'));
                       }
                     })()
                   }
@@ -775,7 +801,7 @@ export function RosterPanel({
                 </button>
               </div>
             ) : null}
-            {recycle.length === 0 ? <p className="hint">回收站为空</p> : null}
+            {recycle.length === 0 ? <p className="hint">{t('回收站为空')}</p> : null}
             <ul className="question-list">
               {recycle.map((s) => (
                 <li
@@ -790,7 +816,7 @@ export function RosterPanel({
                     {(() => {
                       const days =
                         s.daysLeft != null ? Number(s.daysLeft) : recycleDaysLeft(s.deletedAt);
-                      const label = formatRecycleDaysLeft(days);
+                      const label = formatRecycleDaysLeft(days, t);
                       return label ? (
                         <span
                           className={`days-left${isRecycleUrgent(days, urgentDays) ? ' days-left-urgent' : ''}`}
@@ -819,12 +845,12 @@ export function RosterPanel({
                               await loadStudents();
                               onRosterChanged?.();
                             } catch (e) {
-                              toast.err(e instanceof Error ? e.message : '恢复失败');
+                              toast.err(e instanceof Error ? e.message : t('恢复失败'));
                             }
                           })()
                         }
                       >
-                        恢复
+                        {t('恢复')}
                       </button>
                       <button
                         type="button"
@@ -836,15 +862,15 @@ export function RosterPanel({
                                 method: 'POST',
                                 body: JSON.stringify({ ids: [String(s.id)] }),
                               });
-                              toast.ok('已永久删除');
+                              toast.ok(t('已永久删除'));
                               await loadRecycle();
                             } catch (e) {
-                              toast.err(e instanceof Error ? e.message : '永久删除失败');
+                              toast.err(e instanceof Error ? e.message : t('永久删除失败'));
                             }
                           })()
                         }
                       >
-                        永久删除
+                        {t('永久删除')}
                       </button>
                     </>
                   ) : null}
@@ -912,7 +938,7 @@ export function StudentRow({
       });
       onChanged();
     } catch (e) {
-      onError(e instanceof Error ? e.message : '保存失败');
+      onError(e instanceof Error ? e.message : t('保存失败'));
     } finally {
       setBusy(false);
     }
@@ -947,7 +973,7 @@ export function StudentRow({
       onChanged();
       onRemoved?.();
     } catch (e) {
-      onError(e instanceof Error ? e.message : '删除失败');
+      onError(e instanceof Error ? e.message : t('删除失败'));
     } finally {
       setBusy(false);
     }
@@ -979,16 +1005,16 @@ export function StudentRow({
         value={studentNo}
         disabled={busy || !allowWrite}
           onChange={(e) => setStudentNo(e.target.value)}
-          placeholder="学号"
-          aria-label="学号"
+          placeholder={t('学号')}
+          aria-label={t('学号')}
         readOnly={!allowWrite}
         />
         <input
           value={name}
         disabled={busy || !allowWrite}
           onChange={(e) => setName(e.target.value)}
-          placeholder="姓名"
-          aria-label="姓名"
+          placeholder={t('姓名')}
+          aria-label={t('姓名')}
         readOnly={!allowWrite}
       />
       <span>{String(student.totalPoints)}</span>
@@ -1003,7 +1029,7 @@ export function StudentRow({
         </button>
           </>
         ) : (
-          <span className="hint">只读</span>
+          <span className="hint">{t('只读')}</span>
         )}
       </span>
     </div>
@@ -1080,18 +1106,18 @@ export function QuestionsPanel({ classId }: { classId: string }) {
   ) {
     if (selectedQIds.size === 0) return;
     if (!allowDelete && (action === 'delete' || action === 'purge')) {
-      toast.err('助教不可批量删除');
+      toast.err(t('助教不可批量删除'));
       return;
     }
     const labels: Record<typeof action, string> = {
-      delete: '移入回收站',
-      purge: '永久删除',
-      restore: '恢复',
-      close: '收卷',
-      reopen: '重开',
-      archive: '下线',
-      unarchive: '恢复上线',
-      set_closes_at: '设置截止',
+      delete: t('移入回收站'),
+      purge: t('永久删除'),
+      restore: t('恢复'),
+      close: t('收卷'),
+      reopen: t('重开'),
+      archive: t('下线'),
+      unarchive: t('恢复上线'),
+      set_closes_at: t('设置截止'),
     };
     if (action === 'delete') {
       if (
@@ -1105,7 +1131,7 @@ export function QuestionsPanel({ classId }: { classId: string }) {
       if (!window.confirm(`永久删除选中的 ${selectedQIds.size} 道题？不可恢复。`)) return;
     } else if (action === 'set_closes_at') {
       if (!bulkClosesAt.trim()) {
-        toast.err('请填写截止时间');
+        toast.err(t('请填写截止时间'));
         return;
       }
       if (!window.confirm(`为选中的 ${selectedQIds.size} 道题设置截止 ${bulkClosesAt}？`)) return;
@@ -1138,7 +1164,7 @@ export function QuestionsPanel({ classId }: { classId: string }) {
       }
       await load();
     } catch (e) {
-      toast.err(e instanceof Error ? e.message : '批量操作失败');
+      toast.err(e instanceof Error ? e.message : t('批量操作失败'));
     } finally {
       setBulkQBusy(false);
     }
@@ -1162,13 +1188,13 @@ export function QuestionsPanel({ classId }: { classId: string }) {
     const first = items.findIndex((q) => jumpIds.has(String(q.id)));
     if (first < 0) return;
     setQScrollTop(Math.max(0, first * Q_ROW_H - Q_VIEW_H / 3));
-    const t = window.setTimeout(() => {
+    const _cdTimer = window.setTimeout(() => {
       const id = String(items[first]!.id);
       document.querySelector(`[data-row-id="${CSS.escape(id)}"]`)?.scrollIntoView({
         block: 'nearest',
       });
     }, 50);
-    return () => window.clearTimeout(t);
+    return () => window.clearTimeout(_cdTimer);
   }, [jumpIds, items]);
 
   function ensureQVisible(index: number) {
@@ -1181,12 +1207,12 @@ export function QuestionsPanel({ classId }: { classId: string }) {
   function applyTemplate(kind: 'bool' | 'blank') {
     setType(kind);
     if (kind === 'bool') {
-      setTitle((t) => t || '判断题');
-      setStem((s) => s || '（请改成真实题干）下列说法正确吗？');
+      setTitle((prev) => prev || t('判断题'));
+      setStem((s) => s || t('（请改成真实题干）下列说法正确吗？'));
       setBlankKey('');
     } else {
-      setTitle((t) => t || '填空题');
-      setStem((s) => s || '（请改成真实题干）请填写答案：____');
+      setTitle((prev) => prev || t('填空题'));
+      setStem((s) => s || t('（请改成真实题干）请填写答案：____'));
       setBlankKey((k) => k || '');
     }
   }
@@ -1205,7 +1231,7 @@ export function QuestionsPanel({ classId }: { classId: string }) {
       setAttachments((prev) => [...prev, ...res.items]);
       setCreateMsg(`已上传 ${res.items.length} 个附件`);
     } catch (e) {
-      setCreateMsg(e instanceof Error ? e.message : '上传失败');
+      setCreateMsg(e instanceof Error ? e.message : t('上传失败'));
     } finally {
       setUploading(false);
     }
@@ -1214,7 +1240,7 @@ export function QuestionsPanel({ classId }: { classId: string }) {
   async function create() {
     setCreateMsg('');
     if (!title.trim() || !stem.trim()) {
-      setCreateMsg('请填写真实题目标题与题干');
+      setCreateMsg(t('请填写真实题目标题与题干'));
       return;
     }
     const closesAt = closesAtLocal
@@ -1223,7 +1249,7 @@ export function QuestionsPanel({ classId }: { classId: string }) {
     let body: Record<string, unknown>;
     if (type === 'blank') {
       if (!blankKey.trim()) {
-        setCreateMsg('请填写填空参考答案');
+        setCreateMsg(t('请填写填空参考答案'));
         return;
       }
       body = {
@@ -1245,17 +1271,17 @@ export function QuestionsPanel({ classId }: { classId: string }) {
         attachments,
         closesAt,
         options: [
-          { label: 'A', content: '正确', isCorrect: boolCorrect === 'A' },
-          { label: 'B', content: '错误', isCorrect: boolCorrect === 'B' },
+          { label: 'A', content: t('正确'), isCorrect: boolCorrect === 'A' },
+          { label: 'B', content: t('错误'), isCorrect: boolCorrect === 'B' },
         ],
       };
     } else if (type === 'multi') {
       if (!optA.trim() || !optB.trim() || !optC.trim()) {
-        setCreateMsg('多选题请填写选项 A/B/C 的真实内容');
+        setCreateMsg(t('多选题请填写选项 A/B/C 的真实内容'));
         return;
       }
       if (!correctMulti.A && !correctMulti.B && !correctMulti.C) {
-        setCreateMsg('多选题请至少勾选一个正确答案');
+        setCreateMsg(t('多选题请至少勾选一个正确答案'));
         return;
       }
       body = {
@@ -1273,7 +1299,7 @@ export function QuestionsPanel({ classId }: { classId: string }) {
       };
     } else {
       if (!optA.trim() || !optB.trim()) {
-        setCreateMsg('单选题请填写选项 A/B 的真实内容');
+        setCreateMsg(t('单选题请填写选项 A/B 的真实内容'));
         return;
       }
       body = {
@@ -1301,7 +1327,7 @@ export function QuestionsPanel({ classId }: { classId: string }) {
     setCorrectSingle('A');
     setCorrectMulti({ A: true, B: true, C: false });
     setBoolCorrect('A');
-    setCreateMsg('已发布');
+    setCreateMsg(t('已发布'));
     await load();
   }
 
@@ -1337,8 +1363,8 @@ export function QuestionsPanel({ classId }: { classId: string }) {
 
   return (
     <section>
-      <h2>发题 / 正确率 · 错误率</h2>
-      {!allowWrite ? <p className="hint">助教可收卷/下线，不可发布或编辑题目</p> : null}
+      <h2>{t('发题 / 正确率 · 错误率')}</h2>
+      {!allowWrite ? <p className="hint">{t('助教可收卷/下线，不可发布或编辑题目')}</p> : null}
       <div className="row">
         {allowWrite ? (
           <>
@@ -1362,20 +1388,20 @@ export function QuestionsPanel({ classId }: { classId: string }) {
       {allowWrite ? (
       <>
       <select value={type} onChange={(e) => setType(e.target.value as typeof type)}>
-        <option value="single">单选</option>
-        <option value="multi">多选</option>
-        <option value="bool">判断</option>
-        <option value="blank">填空</option>
+        <option value="single">{t('单选')}</option>
+        <option value="multi">{t('多选')}</option>
+        <option value="bool">{t('判断')}</option>
+        <option value="blank">{t('填空')}</option>
       </select>
-      <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="题目标题（必填）" />
-      <textarea value={stem} onChange={(e) => setStem(e.target.value)} placeholder="题干（必填）" />
+      <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder={t('题目标题（必填）')} />
+      <textarea value={stem} onChange={(e) => setStem(e.target.value)} placeholder={t('题干（必填）')} />
       {type === 'blank' ? (
-        <input value={blankKey} onChange={(e) => setBlankKey(e.target.value)} placeholder="参考答案（必填）" />
+        <input value={blankKey} onChange={(e) => setBlankKey(e.target.value)} placeholder={t('参考答案（必填）')} />
       ) : type === 'bool' ? (
         <>
-        <p className="hint">判断题选项固定为「正确 / 错误」</p>
-          <div className="row" role="radiogroup" aria-label="正确答案">
-            <span>正确答案：</span>
+        <p className="hint">{t('判断题选项固定为「正确 / 错误」')}</p>
+          <div className="row" role="radiogroup" aria-label={t('正确答案')}>
+            <span>{t('正确答案：')}</span>
             <label className="choice">
               <input
                 type="radio"
@@ -1383,7 +1409,7 @@ export function QuestionsPanel({ classId }: { classId: string }) {
                 checked={boolCorrect === 'A'}
                 onChange={() => setBoolCorrect('A')}
               />
-              正确
+              {t('正确')}
             </label>
             <label className="choice">
               <input
@@ -1392,20 +1418,20 @@ export function QuestionsPanel({ classId }: { classId: string }) {
                 checked={boolCorrect === 'B'}
                 onChange={() => setBoolCorrect('B')}
               />
-              错误
+              {t('错误')}
             </label>
           </div>
         </>
       ) : (
         <>
-          <input value={optA} onChange={(e) => setOptA(e.target.value)} placeholder="选项 A（必填）" />
-          <input value={optB} onChange={(e) => setOptB(e.target.value)} placeholder="选项 B（必填）" />
+          <input value={optA} onChange={(e) => setOptA(e.target.value)} placeholder={t('选项 A（必填）')} />
+          <input value={optB} onChange={(e) => setOptB(e.target.value)} placeholder={t('选项 B（必填）')} />
           {type === 'multi' ? (
-            <input value={optC} onChange={(e) => setOptC(e.target.value)} placeholder="选项 C（必填）" />
+            <input value={optC} onChange={(e) => setOptC(e.target.value)} placeholder={t('选项 C（必填）')} />
           ) : null}
           {type === 'single' ? (
-            <div className="row" role="radiogroup" aria-label="正确答案">
-              <span>正确答案</span>
+            <div className="row" role="radiogroup" aria-label={t('正确答案')}>
+              <span>{t('正确答案')}</span>
               <label className="choice">
                 <input
                   type="radio"
@@ -1450,8 +1476,8 @@ export function QuestionsPanel({ classId }: { classId: string }) {
         />
       </label>
       <label className="dropzone dropzone-wrap">
-        <strong>{uploading ? '上传中…' : '题目附件（可多选）'}</strong>
-        <p className="hint">pdf / 图片 / Word / Excel / PPT / 音视频 / zip / txt / md / csv，单文件 ≤10MB</p>
+        <strong>{uploading ? t('上传中…') : t('题目附件（可多选）')}</strong>
+        <p className="hint">{t('pdf / 图片 / Word / Excel / PPT / 音视频 / zip / txt / md / csv，单文件 ≤10MB')}</p>
         <input
           type="file"
           multiple
@@ -1496,14 +1522,14 @@ export function QuestionsPanel({ classId }: { classId: string }) {
         }
         title={
           type === 'multi' && !correctMulti.A && !correctMulti.B && !correctMulti.C
-            ? '多选题请至少勾选一个正确答案'
+            ? t('多选题请至少勾选一个正确答案')
             : undefined
         }
       >
         发布题目
       </button>
       {type === 'multi' && !correctMulti.A && !correctMulti.B && !correctMulti.C ? (
-        <p className="error">请至少勾选一个正确答案后再发布</p>
+        <p className="error">{t('请至少勾选一个正确答案后再发布')}</p>
       ) : null}
       {createMsg ? <p className="hint">{createMsg}</p> : null}
       </>
@@ -1556,7 +1582,7 @@ export function QuestionsPanel({ classId }: { classId: string }) {
           type="datetime-local"
           value={bulkClosesAt}
           onChange={(e) => setBulkClosesAt(e.target.value)}
-          aria-label="批量截止时间"
+          aria-label={t('批量截止时间')}
           disabled={!allowDelete}
         />
         <button
@@ -1585,10 +1611,10 @@ export function QuestionsPanel({ classId }: { classId: string }) {
                     closesAt: null,
                   }),
                 });
-                toast.ok(r.message ?? '已清空截止');
+                toast.ok(r.message ?? t('已清空截止'));
                 await load();
               } catch (e) {
-                toast.err(e instanceof Error ? e.message : '清空失败');
+                toast.err(e instanceof Error ? e.message : t('清空失败'));
               } finally {
                 setBulkQBusy(false);
               }
@@ -1611,7 +1637,7 @@ export function QuestionsPanel({ classId }: { classId: string }) {
                 );
                 toast.ok(`已导出选中 ${selectedQIds.size} 题`);
               } catch (e) {
-                toast.err(e instanceof Error ? e.message : '导出失败');
+                toast.err(e instanceof Error ? e.message : t('导出失败'));
               }
             })()
           }
@@ -1621,21 +1647,21 @@ export function QuestionsPanel({ classId }: { classId: string }) {
         <button type="button" disabled={bulkQBusy || selectedQIds.size === 0 || !allowDelete} onClick={() => void bulkQuestions('delete')}>
           批量删除
         </button>
-        {!allowDelete ? <span className="hint">助教不可删除/设截止</span> : null}
+        {!allowDelete ? <span className="hint">{t('助教不可删除/设截止')}</span> : null}
       </div>
       {selectedQIds.size > 0 ? (
         <div className="selection-sticky" data-testid="questions-selection-sticky">
           已选 {selectedQIds.size} 题 · Shift+点击连选 · ↑↓ 移动 · Space 勾选
         </div>
       ) : null}
-      {items.length === 0 ? <p className="hint">暂无题目</p> : null}
+      {items.length === 0 ? <p className="hint">{t('暂无题目')}</p> : null}
       <div
         className="q-virtual"
         style={{ height: Q_VIEW_H }}
         tabIndex={0}
         role="listbox"
         aria-multiselectable
-        aria-label="发题列表，可用方向键与空格多选"
+        aria-label={t('发题列表，可用方向键与空格多选')}
         onScroll={(e: UIEvent<HTMLDivElement>) => setQScrollTop(e.currentTarget.scrollTop)}
         onKeyDown={(e) =>
           onQuestionsKeyDown(e, {
@@ -1697,7 +1723,7 @@ export function QuestionsPanel({ classId }: { classId: string }) {
               <span className="title">
                 [{String(q.type)}] {String(q.title)}
                 {closed ? ' · 已收卷' : ''}
-                {archived ? ' · 已下线' : ''}
+                {archived ? t(' · 已下线') : ''}
                 {Array.isArray(q.attachments) && (q.attachments as unknown[]).length
                   ? ` · 附件${(q.attachments as unknown[]).length}`
                   : ''}
@@ -1731,14 +1757,14 @@ export function QuestionsPanel({ classId }: { classId: string }) {
                     : `/api/v1/questions/${String(q.id)}/close`;
                   void api(path, { method: 'POST', body: '{}' })
                     .then(async () => {
-                      setCreateMsg(closed ? '已重开' : '已收卷');
+                      setCreateMsg(closed ? t('已重开') : t('已收卷'));
                       await load();
                       await showStats(String(q.id), String(q.title));
                     })
-                    .catch((err) => setCreateMsg(err instanceof Error ? err.message : '操作失败'));
+                    .catch((err) => setCreateMsg(err instanceof Error ? err.message : t('操作失败')));
                 }}
               >
-                {closed ? '重开' : '收卷'}
+                {closed ? t('重开') : t('收卷')}
               </button>
               <button
                 type="button"
@@ -1750,13 +1776,13 @@ export function QuestionsPanel({ classId }: { classId: string }) {
                     body: JSON.stringify({ archived: !archived }),
                   })
                     .then(async () => {
-                      setCreateMsg(archived ? '已恢复上线' : '已软下线（保留正确率）');
+                      setCreateMsg(archived ? t('已恢复上线') : t('已软下线（保留正确率）'));
                       await load();
                     })
-                    .catch((err) => setCreateMsg(err instanceof Error ? err.message : '操作失败'));
+                    .catch((err) => setCreateMsg(err instanceof Error ? err.message : t('操作失败')));
                 }}
               >
-                {archived ? '恢复' : '下线'}
+                {archived ? t('恢复') : t('下线')}
               </button>
               <button
                 type="button"
@@ -1768,11 +1794,11 @@ export function QuestionsPanel({ classId }: { classId: string }) {
                   if (!window.confirm(`将题目「${String(q.title)}」移入回收站？`)) return;
                   void api(`/api/v1/questions/${String(q.id)}`, { method: 'DELETE' })
                     .then(async () => {
-                      toast.ok('已移入回收站');
+                      toast.ok(t('已移入回收站'));
                       if (String(editingQuestion?.id) === String(q.id)) setEditingQuestion(null);
                       await load();
                     })
-                    .catch((err) => toast.err(err instanceof Error ? err.message : '删除失败'));
+                    .catch((err) => toast.err(err instanceof Error ? err.message : t('删除失败')));
                 }}
               >
                 删除
@@ -1784,7 +1810,7 @@ export function QuestionsPanel({ classId }: { classId: string }) {
       </div>
       {allowWrite && editingQuestion ? (
         <>
-      <h3>编辑题目（加载原选项）</h3>
+      <h3>{t('编辑题目（加载原选项）')}</h3>
       <QuestionEditForm
         classId={classId}
         seed={editingQuestion}
@@ -1810,7 +1836,7 @@ export function QuestionsPanel({ classId }: { classId: string }) {
             <div className="bar correct" style={{ width: `${correctPct}%` }} />
             <div className="bar wrong" style={{ width: `${wrongPct}%` }} />
           </div>
-          <h4>选项分布</h4>
+          <h4>{t('选项分布')}</h4>
           {chart.options.map((opt) => {
             const max = Math.max(1, ...chart.options.map((o) => o.chosenCount));
             const pct = (opt.chosenCount / max) * 100;
@@ -1882,12 +1908,12 @@ export function QuestionRecyclePanel({ classId }: { classId: string }) {
     const first = items.findIndex((q) => jumpIds.has(String(q.id)));
     if (first < 0) return;
     setScrollTop(Math.max(0, first * ROW_H - VIEW_H / 3));
-    const t = window.setTimeout(() => {
+    const _cdTimer = window.setTimeout(() => {
       document
         .querySelector(`[data-row-id="${CSS.escape(String(items[first]!.id))}"]`)
         ?.scrollIntoView({ block: 'nearest' });
     }, 50);
-    return () => window.clearTimeout(t);
+    return () => window.clearTimeout(_cdTimer);
   }, [jumpIds, items]);
 
   async function run(action: 'restore' | 'purge', ids: string[]) {
@@ -1899,10 +1925,10 @@ export function QuestionRecyclePanel({ classId }: { classId: string }) {
         method: 'POST',
         body: JSON.stringify({ classId, ids, action }),
       });
-      toast.ok(r.message ?? '完成');
+      toast.ok(r.message ?? t('完成'));
       await load();
     } catch (e) {
-      toast.err(e instanceof Error ? e.message : '操作失败');
+      toast.err(e instanceof Error ? e.message : t('操作失败'));
     } finally {
       setBusy(false);
     }
@@ -1910,7 +1936,7 @@ export function QuestionRecyclePanel({ classId }: { classId: string }) {
 
   return (
     <section>
-      <h2>题目回收站</h2>
+      <h2>{t('题目回收站')}</h2>
       <p className="hint">
         软删除题目在此恢复或永久清除；与「含已下线」无关。默认保留 {RECYCLE_RETENTION_DAYS} 天。
       </p>
@@ -1954,10 +1980,10 @@ export function QuestionRecyclePanel({ classId }: { classId: string }) {
                   method: 'POST',
                   body: JSON.stringify({ classId }),
                 });
-                toast.ok(r.message ?? '已全部恢复');
+                toast.ok(r.message ?? t('已全部恢复'));
                 await load();
               } catch (e) {
-                toast.err(e instanceof Error ? e.message : '恢复失败');
+                toast.err(e instanceof Error ? e.message : t('恢复失败'));
               } finally {
                 setBusy(false);
               }
@@ -1981,10 +2007,10 @@ export function QuestionRecyclePanel({ classId }: { classId: string }) {
                   { classId },
                   (p) => setPurgePct(p.pct),
                 );
-                toast.ok(r.message ?? '已清空');
+                toast.ok(r.message ?? t('已清空'));
                 await load();
               } catch (e) {
-                toast.err(e instanceof Error ? e.message : '清空失败');
+                toast.err(e instanceof Error ? e.message : t('清空失败'));
               } finally {
                 setBusy(false);
                 setPurgePct(null);
@@ -2006,7 +2032,7 @@ export function QuestionRecyclePanel({ classId }: { classId: string }) {
           已选 {selected.size} 题 · Shift+点击连选 · ↑↓ / Space 多选
         </div>
       ) : null}
-      {items.length === 0 ? <p className="hint">回收站为空</p> : null}
+      {items.length === 0 ? <p className="hint">{t('回收站为空')}</p> : null}
       <div
         className="q-virtual"
         style={{ height: VIEW_H }}
@@ -2014,7 +2040,7 @@ export function QuestionRecyclePanel({ classId }: { classId: string }) {
         tabIndex={0}
         role="listbox"
         aria-multiselectable
-        aria-label="题目回收站列表"
+        aria-label={t('题目回收站列表')}
         onScroll={(e: UIEvent<HTMLDivElement>) => setScrollTop(e.currentTarget.scrollTop)}
         onKeyDown={(e) =>
           onKeyDown(e, {
@@ -2035,7 +2061,7 @@ export function QuestionRecyclePanel({ classId }: { classId: string }) {
             const qid = String(q.id);
             const days =
               q.daysLeft != null ? Number(q.daysLeft) : recycleDaysLeft(q.deletedAt);
-            const daysLabel = formatRecycleDaysLeft(days);
+            const daysLabel = formatRecycleDaysLeft(days, t);
             return (
               <div
                 key={qid}
@@ -2118,7 +2144,7 @@ export function QuestionEditForm({
     setAttachments(
       ((seed.attachments as QAttachment[]) ?? []).map((a) => ({
         url: String(a.url),
-        originalName: String(a.originalName ?? '附件'),
+        originalName: String(a.originalName ?? t('附件')),
         size: a.size,
         mime: a.mime,
       })),
@@ -2139,7 +2165,7 @@ export function QuestionEditForm({
       setAttachments((prev) => [...prev, ...res.items]);
       setMsg(`已追加 ${res.items.length} 个附件`);
     } catch (e) {
-      setMsg(e instanceof Error ? e.message : '上传失败');
+      setMsg(e instanceof Error ? e.message : t('上传失败'));
     } finally {
       setUploading(false);
     }
@@ -2148,9 +2174,9 @@ export function QuestionEditForm({
   return (
     <div className="card">
       <p className="hint">点列表「编辑」加载选项；可改标题/题干/选项/附件后保存。班级 {classId}</p>
-      <input value={qid} onChange={(e) => setQid(e.target.value)} placeholder="题目 ID" readOnly />
-      <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="标题" />
-      <textarea value={stem} onChange={(e) => setStem(e.target.value)} placeholder="题干" />
+      <input value={qid} onChange={(e) => setQid(e.target.value)} placeholder={t('题目 ID')} readOnly />
+      <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder={t('标题')} />
+      <textarea value={stem} onChange={(e) => setStem(e.target.value)} placeholder={t('题干')} />
       <p className="hint">类型：{qType}</p>
       {options.map((opt, idx) => (
         <div key={idx} className="row">
@@ -2171,12 +2197,12 @@ export function QuestionEditForm({
                 )
               }
             />
-            正确
+            {t('正确')}
           </label>
         </div>
       ))}
       <label className="dropzone dropzone-wrap">
-        <strong>{uploading ? '上传中…' : '更换/追加附件'}</strong>
+        <strong>{uploading ? t('上传中…') : t('更换/追加附件')}</strong>
         <input
           type="file"
           multiple
@@ -2206,7 +2232,7 @@ export function QuestionEditForm({
           ))}
         </ul>
       ) : (
-        <p className="hint">无附件</p>
+        <p className="hint">{t('无附件')}</p>
       )}
       <button
         type="button"
@@ -2223,10 +2249,10 @@ export function QuestionEditForm({
             }),
           })
             .then(() => {
-              setMsg('已保存原题修改');
+              setMsg(t('已保存原题修改'));
               return onSaved();
             })
-            .catch((e) => setMsg(e instanceof Error ? e.message : '失败'))
+            .catch((e) => setMsg(e instanceof Error ? e.message : t('失败')))
         }
       >
         保存编辑
@@ -2239,10 +2265,10 @@ export function QuestionEditForm({
           if (!window.confirm(`确定删除题目「${title || qid}」？`)) return;
           void api(`/api/v1/questions/${qid}`, { method: 'DELETE' })
             .then(() => {
-              setMsg('已删除');
+              setMsg(t('已删除'));
               return onDeleted?.() ?? onSaved();
             })
-            .catch((e) => setMsg(e instanceof Error ? e.message : '删除失败'));
+            .catch((e) => setMsg(e instanceof Error ? e.message : t('删除失败')));
         }}
       >
         删除题目
@@ -2313,14 +2339,14 @@ export function AttendancePanel({ classId }: { classId: string }) {
       URL.revokeObjectURL(url);
       setExportMsg(`已下载 ${a.download}`);
     } catch (e) {
-      setExportMsg(e instanceof Error ? e.message : '导出失败');
+      setExportMsg(e instanceof Error ? e.message : t('导出失败'));
     }
   }
 
   async function downloadAbsent() {
     setExportMsg('');
     if (!sessionId) {
-      setExportMsg('请先选择单场课次再导出缺勤名单');
+      setExportMsg(t('请先选择单场课次再导出缺勤名单'));
       return;
     }
     const token = getToken();
@@ -2339,7 +2365,7 @@ export function AttendancePanel({ classId }: { classId: string }) {
       URL.revokeObjectURL(url);
       setExportMsg(`已下载 ${a.download}`);
     } catch (e) {
-      setExportMsg(e instanceof Error ? e.message : '导出失败');
+      setExportMsg(e instanceof Error ? e.message : t('导出失败'));
     }
   }
 
@@ -2353,7 +2379,7 @@ export function AttendancePanel({ classId }: { classId: string }) {
 
   return (
     <section>
-      <h2>出勤报表</h2>
+      <h2>{t('出勤报表')}</h2>
       <p className="hint">
         按教师机本地时区自然月统计（非 UTC）。选课次后表格与导出一并按该场重算。
       </p>
@@ -2365,7 +2391,7 @@ export function AttendancePanel({ classId }: { classId: string }) {
         <label>
           课次
           <select value={sessionId} onChange={(e) => setSessionId(e.target.value)}>
-            <option value="">整月全部课次</option>
+            <option value="">{t('整月全部课次')}</option>
             {sessions.map((s) => (
               <option key={s.id} value={s.id}>
                 {new Date(s.startAt).toLocaleString()} · {s.status} · {s.mode}
@@ -2383,7 +2409,7 @@ export function AttendancePanel({ classId }: { classId: string }) {
       </div>
       <div className="row">
       <button type="button" onClick={() => void load()}>
-        刷新
+        {t('刷新')}
       </button>
         <button type="button" className="secondary" onClick={() => void download('detail')}>
           导出明细
@@ -2395,7 +2421,7 @@ export function AttendancePanel({ classId }: { classId: string }) {
           type="button"
           className="secondary"
           disabled={!sessionId}
-          title={sessionId ? '导出本场缺勤名单' : '请先选择单场课次'}
+          title={sessionId ? t('导出本场缺勤名单') : t('请先选择单场课次')}
           onClick={() => void downloadAbsent()}
         >
           本场缺勤名单
@@ -2405,17 +2431,17 @@ export function AttendancePanel({ classId }: { classId: string }) {
       {stats ? (
         <>
           <p>
-            {sessionId ? '本场' : '本月'}场次 {stats.sessionCount} · 班级出勤率{' '}
+            {sessionId ? t('本场') : t('本月')}场次 {stats.sessionCount} · 班级出勤率{' '}
             {(stats.classAttendanceRate * 100).toFixed(1)}%
             {sessionId ? ' · 表格已按单场重算' : ''}
           </p>
           <table className="data-table">
             <thead>
               <tr>
-                <th>学号</th>
-                <th>姓名</th>
-                <th>{sessionId ? '本场出勤' : '出勤次数'}</th>
-                <th>出勤率</th>
+                <th>{t('学号')}</th>
+                <th>{t('姓名')}</th>
+                <th>{sessionId ? t('本场出勤') : t('出勤次数')}</th>
+                <th>{t('出勤率')}</th>
               </tr>
             </thead>
             <tbody>
@@ -2459,7 +2485,7 @@ export function ExportsPanel({ classId }: { classId: string }) {
   const lastMonth = shiftMonth(thisMonth, -1);
   return (
     <section>
-      <h2>导出（多格式）</h2>
+      <h2>{t('导出（多格式）')}</h2>
       <div className="row">
         <button type="button" className="secondary" onClick={() => setMonth(lastMonth)}>
           上月（{lastMonth}）
@@ -2510,7 +2536,7 @@ export function ExportsPanel({ classId }: { classId: string }) {
             void download(`/api/v1/exports/points?month=${month}&format=${format}`, `points-${month}.${ext}`)
           }
         >
-          加分
+          {t('加分')}
         </button>
         <button
           type="button"
@@ -2539,7 +2565,7 @@ export function RequestsPanel({ classId }: { classId: string }) {
   const [manualStudentId, setManualStudentId] = useState('');
   const [students, setStudents] = useState<Array<Record<string, unknown>>>([]);
   const [manualPts, setManualPts] = useState(1);
-  const [manualReason, setManualReason] = useState('表扬');
+  const [manualReason, setManualReason] = useState(t('表扬'));
   const [manualMsg, setManualMsg] = useState('');
 
   async function load() {
@@ -2565,8 +2591,8 @@ export function RequestsPanel({ classId }: { classId: string }) {
 
   useEffect(() => {
     void load().catch(() => setItems([]));
-    const t = window.setInterval(() => void load().catch(() => undefined), 5000);
-    return () => window.clearInterval(t);
+    const _cdTimer = window.setInterval(() => void load().catch(() => undefined), 5000);
+    return () => window.clearInterval(_cdTimer);
   }, [classId]);
 
   useEffect(() => {
@@ -2578,11 +2604,11 @@ export function RequestsPanel({ classId }: { classId: string }) {
 
   return (
     <section>
-      <h2>加分 · 排行榜</h2>
-      <h3>快捷手动加分</h3>
+      <h2>{t('加分 · 排行榜')}</h2>
+      <h3>{t('快捷手动加分')}</h3>
       <div className="row">
         <select value={manualStudentId} onChange={(e) => setManualStudentId(e.target.value)}>
-          <option value="">选择学生</option>
+          <option value="">{t('选择学生')}</option>
           {[...students]
             .sort((a, b) => String(a.studentNo ?? '').localeCompare(String(b.studentNo ?? ''), 'zh'))
             .map((s) => (
@@ -2598,7 +2624,7 @@ export function RequestsPanel({ classId }: { classId: string }) {
           onChange={(e) => setManualPts(Number(e.target.value) || 1)}
           style={{ width: 72 }}
         />
-        <input value={manualReason} onChange={(e) => setManualReason(e.target.value)} placeholder="理由" />
+        <input value={manualReason} onChange={(e) => setManualReason(e.target.value)} placeholder={t('理由')} />
         <button
           type="button"
           disabled={!manualStudentId}
@@ -2609,35 +2635,35 @@ export function RequestsPanel({ classId }: { classId: string }) {
                 classId,
                 studentId: manualStudentId,
                 points: manualPts,
-                reasonSummary: manualReason.trim() || '教师手动加分',
+                reasonSummary: manualReason.trim() || t('教师手动加分'),
               }),
             })
               .then(async () => {
-                setManualMsg('已加分');
+                setManualMsg(t('已加分'));
                 await loadBoard();
               })
-              .catch((e) => setManualMsg(e instanceof Error ? e.message : '失败'))
+              .catch((e) => setManualMsg(e instanceof Error ? e.message : t('失败')))
           }
         >
-          加分
+          {t('加分')}
         </button>
       </div>
       <div className="chip-row">
         {POINT_REASON_CHIPS.map((c) => (
           <button key={c} type="button" className="chip" onClick={() => setManualReason(c)}>
-            {c}
+            {t(c)}
           </button>
         ))}
       </div>
       {manualMsg ? <p className="hint">{manualMsg}</p> : null}
 
-      <h3>学生加分请求审核</h3>
-      <p className="hint">学生在名单点选姓名后提交请求；通过后写入积分。</p>
-      {items.length === 0 ? <p>暂无待审请求</p> : null}
+      <h3>{t('学生加分请求审核')}</h3>
+      <p className="hint">{t('学生在名单点选姓名后提交请求；通过后写入积分。')}</p>
+      {items.length === 0 ? <p>{t('暂无待审请求')}</p> : null}
       {items.map((item) => (
         <div key={String(item.id)} className="row request-row">
           <span>
-            {String(item.studentName)} · {String(item.reason || '（无理由）')} · {String(item.points)} 分
+            {String(item.studentName)} · {String(item.reason || t('（无理由）'))} · {String(item.points)} 分
           </span>
           <button
             type="button"
@@ -2665,13 +2691,13 @@ export function RequestsPanel({ classId }: { classId: string }) {
         </div>
       ))}
 
-      <h3>积分排行（投影）</h3>
+      <h3>{t('积分排行（投影）')}</h3>
       <div className="chip-row">
         {(
           [
-            ['week', '本周'],
-            ['month', '本月'],
-            ['semester', '本学期'],
+            ['week', t('本周')],
+            ['month', t('本月')],
+            ['semester', t('本学期')],
           ] as const
         ).map(([id, label]) => (
           <button
@@ -2691,7 +2717,7 @@ export function RequestsPanel({ classId }: { classId: string }) {
           <span className="hint">{boardLabel || period}</span>
         )}
         <button type="button" className="secondary" onClick={() => void loadBoard()}>
-          刷新
+          {t('刷新')}
         </button>
       </div>
       <ol className="leaderboard">
@@ -2702,7 +2728,7 @@ export function RequestsPanel({ classId }: { classId: string }) {
           </li>
         ))}
       </ol>
-      {board.length === 0 ? <p className="hint">该时段暂无积分流水</p> : null}
+      {board.length === 0 ? <p className="hint">{t('该时段暂无积分流水')}</p> : null}
     </section>
   );
 }
@@ -2732,13 +2758,13 @@ export function MessagesPanel({
   }
 
   useEffect(() => {
-    void load().catch((e) => setErr(e instanceof Error ? e.message : '加载失败'));
+    void load().catch((e) => setErr(e instanceof Error ? e.message : t('加载失败')));
   }, [classId]);
 
   return (
     <section>
-      <h2>留言</h2>
-      <p className="hint">含学生→老师、学生↔学生；可回复任意一条。</p>
+      <h2>{t('留言')}</h2>
+      <p className="hint">{t('含学生→老师、学生↔学生；可回复任意一条。')}</p>
       {err ? <p className="error">{err}</p> : null}
       <label className="row">
         <input
@@ -2758,19 +2784,19 @@ export function MessagesPanel({
                   prepTab: next ? 'messages' : 'roster',
                 });
               })
-              .catch((ex) => setErr(ex instanceof Error ? ex.message : '保存失败'))
+              .catch((ex) => setErr(ex instanceof Error ? ex.message : t('保存失败')))
           }
         />
         允许学生留言（关闭后学生端与本侧「留言」入口一并隐藏）
       </label>
       <button type="button" className="secondary" onClick={() => void load().catch((e) => setErr(String(e)))}>
-        刷新
+        {t('刷新')}
       </button>
-      {items.length === 0 ? <p className="hint">暂无留言</p> : null}
+      {items.length === 0 ? <p className="hint">{t('暂无留言')}</p> : null}
       {items.map((msg) => {
         const peer = Boolean(msg.toStudentId);
         const heading = peer
-          ? `${String(msg.studentName)} → ${String(msg.toStudentName ?? '同学')}`
+          ? `${String(msg.studentName)} → ${String(msg.toStudentName ?? t('同学'))}`
           : `${String(msg.studentName)} → 老师`;
         return (
           <div key={String(msg.id)} className="card">
@@ -2779,20 +2805,20 @@ export function MessagesPanel({
             <p className="hint">{msg.createdAt ? new Date(String(msg.createdAt)).toLocaleString() : ''}</p>
             {((msg.replies as Array<{ id?: string; authorName?: string; body: string }>) ?? []).map((r, i) => (
               <p key={r.id ?? i} className="hint">
-                {r.authorName ?? '回复'}：{r.body}
+                {r.authorName ?? t('回复')}：{r.body}
               </p>
             ))}
             <input
               value={reply[String(msg.id)] ?? ''}
               onChange={(e) => setReply((prev) => ({ ...prev, [String(msg.id)]: e.target.value }))}
-              placeholder="回复内容"
+              placeholder={t('回复内容')}
             />
             <button
               type="button"
               onClick={() => {
                 const text = (reply[String(msg.id)] ?? '').trim();
                 if (!text) {
-                  setErr('回复不能为空');
+                  setErr(t('回复不能为空'));
                   return;
                 }
                 void api(`/api/v1/messages/${String(msg.id)}/replies`, {
@@ -2803,10 +2829,10 @@ export function MessagesPanel({
                     setReply((prev) => ({ ...prev, [String(msg.id)]: '' }));
                     return load();
                   })
-                  .catch((ex) => setErr(ex instanceof Error ? ex.message : '回复失败'));
+                  .catch((ex) => setErr(ex instanceof Error ? ex.message : t('回复失败')));
               }}
             >
-              回复
+              {t('回复')}
             </button>
           </div>
         );
@@ -2833,6 +2859,8 @@ export function SettingsPanel({
   const [pwdMsg, setPwdMsg] = useState('');
   const [messagesOn, setMessagesOn] = useState(true);
   const [quizConfirmOn, setQuizConfirmOn] = useState(true);
+  const [uiLocale, setUiLocaleState] = useState<UiLocale>('zh-CN');
+  const [uiLocaleMsg, setUiLocaleMsg] = useState('');
   const [backupInfo, setBackupInfo] = useState<{
     dir?: string;
     keep?: number;
@@ -2845,6 +2873,8 @@ export function SettingsPanel({
   const [exitAllowed, setExitAllowed] = useState(false);
   const [exitUnlockUntil, setExitUnlockUntil] = useState<string | null>(null);
   const [hasExitCode, setHasExitCode] = useState(false);
+  /** False until first settings/SSE read of hasExitUnlockCode (avoid false「尚未设置」flash). */
+  const [exitCodeStatusReady, setExitCodeStatusReady] = useState(false);
   const [exitMinutes, setExitMinutes] = useState(15);
   const [exitCodeDraft, setExitCodeDraft] = useState('');
   /** One-time plaintext from system rotate — copy into password book then dismiss. */
@@ -2888,7 +2918,7 @@ export function SettingsPanel({
     ? 'localStorage'
     : import.meta.env.VITE_HEALTH_POLL_MS
       ? 'VITE_HEALTH_POLL_MS'
-      : '默认';
+      : t('默认');
   const [bulkUnlockOpen, setBulkUnlockOpen] = useState(false);
   const [bulkUnlockBusy, setBulkUnlockBusy] = useState(false);
   const [bulkUnlockMeta, setBulkUnlockMeta] = useState<{
@@ -2910,7 +2940,7 @@ export function SettingsPanel({
   >([]);
   const [examModeBusy, setExamModeBusy] = useState(false);
   const [examModeSnapshot, setExamModeSnapshot] = useState(false);
-  const [inputLockScopeLabel, setInputLockScopeLabel] = useState('全校全局');
+  const [inputLockScopeLabel, setInputLockScopeLabel] = useState(t('全校全局'));
   /** Effective coverage from store summary (assistant badge). */
   const [inputLockCoverage, setInputLockCoverage] = useState<'global' | 'class' | 'seat'>('global');
   /** Last known store summary counts for clearAll confirm. */
@@ -2960,7 +2990,7 @@ export function SettingsPanel({
   const [auditClasses, setAuditClasses] = useState<ClassItem[]>([]);
   const [asstUser, setAsstUser] = useState('');
   const [asstPass, setAsstPass] = useState('');
-  const [asstName, setAsstName] = useState('助教');
+  const [asstName, setAsstName] = useState(t('助教'));
   const [asstMsg, setAsstMsg] = useState('');
   const [assistants, setAssistants] = useState<
     Array<{
@@ -3060,6 +3090,7 @@ export function SettingsPanel({
         camera?: boolean;
       };
       examModeSnapshot?: boolean;
+      uiLocale?: string;
       inputLockSummary?: {
         global?: string;
         byClass?: unknown[];
@@ -3077,6 +3108,7 @@ export function SettingsPanel({
       setTtl(s.pointRequestTtlMinutes);
       setMessagesOn(s.messagesEnabled !== false);
     setQuizConfirmOn(s.quizConfirmSubmit !== false);
+    setUiLocaleState(normalizeUiLocale(s.uiLocale));
     if (s.liveboardReadonlyAfterMinutes != null) {
       setReadonlyAfterMins(Number(s.liveboardReadonlyAfterMinutes) || 0);
     }
@@ -3106,7 +3138,10 @@ export function SettingsPanel({
     }
       setExitAllowed(s.clientExitAllowed === true);
       setExitUnlockUntil(s.clientExitUnlockUntil ?? null);
-      setHasExitCode(s.hasExitUnlockCode === true);
+      if (typeof s.hasExitUnlockCode === 'boolean') {
+        setHasExitCode(s.hasExitUnlockCode);
+        setExitCodeStatusReady(true);
+      }
     setMaxFails(s.exitUnlockMaxFails ?? 5);
     setWindowMin(s.exitUnlockWindowMinutes ?? 15);
     setLockoutMin(s.exitUnlockLockoutMinutes ?? 15);
@@ -3141,7 +3176,7 @@ export function SettingsPanel({
       setInputLockScopeLabel(`班级覆盖 ${classN}`);
     } else {
       setInputLockCoverage('global');
-      setInputLockScopeLabel(sum?.global && sum.global !== '无' ? `全局 ${sum.global}` : '全校全局');
+      setInputLockScopeLabel(sum?.global && sum.global !== t('无') ? `全局 ${sum.global}` : t('全校全局'));
     }
     const q = new URLSearchParams({
       limit: String(EXIT_PAGE_SIZE),
@@ -3215,30 +3250,30 @@ export function SettingsPanel({
 
   function exitLockKindLabel(kind: string): string {
     const map: Record<string, string> = {
-      batch_unlock: '批量解除',
-      relock: '重新锁定',
-      unlock_flag_off: '关闭锁定标志',
-      code_ok: '解除码成功',
-      code_fail: '解除码失败',
-      code_rate_limited: '解除码限流',
-      code_set: '首次设置解除码',
-      code_rotated: '轮换解除码',
-      rate_config: '限流/轮换配置',
-      input_lock: '物理输入锁',
-      exam_mode: '考试模式',
-      exam_mode_end: '解除考试模式',
-      client_reconcile: '断线对账冲突',
+      batch_unlock: t('批量解除'),
+      relock: t('重新锁定'),
+      unlock_flag_off: t('关闭锁定标志'),
+      code_ok: t('解除码成功'),
+      code_fail: t('解除码失败'),
+      code_rate_limited: t('解除码限流'),
+      code_set: t('首次设置解除码'),
+      code_rotated: t('轮换解除码'),
+      rate_config: t('限流/轮换配置'),
+      input_lock: t('物理输入锁'),
+      exam_mode: t('考试模式'),
+      exam_mode_end: t('解除考试模式'),
+      client_reconcile: t('断线对账冲突'),
     };
     return map[kind] ? `${map[kind]}（${kind}）` : kind;
   }
 
   function auditActionLabel(action: string): string {
     const map: Record<string, string> = {
-      'settings.input_lock': '物理输入锁变更',
-      'settings.exam_mode': '一键考试模式',
-      'settings.exam_mode_end': '解除考试模式',
-      'settings.unhardened_threshold': '未加固告警阈值',
-      'session.raise_hand': '学生举手',
+      'settings.input_lock': t('物理输入锁变更'),
+      'settings.exam_mode': t('一键考试模式'),
+      'settings.exam_mode_end': t('解除考试模式'),
+      'settings.unhardened_threshold': t('未加固告警阈值'),
+      'session.raise_hand': t('学生举手'),
     };
     return map[action] ? `${map[action]}（${action}）` : action;
   }
@@ -3297,14 +3332,14 @@ export function SettingsPanel({
           inputLockScope === 'seat'
             ? `机位 ${inputLockSeatId || '—'}`
             : inputLockScope === 'class'
-              ? '当前班级'
-              : '全局';
+              ? t('当前班级')
+              : t('全局');
         setInputLockScopeLabel(scopeZh);
         setExitMsg(`物理输入锁已更新（${scopeZh}，已推送到学生端）`);
         void loadAudit().catch(() => undefined);
         void refreshExitLock().catch(() => undefined);
       })
-      .catch((err) => setExitMsg(err instanceof Error ? err.message : '输入锁保存失败'))
+      .catch((err) => setExitMsg(err instanceof Error ? err.message : t('输入锁保存失败')))
       .finally(() => setInputLockBusy(false));
   }
 
@@ -3343,7 +3378,7 @@ export function SettingsPanel({
   ) {
     const esc = (v: string) => (/[",\n\r]/.test(v) ? `"${v.replaceAll('"', '""')}"` : v);
     const lines = [
-      ['时间', '类型', '角色', '详情', 'IP', 'ID'].join(','),
+      ['时间', '类型', '角色', t('详情'), 'IP', 'ID'].join(','),
       ...rows.map((e) =>
         [e.createdAt, e.kind, e.actorRole ?? '', e.detail, e.clientIp ?? '', e.id].map(esc).join(','),
       ),
@@ -3430,7 +3465,7 @@ export function SettingsPanel({
         setExitMsg(`已取消导出（已取 ${rows.length} 条，可下载已拉取部分）`);
         return;
       }
-      setExitMsg(err instanceof Error ? err.message : '导出失败');
+      setExitMsg(err instanceof Error ? err.message : t('导出失败'));
     } finally {
       if (csvExportAbortRef.current === ac) csvExportAbortRef.current = null;
       setCsvExportBusy(false);
@@ -3585,7 +3620,7 @@ export function SettingsPanel({
       } else {
         setInputLockCoverage('global');
         setInputLockScopeLabel(
-          summary.global && summary.global !== '无' ? `全局 ${summary.global}` : '全校全局',
+          summary.global && summary.global !== t('无') ? `全局 ${summary.global}` : t('全校全局'),
         );
       }
     }
@@ -3596,6 +3631,11 @@ export function SettingsPanel({
       void api<{
         inputLock?: typeof inputLock;
         inputLockExpiresAt?: string | null;
+        hasExitUnlockCode?: boolean;
+        clientExitAllowed?: boolean;
+        clientExitUnlockUntil?: string | null;
+        exitUnlockCodeAgeDays?: number | null;
+        exitUnlockCodeRotationDue?: boolean;
         inputLockSummary?: {
           global?: string;
           byClass?: unknown[];
@@ -3617,6 +3657,22 @@ export function SettingsPanel({
                 ? String(s.inputLockExpiresAt)
                 : null,
             );
+          }
+          if (typeof s.hasExitUnlockCode === 'boolean') {
+            setHasExitCode(s.hasExitUnlockCode);
+            setExitCodeStatusReady(true);
+          }
+          if (typeof s.clientExitAllowed === 'boolean') {
+            setExitAllowed(s.clientExitAllowed);
+          }
+          if ('clientExitUnlockUntil' in s) {
+            setExitUnlockUntil(s.clientExitUnlockUntil ?? null);
+          }
+          if ('exitUnlockCodeAgeDays' in s) {
+            setCodeAgeDays(s.exitUnlockCodeAgeDays ?? null);
+          }
+          if (typeof s.exitUnlockCodeRotationDue === 'boolean') {
+            setCodeRotationDue(s.exitUnlockCodeRotationDue);
           }
           applyInputLockCoverage(s.inputLockSummary);
         })
@@ -3706,6 +3762,56 @@ export function SettingsPanel({
       };
     connectInputLockSse();
 
+    // Keep hasExitUnlockCode / lock window in sync (avoid stale「尚未设置解除码」).
+    let exitLockEs: EventSource | null = null;
+    function applyExitLockPayload(data: {
+      clientExitAllowed?: boolean;
+      clientExitUnlockUntil?: string | null;
+      hasExitUnlockCode?: boolean;
+      exitUnlockCodeAgeDays?: number | null;
+      exitUnlockCodeRotationDue?: boolean;
+      exitUnlockCodeRotateDays?: number;
+    }) {
+      if (typeof data.clientExitAllowed === 'boolean') {
+        setExitAllowed(data.clientExitAllowed);
+      }
+      if ('clientExitUnlockUntil' in data) {
+        setExitUnlockUntil(data.clientExitUnlockUntil ?? null);
+      }
+      if (typeof data.hasExitUnlockCode === 'boolean') {
+        setHasExitCode(data.hasExitUnlockCode);
+        setExitCodeStatusReady(true);
+      }
+      if ('exitUnlockCodeAgeDays' in data) {
+        setCodeAgeDays(data.exitUnlockCodeAgeDays ?? null);
+      }
+      if (typeof data.exitUnlockCodeRotationDue === 'boolean') {
+        setCodeRotationDue(data.exitUnlockCodeRotationDue);
+      }
+      if (
+        data.exitUnlockCodeRotateDays != null &&
+        Number.isFinite(Number(data.exitUnlockCodeRotateDays))
+      ) {
+        setRotateDays(Number(data.exitUnlockCodeRotateDays));
+      }
+    }
+    if (typeof EventSource !== 'undefined') {
+      try {
+        exitLockEs = new EventSource(`${API_BASE}/api/v1/exit-lock/stream`);
+        const onExit = (ev: MessageEvent) => {
+          try {
+            applyExitLockPayload(JSON.parse(String(ev.data)) as Parameters<typeof applyExitLockPayload>[0]);
+          } catch {
+            /* ignore */
+          }
+        };
+        exitLockEs.addEventListener('message', onExit as EventListener);
+        exitLockEs.onmessage = onExit;
+      } catch {
+        exitLockEs = null;
+      }
+    }
+
     async function pollHealthAlert() {
       try {
         const res = await fetch(`${API_BASE}/health`, { cache: 'no-store' });
@@ -3748,6 +3854,11 @@ export function SettingsPanel({
       }
       try {
         inputLockEs?.close();
+      } catch {
+        /* ignore */
+      }
+      try {
+        exitLockEs?.close();
       } catch {
         /* ignore */
       }
@@ -3861,8 +3972,8 @@ export function SettingsPanel({
   }, [auditClassId, auditAction]);
 
   useEffect(() => {
-    const t = window.setInterval(() => setNowTick(Date.now()), 1000);
-    return () => window.clearInterval(t);
+    const _cdTimer = window.setInterval(() => setNowTick(Date.now()), 1000);
+    return () => window.clearInterval(_cdTimer);
   }, []);
 
   function focusRecyclePurgeConfirm(meta?: {
@@ -3946,8 +4057,8 @@ export function SettingsPanel({
       }
       window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}`);
     }
-    const t = window.setTimeout(() => focusRecyclePurgeConfirm(meta), 80);
-    return () => window.clearTimeout(t);
+    const _cdTimer = window.setTimeout(() => focusRecyclePurgeConfirm(meta), 80);
+    return () => window.clearTimeout(_cdTimer);
   }, []);
 
   async function runDiag() {
@@ -4010,14 +4121,50 @@ export function SettingsPanel({
 
   return (
     <section>
-      <h2>设置</h2>
+      <h2>{t('设置')}</h2>
       {forcePasswordOnly ? (
-        <p className="error">首次/联调口令登录：必须先改成个人密码才能使用其它功能。</p>
+        <p className="error">{t('首次/联调口令登录：必须先改成个人密码才能使用其它功能。')}</p>
       ) : null}
       {!forcePasswordOnly ? (
         <>
+          <label data-testid="ui-locale-select-label">
+            {t('界面语言')}
+            <select
+              data-testid="ui-locale-select"
+              value={uiLocale}
+              onChange={(e) => {
+                const next = normalizeUiLocale(e.target.value);
+                setUiLocaleState(next);
+                void api('/api/v1/settings', {
+                  method: 'PATCH',
+                  body: JSON.stringify({ uiLocale: next }),
+                })
+                  .then(() => {
+                    setUiLocaleMsg(t('已保存界面语言'));
+                    window.dispatchEvent(
+                      new CustomEvent('cd-ui-locale', { detail: { uiLocale: next } }),
+                    );
+                  })
+                  .catch((err) =>
+                    setUiLocaleMsg(err instanceof Error ? err.message : t('保存失败')),
+                  );
+              }}
+            >
+              {UI_LOCALES.map((loc) => (
+                <option key={loc} value={loc}>
+                  {UI_LOCALE_LABELS[loc]}
+                </option>
+              ))}
+            </select>
+          </label>
+          <p className="hint">{t('学生端跟随教室语言，学生不可自行更改。')}</p>
+          {uiLocaleMsg ? (
+            <p className="hint" data-testid="ui-locale-save-msg">
+              {uiLocaleMsg}
+            </p>
+          ) : null}
           <button type="button" onClick={() => void runDiag()}>
-            一键检测 /health
+            {t('一键检测 /health')}
           </button>
           <p className="hint">
             顶栏 /health 轮询：生产默认 30s，开发默认 8s。也可构建时设{' '}
@@ -4158,7 +4305,7 @@ export function SettingsPanel({
         </>
       ) : null}
 
-      <h3>教师登录密码</h3>
+      <h3>{t('教师登录密码')}</h3>
       <p className={pwdWeakExact || pwdTooShort || pwdNeedMixed ? 'error' : 'hint'}>{pwdHint}</p>
       {newPwd.length > 0 ? (
         <div className="pwd-meter" aria-hidden>
@@ -4200,7 +4347,7 @@ export function SettingsPanel({
         <>
           {!isAssistant() ? (
           <>
-          <h3>数据库备份</h3>
+          <h3>{t('数据库备份')}</h3>
           <p className="hint">
             {backupInfo
               ? `目录：${backupInfo.dir ?? '—'} · 保留最新 ${backupInfo.keep ?? '—'} 份 · 上次成功：${
@@ -4222,7 +4369,7 @@ export function SettingsPanel({
           </p>
           <p className="hint">
             可用环境变量 <code>CLASSROOM_DESK_BACKUP_DIR</code> / <code>CLASSROOM_DESK_BACKUP_KEEP</code> 调整路径与保留份数。说明见仓库{' '}
-            <code>docs/EXIT_LOCK_MDM.md</code>（备份段落）与 <code>npm run backup:db</code>。
+            <code>docs/EXIT_LOCK_MDM.md</code>{t('（备份段落）与')} <code>npm run backup:db</code>。
           </p>
           <div className="row">
             <button
@@ -4320,8 +4467,8 @@ export function SettingsPanel({
           </div>
           {backupMsg ? <p className="hint">{backupMsg}</p> : null}
 
-          <h3>弱口令扩展列表</h3>
-          <p className="hint">每行一条；与内置联调口令合并后用于改密校验（单一策略数据源）。</p>
+          <h3>{t('弱口令扩展列表')}</h3>
+          <p className="hint">{t('每行一条；与内置联调口令合并后用于改密校验（单一策略数据源）。')}</p>
           <label>
             额外弱口令
             <textarea
@@ -4349,13 +4496,13 @@ export function SettingsPanel({
                     setSaveMsg(`已保存扩展弱口令 ${list.length} 条（合计策略 ${(r.weakPasswords ?? []).length}）`);
                   }),
                 )
-                .catch((e) => setSaveMsg(e instanceof Error ? e.message : '保存失败'));
+                .catch((e) => setSaveMsg(e instanceof Error ? e.message : t('保存失败')));
             }}
           >
             保存弱口令扩展
           </button>
 
-          <h3>数据保留 / 备份加密</h3>
+          <h3>{t('数据保留 / 备份加密')}</h3>
           <p className="hint">
             回收站默认 {RECYCLE_RETENTION_DAYS} 天（与 @classroom-desk/shared · docs/PERMISSIONS.md 对齐）；
             调度按 recycle_retention_days 自动 purge。即将到期高亮阈值默认 ≤{RECYCLE_URGENT_DAYS} 天。
@@ -4381,7 +4528,7 @@ export function SettingsPanel({
                   body: JSON.stringify({ recycleRetentionDays: days }),
                 })
                   .then(() => setSaveMsg(`回收站保留 ${days} 天（调度按此 purge）`))
-                  .catch((err) => setSaveMsg(err instanceof Error ? err.message : '保存失败'));
+                  .catch((err) => setSaveMsg(err instanceof Error ? err.message : t('保存失败')));
               }}
             />
           </label>
@@ -4410,7 +4557,7 @@ export function SettingsPanel({
                   body: JSON.stringify({ recycleUrgentDays: days }),
                 })
                   .then(() => setSaveMsg(`即将到期阈值：剩余 ≤${days} 天时醒目`))
-                  .catch((err) => setSaveMsg(err instanceof Error ? err.message : '保存失败'));
+                  .catch((err) => setSaveMsg(err instanceof Error ? err.message : t('保存失败')));
               }}
             />
           </label>
@@ -4496,7 +4643,7 @@ export function SettingsPanel({
               value={restorePass}
               onChange={(e) => setRestorePass(e.target.value)}
               autoComplete="new-password"
-              placeholder="设置后立即备份将额外写 .enc"
+              placeholder={t('设置后立即备份将额外写 .enc')}
             />
           </label>
           <button
@@ -4508,14 +4655,14 @@ export function SettingsPanel({
                 body: JSON.stringify({ backupEncryptPassphrase: restorePass }),
               })
                 .then(() => setSaveMsg(restorePass ? '已保存备份加密口令' : '已清空备份加密口令'))
-                .catch((e) => setSaveMsg(e instanceof Error ? e.message : '保存失败'));
+                .catch((e) => setSaveMsg(e instanceof Error ? e.message : t('保存失败')));
             }}
           >
             保存备份口令
           </button>
 
-          <h3>备份恢复向导</h3>
-          <p className="hint">先解密/校验哈希并查看停服清单；确认后再 commit 替换 live DB（会先写 .pre-restore-*）。</p>
+          <h3>{t('备份恢复向导')}</h3>
+          <p className="hint">{t('先解密/校验哈希并查看停服清单；确认后再 commit 替换 live DB（会先写 .pre-restore-*）。')}</p>
           <label>
             恢复确认码邮箱
             <input
@@ -4523,7 +4670,7 @@ export function SettingsPanel({
               value={restoreConfirmEmail}
               onChange={(e) => setRestoreConfirmEmail(e.target.value)}
               autoComplete="email"
-              placeholder="用于接收恢复确认码"
+              placeholder={t('用于接收恢复确认码')}
             />
           </label>
           <button
@@ -4541,7 +4688,7 @@ export function SettingsPanel({
                       : '已清空恢复确认码邮箱',
                   ),
                 )
-                .catch((e) => setBackupMsg(e instanceof Error ? e.message : '保存失败'));
+                .catch((e) => setBackupMsg(e instanceof Error ? e.message : t('保存失败')));
             }}
           >
             保存确认码邮箱
@@ -4596,7 +4743,7 @@ export function SettingsPanel({
                     }
                     const channel =
                       r.emailDelivered === true
-                        ? '已投递 webhook'
+                        ? t('已投递 webhook')
                         : r.webhookError
                           ? `webhook 失败（${r.webhookError}）`
                           : r.mailtoUrl
@@ -4607,7 +4754,7 @@ export function SettingsPanel({
                     );
                   },
                   )
-                  .catch((e) => setBackupMsg(e instanceof Error ? e.message : '恢复失败'));
+                  .catch((e) => setBackupMsg(e instanceof Error ? e.message : t('恢复失败')));
               }}
             >
               1. 校验哈希 + 停服清单
@@ -4681,9 +4828,9 @@ export function SettingsPanel({
                   setBackupMsg('已打开邮件草稿（确认码在邮件正文，页面不回显）');
                 }}
               >
-                {restoreEmailDelivered ? '已投递 webhook' : '发到邮箱/打开邮件'}
+                {restoreEmailDelivered ? t('已投递 webhook') : '发到邮箱/打开邮件'}
               </button>
-              {restoreEmailDelivered ? <p className="hint">已投递 webhook</p> : null}
+              {restoreEmailDelivered ? <p className="hint">{t('已投递 webhook')}</p> : null}
               <label>
                 粘贴二次确认码
                 <input
@@ -4706,9 +4853,9 @@ export function SettingsPanel({
                   setBackupMsg('已打开邮件草稿（确认码在邮件正文，页面不回显）');
                 }}
               >
-                {restoreEmailDelivered ? '已投递 webhook' : '发到邮箱/打开邮件'}
+                {restoreEmailDelivered ? t('已投递 webhook') : '发到邮箱/打开邮件'}
               </button>
-              {restoreEmailDelivered ? <p className="hint">已投递 webhook</p> : null}
+              {restoreEmailDelivered ? <p className="hint">{t('已投递 webhook')}</p> : null}
               <label>
                 粘贴二次确认码
                 <input
@@ -4728,7 +4875,7 @@ export function SettingsPanel({
             </ol>
           ) : null}
 
-          <h3>运维调度</h3>
+          <h3>{t('运维调度')}</h3>
           <label>
             漂移快照间隔（分钟，0=关闭）
             <input
@@ -4745,7 +4892,7 @@ export function SettingsPanel({
                   body: JSON.stringify({ fleetDriftSnapshotMinutes: mins }),
                 })
                   .then(() => setSaveMsg(`漂移快照间隔 ${mins} 分钟`))
-                  .catch((err) => setSaveMsg(err instanceof Error ? err.message : '保存失败'));
+                  .catch((err) => setSaveMsg(err instanceof Error ? err.message : t('保存失败')));
               }}
             />
           </label>
@@ -4760,16 +4907,16 @@ export function SettingsPanel({
               value={unhardenedThresh}
               onChange={(e) => setUnhardenedThresh(Number(e.target.value))}
               onBlur={(e) => {
-                let t = Number(e.currentTarget.value);
-                if (!Number.isFinite(t)) t = 0.25;
-                t = Math.max(0, Math.min(1, t));
-                setUnhardenedThresh(t);
+                let thresh = Number(e.currentTarget.value);
+                if (!Number.isFinite(thresh)) thresh = 0.25;
+                thresh = Math.max(0, Math.min(1, thresh));
+                setUnhardenedThresh(thresh);
                 void api('/api/v1/settings', {
                   method: 'PATCH',
-                  body: JSON.stringify({ unhardenedAlertThreshold: t }),
+                  body: JSON.stringify({ unhardenedAlertThreshold: thresh }),
                 })
-                  .then(() => setSaveMsg(`未加固告警阈值 ${(t * 100).toFixed(0)}%`))
-                  .catch((err) => setSaveMsg(err instanceof Error ? err.message : '保存失败'));
+                  .then(() => setSaveMsg(`未加固告警阈值 ${(thresh * 100).toFixed(0)}%`))
+                  .catch((err) => setSaveMsg(err instanceof Error ? err.message : t('保存失败')));
               }}
             />
           </label>
@@ -4825,13 +4972,13 @@ export function SettingsPanel({
                       }`,
                     );
                   })
-                  .catch((err) => setSaveMsg(err instanceof Error ? err.message : '保存失败'));
+                  .catch((err) => setSaveMsg(err instanceof Error ? err.message : t('保存失败')));
               }}
             />
           </label>
           {prunedFiles.length ? (
             <div data-testid="upgrades-pruned-list">
-              <p className="hint">本次已删旧包：</p>
+              <p className="hint">{t('本次已删旧包：')}</p>
               <ul className="hint">
                 {prunedFiles.map((f) => (
                   <li key={f}>
@@ -4842,8 +4989,8 @@ export function SettingsPanel({
             </div>
           ) : null}
 
-          <h3>LAN 升级包（Setup.exe）</h3>
-          <p className="hint">上传到服务器 /upgrades；.exe 自动配对生成 .sha256；超出保留份数自动删旧。</p>
+          <h3>{t('LAN 升级包（Setup.exe）')}</h3>
+          <p className="hint">{t('上传到服务器 /upgrades；.exe 自动配对生成 .sha256；超出保留份数自动删旧。')}</p>
           <label className="secondary" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             上传 Setup.exe
             <input
@@ -4882,7 +5029,7 @@ export function SettingsPanel({
                       (r.files ?? []).map((f) => (typeof f === 'string' ? f : f.name)).filter(Boolean),
                     ),
                   )
-                  .catch((err) => setUpgradeMsg(err instanceof Error ? err.message : '上传失败'));
+                  .catch((err) => setUpgradeMsg(err instanceof Error ? err.message : t('上传失败')));
               }}
             />
           </label>
@@ -4930,7 +5077,7 @@ export function SettingsPanel({
                               setUpgradeMsg(`已删除 ${f}`);
                             })
                             .catch((e) =>
-                              setUpgradeMsg(e instanceof Error ? e.message : '删除失败'),
+                              setUpgradeMsg(e instanceof Error ? e.message : t('删除失败')),
                             );
                         }}
                       >
@@ -4942,11 +5089,11 @@ export function SettingsPanel({
               ))}
             </ul>
           ) : (
-            <p className="hint">尚无升级包</p>
+            <p className="hint">{t('尚无升级包')}</p>
           )}
 
-          <h3>投影只读自动开启</h3>
-          <p className="hint">按本场出勤课次 startAt 起算，N 分钟后投影自动只读。0 = 关闭。</p>
+          <h3>{t('投影只读自动开启')}</h3>
+          <p className="hint">{t('按本场出勤课次 startAt 起算，N 分钟后投影自动只读。0 = 关闭。')}</p>
           <label>
             上课后分钟数
             <input
@@ -4964,12 +5111,12 @@ export function SettingsPanel({
                   body: JSON.stringify({ liveboardReadonlyAfterMinutes: mins }),
                 })
                   .then(() => setSaveMsg(`投影只读自动开启已设为 ${mins} 分钟`))
-                  .catch((err) => setSaveMsg(err instanceof Error ? err.message : '保存失败'));
+                  .catch((err) => setSaveMsg(err instanceof Error ? err.message : t('保存失败')));
               }}
             />
           </label>
-          <p className="hint">失焦即保存（与回收站天数等数字框一致）。</p>
-          <h3>留言</h3>
+          <p className="hint">{t('失焦即保存（与回收站天数等数字框一致）。')}</p>
+          <h3>{t('留言')}</h3>
           <label className="row">
             <input
               type="checkbox"
@@ -4988,13 +5135,13 @@ export function SettingsPanel({
                       prepTab: next ? 'messages' : 'roster',
                     });
                   })
-                  .catch((err) => setSaveMsg(err instanceof Error ? err.message : '保存失败'))
+                  .catch((err) => setSaveMsg(err instanceof Error ? err.message : t('保存失败')))
               }
             />
             允许学生留言（关闭后侧栏隐藏「留言」）
           </label>
 
-          <h3>答题确认</h3>
+          <h3>{t('答题确认')}</h3>
           <label className="row">
             <input
               type="checkbox"
@@ -5012,13 +5159,13 @@ export function SettingsPanel({
                         : '已关闭：点选项即提交',
                     );
                   })
-                  .catch((err) => setSaveMsg(err instanceof Error ? err.message : '保存失败'))
+                  .catch((err) => setSaveMsg(err instanceof Error ? err.message : t('保存失败')))
               }
             />
             单选/判断二次确认提交（默认开启）
           </label>
 
-          <h3>加分请求</h3>
+          <h3>{t('加分请求')}</h3>
           <label>
             有效期（分钟）
             <input type="number" value={ttl} onChange={(e) => setTtl(Number(e.target.value))} />
@@ -5031,7 +5178,7 @@ export function SettingsPanel({
                 body: JSON.stringify({ pointRequestTtlMinutes: ttl }),
               })
                 .then(() => setSaveMsg('已保存'))
-                .catch((e) => setSaveMsg(e instanceof Error ? e.message : '保存失败'))
+                .catch((e) => setSaveMsg(e instanceof Error ? e.message : t('保存失败')))
             }
           >
             保存设置
@@ -5043,7 +5190,7 @@ export function SettingsPanel({
           ) : null}
 
           <div className="card">
-            <h3>创建助教账号</h3>
+            <h3>{t('创建助教账号')}</h3>
             {assistantsLiveMode === 'poll' ? (
               <p className="hint" data-testid="assistants-sse-fallback-badge" role="status">
                 <span className="badge" data-testid="assistants-sse-polling-badge">
@@ -5056,7 +5203,7 @@ export function SettingsPanel({
                 助教列表：SSE 实时推送
               </p>
             )}
-            <p className="hint">助教可登录后台只读导出/出勤，不可批量删除。详见 docs/PERMISSIONS.md。</p>
+            <p className="hint">{t('助教可登录后台只读导出/出勤，不可批量删除。详见 docs/PERMISSIONS.md。')}</p>
             <label>
               用户名
               <input
@@ -5068,7 +5215,7 @@ export function SettingsPanel({
             </label>
             <label>
               显示名
-              <input value={asstName} onChange={(e) => setAsstName(e.target.value)} placeholder="助教" />
+              <input value={asstName} onChange={(e) => setAsstName(e.target.value)} placeholder={t('助教')} />
             </label>
             <label>
               初始口令
@@ -5076,7 +5223,7 @@ export function SettingsPanel({
                 type="password"
                 value={asstPass}
                 onChange={(e) => setAsstPass(e.target.value)}
-                placeholder="至少 8 位，含字母数字"
+                placeholder={t('至少 8 位，含字母数字')}
                 autoComplete="new-password"
               />
             </label>
@@ -5091,7 +5238,7 @@ export function SettingsPanel({
                       body: JSON.stringify({
                         username: asstUser.trim(),
                         password: asstPass,
-                        displayName: asstName.trim() || '助教',
+                        displayName: asstName.trim() || t('助教'),
                       }),
                     });
                     setAsstMsg(r.message ?? '已创建');
@@ -5155,7 +5302,7 @@ export function SettingsPanel({
                       )}
                       <input
                         type="password"
-                        placeholder="新口令"
+                        placeholder={t('新口令')}
                         value={resetPwdDraft[a.id] ?? ''}
                         onChange={(e) =>
                           setResetPwdDraft((prev) => ({ ...prev, [a.id]: e.target.value }))
@@ -5176,7 +5323,7 @@ export function SettingsPanel({
                               setAsstMsg(r.message ?? '已重置口令');
                               setResetPwdDraft((prev) => ({ ...prev, [a.id]: '' }));
                             } catch (e) {
-                              setAsstMsg(e instanceof Error ? e.message : '重置失败');
+                              setAsstMsg(e instanceof Error ? e.message : t('重置失败'));
                             }
                           })()
                         }
@@ -5197,9 +5344,9 @@ export function SettingsPanel({
                     </div>
                     {grantEditId === a.id ? (
                       <div style={{ marginTop: 8 }}>
-                        <p className="hint">勾选「可导出 / 可加分」；全不勾 = 清空授权（全局只读导出）。</p>
+                        <p className="hint">{t('勾选「可导出 / 可加分」；全不勾 = 清空授权（全局只读导出）。')}</p>
                         {grantRows.length === 0 ? (
-                          <p className="hint">尚无班级</p>
+                          <p className="hint">{t('尚无班级')}</p>
                         ) : (
                           <ul>
                             {grantRows.map((row) => (
@@ -5234,7 +5381,7 @@ export function SettingsPanel({
                             type="button"
                             onClick={() =>
                               void saveAssistantGrants().catch((e) =>
-                                setGrantMsg(e instanceof Error ? e.message : '保存失败'),
+                                setGrantMsg(e instanceof Error ? e.message : t('保存失败')),
                               )
                             }
                           >
@@ -5259,7 +5406,7 @@ export function SettingsPanel({
                 ))}
               </ul>
             ) : (
-              <p className="hint">尚无助教账号</p>
+              <p className="hint">{t('尚无助教账号')}</p>
             )}
             <p className="hint">
               <a href={permissionsDocHref()} target="_blank" rel="noreferrer">
@@ -5278,39 +5425,45 @@ export function SettingsPanel({
             </p>
           )}
 
-          <h3 id="exit-lock-settings">学生端退出锁定</h3>
+          <h3 id="exit-lock-settings">{t('学生端退出锁定')}</h3>
           <p className="hint">
             默认禁止学生关闭客户端。批量解除后，全班可在时限内退出；或本机输入解除码退出。
             {(() => {
               void nowTick;
               if (!exitAllowed) return ' 当前：已锁定';
-              if (!exitUnlockUntil) return ' 当前：已允许退出';
+              if (!exitUnlockUntil) return t(' 当前：已允许退出');
               const left = Math.max(0, Date.parse(exitUnlockUntil) - Date.now());
               const sec = Math.ceil(left / 1000);
               const m = Math.floor(sec / 60);
               const s = String(sec % 60).padStart(2, '0');
               return ` 当前：可退出剩余 ${m}:${s}（至 ${new Date(exitUnlockUntil).toLocaleString()}）`;
             })()}
-            {hasExitCode ? ' · 已设置解除码' : ' · 尚未单独设置解除码（可用管理密码）'}
-            {codeAgeDays != null ? ` · 解除码已使用 ${codeAgeDays} 天` : ''}
+            <span data-testid="exit-unlock-code-status">
+              {!exitCodeStatusReady
+                ? ' · 解除码状态加载中…'
+                : hasExitCode
+                  ? ' · 已设置解除码'
+                  : t(' · 尚未单独设置解除码（可用管理密码）')}
+            </span>
+            {exitCodeStatusReady && codeAgeDays != null ? ` · 解除码已使用 ${codeAgeDays} 天` : ''}
           </p>
           {codeRotationDue ? (
             <p className="error">解除码已超过轮换周期（{rotateDays} 天），请尽快更换。</p>
           ) : null}
-          <h4 id="input-lock-settings">物理输入锁</h4>
+          <h4 id="input-lock-settings">{t('物理输入锁')}</h4>
           <p className="hint">
-            上课时可由教师关闭学生端键鼠点击、语音与摄像头采集。可按全局 / 当前班级 / 机位作用；学生端醒目提示。机位锁主键为座位图{' '}
-            <code>seat_map.id</code>（非学号）。仅限制本应用，不能代替 Assigned Access。须事先告知学生。
+            {t('上课页也有同样的快捷锁定。这里可改范围（全校/机位）与课次到期。仅限制本应用，不能代替 Assigned Access。')}
           </p>
+          <ClassroomLockBar classId={currentTeacherClassId()} />
           {isAssistant() ? (
             <div data-testid="input-lock-readonly">
               <p className="hint">
-                当前：键盘 {inputLock.keyboard ? '锁' : '开'} · 鼠标{' '}
-                {inputLock.mouse ? '锁' : '开'} · 语音 {inputLock.voice ? '锁' : '开'} · 相机{' '}
-                {inputLock.camera ? '锁' : '开'}（助教只读）
+                当前：键盘 {inputLock.keyboard ? t('锁') : t('开')} · 鼠标{' '}
+                {inputLock.mouse ? t('锁') : t('开')} · 语音 {inputLock.voice ? t('锁') : t('开')} · 相机{' '}
+                {inputLock.camera ? t('锁') : t('开')}（助教只读）
               </p>
               <p className="row" data-testid="input-lock-scope-badge">
-                <span className="hint">作用范围</span>
+                <span className="hint">{t('作用范围')}</span>
                 <span
                   className="badge"
                   data-testid={`input-lock-scope-badge-${inputLockCoverage}`}
@@ -5319,8 +5472,8 @@ export function SettingsPanel({
                   {inputLockCoverage === 'seat'
                     ? '机位'
                     : inputLockCoverage === 'class'
-                      ? '班级'
-                      : '全局'}
+                      ? t('班级')
+                      : t('全局')}
                   {inputLockScopeLabel ? ` · ${inputLockScopeLabel}` : ''}
                 </span>
                 {examModeSnapshot ? (
@@ -5346,8 +5499,10 @@ export function SettingsPanel({
             </div>
           ) : (
             <div className="card" data-testid="input-lock-controls">
+              <details className="lock-advanced" data-testid="input-lock-advanced">
+                <summary>{t('高级选项（范围 / 机位 / 课次到期）')}</summary>
           <label>
-                作用范围
+                {t('作用范围')}
                 <select
                   data-testid="input-lock-scope"
                   value={inputLockScope}
@@ -5355,9 +5510,9 @@ export function SettingsPanel({
                     setInputLockScope(e.target.value as 'global' | 'class' | 'seat')
                   }
                 >
-                  <option value="global">全校全局</option>
-                  <option value="class">当前班级</option>
-                  <option value="seat">当前班级 · 指定机位</option>
+                  <option value="global">{t('全校全局')}</option>
+                  <option value="class">{t('当前班级')}</option>
+                  <option value="seat">{t('当前班级 · 指定机位')}</option>
                 </select>
               </label>
               {inputLockScope === 'seat' ? (
@@ -5373,7 +5528,7 @@ export function SettingsPanel({
                       }
                       onChange={(e) => setInputLockSeatId(e.target.value)}
                     >
-                      <option value="">选择座位 / 机位…</option>
+                      <option value="">{t('选择座位 / 机位…')}</option>
                       <optgroup label="已排座（seat_map.id）">
                         {inputLockSeatOptions
                           .filter((o) => o.group === 'seated')
@@ -5423,7 +5578,7 @@ export function SettingsPanel({
                             .catch(() => setExitMsg('复制失败，请手动选中复制'));
                         }}
                       >
-                        {seatIdCopied ? '已复制' : '复制 id'}
+                        {seatIdCopied ? t('已复制') : t('复制 id')}
                       </button>
                     </p>
                   ) : null}
@@ -5431,10 +5586,10 @@ export function SettingsPanel({
               ) : null}
               {(
                 [
-                  ['keyboard', '禁止键盘输入'],
-                  ['mouse', '禁止鼠标/点击（保留「向教师举手」）'],
-                  ['voice', '禁止语音/麦克风'],
-                  ['camera', '禁止相机'],
+                  ['keyboard', t('禁止键盘输入')],
+                  ['mouse', t('禁止鼠标/点击（保留「向教师举手」）')],
+                  ['voice', t('禁止语音/麦克风')],
+                  ['camera', t('禁止相机')],
                 ] as const
               ).map(([key, label]) => (
                 <label key={key} className="row">
@@ -5470,7 +5625,7 @@ export function SettingsPanel({
                   className="secondary"
                   disabled={inputLockBusy || clearAllBusy}
                   data-testid="input-lock-none"
-                  title="清空全局 / 班级 / 机位全部物理输入锁"
+                  title={t('清空全局 / 班级 / 机位全部物理输入锁')}
                   onClick={() => {
                     setClearAllMeta({
                       classN: inputLockClassCount,
@@ -5492,7 +5647,7 @@ export function SettingsPanel({
                     disabled={inputLockBusy}
                     onChange={(e) => setInputLockSessionId(e.target.value)}
                   >
-                    <option value="">不绑定课次</option>
+                    <option value="">{t('不绑定课次')}</option>
                     {attendanceSessions.map((s) => (
                       <option key={s.id} value={s.id}>
                         {new Date(s.startAt).toLocaleString()} → {new Date(s.endAt).toLocaleString()}
@@ -5558,7 +5713,7 @@ export function SettingsPanel({
                     到期：{new Date(inputLockExpiresAt).toLocaleString()}
                   </span>
                 ) : (
-                  <span className="hint">未绑定课次到期</span>
+                  <span className="hint">{t('未绑定课次到期')}</span>
                 )}
               </div>
               <div className="row">
@@ -5599,7 +5754,7 @@ export function SettingsPanel({
                       .finally(() => setExamModeBusy(false));
                   }}
                 >
-                  {examModeBusy ? '开启中…' : '一键考试模式'}
+                  {examModeBusy ? '开启中…' : t('一键考试模式')}
                 </button>
                 <button
                   type="button"
@@ -5651,9 +5806,10 @@ export function SettingsPanel({
                       .finally(() => setExamModeBusy(false));
                   }}
                 >
-                  解除考试模式
+                  {t('解除考试模式')}
                 </button>
               </div>
+              </details>
             </div>
           )}
 
@@ -5734,7 +5890,7 @@ export function SettingsPanel({
                       .catch((e) => setExitMsg(e instanceof Error ? e.message : '锁定失败'));
                   }}
             >
-              重新锁定
+              {t('重新锁定')}
             </button>
           </div>
           <label>
@@ -5744,7 +5900,7 @@ export function SettingsPanel({
               value={exitCodeDraft}
               onChange={(e) => setExitCodeDraft(e.target.value)}
               autoComplete="new-password"
-              placeholder="输入新解除码后点保存"
+              placeholder={t('输入新解除码后点保存')}
             />
           </label>
           <div className="row">
@@ -5756,7 +5912,13 @@ export function SettingsPanel({
                   body: JSON.stringify({ exitUnlockCode: exitCodeDraft }),
                 })
                   .then(async (r) => {
-                    setHasExitCode(r.hasExitUnlockCode === true);
+                    if (typeof r.hasExitUnlockCode === 'boolean') {
+                      setHasExitCode(r.hasExitUnlockCode);
+                      setExitCodeStatusReady(true);
+                    } else {
+                      setHasExitCode(true);
+                      setExitCodeStatusReady(true);
+                    }
                     setExitCodeDraft('');
                     setGeneratedExitCode(null);
                     setExitMsg('解除码已更新（请自行记入密码本）');
@@ -5789,7 +5951,12 @@ export function SettingsPanel({
                   body: JSON.stringify({ exitUnlockCodeGenerate: true }),
                 })
                   .then(async (r) => {
-                    setHasExitCode(r.hasExitUnlockCode === true);
+                    if (typeof r.hasExitUnlockCode === 'boolean') {
+                      setHasExitCode(r.hasExitUnlockCode);
+                    } else {
+                      setHasExitCode(true);
+                    }
+                    setExitCodeStatusReady(true);
                     setExitCodeDraft('');
                     const plain = r.generatedExitUnlockCode?.trim() ?? '';
                     if (plain) {
@@ -5810,7 +5977,7 @@ export function SettingsPanel({
           </div>
           {generatedExitCode ? (
             <div className="card" data-testid="exit-unlock-generated-reveal">
-              <p className="hint">新解除码（仅此一次，请写入密码本）：</p>
+              <p className="hint">{t('新解除码（仅此一次，请写入密码本）：')}</p>
               <p>
                 <code data-testid="exit-unlock-generated-code">{generatedExitCode}</code>
               </p>
@@ -5842,7 +6009,7 @@ export function SettingsPanel({
           ) : null}
           {exitMsg ? <p className="hint">{exitMsg}</p> : null}
 
-              <h4>解除码限流 / 轮换</h4>
+              <h4>{t('解除码限流 / 轮换')}</h4>
               <p className="hint" data-testid="exit-unlock-rotate-days-display">
                 当前轮换提醒天数：{rotateDays}
               </p>
@@ -5906,7 +6073,7 @@ export function SettingsPanel({
                       setExitMsg('限流/轮换设置已保存');
                       await refreshExitLock().catch(() => undefined);
                     })
-                    .catch((e) => setExitMsg(e instanceof Error ? e.message : '保存失败'))
+                    .catch((e) => setExitMsg(e instanceof Error ? e.message : t('保存失败')))
                 }
               >
                 保存限流与轮换
@@ -5928,19 +6095,19 @@ export function SettingsPanel({
                   setExitKindFilter(e.target.value);
                 }}
               >
-                <option value="">全部</option>
-                <option value="batch_unlock">批量解除</option>
-                <option value="relock">重新锁定</option>
-                <option value="code_ok">解除码成功</option>
-                <option value="code_fail">解除码失败</option>
-                <option value="code_rate_limited">解除码限流</option>
-                <option value="code_set">首次设置解除码</option>
-                <option value="code_rotated">轮换解除码</option>
-                <option value="rate_config">限流/轮换配置</option>
-                <option value="client_reconcile">断线对账冲突</option>
-                <option value="input_lock">物理输入锁</option>
-                <option value="exam_mode">考试模式</option>
-                <option value="exam_mode_end">解除考试模式</option>
+                <option value="">{t('全部')}</option>
+                <option value="batch_unlock">{t('批量解除')}</option>
+                <option value="relock">{t('重新锁定')}</option>
+                <option value="code_ok">{t('解除码成功')}</option>
+                <option value="code_fail">{t('解除码失败')}</option>
+                <option value="code_rate_limited">{t('解除码限流')}</option>
+                <option value="code_set">{t('首次设置解除码')}</option>
+                <option value="code_rotated">{t('轮换解除码')}</option>
+                <option value="rate_config">{t('限流/轮换配置')}</option>
+                <option value="client_reconcile">{t('断线对账冲突')}</option>
+                <option value="input_lock">{t('物理输入锁')}</option>
+                <option value="exam_mode">{t('考试模式')}</option>
+                <option value="exam_mode_end">{t('解除考试模式')}</option>
               </select>
             </label>
             <div className="row">
@@ -6049,7 +6216,7 @@ export function SettingsPanel({
                 </li>
               ))}
             </ul>
-            {!exitEvents.length ? <p className="hint">暂无记录</p> : null}
+            {!exitEvents.length ? <p className="hint">{t('暂无记录')}</p> : null}
           </div>
 
           <div className="card">
@@ -6095,12 +6262,12 @@ stateDiagram-v2
           </div>
 
           <div className="card">
-            <h3>操作审计（批量删除等）</h3>
+            <h3>{t('操作审计（批量删除等）')}</h3>
             <div className="row">
               <label>
-                班级
+                {t('班级')}
                 <select value={auditClassId} onChange={(e) => setAuditClassId(e.target.value)}>
-                  <option value="">全部班级</option>
+                  <option value="">{t('全部班级')}</option>
                   {auditClasses.map((c) => (
                     <option key={c.id} value={c.id}>
                       {c.name}
@@ -6111,7 +6278,7 @@ stateDiagram-v2
               <label>
                 操作类型
                 <select value={auditAction} onChange={(e) => setAuditAction(e.target.value)}>
-                  <option value="">全部类型</option>
+                  <option value="">{t('全部类型')}</option>
                   {auditActions.map((a) => (
                     <option key={a} value={a}>
                       {a}
@@ -6165,7 +6332,7 @@ stateDiagram-v2
                 导出 CSV
               </button>
             </div>
-            {auditItems.length === 0 ? <p className="hint">暂无审计记录</p> : null}
+            {auditItems.length === 0 ? <p className="hint">{t('暂无审计记录')}</p> : null}
             <ul>
               {auditItems.map((a) => (
                 <li key={a.id}>
@@ -6271,14 +6438,14 @@ stateDiagram-v2
         open={grantMigrateOpen}
         title="离开「空表 = 全班可导出」"
         busy={grantMigrateBusy}
-        confirmLabel="确定保存"
+        confirmLabel={t('确定保存')}
         body={
           <div data-testid="grants-migrate-confirm">
             <p>
               保存后仅勾选了「可导出」的班级可以导出。将失去导出的班级（未勾选可导出）：
             </p>
             {grantLoseNames.length === 0 ? (
-              <p className="hint">（无 — 所有班级都已勾选可导出）</p>
+              <p className="hint">{t('（无 — 所有班级都已勾选可导出）')}</p>
             ) : (
               <ul className="grants-lose-list" data-testid="grants-lose-list">
                 {grantLoseNames.map((name) => (
@@ -6298,7 +6465,7 @@ stateDiagram-v2
             .then(() => {
               setGrantMigrateOpen(false);
             })
-            .catch((e) => setGrantMsg(e instanceof Error ? e.message : '保存失败'))
+            .catch((e) => setGrantMsg(e instanceof Error ? e.message : t('保存失败')))
             .finally(() => setGrantMigrateBusy(false));
         }}
       />
@@ -6306,7 +6473,7 @@ stateDiagram-v2
         open={clearAllOpen}
         title="全部解除物理输入锁"
         busy={clearAllBusy}
-        confirmLabel="确认全部解除"
+        confirmLabel={t('确认全部解除')}
         body={
           <div data-testid="input-lock-clear-all-confirm">
             <p>
@@ -6325,7 +6492,7 @@ stateDiagram-v2
                 同时清除考试模式输入锁快照（无法再「解除考试模式」恢复旧锁）。
               </p>
             ) : (
-              <p className="hint">当前无考试模式快照。</p>
+              <p className="hint">{t('当前无考试模式快照。')}</p>
             )}
           </div>
         }
@@ -6353,7 +6520,7 @@ stateDiagram-v2
                 camera: Boolean(r.inputLock?.camera),
               });
               setInputLockCoverage('global');
-              setInputLockScopeLabel('全校全局');
+              setInputLockScopeLabel(t('全校全局'));
               setInputLockClassCount(0);
               setInputLockSeatCount(0);
               setExamModeSnapshot(r.examModeSnapshot === true);
@@ -6391,7 +6558,7 @@ stateDiagram-v2
               预计在线机位：{bulkUnlockMeta?.onlineCount ?? 0}（按当前 presence；解锁对全班生效）
             </p>
             {isAssistant() ? (
-              <p className="error">助教不可执行批量解除（只读）。</p>
+              <p className="error">{t('助教不可执行批量解除（只读）。')}</p>
             ) : null}
           </div>
         }
@@ -6402,7 +6569,7 @@ stateDiagram-v2
         onConfirm={() => {
           if (isAssistant()) {
             setBulkUnlockOpen(false);
-            setExitMsg('助教不可批量解除');
+            setExitMsg(t('助教不可批量解除'));
             return;
           }
           setBulkUnlockBusy(true);
@@ -6425,7 +6592,7 @@ stateDiagram-v2
               setBulkUnlockOpen(false);
               await refreshExitLock().catch(() => undefined);
             })
-            .catch((e) => setExitMsg(e instanceof Error ? e.message : '解除失败'))
+            .catch((e) => setExitMsg(e instanceof Error ? e.message : t('解除失败')))
             .finally(() => setBulkUnlockBusy(false));
         }}
       />

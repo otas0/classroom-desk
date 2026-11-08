@@ -31,10 +31,12 @@ import {
 } from './navStorage';
 import { assistantPrepTabs, isAssistant, setStaffRole } from './authRole';
 import { preferClassroomId, type ClassItem } from './types';
+import { t } from '@classroom-desk/i18n';
 
 type Tab = TeacherTab;
 type PrepTab = TeacherPrepTab;
 
+/** msgid labels — call t() when rendering so locale switches apply */
 const PREP_ITEMS: Array<[PrepTab, string]> = [
   ['roster', '名单'],
   ['questions', '发题'],
@@ -134,6 +136,10 @@ export function App() {
         behavior: 'smooth',
         block: 'start',
       });
+      const advanced = document.querySelector(
+        '[data-testid="input-lock-advanced"]',
+      ) as HTMLDetailsElement | null;
+      if (advanced) advanced.open = true;
     });
   }
 
@@ -216,10 +222,10 @@ export function App() {
       }
     }
     void loadPending();
-    const t = window.setInterval(() => void loadPending(), 5000);
+    const _cdTimer = window.setInterval(() => void loadPending(), 5000);
     return () => {
       cancelled = true;
-      window.clearInterval(t);
+      window.clearInterval(_cdTimer);
     };
   }, [tokenReady, classId, mustChangePassword]);
 
@@ -285,7 +291,7 @@ export function App() {
           healthWasDownRef.current = true;
         } else if (healthWasDownRef.current) {
           healthWasDownRef.current = false;
-          setApiRestartTip('API 刚恢复（看门狗/重启），实时通道已可用');
+          setApiRestartTip(t('API 刚恢复（看门狗/重启），实时通道已可用'));
           const tipMs =
             (window as unknown as { __cdApiRestartTipMs?: number }).__cdApiRestartTipMs ?? 12_000;
           window.setTimeout(() => {
@@ -294,7 +300,7 @@ export function App() {
         }
         setHealthAlert(
           down
-            ? '服务异常：/health 未就绪'
+            ? t('服务异常：/health 未就绪')
             : auditErr
               ? `审计写入异常：${auditErr.message}`
               : err
@@ -329,12 +335,12 @@ export function App() {
     const tipMs = Math.min(60_000, Math.max(3_000, Number.isFinite(tipMsRaw) && tipMsRaw > 0 ? tipMsRaw : 12_000));
     // Keep tip duration readable by restart handler via closure refresh each effect run
     (window as unknown as { __cdApiRestartTipMs?: number }).__cdApiRestartTipMs = tipMs;
-    const t = window.setInterval(() => void pollHealth(), pollMs);
+    const _cdTimer = window.setInterval(() => void pollHealth(), pollMs);
     const onPollChanged = () => setHealthTick((n) => n + 1);
     window.addEventListener('cd-health-poll-changed', onPollChanged);
     return () => {
       cancelled = true;
-      window.clearInterval(t);
+      window.clearInterval(_cdTimer);
       window.removeEventListener('cd-health-poll-changed', onPollChanged);
     };
   }, [tokenReady, healthTick, classId]);
@@ -452,7 +458,7 @@ export function App() {
     return (
       <div className="login">
         <h1>{APP_NAME} 教师后台</h1>
-        <p className="hint">使用教师账号登录。若仍是联调口令，登录后须先改个人密码。</p>
+        <p className="hint">{t('使用教师账号登录。若仍是联调口令，登录后须先改个人密码。')}</p>
         {codeRotationBanner ? (
           <div className="banner-alert" role="status" aria-live="polite">
             <p>{codeRotationBanner}</p>
@@ -462,7 +468,7 @@ export function App() {
                 className="linkish"
                 onClick={() => {
                   sessionStorage.setItem('cd_goto_exit_lock', '1');
-                  setError('请先登录，登录后将打开「设置」更换解除码。');
+                  setError(t('请先登录，登录后将打开「设置」更换解除码。'));
                 }}
               >
                 去设置更换解除码
@@ -551,16 +557,16 @@ export function App() {
             </div>
           ) : null}
           {mustChangePassword ? (
-            <p className="banner-alert">请先修改个人密码（至少 8 位，含字母与数字）</p>
+            <p className="banner-alert">{t('请先修改个人密码（至少 8 位，含字母与数字）')}</p>
           ) : null}
           <label>
-            当前班级
+            {t('当前班级')}
             <select
               value={classId}
               disabled={mustChangePassword}
               onChange={(e) => setClassId(e.target.value)}
             >
-              {classes.length === 0 ? <option value="">（暂无班级）</option> : null}
+              {classes.length === 0 ? <option value="">{t('（暂无班级）')}</option> : null}
               {classes.map((c) => (
                 <option key={c.id} value={c.id}>
                   {c.name}
@@ -572,11 +578,11 @@ export function App() {
             ? (
                 (
                   isAssistant()
-                    ? ([['prep', '备课'], ['settings', '设置']] as const)
+                    ? ([['prep', t('备课')], ['settings', t('设置')]] as const)
                     : ([
-                        ['session', '上课'],
-                        ['prep', '备课'],
-                        ['assign', '指派学生机'],
+                        ['session', t('上课')],
+                        ['prep', t('备课')],
+                        ['assign', t('指派学生机')],
                       ] as const)
                 ).map(([id, label]) => (
                 <button
@@ -597,7 +603,7 @@ export function App() {
             )
             : null}
           {!messagesEnabled && !mustChangePassword ? (
-            <p className="hint">留言已关闭（学生端无留言 Tab）</p>
+            <p className="hint">{t('留言已关闭（学生端无留言 Tab）')}</p>
           ) : null}
           <button
             type="button"
@@ -659,6 +665,7 @@ export function App() {
                 }}
                 onGoAssign={() => setTab('assign')}
                 onSetupChanged={() => setSetupTick((n) => n + 1)}
+                onOpenLockAdvanced={() => openInputLockSettings()}
               />
             )}
             {tab === 'assign' && (
@@ -678,7 +685,7 @@ export function App() {
                       className={prepTab === id ? 'active' : undefined}
                       onClick={() => setPrepTab(id)}
                     >
-                      {label}
+                      {t(label)}
                     </button>
                   ))}
                 </div>

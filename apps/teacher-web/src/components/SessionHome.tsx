@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { API_BASE, api, getToken } from '../api';
 import { POINT_REASON_CHIPS } from '../types';
+import { ClassroomLockBar } from './ClassroomLockBar';
 import { LiveBoard } from './LiveBoard';
+import { t } from '@classroom-desk/i18n';
 
 const OCR_DRAFT_KEY = 'cd_ocr_draft';
 
@@ -17,12 +19,14 @@ export function SessionHome({
   onGoPrep,
   onGoAssign,
   onSetupChanged,
+  onOpenLockAdvanced,
 }: {
   classId: string;
   onEnterProjection: () => void;
   onGoPrep?: () => void;
   onGoAssign?: () => void;
   onSetupChanged?: () => void;
+  onOpenLockAdvanced?: () => void;
 }) {
   const [kind, setKind] = useState<'bool' | 'blank'>('bool');
   const [boolCorrect, setBoolCorrect] = useState<'A' | 'B'>('A');
@@ -37,7 +41,7 @@ export function SessionHome({
   const [students, setStudents] = useState<RosterStudent[]>([]);
   const [picked, setPicked] = useState<RosterStudent | null>(null);
   const [awardPts, setAwardPts] = useState(1);
-  const [awardReason, setAwardReason] = useState('表扬');
+  const [awardReason, setAwardReason] = useState(t('表扬'));
   const [awardMsg, setAwardMsg] = useState('');
   const [sessionMsg, setSessionMsg] = useState('');
   const [buzzRound, setBuzzRound] = useState<{ id: string; reason: string; status: string } | null>(null);
@@ -94,44 +98,44 @@ export function SessionHome({
           setRequestErr('');
         }
       } catch (e) {
-        if (!cancelled) setRequestErr(e instanceof Error ? e.message : '加载加分请求失败');
+        if (!cancelled) setRequestErr(e instanceof Error ? e.message : t('加载加分请求失败'));
       }
     }
     void load();
-    const t = window.setInterval(() => void load(), 5000);
+    const _cdTimer = window.setInterval(() => void load(), 5000);
     return () => {
       cancelled = true;
-      window.clearInterval(t);
+      window.clearInterval(_cdTimer);
     };
   }, [classId]);
 
   function applyTemplate(next: 'bool' | 'blank') {
     setKind(next);
     if (next === 'bool') {
-      setTitle((t) => t || '判断题');
-      setStem((s) => s || '（请改成真实题干）下列说法正确吗？');
+      setTitle((prev) => prev || t('判断题'));
+      setStem((s) => s || t('（请改成真实题干）下列说法正确吗？'));
       setBlankKey('');
     } else {
-      setTitle((t) => t || '填空题');
-      setStem((s) => s || '（请改成真实题干）请填写答案：____');
+      setTitle((prev) => prev || t('填空题'));
+      setStem((s) => s || t('（请改成真实题干）请填写答案：____'));
     }
   }
 
   async function publish() {
     setPublishMsg('');
     if (!classId) {
-      setPublishMsg('请先选择班级');
+      setPublishMsg(t('请先选择班级'));
       return;
     }
     if (!title.trim() || !stem.trim()) {
-      setPublishMsg('请填写题目标题与题干');
+      setPublishMsg(t('请填写题目标题与题干'));
       return;
     }
     let closesAt: string | undefined;
     if (closesAtLocal) {
       const d = new Date(closesAtLocal);
       if (Number.isNaN(d.getTime())) {
-        setPublishMsg('截止时间无效');
+        setPublishMsg(t('截止时间无效'));
         return;
       }
       closesAt = d.toISOString();
@@ -154,12 +158,12 @@ export function SessionHome({
             type: 'bool',
             closesAt,
             options: [
-              { label: 'A', content: '正确', isCorrect: boolCorrect === 'A' },
-              { label: 'B', content: '错误', isCorrect: boolCorrect === 'B' },
+              { label: 'A', content: t('正确'), isCorrect: boolCorrect === 'A' },
+              { label: 'B', content: t('错误'), isCorrect: boolCorrect === 'B' },
             ],
           };
     if (kind === 'blank' && !blankKey.trim()) {
-      setPublishMsg('请填写填空参考答案');
+      setPublishMsg(t('请填写填空参考答案'));
       return;
     }
     setPublishing(true);
@@ -169,11 +173,11 @@ export function SessionHome({
       setStem('');
       setBlankKey('');
       setClosesAtLocal('');
-      setPublishMsg('已发布');
+      setPublishMsg(t('已发布'));
       setBoardKey((n) => n + 1);
       onSetupChanged?.();
     } catch (e) {
-      setPublishMsg(e instanceof Error ? e.message : '发布失败');
+      setPublishMsg(e instanceof Error ? e.message : t('发布失败'));
     } finally {
       setPublishing(false);
     }
@@ -187,32 +191,37 @@ export function SessionHome({
         body: JSON.stringify({ classId, preferOnline: true }),
       });
       setPicked(r.student);
-      setAwardMsg(`随机点名（池 ${r.poolSize}，优先在线）· ${r.student.displayName}`);
-      setAwardReason('随机点名');
+      setAwardMsg(
+        t('随机点名（池 {v0}，优先在线）· {v1}', {
+          v0: r.poolSize,
+          v1: r.student.displayName,
+        }),
+      );
+      setAwardReason(t('随机点名'));
     } catch {
       if (students.length === 0) {
-        setAwardMsg('名单为空，无法抽答');
+        setAwardMsg(t('名单为空，无法抽答'));
         setPicked(null);
         return;
       }
       const row = students[Math.floor(Math.random() * students.length)]!;
       setPicked(row);
-      setAwardMsg(`抽到：${row.displayName}`);
+      setAwardMsg(t('抽到：{v0}', { v0: row.displayName }));
     }
   }
 
   async function resetSession() {
     if (!classId) return;
-    if (!window.confirm('本场重置：收卷全部进行中题目并关闭抢答。确定？')) return;
+    if (!window.confirm(t('本场重置：收卷全部进行中题目并关闭抢答。确定？'))) return;
     try {
       const r = await api<{ closedQuestions: number }>('/api/v1/session/reset', {
         method: 'POST',
         body: JSON.stringify({ classId }),
       });
       setBoardKey((k) => k + 1);
-      setSessionMsg(`已收卷 ${r.closedQuestions} 题`);
+      setSessionMsg(t('已收卷 {v0} 题', { v0: r.closedQuestions }));
     } catch (e) {
-      setSessionMsg(e instanceof Error ? e.message : '重置失败');
+      setSessionMsg(e instanceof Error ? e.message : t('重置失败'));
     }
   }
 
@@ -221,13 +230,13 @@ export function SessionHome({
     try {
       const r = await api<{ id: string; reason: string; status: string }>('/api/v1/session/buzz/open', {
         method: 'POST',
-        body: JSON.stringify({ classId, reason: '抢答' }),
+        body: JSON.stringify({ classId, reason: t('抢答') }),
       });
       setBuzzRound(r);
       setBuzzHits([]);
-      setSessionMsg('抢答已开启，学生端可点「抢答」');
+      setSessionMsg(t('抢答已开启，学生端可点「抢答」'));
     } catch (e) {
-      setSessionMsg(e instanceof Error ? e.message : '开启抢答失败');
+      setSessionMsg(e instanceof Error ? e.message : t('开启抢答失败'));
     }
   }
 
@@ -250,7 +259,7 @@ export function SessionHome({
         const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
         if (lines[0]) setTitle((t) => t || lines[0]!.slice(0, 80));
         setStem((s) => s || text.slice(0, 2000));
-        setPublishMsg('已从 OCR 草稿填入快发题（可改后发布）');
+        setPublishMsg(t('已从 OCR 草稿填入快发题（可改后发布）'));
         sessionStorage.removeItem(OCR_DRAFT_KEY);
       } catch {
         /* ignore */
@@ -305,10 +314,10 @@ export function SessionHome({
         method: 'POST',
         body: JSON.stringify({ roundId: buzzRound.id, points: awardPts }),
       });
-      setSessionMsg(`已给抢答第一名 +${awardPts}`);
+      setSessionMsg(t('已给抢答第一名 +{v0}', { v0: awardPts }));
       await refreshBuzz();
     } catch (e) {
-      setSessionMsg(e instanceof Error ? e.message : '加分失败');
+      setSessionMsg(e instanceof Error ? e.message : t('加分失败'));
     }
   }
 
@@ -321,12 +330,18 @@ export function SessionHome({
           classId,
           studentId: picked.id,
           points: awardPts,
-          reasonSummary: awardReason.trim() || '课堂抽答',
+          reasonSummary: awardReason.trim() || t('课堂抽答'),
         }),
       });
-      setAwardMsg(`已给 ${picked.displayName} +${awardPts}（${awardReason.trim() || '课堂抽答'}）`);
+      setAwardMsg(
+        t('已给 {v0} +{v1}（{v2}）', {
+          v0: picked.displayName,
+          v1: awardPts,
+          v2: awardReason.trim() || t('课堂抽答'),
+        }),
+      );
     } catch (e) {
-      setAwardMsg(e instanceof Error ? e.message : '加分失败');
+      setAwardMsg(e instanceof Error ? e.message : t('加分失败'));
     }
   }
 
@@ -339,7 +354,7 @@ export function SessionHome({
       setRequests(r.items);
       setRequestErr('');
     } catch (e) {
-      setRequestErr(e instanceof Error ? e.message : '处理加分请求失败');
+      setRequestErr(e instanceof Error ? e.message : t('处理加分请求失败'));
     }
   }
 
@@ -359,7 +374,7 @@ export function SessionHome({
           刷新抢答{buzzLive ? ' · 实时' : ''}
         </button>
         <p className="hint help-bubble">
-          投影：<kbd>Esc</kbd> 退出，<kbd>F</kbd> 全屏，<kbd>H</kbd> 高对比。详见{' '}
+          投影：<kbd>Esc</kbd> {t('退出，')}<kbd>F</kbd> {t('全屏，')}<kbd>H</kbd> 高对比。详见{' '}
           <code>docs/TEACHER_PROJECTION.md</code>。
         </p>
         {onGoPrep ? (
@@ -369,14 +384,15 @@ export function SessionHome({
         ) : null}
         {onGoAssign ? (
           <button type="button" className="secondary" onClick={onGoAssign}>
-            去指派
+            {t('去指派')}
           </button>
         ) : null}
       </div>
       {sessionMsg ? <p className="hint">{sessionMsg}</p> : null}
+      <ClassroomLockBar classId={classId} onOpenAdvanced={onOpenLockAdvanced} />
       {buzzRound ? (
         <section>
-          <h2>抢答器 · {buzzRound.status === 'open' ? '进行中' : '已结束'}</h2>
+          <h2>抢答器 · {buzzRound.status === 'open' ? t('进行中') : t('已结束')}</h2>
           <p className="hint">
             理由：{buzzRound.reason}
             {buzzLive ? ' · WebSocket 实时榜' : ' · 连接中断时可点刷新'}
@@ -395,7 +411,7 @@ export function SessionHome({
         </section>
       ) : null}
       <section>
-        <h2>分组竞赛积分（本页记分）</h2>
+        <h2>{t('分组竞赛积分（本页记分）')}</h2>
         <div className="row">
           <button type="button" className="chip" onClick={() => setGroupA((n) => n + 1)}>
             A 组 +1（{groupA}）
@@ -417,7 +433,7 @@ export function SessionHome({
       </section>
 
       <section id="session-quick-publish">
-        <h2>快速发题</h2>
+        <h2>{t('快速发题')}</h2>
         <div className="row">
           <button type="button" className={kind === 'bool' ? 'chip active-chip' : 'chip'} onClick={() => applyTemplate('bool')}>
             判断题模板
@@ -426,15 +442,15 @@ export function SessionHome({
             填空题模板
           </button>
         </div>
-        <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="题目标题（必填）" />
-        <textarea value={stem} onChange={(e) => setStem(e.target.value)} placeholder="题干（必填）" />
+        <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder={t('题目标题（必填）')} />
+        <textarea value={stem} onChange={(e) => setStem(e.target.value)} placeholder={t('题干（必填）')} />
         {kind === 'blank' ? (
-          <input value={blankKey} onChange={(e) => setBlankKey(e.target.value)} placeholder="参考答案（必填）" />
+          <input value={blankKey} onChange={(e) => setBlankKey(e.target.value)} placeholder={t('参考答案（必填）')} />
         ) : (
           <>
-            <p className="hint">判断题选项固定为「正确 / 错误」</p>
-            <div className="row" role="radiogroup" aria-label="正确答案">
-              <span>正确答案：</span>
+            <p className="hint">{t('判断题选项固定为「正确 / 错误」')}</p>
+            <div className="row" role="radiogroup" aria-label={t('正确答案')}>
+              <span>{t('正确答案：')}</span>
               <label className="choice">
                 <input
                   type="radio"
@@ -442,7 +458,7 @@ export function SessionHome({
                   checked={boolCorrect === 'A'}
                   onChange={() => setBoolCorrect('A')}
                 />
-                正确
+                {t('正确')}
               </label>
               <label className="choice">
                 <input
@@ -451,7 +467,7 @@ export function SessionHome({
                   checked={boolCorrect === 'B'}
                   onChange={() => setBoolCorrect('B')}
                 />
-                错误
+                {t('错误')}
               </label>
             </div>
           </>
@@ -467,11 +483,11 @@ export function SessionHome({
       </section>
 
       <section>
-        <h2>抽答加分</h2>
+        <h2>{t('抽答加分')}</h2>
         <p className="hint">本班 {students.length} 人</p>
         <div className="row">
           <button type="button" disabled={!classId} onClick={() => void drawStudent()}>
-            随机点名
+            {t('随机点名')}
           </button>
           <input
             type="number"
@@ -480,7 +496,7 @@ export function SessionHome({
             onChange={(e) => setAwardPts(Number(e.target.value) || 1)}
             style={{ width: 72 }}
           />
-          <input value={awardReason} onChange={(e) => setAwardReason(e.target.value)} placeholder="理由" />
+          <input value={awardReason} onChange={(e) => setAwardReason(e.target.value)} placeholder={t('理由')} />
           <button type="button" disabled={!picked} onClick={() => void awardPicked()}>
             给抽中的人加分
           </button>
@@ -502,14 +518,14 @@ export function SessionHome({
       </section>
 
       <section>
-        <h2>待审加分</h2>
-        <p className="hint">约每 5 秒刷新。通过后写入积分。</p>
+        <h2>{t('待审加分')}</h2>
+        <p className="hint">{t('约每 5 秒刷新。通过后写入积分。')}</p>
         {requestErr ? <p className="error">{requestErr}</p> : null}
-        {requests.length === 0 ? <p className="hint">暂无待审请求</p> : null}
+        {requests.length === 0 ? <p className="hint">{t('暂无待审请求')}</p> : null}
         {requests.map((item) => (
           <div key={String(item.id)} className="row request-row">
             <span>
-              {String(item.studentName)} · {String(item.reason || '（无理由）')} · {String(item.points)} 分
+              {String(item.studentName)} · {String(item.reason || t('（无理由）'))} · {String(item.points)} 分
             </span>
             <button type="button" onClick={() => void decideRequest(String(item.id), 'confirm')}>
               通过

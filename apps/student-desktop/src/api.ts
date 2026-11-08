@@ -1,3 +1,4 @@
+import { t } from '@classroom-desk/i18n';
 const TOKEN_KEY = 'classroom-desk.token';
 const API_BASE_KEY = 'classroom-desk.api-base';
 
@@ -110,28 +111,28 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
 function zhError(code?: string): string | undefined {
   if (!code) return undefined;
   const map: Record<string, string> = {
-    offline: '无法连接教师机',
-    unauthorized: '请先点选自己的姓名',
-    forbidden: '无权限',
-    no_class: '本机未指派班级',
-    session_closed: '今日签到场次已关闭',
-    already_checked_in: '今日已签到',
-    invalid_request: '请求无效',
-    messages_disabled: '留言已关闭',
-    not_found: '未找到',
-    invalid_credentials: '账号或密码错误',
-    invalid_admin_password: '管理密码错误',
-    invalid_exit_unlock_code: '解除码错误',
-    exit_unlock_rate_limited: '尝试过多，请稍后再试',
-    exit_locked: '课堂锁定中，无法退出',
-    password_required: '请输入解除码',
-    invalid_message: '留言内容不能为空',
-    already_answered: '本题已作答',
-    cannot_message_self: '不能给自己留言',
-    peer_not_in_class: '只能发给本班同学',
-    account_deleted: '账号已删除，请重新选择身份',
-    session_kicked: '账号已下线，请重新选择身份',
-    account_disabled: '账号已停用',
+    offline: t('无法连接教师机'),
+    unauthorized: t('请先点选自己的姓名'),
+    forbidden: t('无权限'),
+    no_class: t('本机未指派班级'),
+    session_closed: t('今日签到场次已关闭'),
+    already_checked_in: t('今日已签到'),
+    invalid_request: t('请求无效'),
+    messages_disabled: t('留言已关闭'),
+    not_found: t('未找到'),
+    invalid_credentials: t('账号或密码错误'),
+    invalid_admin_password: t('管理密码错误'),
+    invalid_exit_unlock_code: t('解除码错误'),
+    exit_unlock_rate_limited: t('尝试过多，请稍后再试'),
+    exit_locked: t('课堂锁定中，无法退出'),
+    password_required: t('请输入解除码'),
+    invalid_message: t('留言内容不能为空'),
+    already_answered: t('本题已作答'),
+    cannot_message_self: t('不能给自己留言'),
+    peer_not_in_class: t('只能发给本班同学'),
+    account_deleted: t('账号已删除，请重新选择身份'),
+    session_kicked: t('账号已下线，请重新选择身份'),
+    account_disabled: t('账号已停用'),
   };
   return map[code] ?? code;
 }

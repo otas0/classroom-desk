@@ -54,3 +54,14 @@ export async function openPrepTab(page: Page, sub?: string): Promise<void> {
     await tab.click();
   }
 }
+
+/** Expand folded advanced input-lock controls in 设置. */
+export async function openInputLockAdvanced(page: Page): Promise<void> {
+  const details = page.getByTestId('input-lock-advanced');
+  await expect(details).toBeVisible({ timeout: 15_000 });
+  const isOpen = await details.evaluate((el) => (el as HTMLDetailsElement).open);
+  if (!isOpen) {
+    await details.locator('summary').click();
+  }
+  await expect(page.getByTestId('input-lock-scope')).toBeVisible({ timeout: 5_000 });
+}

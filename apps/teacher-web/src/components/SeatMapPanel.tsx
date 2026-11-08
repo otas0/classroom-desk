@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api';
 import { ConfirmModal } from '../ConfirmModal';
+import { t } from '@classroom-desk/i18n';
 
 type Seat = {
   id: string;
@@ -93,9 +94,9 @@ export function SeatMapPanel({ classId }: { classId: string }) {
 
   useEffect(() => {
     setPendingSwap(null);
-    void load().catch((e) => setMsg(e instanceof Error ? e.message : '加载失败'));
-    const t = window.setInterval(() => void load().catch(() => undefined), 8000);
-    return () => window.clearInterval(t);
+    void load().catch((e) => setMsg(e instanceof Error ? e.message : t('加载失败')));
+    const _cdTimer = window.setInterval(() => void load().catch(() => undefined), 8000);
+    return () => window.clearInterval(_cdTimer);
   }, [classId]);
 
   function flashShake(ids: string[], toast: string) {
@@ -110,7 +111,7 @@ export function SeatMapPanel({ classId }: { classId: string }) {
       method: 'PUT',
       body: JSON.stringify({ rows, cols }),
     });
-    setMsg(`已生成 ${rows}×${cols} 座位`);
+    setMsg(t('已生成 {v0}×{v1} 座位', { v0: rows, v1: cols }));
     await load();
   }
 
@@ -125,7 +126,9 @@ export function SeatMapPanel({ classId }: { classId: string }) {
       );
       setSelected(null);
       if (r.message) setMsg(r.message);
-      else if (r.clearedFromLabel) setMsg(`已从 ${r.clearedFromLabel} 移开（同班一人一座）`);
+      else if (r.clearedFromLabel) {
+        setMsg(t('已从 {v0} 移开（同班一人一座）', { v0: r.clearedFromLabel }));
+      }
       await load();
     } catch (e) {
       flashShake([seatId], seatFailMessage(e, 'bind'));
@@ -167,7 +170,7 @@ export function SeatMapPanel({ classId }: { classId: string }) {
         method: 'POST',
         body: JSON.stringify({ seatIdA: a, seatIdB: b }),
       });
-      setMsg('已换座');
+      setMsg(t('已换座'));
       setSelected(null);
       setPendingSwap(null);
       setShakeIds([]);
@@ -187,7 +190,13 @@ export function SeatMapPanel({ classId }: { classId: string }) {
       `/api/v1/classes/${classId}/seats/snake-fill`,
       { method: 'POST', body: '{}' },
     );
-    setMsg(`蛇形落座 ${r.seated}/${r.roster}（网格 ${r.seats}）`);
+    setMsg(
+      t('蛇形落座 {v0}/{v1}（网格 {v2}）', {
+        v0: r.seated,
+        v1: r.roster,
+        v2: r.seats,
+      }),
+    );
     await load();
   }
 
@@ -198,8 +207,8 @@ export function SeatMapPanel({ classId }: { classId: string }) {
       if (!anchor) {
         setMsg(
           mode === 'row'
-            ? '请先点选一行内任意座位'
-            : '请先点选一列内任意座位',
+            ? t('请先点选一行内任意座位')
+            : t('请先点选一列内任意座位'),
         );
         return null;
       }
@@ -216,7 +225,7 @@ export function SeatMapPanel({ classId }: { classId: string }) {
     const targets = seatsInMode(mode, true);
     if (!targets) return;
     if (!targets.length) {
-      setMsg('没有可锁的空座');
+      setMsg(t('没有可锁的空座'));
       return;
     }
     setUnlockLabelsExpanded(false);
@@ -240,7 +249,7 @@ export function SeatMapPanel({ classId }: { classId: string }) {
     const targets = seatsInMode(mode, false);
     if (!targets) return;
     if (!targets.length) {
-      setMsg('该范围无座位');
+      setMsg(t('该范围无座位'));
       return;
     }
     setLockBusy(true);
@@ -249,7 +258,7 @@ export function SeatMapPanel({ classId }: { classId: string }) {
         const lockedSeats = targets.filter((s) => locked.has(s.id));
         const seatIds = lockedSeats.map((s) => s.id);
         if (!seatIds.length) {
-          setMsg('该范围没有已上锁的机位');
+          setMsg(t('该范围没有已上锁的机位'));
           return;
         }
         setUnlockLabelsExpanded(false);
@@ -261,7 +270,7 @@ export function SeatMapPanel({ classId }: { classId: string }) {
           seatLabels: lockedSeats.map((s) => s.label || s.id),
         });
       })
-      .catch((e) => setMsg(e instanceof Error ? e.message : '读取机位锁失败'))
+      .catch((e) => setMsg(e instanceof Error ? e.message : t('读取机位锁失败')))
       .finally(() => setLockBusy(false));
   }
 
@@ -308,14 +317,14 @@ export function SeatMapPanel({ classId }: { classId: string }) {
       }
       setBatchConfirm(null);
     } catch (e) {
-      setMsg(e instanceof Error ? e.message : '批量机位锁操作失败');
+      setMsg(e instanceof Error ? e.message : t('批量机位锁操作失败'));
     } finally {
       setLockBusy(false);
     }
   }
 
   const modeLabel =
-    batchConfirm?.mode === 'all' ? '全部' : batchConfirm?.mode === 'row' ? '本行' : '本列';
+    batchConfirm?.mode === 'all' ? t('全部') : batchConfirm?.mode === 'row' ? t('本行') : t('本列');
 
   const gridStyle = {
     display: 'grid',
@@ -325,12 +334,12 @@ export function SeatMapPanel({ classId }: { classId: string }) {
 
   return (
     <section>
-      <h2>座位图</h2>
+      <h2>{t('座位图')}</h2>
       <p className="hint">
         拖拽座位互换；或按学号蛇形落座（奇偶行反向）。绿=在线，红框=已绑定未上线。未上线绑定{' '}
         {offlineBound} 个。同班一人一座。
       </p>
-      {!classId ? <p className="hint">请先选择班级</p> : null}
+      {!classId ? <p className="hint">{t('请先选择班级')}</p> : null}
       <div className="row">
         <label>
           行
@@ -357,7 +366,7 @@ export function SeatMapPanel({ classId }: { classId: string }) {
           type="button"
           data-testid="seat-lock-empty-row"
           disabled={!classId || lockBusy}
-          title="先选中该行任意座位"
+          title={t('先选中该行任意座位')}
           onClick={() => requestLockEmpty('row')}
         >
           锁本行空座
@@ -366,7 +375,7 @@ export function SeatMapPanel({ classId }: { classId: string }) {
           type="button"
           data-testid="seat-lock-empty-col"
           disabled={!classId || lockBusy}
-          title="先选中该列任意座位"
+          title={t('先选中该列任意座位')}
           onClick={() => requestLockEmpty('col')}
         >
           锁本列空座
@@ -384,7 +393,7 @@ export function SeatMapPanel({ classId }: { classId: string }) {
           className="secondary"
           data-testid="seat-unlock-row"
           disabled={!classId || lockBusy}
-          title="先选中该行任意座位"
+          title={t('先选中该行任意座位')}
           onClick={() => requestUnlockSeats('row')}
         >
           解本行座锁
@@ -394,7 +403,7 @@ export function SeatMapPanel({ classId }: { classId: string }) {
           className="secondary"
           data-testid="seat-unlock-col"
           disabled={!classId || lockBusy}
-          title="先选中该列任意座位"
+          title={t('先选中该列任意座位')}
           onClick={() => requestUnlockSeats('col')}
         >
           解本列座锁
@@ -429,10 +438,10 @@ export function SeatMapPanel({ classId }: { classId: string }) {
               void swapSeats(a, b).finally(() => setSwapRetryBusy(false));
             }}
           >
-            {swapRetryBusy ? '重试中…' : '重试换座'}
+            {swapRetryBusy ? t('重试中…') : t('重试换座')}
           </button>
           <button type="button" className="secondary" disabled={swapRetryBusy} onClick={() => setPendingSwap(null)}>
-            取消
+            {t('取消')}
           </button>
         </div>
       ) : null}
@@ -465,7 +474,7 @@ export function SeatMapPanel({ classId }: { classId: string }) {
           >
             <span className="seat-label">{s.label}</span>
             <span className="seat-name">
-              {s.displayName ? s.displayName : '空位'}
+              {s.displayName ? s.displayName : t('空位')}
               {s.studentNo ? ` · ${s.studentNo}` : ''}
             </span>
           </button>
@@ -482,7 +491,7 @@ export function SeatMapPanel({ classId }: { classId: string }) {
                 void bind(selected, v || null);
               }}
             >
-              <option value="">（清空）</option>
+              <option value="">{t('（清空）')}</option>
               {roster.map((r) => (
                 <option key={r.id} value={r.id}>
                   {r.studentNo ? `${r.studentNo} · ` : ''}
@@ -535,7 +544,7 @@ export function SeatMapPanel({ classId }: { classId: string }) {
                       onClick={() => setUnlockLabelsExpanded((v) => !v)}
                     >
                       {unlockLabelsExpanded
-                        ? '收起'
+                        ? t('收起')
                         : `展开其余 ${(batchConfirm.seatLabels ?? []).length - UNLOCK_LABEL_PREVIEW}（共 ${(batchConfirm.seatLabels ?? []).length}）`}
                     </button>
                   ) : null}
@@ -544,7 +553,7 @@ export function SeatMapPanel({ classId }: { classId: string }) {
             </div>
           ) : null
         }
-        confirmLabel={batchConfirm?.action === 'lock' ? '确认锁定' : '确认解除'}
+        confirmLabel={batchConfirm?.action === 'lock' ? t('确认锁定') : t('确认解除')}
         busy={lockBusy}
         onCancel={() => {
           if (!lockBusy) {

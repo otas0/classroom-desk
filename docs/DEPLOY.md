@@ -37,6 +37,13 @@
 1. GitHub repo **Settings → Secrets and variables → Actions** 新增 `CLASSROOM_DESK_OPS_WEBHOOK`（Slack Incoming Webhook 或飞书自定义机器人 URL）。
 2. Release `record-artifacts` 失败时会 POST 机房频道；详见 [ARTIFACTS.md](./ARTIFACTS.md)。
 
+## 教室界面语言（uiLocale）
+
+1. 教师在 **设置 → 界面语言** 选择 `zh-CN` / `en` / `zh-TW` / `ja` / `ko`（写入 `settings.ui_locale`）。
+2. **学生端只跟随** `/api/v1/settings/public` 的 `uiLocale`，**没有**本机语言切换入口。
+3. 默认 **`zh-CN`**：未改设置时 e2e / 夜间 suite 仍按中文文案断言；切语言后请用 `data-testid` 或当前 locale 文案。
+4. 目录完整性：`npm run check:i18n-keys`（CI server job 也会跑）。
+
 ## systemd unit example
 
 `/etc/classroom-desk.env`（权限 `640`，属主 `root:classroom`）:

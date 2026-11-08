@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { t } from '@classroom-desk/i18n';
 
 function tryParse(detail: string): unknown {
   try {
@@ -103,7 +104,7 @@ export function AuditDetail({
   const summary =
     humanSummary ||
     [seatReadable, classReadable, kvSummary].filter(Boolean).join(' · ') ||
-    '详情';
+    t('详情');
   const target = auditJumpTarget(action, obj);
   const purgeMeta = readPurgeJump(obj);
   const purgeJump =
@@ -137,7 +138,7 @@ export function AuditDetail({
           {restAfterSeat ? ` · ${restAfterSeat}` : ''}
         </>
       ) : (
-        summary || '详情'
+        summary || t('详情')
       )}
       {clearedExamSnapshot ? (
         <>
@@ -152,7 +153,7 @@ export function AuditDetail({
         <>
           {' '}
           <button type="button" className="linkish" onClick={() => setOpen((v) => !v)}>
-            {open ? '收起 ids' : `展开 ids（${ids.length}）`}
+            {open ? t('收起 ids') : `展开 ids（${ids.length}）`}
           </button>
           {target && onJumpIds ? (
             <>
@@ -163,7 +164,7 @@ export function AuditDetail({
                 data-testid="audit-jump-ids"
                 onClick={() => onJumpIds({ ids, target, action: String(action ?? '') })}
               >
-                {target === 'roster' ? '跳转名单' : target === 'q-recycle' ? '跳转题目回收站' : '跳转发题'}
+                {target === 'roster' ? t('跳转名单') : target === 'q-recycle' ? t('跳转题目回收站') : t('跳转发题')}
               </button>
             </>
           ) : null}
@@ -177,7 +178,7 @@ export function AuditDetail({
         <>
           {' '}
           <button type="button" className="linkish" onClick={() => setOpen((v) => !v)}>
-            {open ? '收起' : '展开 JSON'}
+            {open ? t('收起') : t('展开 JSON')}
           </button>
           {open ? <pre className="audit-ids">{JSON.stringify(obj, null, 2)}</pre> : null}
         </>

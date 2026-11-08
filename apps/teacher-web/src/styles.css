@@ -311,6 +311,47 @@ section label.choice input {
   color: var(--paper);
 }
 
+.classroom-lock-bar {
+  margin: 12px 0 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--ink);
+  background: var(--paper);
+}
+
+.classroom-lock-bar-head h3 {
+  margin: 0 0 4px;
+  font-size: 1.05rem;
+}
+
+.classroom-lock-actions {
+  border-top: none;
+  padding-top: 4px;
+}
+
+.classroom-lock-actions button {
+  font-size: 15px;
+  font-weight: 700;
+  min-height: 2.4rem;
+  padding: 0.45rem 1rem;
+}
+
+.classroom-lock-chips .chip.lock-on,
+.chip.lock-on {
+  background: var(--ink);
+  color: var(--paper);
+}
+
+.lock-advanced {
+  margin-top: 10px;
+  width: 100%;
+}
+
+.lock-advanced > summary {
+  cursor: pointer;
+  font-weight: 600;
+  padding: 6px 0;
+}
+
 .pending-list {
   margin-top: 10px;
   max-height: 220px;

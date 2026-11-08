@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api';
+import { t } from '@classroom-desk/i18n';
 
 type Dash = {
   expectedStudentVersion: string;
@@ -68,9 +69,9 @@ export function OpsDashboard({
   }
 
   useEffect(() => {
-    void load().catch((e) => setErr(e instanceof Error ? e.message : '加载失败'));
-    const t = window.setInterval(() => void load().catch(() => undefined), 20_000);
-    return () => window.clearInterval(t);
+    void load().catch((e) => setErr(e instanceof Error ? e.message : t('加载失败')));
+    const _cdTimer = window.setInterval(() => void load().catch(() => undefined), 20_000);
+    return () => window.clearInterval(_cdTimer);
   }, []);
 
   const hist = dash?.readiness.histogram ?? [];
@@ -80,13 +81,13 @@ export function OpsDashboard({
 
   return (
     <section>
-      <h2>健康 / 就绪仪表盘</h2>
-      <p className="hint">全校在线率、版本漂移、备份年龄；机房就绪时长（扫码 CTA → classroom_ready）P50/P95。</p>
+      <h2>{t('健康 / 就绪仪表盘')}</h2>
+      <p className="hint">{t('全校在线率、版本漂移、备份年龄；机房就绪时长（扫码 CTA → classroom_ready）P50/P95。')}</p>
       <button type="button" className="secondary" onClick={() => void load().catch((e) => setErr(String(e)))}>
-        刷新
+        {t('刷新')}
       </button>
       {err ? <p className="error">{err}</p> : null}
-      {!dash ? <p className="hint">加载中…</p> : null}
+      {!dash ? <p className="hint">{t('加载中…')}</p> : null}
       {dash ? (
         <>
           <p className="hint" data-testid="ops-unhardened-threshold">
@@ -106,7 +107,7 @@ export function OpsDashboard({
                 ）
               </>
             ) : (
-              '（设置 → 运维调度可改）'
+              t('（设置 → 运维调度可改）')
             )}
             {dash.fleet.onlineTotal > 0
               ? ` · 当前占比 ${((dash.fleet.unhardenedRate ?? 0) * 100).toFixed(0)}%`
@@ -158,11 +159,11 @@ export function OpsDashboard({
             {dash.readiness.avgMs != null ? ` · 均 ${fmtMs(dash.readiness.avgMs)}` : ''}
           </p>
 
-          <h3>就绪时长直方图</h3>
+          <h3>{t('就绪时长直方图')}</h3>
           {hist.length === 0 || hist.every((h) => h.count === 0) ? (
-            <p className="hint">尚无就绪时长样本</p>
+            <p className="hint">{t('尚无就绪时长样本')}</p>
           ) : (
-            <div className="ops-chart" role="img" aria-label="就绪时长直方图">
+            <div className="ops-chart" role="img" aria-label={t('就绪时长直方图')}>
               {hist.map((h) => (
                 <div key={h.label} className="ops-chart-col">
                   <div
@@ -180,11 +181,11 @@ export function OpsDashboard({
             </div>
           )}
 
-          <h3>漂移趋势（近 14 日）</h3>
+          <h3>{t('漂移趋势（近 14 日）')}</h3>
           {trend.length === 0 ? (
             <p className="hint">尚无漂移样本（今日实时：{dash.fleet.driftClients}）</p>
           ) : (
-            <div className="ops-chart ops-chart-trend" role="img" aria-label="漂移趋势">
+            <div className="ops-chart ops-chart-trend" role="img" aria-label={t('漂移趋势')}>
               {trend.map((t) => (
                 <div key={t.day} className="ops-chart-col">
                   <div
@@ -217,13 +218,13 @@ export function OpsDashboard({
           <table className="data-table">
             <thead>
               <tr>
-                <th>班级</th>
-                <th>名单</th>
-                <th>在线</th>
-                <th>在线率</th>
-                <th>漂移</th>
-                <th>未加固</th>
-                <th>版本</th>
+                <th>{t('班级')}</th>
+                <th>{t('名单')}</th>
+                <th>{t('在线')}</th>
+                <th>{t('在线率')}</th>
+                <th>{t('漂移')}</th>
+                <th>{t('未加固')}</th>
+                <th>{t('版本')}</th>
               </tr>
             </thead>
             <tbody>

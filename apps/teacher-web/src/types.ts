@@ -1,7 +1,9 @@
 export type ClassItem = { id: string; name: string; classCode: string };
 
+/** msgid chips — translate with t() at render time */
 export const POINT_REASON_CHIPS = ['表扬', '作业', '课堂表现', '答题', '互助'] as const;
 
+/** API error code → zh-CN msgid (translate with t() when showing) */
 export const IMPORT_ERROR_ZH: Record<string, string> = {
   file_required: '未收到上传文件，请重新选择 Excel/CSV 后再试',
   unsupported_file_type: '仅支持 .xlsx / .xls / .csv，请检查文件后缀',
@@ -16,6 +18,7 @@ export const IMPORT_ERROR_ZH: Record<string, string> = {
 
 export function preferClassroomId(items: ClassItem[], current: string): string {
   if (current && items.some((c) => c.id === current)) return current;
+  // DB may store literal name「本教室」— do not translate the lookup key
   const preferred =
     items.find((c) => c.name === '本教室') ??
     items.find((c) => c.name.includes('本教室')) ??

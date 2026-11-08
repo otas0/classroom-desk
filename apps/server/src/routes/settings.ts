@@ -6,6 +6,7 @@ import {
   RECYCLE_RETENTION_DAYS,
   RECYCLE_URGENT_DAYS,
 } from '@classroom-desk/shared';
+import { DEFAULT_UI_LOCALE, isUiLocale, normalizeUiLocale } from '@classroom-desk/i18n';
 import fs from 'node:fs';
 import path from 'node:path';
 import { getDataDir, getDbPath, openDb } from '../db/client.js';
@@ -75,6 +76,7 @@ settingsRouter.get('/api/v1/settings/public', (req, res) => {
     attendanceNoticeText: getSetting(db, 'attendance_notice_text') ?? ATTENDANCE_NOTICE,
     messagesEnabled: (getSetting(db, 'messages_enabled') ?? '1') !== '0',
     quizConfirmSubmit: (getSetting(db, 'quiz_confirm_submit') ?? '1') !== '0',
+    uiLocale: normalizeUiLocale(getSetting(db, 'ui_locale') ?? DEFAULT_UI_LOCALE),
     pointRequestTtlMinutes: Number(
       getSetting(db, 'point_request_ttl_minutes') ?? config.defaultPointRequestTtlMinutes,
     ),
@@ -143,6 +145,7 @@ settingsRouter.get('/api/v1/settings', requireAuth, requireRoles('teacher', 'adm
     hasBackupEncryptPassphrase: Boolean((getSetting(db, 'backup_encrypt_passphrase') ?? '').trim()),
     projectionHighContrast: (getSetting(db, 'projection_high_contrast') ?? '0') === '1',
     classroomApiBase: getSetting(db, 'classroom_api_base') ?? '',
+    uiLocale: normalizeUiLocale(getSetting(db, 'ui_locale') ?? DEFAULT_UI_LOCALE),
     noticeText: getSetting(db, 'notice_text') ?? APP_NOTICE,
     attendanceNoticeText: getSetting(db, 'attendance_notice_text') ?? ATTENDANCE_NOTICE,
     note: '未确认加分请求每天凌晨清空；已通过加分永久保留并可按月导出。本地部署无需代码签名。',
@@ -375,6 +378,30 @@ settingsRouter.patch('/api/v1/settings', requireAuth, requireRoles('teacher', 'a
       `INSERT INTO settings (key, value) VALUES ('classroom_api_base', ?)
        ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
     ).run(base);
+  }
+
+  if (req.body?.uiLocale != null) {
+    const raw = String(req.body.uiLocale).trim();
+    if (!isUiLocale(raw)) {
+      res.status(400).json({
+        error: 'invalid_ui_locale',
+        message: 'uiLocale must be one of zh-CN, en, zh-TW, ja, ko',
+      });
+      return;
+    }
+    db.prepare(
+      `INSERT INTO settings (key, value) VALUES ('ui_locale', ?)
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+    ).run(raw);
+    writeAudit({
+      action: 'settings.ui_locale',
+      actorUserId: req.user?.id,
+      actorRole: req.user?.role,
+      detail: { uiLocale: raw },
+      clientIp: String(req.headers['x-forwarded-for'] ?? req.socket.remoteAddress ?? '')
+        .split(',')[0]
+        .trim(),
+    });
   }
 
   const actor = {
@@ -655,6 +682,12 @@ settingsRouter.patch('/api/v1/settings', requireAuth, requireRoles('teacher', 'a
 });
 
 settingsRouter.get('/api/v1/exit-lock/stream', (_req, res) => {
+  // Seed last SSE payload with live DB state so reconnects don't flash stale hasExitUnlockCode.
+  try {
+    broadcastExitLockPayload(getClientExitLockState(openDb()));
+  } catch {
+    /* hub / db may be mid-boot in tests */
+  }
   addExitLockSseClient(res);
 });
 
