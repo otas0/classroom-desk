@@ -3,7 +3,7 @@ import { API_BASE, api, getToken } from '../api';
 import { POINT_REASON_CHIPS } from '../types';
 import { ClassroomLockBar } from './ClassroomLockBar';
 import { LiveBoard } from './LiveBoard';
-import { t } from '@classroom-desk/i18n';
+import { t, te } from '@classroom-desk/i18n';
 
 const OCR_DRAFT_KEY = 'cd_ocr_draft';
 
@@ -221,7 +221,7 @@ export function SessionHome({
       setBoardKey((k) => k + 1);
       setSessionMsg(t('已收卷 {v0} 题', { v0: r.closedQuestions }));
     } catch (e) {
-      setSessionMsg(e instanceof Error ? e.message : t('重置失败'));
+      setSessionMsg(te(e, '重置失败'));
     }
   }
 
@@ -236,7 +236,7 @@ export function SessionHome({
       setBuzzHits([]);
       setSessionMsg(t('抢答已开启，学生端可点「抢答」'));
     } catch (e) {
-      setSessionMsg(e instanceof Error ? e.message : t('开启抢答失败'));
+      setSessionMsg(te(e, '开启抢答失败'));
     }
   }
 
@@ -317,7 +317,7 @@ export function SessionHome({
       setSessionMsg(t('已给抢答第一名 +{v0}', { v0: awardPts }));
       await refreshBuzz();
     } catch (e) {
-      setSessionMsg(e instanceof Error ? e.message : t('加分失败'));
+      setSessionMsg(te(e, '加分失败'));
     }
   }
 
@@ -341,7 +341,7 @@ export function SessionHome({
         }),
       );
     } catch (e) {
-      setAwardMsg(e instanceof Error ? e.message : t('加分失败'));
+      setAwardMsg(te(e, '加分失败'));
     }
   }
 
@@ -362,7 +362,7 @@ export function SessionHome({
     <div className="session-home">
       <div className="session-toolbar">
         <button type="button" onClick={onEnterProjection} disabled={!classId}>
-          投影全屏
+          {t('投影全屏')}
         </button>
         <button type="button" className="secondary" disabled={!classId} onClick={() => void resetSession()}>
           本场重置

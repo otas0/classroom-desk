@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api';
 import { ConfirmModal } from '../ConfirmModal';
-import { t } from '@classroom-desk/i18n';
+import { t, te } from '@classroom-desk/i18n';
 
 type Seat = {
   id: string;
@@ -94,7 +94,7 @@ export function SeatMapPanel({ classId }: { classId: string }) {
 
   useEffect(() => {
     setPendingSwap(null);
-    void load().catch((e) => setMsg(e instanceof Error ? e.message : t('加载失败')));
+    void load().catch((e) => setMsg(te(e, '加载失败')));
     const _cdTimer = window.setInterval(() => void load().catch(() => undefined), 8000);
     return () => window.clearInterval(_cdTimer);
   }, [classId]);
@@ -270,7 +270,7 @@ export function SeatMapPanel({ classId }: { classId: string }) {
           seatLabels: lockedSeats.map((s) => s.label || s.id),
         });
       })
-      .catch((e) => setMsg(e instanceof Error ? e.message : t('读取机位锁失败')))
+      .catch((e) => setMsg(te(e, '读取机位锁失败')))
       .finally(() => setLockBusy(false));
   }
 
@@ -317,7 +317,7 @@ export function SeatMapPanel({ classId }: { classId: string }) {
       }
       setBatchConfirm(null);
     } catch (e) {
-      setMsg(e instanceof Error ? e.message : t('批量机位锁操作失败'));
+      setMsg(te(e, '批量机位锁操作失败'));
     } finally {
       setLockBusy(false);
     }

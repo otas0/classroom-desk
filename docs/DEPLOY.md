@@ -43,6 +43,8 @@
 2. **学生端只跟随** `/api/v1/settings/public` 的 `uiLocale`，**没有**本机语言切换入口。
 3. 默认 **`zh-CN`**：未改设置时 e2e / 夜间 suite 仍按中文文案断言；切语言后请用 `data-testid` 或当前 locale 文案。
 4. 目录完整性：`npm run check:i18n-keys`（CI server job 也会跑）。
+5. 日韩字形：教师机 / 打包机执行 `npm run fonts:cjk`（Noto Sans SC/JP/KR 子集），再 `npm run build:web` / `dist:win`；未下载时仍回退系统 CJK 字体。
+6. 本地清 e2e 垃圾班级：`npm run cleanup:e2e-classes`（可加 `--dry-run`）。
 
 ## systemd unit example
 

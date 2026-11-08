@@ -130,7 +130,7 @@ export function PacksPanel({
         }),
       );
     } catch (e) {
-      setMsg(e instanceof Error ? e.message : t('OCR 失败'));
+      setMsg(te(e, 'OCR 失败'));
     } finally {
       setOcrBusy(false);
     }

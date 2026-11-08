@@ -92,7 +92,7 @@ export function ClassroomLockBar({
         setMsg(label);
         await refresh();
       })
-      .catch((e) => setMsg(e instanceof Error ? e.message : t('输入锁保存失败')))
+      .catch((e) => setMsg(te(e, '输入锁保存失败')))
       .finally(() => setBusy(false));
   }
 
@@ -128,7 +128,7 @@ export function ClassroomLockBar({
         setMsg(on ? t('考试模式已开启') : t('考试模式已解除'));
         await refresh();
       })
-      .catch((e) => setMsg(e instanceof Error ? e.message : t('操作失败')))
+      .catch((e) => setMsg(te(e, '操作失败')))
       .finally(() => setBusy(false));
   }
 

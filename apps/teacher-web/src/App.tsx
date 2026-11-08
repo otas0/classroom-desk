@@ -31,7 +31,7 @@ import {
 } from './navStorage';
 import { assistantPrepTabs, isAssistant, setStaffRole } from './authRole';
 import { preferClassroomId, type ClassItem } from './types';
-import { t } from '@classroom-desk/i18n';
+import { t, te } from '@classroom-desk/i18n';
 
 type Tab = TeacherTab;
 type PrepTab = TeacherPrepTab;
@@ -91,10 +91,12 @@ export function App() {
         }) => {
           if (cancelled) return;
           if (s.exitUnlockCodeRotationDue) {
+            const v0 = s.exitUnlockCodeAgeDays ?? '?';
+            const v1 = s.exitUnlockCodeRotateDays ?? 90;
             setCodeRotationBanner(
               tokenReady
-                ? `解除码已使用 ${s.exitUnlockCodeAgeDays ?? '?'} 天（阈值 ${s.exitUnlockCodeRotateDays ?? 90} 天），请尽快更换。`
-                : `解除码已使用 ${s.exitUnlockCodeAgeDays ?? '?'} 天（阈值 ${s.exitUnlockCodeRotateDays ?? 90} 天），登录后请在「设置」更换。`,
+                ? t('解除码已使用 {v0} 天（阈值 {v1} 天），请尽快更换。', { v0, v1 })
+                : t('解除码已使用 {v0} 天（阈值 {v1} 天），登录后请在「设置」更换。', { v0, v1 }),
             );
           } else {
             setCodeRotationBanner('');
@@ -259,7 +261,11 @@ export function App() {
             expectedVer = expected;
             const odd = (clients.versions ?? []).filter((v) => v && expected && v !== expected);
             if (odd.length) {
-              drift = `班级版本漂移：已连 ${clients.count} 台，上报 ${[...new Set(odd)].join(' / ')}，应升级到 v${expected}`;
+              drift = t('班级版本漂移：已连 {v0} 台，上报 {v1}，应升级到 v{v2}', {
+                v0: clients.count,
+                v1: [...new Set(odd)].join(' / '),
+                v2: expected,
+              });
             }
             // 机房就绪埋点：扫码 CTA 后首次出现在线桌面端
             const ctaAt = Number(sessionStorage.getItem(`cd_assign_cta_at_${classId}`) || 0);
@@ -302,15 +308,17 @@ export function App() {
           down
             ? t('服务异常：/health 未就绪')
             : auditErr
-              ? `审计写入异常：${auditErr.message}`
+              ? t('审计写入异常：{v0}', { v0: auditErr.message })
               : err
-                ? `备份异常：${err.message ?? JSON.stringify(err)}（自动备份或 npm run backup:db）`
+                ? t('备份异常：{v0}（自动备份或 npm run backup:db）', {
+                    v0: err.message ?? JSON.stringify(err),
+                  })
                 : drift,
         );
       } catch {
         if (!cancelled) {
           healthWasDownRef.current = true;
-          setHealthAlert('无法读取 /health');
+          setHealthAlert(t('无法读取 /health'));
           setHealthLanIps([]);
         }
       }
@@ -457,42 +465,45 @@ export function App() {
   if (!tokenReady) {
     return (
       <div className="login">
-        <h1>{APP_NAME} 教师后台</h1>
-        <p className="hint">{t('使用教师账号登录。若仍是联调口令，登录后须先改个人密码。')}</p>
-        {codeRotationBanner ? (
-          <div className="banner-alert" role="status" aria-live="polite">
-            <p>{codeRotationBanner}</p>
-            <p className="hint">
-              <button
-                type="button"
-                className="linkish"
-                onClick={() => {
-                  sessionStorage.setItem('cd_goto_exit_lock', '1');
-                  setError(t('请先登录，登录后将打开「设置」更换解除码。'));
-                }}
-              >
-                去设置更换解除码
-              </button>
-            </p>
-          </div>
-        ) : null}
-        <label>
-          用户名
-          <input value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="username" />
-        </label>
-        <label>
-          密码
-          <input
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            autoComplete="current-password"
-          />
-        </label>
-        {error ? <p className="error">{error}</p> : null}
-        <button type="button" onClick={() => void login()}>
-          登录
-        </button>
+        <div className="login-card">
+          <p className="login-brand">{APP_NAME}</p>
+          <h1>{t('教师后台')}</h1>
+          <p className="hint">{t('使用教师账号登录。若仍是联调口令，登录后须先改个人密码。')}</p>
+          {codeRotationBanner ? (
+            <div className="banner-alert" role="status" aria-live="polite">
+              <p>{codeRotationBanner}</p>
+              <p className="hint">
+                <button
+                  type="button"
+                  className="linkish"
+                  onClick={() => {
+                    sessionStorage.setItem('cd_goto_exit_lock', '1');
+                    setError(t('请先登录，登录后将打开「设置」更换解除码。'));
+                  }}
+                >
+                  {t('去设置更换解除码')}
+                </button>
+              </p>
+            </div>
+          ) : null}
+          <label>
+            {t('用户名')}
+            <input value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="username" />
+          </label>
+          <label>
+            {t('密码')}
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              autoComplete="current-password"
+            />
+          </label>
+          {error ? <p className="error">{error}</p> : null}
+          <button type="button" onClick={() => void login()}>
+            {t('登录')}
+          </button>
+        </div>
       </div>
     );
   }

@@ -1,3 +1,22 @@
+@font-face {
+  font-family: 'Noto Sans SC';
+  src: url('/fonts/NotoSansSC-VF.ttf') format('truetype');
+  font-weight: 100 900;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Noto Sans JP';
+  src: url('/fonts/NotoSansJP-VF.ttf') format('truetype');
+  font-weight: 100 900;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Noto Sans KR';
+  src: url('/fonts/NotoSansKR-VF.ttf') format('truetype');
+  font-weight: 100 900;
+  font-display: swap;
+}
+
 :root {
   --bg: #fff;
   --panel: #fff;
@@ -6,9 +25,13 @@
   --line: #000;
   --line-soft: #ccc;
   --fill-soft: #f2f2f2;
+  --accent: #000;
+  --accent-soft: #fff;
   --shadow: none;
-  --radius: 0;
-  font-family: 'IBM Plex Sans', 'PingFang SC', 'Hiragino Sans GB', sans-serif;
+  --radius: 10px;
+  --font-sans: 'Source Sans 3', 'Noto Sans SC', 'Noto Sans JP', 'Noto Sans KR',
+    'PingFang SC', 'Hiragino Sans', 'Yu Gothic UI', 'Malgun Gothic', sans-serif;
+  font-family: var(--font-sans);
   color: var(--ink);
   background: var(--bg);
 }
@@ -48,7 +71,7 @@ button {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 10px 12px;
+  padding: 10px 14px;
   -webkit-app-region: drag;
   user-select: none;
   border-bottom: 2px solid var(--line);
@@ -101,9 +124,9 @@ button {
 .icon-btn {
   -webkit-app-region: no-drag;
   border: 1px solid var(--line);
-  background: #fff;
+  background: var(--panel);
   color: var(--ink);
-  border-radius: 0;
+  border-radius: 6px;
   padding: 4px 10px;
   font-size: 12px;
   cursor: pointer;
@@ -112,6 +135,7 @@ button {
 .icon-btn:hover,
 .icon-btn:focus-visible {
   background: var(--ink);
+  border-color: var(--ink);
   color: #fff;
 }
 
@@ -131,25 +155,26 @@ button {
   grid-template-columns: repeat(auto-fit, minmax(72px, 1fr));
   gap: 8px;
   padding: 10px;
-  background: #fff;
-  border-bottom: 2px solid var(--line);
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
 }
 
 .tab {
   position: relative;
-  border: 2px solid #000;
-  background: #fff;
+  border: 1px solid var(--line);
+  background: var(--panel);
   color: var(--ink);
   padding: 12px 4px;
   cursor: pointer;
   font-size: 13px;
-  border-radius: 0;
+  border-radius: 8px;
+  font-weight: 600;
 }
 
 .tab:hover,
 .tab:focus-visible {
   background: var(--fill-soft);
-  outline: 2px solid #000;
+  outline: 2px solid var(--ink);
   outline-offset: 1px;
 }
 
@@ -229,32 +254,34 @@ button {
 .secondary {
   width: 100%;
   margin-top: 8px;
-  border: 1px solid #000;
-  border-radius: 0;
+  border: 1px solid var(--ink);
+  border-radius: 8px;
   padding: 10px 12px;
   cursor: pointer;
   font-weight: 600;
 }
 
 .primary {
-  background: #000;
+  background: var(--ink);
   color: #fff;
 }
 
 .primary:hover:not(:disabled),
 .primary:focus-visible:not(:disabled) {
   background: #fff;
-  color: #000;
+  border-color: var(--ink);
+  color: var(--ink);
 }
 
 .secondary {
-  background: #fff;
-  color: #000;
+  background: var(--panel);
+  color: var(--ink);
+  border-color: var(--line);
 }
 
 .secondary:hover:not(:disabled),
 .secondary:focus-visible:not(:disabled) {
-  background: #000;
+  background: var(--ink);
   color: #fff;
 }
 

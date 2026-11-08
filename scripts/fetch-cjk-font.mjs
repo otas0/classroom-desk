@@ -1,41 +1,87 @@
 #!/usr/bin/env node
 /**
- * Download Noto Sans SC (OFL) into apps/server/assets/fonts for offline PDF.
+ * Download Noto Sans SC/JP/KR (OFL) subsets for offline PDF + Electron/teacher UI.
+ *
+ *   npm run fonts:cjk
  */
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const destDir = path.join(root, 'apps/server/assets/fonts');
-const dest = path.join(destDir, 'NotoSansSC-VF.ttf');
 
-const URLS = [
-  'https://cdn.jsdelivr.net/gh/googlefonts/noto-cjk@main/Sans/Variable/TTF/Subset/NotoSansSC-VF.ttf',
-  'https://github.com/googlefonts/noto-cjk/raw/main/Sans/Variable/TTF/Subset/NotoSansSC-VF.ttf',
+const FILES = [
+  {
+    name: 'NotoSansSC-VF.ttf',
+    urls: [
+      'https://cdn.jsdelivr.net/gh/googlefonts/noto-cjk@main/Sans/Variable/TTF/Subset/NotoSansSC-VF.ttf',
+      'https://github.com/googlefonts/noto-cjk/raw/main/Sans/Variable/TTF/Subset/NotoSansSC-VF.ttf',
+    ],
+  },
+  {
+    name: 'NotoSansJP-VF.ttf',
+    urls: [
+      'https://cdn.jsdelivr.net/gh/googlefonts/noto-cjk@main/Sans/Variable/TTF/Subset/NotoSansJP-VF.ttf',
+      'https://github.com/googlefonts/noto-cjk/raw/main/Sans/Variable/TTF/Subset/NotoSansJP-VF.ttf',
+    ],
+  },
+  {
+    name: 'NotoSansKR-VF.ttf',
+    urls: [
+      'https://cdn.jsdelivr.net/gh/googlefonts/noto-cjk@main/Sans/Variable/TTF/Subset/NotoSansKR-VF.ttf',
+      'https://github.com/googlefonts/noto-cjk/raw/main/Sans/Variable/TTF/Subset/NotoSansKR-VF.ttf',
+    ],
+  },
 ];
 
-if (fs.existsSync(dest) && fs.statSync(dest).size > 50_000) {
-  console.log(`[fetch-cjk-font] already present ${dest} (${fs.statSync(dest).size} bytes)`);
-  process.exit(0);
+const DEST_DIRS = [
+  path.join(root, 'apps/server/assets/fonts'),
+  path.join(root, 'apps/teacher-web/public/fonts'),
+  path.join(root, 'apps/student-desktop/public/fonts'),
+];
+
+async function fetchOne(file, destPath) {
+  if (fs.existsSync(destPath) && fs.statSync(destPath).size > 50_000) {
+    console.log(`[fonts:cjk] keep ${destPath} (${fs.statSync(destPath).size} bytes)`);
+    return true;
+  }
+  let lastErr = '';
+  for (const url of file.urls) {
+    try {
+      console.log(`[fonts:cjk] GET ${url}`);
+      const res = await fetch(url, { signal: AbortSignal.timeout(180_000) });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const buf = Buffer.from(await res.arrayBuffer());
+      if (buf.length < 50_000) throw new Error(`too small ${buf.length}`);
+      fs.mkdirSync(path.dirname(destPath), { recursive: true });
+      fs.writeFileSync(destPath, buf);
+      console.log(`[fonts:cjk] wrote ${destPath} (${buf.length} bytes)`);
+      return true;
+    } catch (e) {
+      lastErr = e instanceof Error ? e.message : String(e);
+      console.warn(`[fonts:cjk] failed: ${lastErr}`);
+    }
+  }
+  console.error(`[fonts:cjk] ${file.name}: ${lastErr}`);
+  return false;
 }
 
-fs.mkdirSync(destDir, { recursive: true });
-let lastErr = '';
-for (const url of URLS) {
-  try {
-    console.log(`[fetch-cjk-font] GET ${url}`);
-    const res = await fetch(url, { signal: AbortSignal.timeout(180_000) });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const buf = Buffer.from(await res.arrayBuffer());
-    if (buf.length < 50_000) throw new Error(`too small ${buf.length}`);
-    fs.writeFileSync(dest, buf);
-    console.log(`[fetch-cjk-font] wrote ${dest} (${buf.length} bytes)`);
-    process.exit(0);
-  } catch (e) {
-    lastErr = e instanceof Error ? e.message : String(e);
-    console.warn(`[fetch-cjk-font] failed: ${lastErr}`);
+let ok = true;
+for (const file of FILES) {
+  const primary = path.join(DEST_DIRS[0], file.name);
+  const got = await fetchOne(file, primary);
+  if (!got) {
+    ok = false;
+    continue;
+  }
+  for (const dir of DEST_DIRS.slice(1)) {
+    fs.mkdirSync(dir, { recursive: true });
+    const dest = path.join(dir, file.name);
+    if (dest !== primary) {
+      fs.copyFileSync(primary, dest);
+      console.log(`[fonts:cjk] copy → ${dest}`);
+    }
   }
 }
-console.error(`[fetch-cjk-font] all mirrors failed: ${lastErr}`);
-process.exit(1);
+
+process.exit(ok ? 0 : 1);

@@ -40,7 +40,7 @@ import {
   UI_LOCALE_LABELS,
   UI_LOCALES,
   normalizeUiLocale,
-  t,
+  t, te,
   type UiLocale,
 } from '@classroom-desk/i18n';
 import { ClassroomLockBar } from './components/ClassroomLockBar';
@@ -163,7 +163,7 @@ export function RosterPanel({
       await loadStudents();
       onRosterChanged?.();
     } catch (e) {
-      setImportResult(e instanceof Error ? e.message : t('添加失败'));
+      setImportResult(te(e, '添加失败'));
     }
   }
 
@@ -199,7 +199,7 @@ export function RosterPanel({
       );
       await loadStudents();
     } catch (e) {
-      setAwardMsg(e instanceof Error ? e.message : t('加分失败'));
+      setAwardMsg(te(e, '加分失败'));
     }
   }
 
@@ -502,7 +502,7 @@ export function RosterPanel({
                 );
                 toast.ok(t('已导出选中 {v0} 人', { v0: selectedIds.size }));
               } catch (e) {
-                toast.err(e instanceof Error ? e.message : t('导出失败'));
+                toast.err(te(e, '导出失败'));
               } finally {
                 setBulkBusy(false);
               }
@@ -551,7 +551,7 @@ export function RosterPanel({
                 toast.ok(r.message ?? t('已更新学号'));
                 await loadStudents();
               } catch (e) {
-                toast.err(e instanceof Error ? e.message : t('学号更新失败'));
+                toast.err(te(e, '学号更新失败'));
               } finally {
                 setBulkBusy(false);
               }
@@ -579,7 +579,7 @@ export function RosterPanel({
                 toast.ok(r.message ?? t('已清空学号'));
                 await loadStudents();
               } catch (e) {
-                toast.err(e instanceof Error ? e.message : t('清空失败'));
+                toast.err(te(e, '清空失败'));
               } finally {
                 setBulkBusy(false);
               }
@@ -610,7 +610,7 @@ export function RosterPanel({
                 });
                 setImpactModal({ ...impact, ids: [...selectedIds] });
               } catch (e) {
-                toast.err(e instanceof Error ? e.message : t('无法获取影响汇总'));
+                toast.err(te(e, '无法获取影响汇总'));
               } finally {
                 setBulkBusy(false);
               }
@@ -684,8 +684,14 @@ export function RosterPanel({
             <>
               <p>
                 {impactModal.label
-                  ? `将「${impactModal.label}」移入回收站（${RECYCLE_RETENTION_DAYS} 日内可恢复）。`
-                  : `将 ${impactModal.studentCount} 名学生移入回收站（${RECYCLE_RETENTION_DAYS} 日内可恢复）。`}
+                  ? t('将「{v0}」移入回收站（{v1} 日内可恢复）。', {
+                      v0: impactModal.label,
+                      v1: RECYCLE_RETENTION_DAYS,
+                    })
+                  : t('将 {v0} 名学生移入回收站（{v1} 日内可恢复）。', {
+                      v0: impactModal.studentCount,
+                      v1: RECYCLE_RETENTION_DAYS,
+                    })}
               </p>
               <p>
                 关联数据暂保留：签到 {impactModal.attendanceRecords} · 积分流水 {impactModal.pointsLog} ·
@@ -706,13 +712,13 @@ export function RosterPanel({
                 `/api/v1/classes/${classId}/students/bulk-delete`,
                 { method: 'POST', body: JSON.stringify({ ids: impactModal.ids }) },
               );
-              toast.ok(r.message ?? `已移入回收站 ${r.deleted} 人`);
+              toast.ok(r.message ?? t('已移入回收站 {v0} 人', { v0: r.deleted }));
               setImpactModal(null);
               await loadStudents();
               onRosterChanged?.();
               if (showRecycle) await loadRecycle();
             } catch (e) {
-              toast.err(e instanceof Error ? e.message : t('批量删除失败'));
+              toast.err(te(e, '批量删除失败'));
             } finally {
               setBulkBusy(false);
             }
@@ -732,7 +738,7 @@ export function RosterPanel({
                 try {
                   await loadRecycle();
                 } catch (e) {
-                  toast.err(e instanceof Error ? e.message : t('加载回收站失败'));
+                  toast.err(te(e, '加载回收站失败'));
                 }
               }
             })()
@@ -750,7 +756,7 @@ export function RosterPanel({
                   className="secondary"
                   onClick={() =>
                     void (async () => {
-                      if (!window.confirm(`恢复回收站全部 ${recycle.length} 人？`)) return;
+                      if (!window.confirm(t('恢复回收站全部 {v0} 人？', { v0: recycle.length }))) return;
                       try {
                         const r = await api<{ message?: string }>(
                           `/api/v1/classes/${classId}/students/recycle/restore-all`,
@@ -761,7 +767,7 @@ export function RosterPanel({
                         await loadStudents();
                         onRosterChanged?.();
                       } catch (e) {
-                        toast.err(e instanceof Error ? e.message : t('恢复失败'));
+                        toast.err(te(e, '恢复失败'));
                       }
                     })()
                   }
@@ -774,7 +780,9 @@ export function RosterPanel({
                     void (async () => {
                       if (
                         !window.confirm(
-                          `永久清空回收站全部 ${recycle.length} 人？不可恢复，关联记录一并清除。`,
+                          t('永久清空回收站全部 {v0} 人？不可恢复，关联记录一并清除。', {
+                            v0: recycle.length,
+                          }),
                         )
                       ) {
                         return;
@@ -785,14 +793,20 @@ export function RosterPanel({
                           {},
                           (p) => {
                             if (!p.done) {
-                              toast.ok(`清空中 ${p.purged}/${p.total}（${p.pct}%）`);
+                              toast.ok(
+                                t('清空中 {v0}/{v1}（{v2}%）', {
+                                  v0: p.purged,
+                                  v1: p.total,
+                                  v2: p.pct,
+                                }),
+                              );
                             }
                           },
                         );
                         toast.ok(r.message ?? t('已清空'));
                         await loadRecycle();
                       } catch (e) {
-                        toast.err(e instanceof Error ? e.message : t('清空失败'));
+                        toast.err(te(e, '清空失败'));
                       }
                     })()
                   }
@@ -840,12 +854,12 @@ export function RosterPanel({
                                 method: 'POST',
                                 body: JSON.stringify({ ids: [String(s.id)] }),
                               });
-                              toast.ok(`已恢复 ${String(s.displayName)}`);
+                              toast.ok(t('已恢复 {v0}', { v0: String(s.displayName) }));
                               await loadRecycle();
                               await loadStudents();
                               onRosterChanged?.();
                             } catch (e) {
-                              toast.err(e instanceof Error ? e.message : t('恢复失败'));
+                              toast.err(te(e, '恢复失败'));
                             }
                           })()
                         }
@@ -856,7 +870,15 @@ export function RosterPanel({
                         type="button"
                         onClick={() =>
                           void (async () => {
-                            if (!window.confirm(`永久删除「${String(s.displayName)}」？不可恢复。`)) return;
+                            if (
+                              !window.confirm(
+                                t('永久删除「{v0}」？不可恢复。', {
+                                  v0: String(s.displayName),
+                                }),
+                              )
+                            ) {
+                              return;
+                            }
                             try {
                               await api(`/api/v1/classes/${classId}/students/bulk-purge`, {
                                 method: 'POST',
@@ -865,7 +887,7 @@ export function RosterPanel({
                               toast.ok(t('已永久删除'));
                               await loadRecycle();
                             } catch (e) {
-                              toast.err(e instanceof Error ? e.message : t('永久删除失败'));
+                              toast.err(te(e, '永久删除失败'));
                             }
                           })()
                         }
@@ -1122,21 +1144,41 @@ export function QuestionsPanel({ classId }: { classId: string }) {
     if (action === 'delete') {
       if (
         !window.confirm(
-          `确定将选中的 ${selectedQIds.size} 道题移入回收站？作答记录暂保留，永久删除或到期后清除。`,
+          t('确定将选中的 {v0} 道题移入回收站？作答记录暂保留，永久删除或到期后清除。', {
+            v0: selectedQIds.size,
+          }),
         )
       ) {
         return;
       }
     } else if (action === 'purge') {
-      if (!window.confirm(`永久删除选中的 ${selectedQIds.size} 道题？不可恢复。`)) return;
+      if (
+        !window.confirm(t('永久删除选中的 {v0} 道题？不可恢复。', { v0: selectedQIds.size }))
+      ) {
+        return;
+      }
     } else if (action === 'set_closes_at') {
       if (!bulkClosesAt.trim()) {
         toast.err(t('请填写截止时间'));
         return;
       }
-      if (!window.confirm(`为选中的 ${selectedQIds.size} 道题设置截止 ${bulkClosesAt}？`)) return;
+      if (
+        !window.confirm(
+          t('为选中的 {v0} 道题设置截止 {v1}？', {
+            v0: selectedQIds.size,
+            v1: bulkClosesAt,
+          }),
+        )
+      ) {
+        return;
+      }
     } else if (
-      !window.confirm(`确定对选中的 ${selectedQIds.size} 道题执行「${labels[action]}」？`)
+      !window.confirm(
+        t('确定对选中的 {v0} 道题执行「{v1}」？', {
+          v0: selectedQIds.size,
+          v1: labels[action],
+        }),
+      )
     ) {
       return;
     }
@@ -1154,7 +1196,9 @@ export function QuestionsPanel({ classId }: { classId: string }) {
               : undefined,
         }),
       });
-      toast.ok(r.message ?? `已${labels[action]} ${r.affected} 题`);
+      toast.ok(
+        r.message ?? t('已{v0} {v1} 题', { v0: labels[action], v1: r.affected }),
+      );
       if (
         (action === 'delete' || action === 'purge') &&
         editingQuestion &&
@@ -1164,7 +1208,7 @@ export function QuestionsPanel({ classId }: { classId: string }) {
       }
       await load();
     } catch (e) {
-      toast.err(e instanceof Error ? e.message : t('批量操作失败'));
+      toast.err(te(e, '批量操作失败'));
     } finally {
       setBulkQBusy(false);
     }
@@ -1599,7 +1643,13 @@ export function QuestionsPanel({ classId }: { classId: string }) {
           disabled={bulkQBusy || selectedQIds.size === 0 || !allowDelete}
           onClick={() =>
             void (async () => {
-              if (!window.confirm(`清空选中的 ${selectedQIds.size} 道题的截止时间？`)) return;
+              if (
+                !window.confirm(
+                  t('清空选中的 {v0} 道题的截止时间？', { v0: selectedQIds.size }),
+                )
+              ) {
+                return;
+              }
               setBulkQBusy(true);
               try {
                 const r = await api<{ message?: string }>('/api/v1/questions/bulk', {
@@ -1614,7 +1664,7 @@ export function QuestionsPanel({ classId }: { classId: string }) {
                 toast.ok(r.message ?? t('已清空截止'));
                 await load();
               } catch (e) {
-                toast.err(e instanceof Error ? e.message : t('清空失败'));
+                toast.err(te(e, '清空失败'));
               } finally {
                 setBulkQBusy(false);
               }
@@ -1635,9 +1685,9 @@ export function QuestionsPanel({ classId }: { classId: string }) {
                   { classId, ids: [...selectedQIds], format: 'xlsx' },
                   'questions-selected.xlsx',
                 );
-                toast.ok(`已导出选中 ${selectedQIds.size} 题`);
+                toast.ok(t('已导出选中 {v0} 题', { v0: selectedQIds.size }));
               } catch (e) {
-                toast.err(e instanceof Error ? e.message : t('导出失败'));
+                toast.err(te(e, '导出失败'));
               }
             })()
           }
@@ -1791,14 +1841,20 @@ export function QuestionsPanel({ classId }: { classId: string }) {
                 onClick={(e) => {
                   e.stopPropagation();
                   if (!allowDelete) return;
-                  if (!window.confirm(`将题目「${String(q.title)}」移入回收站？`)) return;
+                  if (
+                    !window.confirm(
+                      t('将题目「{v0}」移入回收站？', { v0: String(q.title) }),
+                    )
+                  ) {
+                    return;
+                  }
                   void api(`/api/v1/questions/${String(q.id)}`, { method: 'DELETE' })
                     .then(async () => {
                       toast.ok(t('已移入回收站'));
                       if (String(editingQuestion?.id) === String(q.id)) setEditingQuestion(null);
                       await load();
                     })
-                    .catch((err) => toast.err(err instanceof Error ? err.message : t('删除失败')));
+                    .catch((err) => toast.err(te(err, '删除失败')));
                 }}
               >
                 删除
@@ -1918,7 +1974,12 @@ export function QuestionRecyclePanel({ classId }: { classId: string }) {
 
   async function run(action: 'restore' | 'purge', ids: string[]) {
     if (!ids.length || !allowDelete) return;
-    if (action === 'purge' && !window.confirm(`永久删除 ${ids.length} 道题？不可恢复。`)) return;
+    if (
+      action === 'purge' &&
+      !window.confirm(t('永久删除 {v0} 道题？不可恢复。', { v0: ids.length }))
+    ) {
+      return;
+    }
     setBusy(true);
     try {
       const r = await api<{ message?: string }>('/api/v1/questions/bulk', {
@@ -1928,7 +1989,7 @@ export function QuestionRecyclePanel({ classId }: { classId: string }) {
       toast.ok(r.message ?? t('完成'));
       await load();
     } catch (e) {
-      toast.err(e instanceof Error ? e.message : t('操作失败'));
+      toast.err(te(e, '操作失败'));
     } finally {
       setBusy(false);
     }
@@ -1973,7 +2034,7 @@ export function QuestionRecyclePanel({ classId }: { classId: string }) {
           disabled={busy || items.length === 0 || !allowDelete}
           onClick={() =>
             void (async () => {
-              if (!window.confirm(`恢复全部 ${items.length} 道题？`)) return;
+              if (!window.confirm(t('恢复全部 {v0} 道题？', { v0: items.length }))) return;
               setBusy(true);
               try {
                 const r = await api<{ message?: string }>('/api/v1/questions/recycle/restore-all', {
@@ -1983,7 +2044,7 @@ export function QuestionRecyclePanel({ classId }: { classId: string }) {
                 toast.ok(r.message ?? t('已全部恢复'));
                 await load();
               } catch (e) {
-                toast.err(e instanceof Error ? e.message : t('恢复失败'));
+                toast.err(te(e, '恢复失败'));
               } finally {
                 setBusy(false);
               }
@@ -1998,7 +2059,11 @@ export function QuestionRecyclePanel({ classId }: { classId: string }) {
           disabled={busy || items.length === 0 || !allowDelete}
           onClick={() =>
             void (async () => {
-              if (!window.confirm(`永久清空回收站 ${items.length} 道题？`)) return;
+              if (
+                !window.confirm(t('永久清空回收站 {v0} 道题？', { v0: items.length }))
+              ) {
+                return;
+              }
               setBusy(true);
               setPurgePct(0);
               try {
@@ -2010,7 +2075,7 @@ export function QuestionRecyclePanel({ classId }: { classId: string }) {
                 toast.ok(r.message ?? t('已清空'));
                 await load();
               } catch (e) {
-                toast.err(e instanceof Error ? e.message : t('清空失败'));
+                toast.err(te(e, '清空失败'));
               } finally {
                 setBusy(false);
                 setPurgePct(null);
@@ -2165,7 +2230,7 @@ export function QuestionEditForm({
       setAttachments((prev) => [...prev, ...res.items]);
       setMsg(`已追加 ${res.items.length} 个附件`);
     } catch (e) {
-      setMsg(e instanceof Error ? e.message : t('上传失败'));
+      setMsg(te(e, '上传失败'));
     } finally {
       setUploading(false);
     }
@@ -2252,7 +2317,7 @@ export function QuestionEditForm({
               setMsg(t('已保存原题修改'));
               return onSaved();
             })
-            .catch((e) => setMsg(e instanceof Error ? e.message : t('失败')))
+            .catch((e) => setMsg(te(e, '失败')))
         }
       >
         保存编辑
@@ -2268,7 +2333,7 @@ export function QuestionEditForm({
               setMsg(t('已删除'));
               return onDeleted?.() ?? onSaved();
             })
-            .catch((e) => setMsg(e instanceof Error ? e.message : t('删除失败')));
+            .catch((e) => setMsg(te(e, '删除失败')));
         }}
       >
         删除题目
@@ -4528,7 +4593,7 @@ export function SettingsPanel({
                   body: JSON.stringify({ recycleRetentionDays: days }),
                 })
                   .then(() => setSaveMsg(`回收站保留 ${days} 天（调度按此 purge）`))
-                  .catch((err) => setSaveMsg(err instanceof Error ? err.message : t('保存失败')));
+                  .catch((err) => setSaveMsg(te(err, '保存失败')));
               }}
             />
           </label>
@@ -4557,7 +4622,7 @@ export function SettingsPanel({
                   body: JSON.stringify({ recycleUrgentDays: days }),
                 })
                   .then(() => setSaveMsg(`即将到期阈值：剩余 ≤${days} 天时醒目`))
-                  .catch((err) => setSaveMsg(err instanceof Error ? err.message : t('保存失败')));
+                  .catch((err) => setSaveMsg(te(err, '保存失败')));
               }}
             />
           </label>
@@ -4892,7 +4957,7 @@ export function SettingsPanel({
                   body: JSON.stringify({ fleetDriftSnapshotMinutes: mins }),
                 })
                   .then(() => setSaveMsg(`漂移快照间隔 ${mins} 分钟`))
-                  .catch((err) => setSaveMsg(err instanceof Error ? err.message : t('保存失败')));
+                  .catch((err) => setSaveMsg(te(err, '保存失败')));
               }}
             />
           </label>
@@ -4916,7 +4981,7 @@ export function SettingsPanel({
                   body: JSON.stringify({ unhardenedAlertThreshold: thresh }),
                 })
                   .then(() => setSaveMsg(`未加固告警阈值 ${(thresh * 100).toFixed(0)}%`))
-                  .catch((err) => setSaveMsg(err instanceof Error ? err.message : t('保存失败')));
+                  .catch((err) => setSaveMsg(te(err, '保存失败')));
               }}
             />
           </label>
@@ -4972,7 +5037,7 @@ export function SettingsPanel({
                       }`,
                     );
                   })
-                  .catch((err) => setSaveMsg(err instanceof Error ? err.message : t('保存失败')));
+                  .catch((err) => setSaveMsg(te(err, '保存失败')));
               }}
             />
           </label>
@@ -5110,8 +5175,10 @@ export function SettingsPanel({
                   method: 'PATCH',
                   body: JSON.stringify({ liveboardReadonlyAfterMinutes: mins }),
                 })
-                  .then(() => setSaveMsg(`投影只读自动开启已设为 ${mins} 分钟`))
-                  .catch((err) => setSaveMsg(err instanceof Error ? err.message : t('保存失败')));
+                  .then(() =>
+                    setSaveMsg(t('投影只读自动开启已设为 {v0} 分钟', { v0: mins })),
+                  )
+                  .catch((err) => setSaveMsg(te(err, '保存失败')));
               }}
             />
           </label>
@@ -5135,7 +5202,7 @@ export function SettingsPanel({
                       prepTab: next ? 'messages' : 'roster',
                     });
                   })
-                  .catch((err) => setSaveMsg(err instanceof Error ? err.message : t('保存失败')))
+                  .catch((err) => setSaveMsg(te(err, '保存失败')))
               }
             />
             允许学生留言（关闭后侧栏隐藏「留言」）
@@ -5159,7 +5226,7 @@ export function SettingsPanel({
                         : '已关闭：点选项即提交',
                     );
                   })
-                  .catch((err) => setSaveMsg(err instanceof Error ? err.message : t('保存失败')))
+                  .catch((err) => setSaveMsg(te(err, '保存失败')))
               }
             />
             单选/判断二次确认提交（默认开启）

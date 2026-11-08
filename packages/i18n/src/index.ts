@@ -8,4 +8,4 @@ export {
 } from './locales.js';
 export { createTranslator, interpolate, type Catalog, type Vars, type Translator } from './translate.js';
 export { CATALOGS } from './catalogs.js';
-export { t, setUiLocale, getUiLocale } from './runtime.js';
+export { t, te, setUiLocale, getUiLocale } from './runtime.js';
