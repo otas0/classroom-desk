@@ -1,6 +1,11 @@
 import { app, BrowserWindow, ipcMain, Menu, screen, session } from 'electron';
+import { execFile } from 'node:child_process';
+import os from 'node:os';
+import { promisify } from 'node:util';
 import path from 'node:path';
 import { loadConfig, saveConfig } from './configStore';
+
+const execFileAsync = promisify(execFile);
 
 const WINDOW_WIDTH = 380;
 const WINDOW_HEIGHT = 560;
@@ -8,7 +13,11 @@ const COLLAPSED_HEIGHT = 56;
 const MARGIN = 16;
 
 let mainWindow: BrowserWindow | null = null;
+let examShellWindow: BrowserWindow | null = null;
 let collapsed = false;
+/** Deep-lock armed (freeze / exam allowlist / deny) — visible classroom policy. */
+let deepLockAggressiveActive = false;
+let deepLockFrozenActive = false;
 
 /**
  * Exit lock: students cannot close/quit unless unlocked.
@@ -85,18 +94,18 @@ function createWindow() {
     mainWindow?.show();
   });
 
-  // Packaged kiosk: block DevTools shortcuts (visible app lock; OS still needs Assigned Access).
-  if (app.isPackaged) {
-    mainWindow.webContents.on('before-input-event', (event, input) => {
-      const key = String(input.key || '').toLowerCase();
-      const openDevtools =
-        key === 'f12' ||
-        ((input.control || input.meta) && input.shift && (key === 'i' || key === 'j' || key === 'c'));
-      if (openDevtools) {
-        event.preventDefault();
-      }
-    });
-  }
+  // Block DevTools / reload escapes when packaged, or whenever deep-lock is armed.
+  mainWindow.webContents.on('before-input-event', (event, input) => {
+    const key = String(input.key || '').toLowerCase();
+    const openDevtools =
+      key === 'f12' ||
+      ((input.control || input.meta) && input.shift && (key === 'i' || key === 'j' || key === 'c'));
+    const reload = (input.control || input.meta) && (key === 'r' || key === 'f5');
+    const hardNav = key === 'f5' || ((input.alt || input.meta) && (key === 'arrowleft' || key === 'arrowright'));
+    if (app.isPackaged || deepLockAggressiveActive) {
+      if (openDevtools || reload || hardNav) event.preventDefault();
+    }
+  });
 
   mainWindow.on('close', (event) => {
     if (exitAllowed) return;
@@ -198,6 +207,22 @@ app.on('window-all-closed', () => {
 
 ipcMain.handle('window:toggle-collapse', () => {
   if (!mainWindow) return collapsed;
+  // Deep-lock: keep surface expanded so freeze/banner cannot be tucked away.
+  if (deepLockAggressiveActive || deepLockFrozenActive) {
+    collapsed = false;
+    if (deepLockFrozenActive) {
+      const { workArea } = screen.getPrimaryDisplay();
+      mainWindow.setBounds({
+        x: workArea.x,
+        y: workArea.y,
+        width: workArea.width,
+        height: workArea.height,
+      });
+    } else {
+      placeBottomRight(mainWindow, WINDOW_HEIGHT);
+    }
+    return false;
+  }
   collapsed = !collapsed;
   const height = collapsed ? COLLAPSED_HEIGHT : WINDOW_HEIGHT;
   placeBottomRight(mainWindow, height);
@@ -319,3 +344,224 @@ ipcMain.handle('lock:set-input-mouse-locked', (_event, locked: boolean) => {
     return { ok: false, error: e instanceof Error ? e.message : 'set_failed' };
   }
 });
+
+function closeExamShell() {
+  if (examShellWindow && !examShellWindow.isDestroyed()) {
+    examShellWindow.destroy();
+  }
+  examShellWindow = null;
+}
+
+/** Expand widget to work-area overlay while frozen (visible kiosk freeze). */
+ipcMain.handle('deep-lock:set-frozen', (_event, frozen: boolean) => {
+  if (!mainWindow || mainWindow.isDestroyed()) return { ok: false };
+  try {
+    deepLockFrozenActive = Boolean(frozen);
+    if (frozen) deepLockAggressiveActive = true;
+    const display = screen.getPrimaryDisplay();
+    const { workArea } = display;
+    mainWindow.setIgnoreMouseEvents(false);
+    mainWindow.setAlwaysOnTop(true);
+    mainWindow.setMinimizable(false);
+    mainWindow.show();
+    mainWindow.focus();
+    collapsed = false;
+    if (frozen) {
+      closeExamShell();
+      mainWindow.setBounds({
+        x: workArea.x,
+        y: workArea.y,
+        width: workArea.width,
+        height: workArea.height,
+      });
+    } else {
+      mainWindow.setMinimizable(true);
+      placeBottomRight(mainWindow, WINDOW_HEIGHT);
+    }
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : 'set_failed' };
+  }
+});
+
+/** Mark deep-lock armed so collapse/devtools escapes stay blocked. */
+ipcMain.handle(
+  'deep-lock:set-aggressive',
+  (_event, aggressive: boolean) => {
+    deepLockAggressiveActive = Boolean(aggressive);
+    if (!deepLockAggressiveActive) {
+      deepLockFrozenActive = false;
+      closeExamShell();
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.setMinimizable(true);
+      }
+    }
+    return { ok: true, aggressive: deepLockAggressiveActive };
+  },
+);
+
+/**
+ * In-app exam BrowserWindow (visible). Used with killForeignBrowsers so the
+ * only allowed browser surface is this shell — not a silent OS inject.
+ */
+ipcMain.handle('deep-lock:set-exam-url', async (_event, rawUrl: unknown) => {
+  const url = String(rawUrl ?? '').trim();
+  if (!url) {
+    closeExamShell();
+    return { ok: true, closed: true };
+  }
+  if (!/^https?:\/\//i.test(url)) {
+    return { ok: false, error: 'only_http_https' };
+  }
+  try {
+    if (!examShellWindow || examShellWindow.isDestroyed()) {
+      const display = screen.getPrimaryDisplay();
+      const { workArea } = display;
+      examShellWindow = new BrowserWindow({
+        x: workArea.x,
+        y: workArea.y,
+        width: workArea.width,
+        height: Math.max(400, workArea.height - 80),
+        show: true,
+        autoHideMenuBar: true,
+        alwaysOnTop: true,
+        title: 'Classroom Desk · Exam',
+        webPreferences: {
+          contextIsolation: true,
+          nodeIntegration: false,
+          sandbox: true,
+        },
+      });
+      examShellWindow.on('closed', () => {
+        examShellWindow = null;
+      });
+      examShellWindow.webContents.on('before-input-event', (event, input) => {
+        const key = String(input.key || '').toLowerCase();
+        if (
+          key === 'f12' ||
+          ((input.control || input.meta) && input.shift && (key === 'i' || key === 'j' || key === 'c'))
+        ) {
+          event.preventDefault();
+        }
+      });
+    }
+    await examShellWindow.loadURL(url);
+    examShellWindow.show();
+    examShellWindow.focus();
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : 'exam_shell_failed' };
+  }
+});
+
+/**
+ * Visible policy: end common browser processes while deep-lock kill mode is on.
+ * Does not hide itself; does not touch OS security tools. Requires school-owned agent.
+ */
+/** Best-effort SSID + primary IPv4 for school-defined network zone matching. */
+ipcMain.handle('net:get-hint', async () => {
+  let ssid = '';
+  let ipv4 = '';
+  let gateway = '';
+  try {
+    const ifaces = os.networkInterfaces();
+    for (const rows of Object.values(ifaces)) {
+      for (const row of rows ?? []) {
+        if (row.family === 'IPv4' && !row.internal) {
+          ipv4 = row.address;
+          break;
+        }
+      }
+      if (ipv4) break;
+    }
+  } catch {
+    /* ignore */
+  }
+  try {
+    if (process.platform === 'win32') {
+      const { stdout } = await execFileAsync('netsh', ['wlan', 'show', 'interfaces'], {
+        windowsHide: true,
+        timeout: 4000,
+      });
+      const m = /SSID\s*:\s*(.+)/i.exec(stdout);
+      if (m) ssid = m[1]!.trim();
+    } else if (process.platform === 'darwin') {
+      try {
+        const { stdout } = await execFileAsync(
+          '/System/Library/PrivateFrameworks/Apple80211.framework/Versions/Current/Resources/airport',
+          ['-I'],
+          { timeout: 4000 },
+        );
+        const m = /\sSSID:\s*(.+)/.exec(stdout);
+        if (m) ssid = m[1]!.trim();
+      } catch {
+        /* airport may be missing on newer macOS */
+      }
+    }
+  } catch {
+    /* offline / no wifi */
+  }
+  return { ssid, ipv4, gateway };
+});
+
+ipcMain.handle(
+  'deep-lock:enforce-browsers',
+  async (_event, opts: { killForeignBrowsers?: boolean; allowHosts?: string[] }) => {
+    if (!opts?.killForeignBrowsers) return { ok: true, killed: [] as string[] };
+    const killed: string[] = [];
+    try {
+      if (process.platform === 'win32') {
+        const targets = [
+          'chrome.exe',
+          'msedge.exe',
+          'firefox.exe',
+          'brave.exe',
+          'opera.exe',
+          'vivaldi.exe',
+          'chromium.exe',
+          'iexplore.exe',
+        ];
+        for (const name of targets) {
+          try {
+            await execFileAsync('taskkill', ['/IM', name, '/F'], { windowsHide: true });
+            killed.push(name);
+          } catch {
+            /* not running */
+          }
+        }
+      } else if (process.platform === 'darwin') {
+        const targets = [
+          'Google Chrome',
+          'Microsoft Edge',
+          'Firefox',
+          'Chromium',
+          'Brave Browser',
+          'Opera',
+          'Vivaldi',
+          'Safari',
+        ];
+        for (const name of targets) {
+          try {
+            await execFileAsync('killall', [name]);
+            killed.push(name);
+          } catch {
+            /* not running */
+          }
+        }
+      } else {
+        const targets = ['chrome', 'chromium', 'firefox', 'msedge', 'brave', 'opera'];
+        for (const name of targets) {
+          try {
+            await execFileAsync('pkill', ['-f', name]);
+            killed.push(name);
+          } catch {
+            /* not running */
+          }
+        }
+      }
+      return { ok: true, killed };
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : 'enforce_failed', killed };
+    }
+  },
+);

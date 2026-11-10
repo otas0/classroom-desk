@@ -31,6 +31,14 @@ export type StudentDesktopAPI = {
   setInputMouseLocked: (locked: boolean) => Promise<{ ok: boolean; mouseLocked?: boolean; error?: string }>;
   /** Open http(s) URLs via OS browser / download handler (LAN Setup.exe, Release). */
   openExternal: (url: string) => Promise<{ ok: boolean; error?: string }>;
+  setDeepLockFrozen: (frozen: boolean) => Promise<{ ok: boolean; error?: string }>;
+  setDeepLockAggressive: (aggressive: boolean) => Promise<{ ok: boolean; aggressive?: boolean }>;
+  setDeepLockExamUrl: (url: string | null) => Promise<{ ok: boolean; error?: string; closed?: boolean }>;
+  enforceDeepLockBrowsers: (opts: {
+    killForeignBrowsers: boolean;
+    allowHosts?: string[];
+  }) => Promise<{ ok: boolean; killed?: string[]; error?: string }>;
+  getNetworkHint: () => Promise<{ ssid: string; ipv4: string; gateway: string }>;
 };
 
 const api: StudentDesktopAPI = {
@@ -55,6 +63,11 @@ const api: StudentDesktopAPI = {
   getKioskHardening: () => ipcRenderer.invoke('kiosk:get-hardening'),
   setInputMouseLocked: (locked) => ipcRenderer.invoke('lock:set-input-mouse-locked', locked),
   openExternal: (url) => ipcRenderer.invoke('shell:open-external', url),
+  setDeepLockFrozen: (frozen) => ipcRenderer.invoke('deep-lock:set-frozen', frozen),
+  setDeepLockAggressive: (aggressive) => ipcRenderer.invoke('deep-lock:set-aggressive', aggressive),
+  setDeepLockExamUrl: (url) => ipcRenderer.invoke('deep-lock:set-exam-url', url),
+  enforceDeepLockBrowsers: (opts) => ipcRenderer.invoke('deep-lock:enforce-browsers', opts),
+  getNetworkHint: () => ipcRenderer.invoke('net:get-hint'),
 };
 
 contextBridge.exposeInMainWorld('classroomDesk', api);

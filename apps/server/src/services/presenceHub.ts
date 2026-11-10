@@ -13,6 +13,10 @@ export type PresenceClientRow = {
   clientId: string;
   /** Student-reported Assigned Access / MDM signal (0/1). */
   hardened: boolean;
+  netSsid: string;
+  netIpv4: string;
+  netZoneId: string;
+  netZoneUnauthorized: boolean;
   displayName: string;
   studentNo: string | null;
   seatId: string | null;
@@ -42,6 +46,10 @@ export function listPresenceClients(classId: string, sinceMs = ONLINE_MS): Prese
               p.client_version AS clientVersion, p.client_platform AS clientPlatform,
               COALESCE(p.client_id, '') AS clientId,
               COALESCE(p.hardened, 0) AS hardenedInt,
+              COALESCE(p.net_ssid, '') AS netSsid,
+              COALESCE(p.net_ipv4, '') AS netIpv4,
+              COALESCE(p.net_zone_id, '') AS netZoneId,
+              COALESCE(p.net_zone_unauthorized, 0) AS netZoneUnauthorizedInt,
               u.display_name AS displayName, u.student_no AS studentNo,
               s.id AS seatId, s.label AS seatLabel
        FROM presence_heartbeats p
@@ -51,11 +59,18 @@ export function listPresenceClients(classId: string, sinceMs = ONLINE_MS): Prese
        ORDER BY p.last_seen_at DESC`,
     )
     .all(classId, cutoff) as Array<
-    Omit<PresenceClientRow, 'hardened'> & { hardenedInt?: number }
+    Omit<PresenceClientRow, 'hardened' | 'netZoneUnauthorized'> & {
+      hardenedInt?: number;
+      netZoneUnauthorizedInt?: number;
+    }
   >;
   return rows.map((r) => {
-    const { hardenedInt, ...rest } = r;
-    return { ...rest, hardened: Number(hardenedInt ?? 0) === 1 };
+    const { hardenedInt, netZoneUnauthorizedInt, ...rest } = r;
+    return {
+      ...rest,
+      hardened: Number(hardenedInt ?? 0) === 1,
+      netZoneUnauthorized: Number(netZoneUnauthorizedInt ?? 0) === 1,
+    };
   });
 }
 

@@ -201,7 +201,12 @@ CREATE TABLE IF NOT EXISTS presence_heartbeats (
   last_seen_at TEXT NOT NULL,
   client_version TEXT NOT NULL DEFAULT '',
   client_platform TEXT NOT NULL DEFAULT '',
-  client_id TEXT NOT NULL DEFAULT ''
+  client_id TEXT NOT NULL DEFAULT '',
+  net_ssid TEXT NOT NULL DEFAULT '',
+  net_ipv4 TEXT NOT NULL DEFAULT '',
+  net_gateway TEXT NOT NULL DEFAULT '',
+  net_zone_id TEXT NOT NULL DEFAULT '',
+  net_zone_unauthorized INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS session_kicks (

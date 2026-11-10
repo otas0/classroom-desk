@@ -21,7 +21,8 @@
    - 学生：有漂移时优先显示「打开局域网安装包」；未上传包时才回退 GitHub Release。
 
 4. **加固（整机管控，可选）**  
-   - 应用内锁 ≠ 管整机进程/浏览器。整机用学校 **Assigned Access / Intune**：见 [EXIT_LOCK_MDM.md](./EXIT_LOCK_MDM.md)。
+   - 上课页「深锁」：冻结 / 仅试卷 / 杀外置浏览器（学校机学生端）。  
+   - 应用内锁 ≠ 禁 Alt+Tab / 任务管理器。整机用学校 **Assigned Access / Intune**：见 [EXIT_LOCK_MDM.md](./EXIT_LOCK_MDM.md)。
 
 ## 常用命令
 

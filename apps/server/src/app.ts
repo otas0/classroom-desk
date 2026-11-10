@@ -25,6 +25,8 @@ import { sessionLiveRouter } from './routes/sessionLive.js';
 import { settingsRouter } from './routes/settings.js';
 import { upgradesRouter } from './routes/upgrades.js';
 import { uploadsRouter } from './routes/uploads.js';
+import { deepLockRouter } from './routes/deepLock.js';
+import { networkZonesRouter } from './routes/networkZones.js';
 
 function resolveTeacherDist(): string | null {
   const here = path.dirname(fileURLToPath(import.meta.url));
@@ -52,6 +54,8 @@ export function createApp() {
 
   app.use(healthRouter);
   app.use(settingsRouter);
+  app.use(deepLockRouter);
+  app.use(networkZonesRouter);
   app.use(authRouter);
   app.use(assistantGrantsRouter);
   app.use(auditRouter);

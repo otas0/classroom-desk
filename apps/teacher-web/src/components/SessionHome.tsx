@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { API_BASE, api, getToken } from '../api';
 import { POINT_REASON_CHIPS } from '../types';
 import { ClassroomLockBar } from './ClassroomLockBar';
+import { DeepLockBar } from './DeepLockBar';
+import { NetworkZonesPanel } from './NetworkZonesPanel';
 import { LiveBoard } from './LiveBoard';
 import { t, te } from '@classroom-desk/i18n';
 
@@ -394,6 +396,8 @@ export function SessionHome({
       </div>
       {sessionMsg ? <p className="hint">{sessionMsg}</p> : null}
       <ClassroomLockBar classId={classId} onOpenAdvanced={onOpenLockAdvanced} />
+      <DeepLockBar classId={classId} />
+      <NetworkZonesPanel />
       {buzzRound ? (
         <section>
           <h2>

@@ -945,6 +945,43 @@ textarea {
   padding: 0 6px;
 }
 
+.deep-lock-banner {
+  position: relative;
+  z-index: 45;
+  margin: 0;
+  padding: 10px 12px;
+  background: #3b0a0a;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  border-bottom: 2px solid #000;
+}
+.deep-lock-banner p { margin: 0; }
+.deep-lock-banner-freeze {
+  background: #1a0505;
+}
+.deep-lock-freeze-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: #0b0b0b;
+  color: #fff;
+  font-size: 22px;
+  font-weight: 800;
+  text-align: center;
+  padding: 24px;
+}
+.deep-lock-freeze-overlay .hint {
+  color: #ccc;
+  font-size: 14px;
+  font-weight: 500;
+}
+
 .input-lock-banner {
   position: relative;
   z-index: 40;

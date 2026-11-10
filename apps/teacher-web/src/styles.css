@@ -404,13 +404,44 @@ section label.choice input {
   color: var(--paper);
 }
 
-.classroom-lock-bar {
+.classroom-lock-bar,
+.deep-lock-bar {
   margin: 4px 0 18px;
   padding: 14px 16px;
   border: 1px solid var(--line);
   border-radius: var(--radius);
   background: var(--panel);
   box-shadow: var(--shadow);
+}
+
+.deep-lock-bar {
+  border-color: #8b2e2e;
+}
+
+.network-zones-panel {
+  margin: 4px 0 18px;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel);
+}
+
+.network-zone-card {
+  margin: 10px 0;
+  padding: 10px 12px;
+  border: 1px dashed var(--line);
+  border-radius: var(--radius);
+  display: grid;
+  gap: 8px;
+}
+
+.network-zone-card input[type='text'],
+.network-zone-card input:not([type]),
+.network-zone-card select {
+  display: block;
+  width: 100%;
+  max-width: 480px;
+  margin-top: 4px;
 }
 
 .classroom-lock-bar-head h3 {

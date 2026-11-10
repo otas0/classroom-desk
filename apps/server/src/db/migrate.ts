@@ -68,6 +68,12 @@ export function migrate(database?: DatabaseSync): DatabaseSync {
   ensureColumn(conn, 'presence_heartbeats', 'client_id', `TEXT NOT NULL DEFAULT ''`);
   /** 1 when student reports Assigned Access / MDM hardening signal (see getKioskHardening). */
   ensureColumn(conn, 'presence_heartbeats', 'hardened', `INTEGER NOT NULL DEFAULT 0`);
+  /** Optional Wi-Fi / LAN hint from lab-agent for school-defined network zones. */
+  ensureColumn(conn, 'presence_heartbeats', 'net_ssid', `TEXT NOT NULL DEFAULT ''`);
+  ensureColumn(conn, 'presence_heartbeats', 'net_ipv4', `TEXT NOT NULL DEFAULT ''`);
+  ensureColumn(conn, 'presence_heartbeats', 'net_gateway', `TEXT NOT NULL DEFAULT ''`);
+  ensureColumn(conn, 'presence_heartbeats', 'net_zone_id', `TEXT NOT NULL DEFAULT ''`);
+  ensureColumn(conn, 'presence_heartbeats', 'net_zone_unauthorized', `INTEGER NOT NULL DEFAULT 0`);
   ensureColumn(conn, 'student_answers', 'is_makeup', 'INTEGER NOT NULL DEFAULT 0');
   ensureColumn(conn, 'student_answers', 'queued_offline', 'INTEGER NOT NULL DEFAULT 0');
   conn.exec(`CREATE TABLE IF NOT EXISTS seat_map (

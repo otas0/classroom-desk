@@ -82,3 +82,254 @@ export function isRecycleUrgent(
   const thr = Math.max(0, Math.floor(Number(urgentWithinDays) || RECYCLE_URGENT_DAYS));
   return Math.max(0, Math.floor(Number(daysLeft))) <= thr;
 }
+
+/**
+ * Deep lock / session net policy (brand-agnostic).
+ * Inactive default stays permissive so existing labs keep working;
+ * teacher "freeze / exam net" flips into aggressive modes.
+ */
+export type DeepLockNetMode = 'deny' | 'allowlist' | 'allow';
+
+export type DeepLockState = {
+  /** Black-screen freeze + input dead on lab-agent. */
+  frozen: boolean;
+  /** Network intent for shield/dns connectors (default allow when idle). */
+  netMode: DeepLockNetMode;
+  /** Hostnames allowed when netMode=allowlist (no scheme). */
+  allowlistHosts: string[];
+  /** Optional single exam URL for future exam shell. */
+  examUrl: string;
+  /** lab-agent may terminate non-allowlisted browsers while active. */
+  killForeignBrowsers: boolean;
+  /** lab-agent auto-freezes locally after window blur (reports violation). */
+  focusFreeze: boolean;
+  updatedAt: string;
+};
+
+export type DeepLockStore = {
+  global: DeepLockState;
+  byClass: Record<string, DeepLockState>;
+};
+
+export const EMPTY_DEEP_LOCK_STATE = (): DeepLockState => ({
+  frozen: false,
+  netMode: 'allow',
+  allowlistHosts: [],
+  examUrl: '',
+  killForeignBrowsers: false,
+  focusFreeze: false,
+  updatedAt: new Date(0).toISOString(),
+});
+
+export function normalizeDeepLockState(raw: unknown): DeepLockState {
+  const base = EMPTY_DEEP_LOCK_STATE();
+  if (!raw || typeof raw !== 'object') return base;
+  const o = raw as Partial<DeepLockState>;
+  const net =
+    o.netMode === 'deny' || o.netMode === 'allowlist' || o.netMode === 'allow'
+      ? o.netMode
+      : 'allow';
+  const hosts = Array.isArray(o.allowlistHosts)
+    ? o.allowlistHosts
+        .map((h) =>
+          String(h ?? '')
+            .trim()
+            .toLowerCase()
+            .replace(/^https?:\/\//, '')
+            .replace(/\/.*$/, ''),
+        )
+        .filter(Boolean)
+    : [];
+  return {
+    frozen: Boolean(o.frozen),
+    netMode: net,
+    allowlistHosts: [...new Set(hosts)].slice(0, 64),
+    examUrl: String(o.examUrl ?? '').trim().slice(0, 2000),
+    killForeignBrowsers: Boolean(o.killForeignBrowsers),
+    focusFreeze: Boolean(o.focusFreeze),
+    updatedAt: String(o.updatedAt ?? base.updatedAt),
+  };
+}
+
+export function normalizeDeepLockStore(raw: unknown): DeepLockStore {
+  if (!raw || typeof raw !== 'object') {
+    return { global: EMPTY_DEEP_LOCK_STATE(), byClass: {} };
+  }
+  const o = raw as Partial<DeepLockStore>;
+  const byClass: Record<string, DeepLockState> = {};
+  for (const [k, v] of Object.entries(o.byClass ?? {})) {
+    if (!k.trim()) continue;
+    byClass[k] = normalizeDeepLockState(v);
+  }
+  return {
+    global: normalizeDeepLockState(o.global),
+    byClass,
+  };
+}
+
+export function resolveDeepLockState(
+  store: DeepLockStore,
+  classId?: string | null,
+): DeepLockState {
+  const cid = String(classId ?? '').trim();
+  if (cid && store.byClass[cid]) return { ...store.byClass[cid]! };
+  return { ...store.global };
+}
+
+/** True when any aggressive control is on. */
+export function deepLockAggressive(state: DeepLockState): boolean {
+  return (
+    state.frozen ||
+    state.netMode === 'deny' ||
+    state.netMode === 'allowlist' ||
+    state.killForeignBrowsers ||
+    state.focusFreeze
+  );
+}
+
+/**
+ * School-defined network zone (SSID / subnet). Not hardcoded guest/teacher/student —
+ * schools name zones and set who may use them + default net policy.
+ */
+export type NetworkZoneRole = 'student' | 'teacher' | 'staff' | 'guest';
+
+export type NetworkZoneUnauthorizedAction = 'flag' | 'deny' | 'kick';
+
+export type NetworkZone = {
+  id: string;
+  /** School-chosen label, e.g. "高中教学", "教工", "访客". */
+  label: string;
+  /** Optional SSID exact/substring match (case-insensitive). Empty = ignore SSID. */
+  ssidIncludes: string[];
+  /** IPv4 CIDRs, e.g. 10.20.0.0/16. Empty = ignore IP. */
+  cidrs: string[];
+  /** Who is allowed on this zone. Empty = anyone (not recommended). */
+  allowedRoles: NetworkZoneRole[];
+  /** Idle default when no deep-lock lesson override. */
+  defaultNetMode: DeepLockNetMode;
+  /** Optional idle allowlist when defaultNetMode=allowlist. */
+  defaultAllowlistHosts: string[];
+  /** When a student is seen on a zone that does not allow students. */
+  studentUnauthorized: NetworkZoneUnauthorizedAction;
+  /** IT hint: portal/802.1X recommended (leaked PSK still hits identity). */
+  requirePortal: boolean;
+  enabled: boolean;
+};
+
+export type NetworkHint = {
+  ssid?: string;
+  ipv4?: string;
+  gateway?: string;
+};
+
+export function emptyNetworkZones(): NetworkZone[] {
+  return [];
+}
+
+export function normalizeNetworkZone(raw: unknown): NetworkZone | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const o = raw as Partial<NetworkZone>;
+  const id = String(o.id ?? '').trim();
+  const label = String(o.label ?? '').trim();
+  if (!id || !label) return null;
+  const net =
+    o.defaultNetMode === 'deny' || o.defaultNetMode === 'allowlist' || o.defaultNetMode === 'allow'
+      ? o.defaultNetMode
+      : 'allow';
+  const roles = Array.isArray(o.allowedRoles)
+    ? o.allowedRoles
+        .map((r) => String(r))
+        .filter((r): r is NetworkZoneRole =>
+          r === 'student' || r === 'teacher' || r === 'staff' || r === 'guest',
+        )
+    : [];
+  const unauth: NetworkZoneUnauthorizedAction =
+    o.studentUnauthorized === 'deny' || o.studentUnauthorized === 'kick'
+      ? o.studentUnauthorized
+      : 'flag';
+  return {
+    id: id.slice(0, 64),
+    label: label.slice(0, 80),
+    ssidIncludes: Array.isArray(o.ssidIncludes)
+      ? o.ssidIncludes.map((s) => String(s).trim()).filter(Boolean).slice(0, 16)
+      : [],
+    cidrs: Array.isArray(o.cidrs)
+      ? o.cidrs.map((s) => String(s).trim()).filter(Boolean).slice(0, 16)
+      : [],
+    allowedRoles: roles.slice(0, 8),
+    defaultNetMode: net,
+    defaultAllowlistHosts: Array.isArray(o.defaultAllowlistHosts)
+      ? o.defaultAllowlistHosts
+          .map((h) =>
+            String(h ?? '')
+              .trim()
+              .toLowerCase()
+              .replace(/^https?:\/\//, '')
+              .replace(/\/.*$/, ''),
+          )
+          .filter(Boolean)
+          .slice(0, 64)
+      : [],
+    studentUnauthorized: unauth,
+    requirePortal: Boolean(o.requirePortal),
+    enabled: o.enabled !== false,
+  };
+}
+
+export function normalizeNetworkZones(raw: unknown): NetworkZone[] {
+  if (!Array.isArray(raw)) return [];
+  const out: NetworkZone[] = [];
+  for (const row of raw) {
+    const z = normalizeNetworkZone(row);
+    if (z) out.push(z);
+  }
+  return out.slice(0, 32);
+}
+
+/** IPv4 + CIDR match (simple, no IPv6). */
+export function ipv4InCidr(ipv4: string, cidr: string): boolean {
+  const ip = String(ipv4 ?? '').trim();
+  const c = String(cidr ?? '').trim();
+  const m = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})\/(\d{1,2})$/.exec(c);
+  const im = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(ip);
+  if (!m || !im) return false;
+  const octets = [1, 2, 3, 4].map((i) => Number(im[i]));
+  const base = [1, 2, 3, 4].map((i) => Number(m[i]));
+  const prefix = Number(m[5]);
+  if (octets.some((n) => n > 255) || base.some((n) => n > 255) || prefix > 32) return false;
+  const ipNum =
+    ((octets[0]! << 24) >>> 0) + (octets[1]! << 16) + (octets[2]! << 8) + octets[3]!;
+  const baseNum =
+    ((base[0]! << 24) >>> 0) + (base[1]! << 16) + (base[2]! << 8) + base[3]!;
+  const mask = prefix === 0 ? 0 : (0xffffffff << (32 - prefix)) >>> 0;
+  return (ipNum & mask) === (baseNum & mask);
+}
+
+export function matchNetworkZone(
+  zones: NetworkZone[],
+  hint: NetworkHint | null | undefined,
+): NetworkZone | null {
+  if (!hint) return null;
+  const ssid = String(hint.ssid ?? '').trim().toLowerCase();
+  const ipv4 = String(hint.ipv4 ?? '').trim();
+  const enabled = zones.filter((z) => z.enabled);
+  // Prefer SSID match, then CIDR; first match wins (school orders list).
+  for (const z of enabled) {
+    if (ssid && z.ssidIncludes.length) {
+      if (z.ssidIncludes.some((s) => ssid.includes(String(s).toLowerCase()))) return z;
+    }
+  }
+  for (const z of enabled) {
+    if (ipv4 && z.cidrs.length) {
+      if (z.cidrs.some((c) => ipv4InCidr(ipv4, c))) return z;
+    }
+  }
+  return null;
+}
+
+/** Student on a zone that does not list "student" in allowedRoles. */
+export function studentUnauthorizedOnZone(zone: NetworkZone | null): boolean {
+  if (!zone) return false;
+  if (!zone.allowedRoles.length) return false;
+  return !zone.allowedRoles.includes('student');
+}

@@ -31,6 +31,8 @@ import {
   type InputLockFlags,
   type InputLockStore,
 } from './inputLock';
+import { deepLockBannerText, parseDeepLockPayload, type DeepLockState } from './deepLock';
+import { EMPTY_DEEP_LOCK_STATE, deepLockAggressive } from '@classroom-desk/shared';
 import { normalizeUiLocale, t, type UiLocale } from '@classroom-desk/i18n';
 declare const __APP_VERSION__: string;
 const CLIENT_VERSION = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.0.0';
@@ -125,8 +127,10 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
   const [hardeningTip, setHardeningTip] = useState(false);
   const [inputLock, setInputLock] = useState<InputLockFlags>(EMPTY_INPUT_LOCK);
   const [inputLockStoreState, setInputLockStore] = useState<InputLockStore | null>(null);
+  const [deepLock, setDeepLock] = useState<DeepLockState>(() => EMPTY_DEEP_LOCK_STATE());
   const [raiseHandBusy, setRaiseHandBusy] = useState(false);
   const inputLockToastAtRef = useRef(0);
+  const deepLockFocusTimerRef = useRef(0);
   const knownQuestionIdsRef = useRef(new Set<string>());
   /**
    * Seat-scope keys for bySeat resolve: current seat_map.id + label, plus machine clientId
@@ -395,6 +399,43 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
     });
     inputEs.onmessage = (ev) => applyInputPayload(ev.data);
 
+    let deepEs: EventSource | null = null;
+    function applyDeepPayload(raw: unknown) {
+      try {
+        const data = typeof raw === 'string' ? JSON.parse(raw) : raw;
+        if (!data || data.type !== 'deep_lock') return;
+        const next = parseDeepLockPayload(data, classId);
+        setDeepLock(next);
+        const desk = window.classroomDesk;
+        const aggressive = deepLockAggressive(next);
+        void desk?.setDeepLockAggressive?.(aggressive);
+        void desk?.setDeepLockFrozen?.(next.frozen === true);
+        if (next.netMode === 'allowlist' && next.examUrl.trim()) {
+          void desk?.setDeepLockExamUrl?.(next.examUrl.trim());
+        } else {
+          void desk?.setDeepLockExamUrl?.(null);
+        }
+        if (next.killForeignBrowsers && aggressive) {
+          void desk?.enforceDeepLockBrowsers?.({
+            killForeignBrowsers: true,
+            allowHosts: next.allowlistHosts,
+          });
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+    deepEs = new EventSource(`${base}/api/v1/deep-lock/stream`);
+    deepEs.addEventListener('deep_lock', (ev) => {
+      applyDeepPayload((ev as MessageEvent).data);
+    });
+    deepEs.onmessage = (ev) => applyDeepPayload(ev.data);
+    // Initial pull (SSE may not replay if hub empty before first broadcast).
+    void fetch(`${base}/api/v1/deep-lock/public`)
+      .then((r) => r.json())
+      .then((data) => applyDeepPayload(data))
+      .catch(() => undefined);
+
     try {
       const wsUrl = base.replace(/^http/i, 'ws') + '/api/v1/exit-lock/ws';
       ws = new WebSocket(wsUrl);
@@ -440,8 +481,51 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
       }
       es?.close();
       inputEs?.close();
+      deepEs?.close();
     };
   }, [ready, healthOk, applyServerExitLock, applyResolvedInputLock, showToast, classId]);
+
+  // Focus freeze: blur → report violation (visible policy; no screenshots).
+  useEffect(() => {
+    if (!user || (!deepLock.focusFreeze && !deepLock.frozen)) return;
+    const onBlur = () => {
+      window.clearTimeout(deepLockFocusTimerRef.current);
+      deepLockFocusTimerRef.current = window.setTimeout(() => {
+        if (document.hasFocus()) return;
+        showToast(t('检测到切离窗口，已记违规并通知教师'));
+        void api('/api/v1/deep-lock/focus-violation', {
+          method: 'POST',
+          body: JSON.stringify({ classId }),
+        }).catch(() => undefined);
+        if (deepLock.focusFreeze || deepLock.frozen) {
+          void window.classroomDesk?.setDeepLockFrozen?.(true);
+        }
+      }, 800);
+    };
+    const onFocus = () => window.clearTimeout(deepLockFocusTimerRef.current);
+    window.addEventListener('blur', onBlur);
+    window.addEventListener('focus', onFocus);
+    return () => {
+      window.clearTimeout(deepLockFocusTimerRef.current);
+      window.removeEventListener('blur', onBlur);
+      window.removeEventListener('focus', onFocus);
+    };
+  }, [user, deepLock.focusFreeze, deepLock.frozen, classId, showToast]);
+
+  // Re-kill foreign browsers while armed (students can relaunch Chrome otherwise).
+  useEffect(() => {
+    if (!deepLock.killForeignBrowsers || !deepLockAggressive(deepLock)) return;
+    const desk = window.classroomDesk;
+    const tick = () => {
+      void desk?.enforceDeepLockBrowsers?.({
+        killForeignBrowsers: true,
+        allowHosts: deepLock.allowlistHosts,
+      });
+    };
+    tick();
+    const id = window.setInterval(tick, 8_000);
+    return () => window.clearInterval(id);
+  }, [deepLock.killForeignBrowsers, deepLock.frozen, deepLock.netMode, deepLock.allowlistHosts]);
 
   // Re-resolve when seat ids arrive (presence client id + seat map).
   useEffect(() => {
@@ -589,6 +673,14 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
         } catch {
           hardened = false;
         }
+        let networkHint: { ssid?: string; ipv4?: string; gateway?: string } = {};
+        try {
+          if (window.classroomDesk?.getNetworkHint) {
+            networkHint = await window.classroomDesk.getNetworkHint();
+          }
+        } catch {
+          networkHint = {};
+        }
         await api('/api/v1/presence/heartbeat', {
           method: 'POST',
           body: JSON.stringify({
@@ -596,6 +688,7 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
             clientPlatform: navigator.userAgent.includes('Electron') ? 'electron' : 'web',
             clientId: presenceClientId,
             hardened,
+            networkHint,
           }),
         });
       } catch {
@@ -1339,6 +1432,24 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
           </main>
         </>
       )}
+
+      {deepLockAggressive(deepLock) ? (
+        <div
+          className={`deep-lock-banner${deepLock.frozen ? ' deep-lock-banner-freeze' : ''}`}
+          role="alert"
+          data-testid="deep-lock-banner"
+          aria-live="assertive"
+        >
+          <p>{deepLockBannerText(deepLock, t) || t('教师已启用深锁策略')}</p>
+        </div>
+      ) : null}
+
+      {deepLock.frozen ? (
+        <div className="deep-lock-freeze-overlay" data-testid="deep-lock-freeze-overlay">
+          <p>{t('已冻结')}</p>
+          <p className="hint">{t('请等待教师指令。切离窗口将记为违规。')}</p>
+        </div>
+      ) : null}
 
       {anyInputLocked(inputLock) ? (
         <div

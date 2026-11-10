@@ -44,6 +44,8 @@ import {
   type UiLocale,
 } from '@classroom-desk/i18n';
 import { ClassroomLockBar } from './components/ClassroomLockBar';
+import { DeepLockBar } from './components/DeepLockBar';
+import { NetworkZonesPanel } from './components/NetworkZonesPanel';
 
 export function RosterPanel({
   classId,
@@ -5650,6 +5652,8 @@ export function SettingsPanel({
             </a>
           </p>
           <ClassroomLockBar classId={currentTeacherClassId()} />
+          <DeepLockBar classId={currentTeacherClassId()} />
+          <NetworkZonesPanel />
           {isAssistant() ? (
             <div data-testid="input-lock-readonly">
               <p className="hint">
