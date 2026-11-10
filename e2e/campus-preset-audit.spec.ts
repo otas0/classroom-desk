@@ -26,7 +26,11 @@ test.describe('campus preset audit', () => {
     const apply = panel.getByTestId('campus-preset-apply');
     await expect(apply).toBeVisible({ timeout: 15_000 });
     await apply.click();
-    await expect(page.getByText(/已应用校园网预设|Applied campus preset/)).toBeVisible({
+    await expect(
+      page.getByText(
+        /已应用校园网预设|Applied campus preset|已套用校園網預設|学内プリセット適用済み|캠퍼스 프리셋 적용됨/,
+      ),
+    ).toBeVisible({
       timeout: 15_000,
     });
 
