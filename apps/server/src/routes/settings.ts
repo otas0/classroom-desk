@@ -96,6 +96,7 @@ settingsRouter.get('/api/v1/settings/public', (req, res) => {
     inputLockAttendanceSessionId: store.attendanceSessionId ?? null,
     inputLockClearedReason: inputLockClearedReasonNow(),
     examModeSnapshot: hasExamModeSnapshot(db),
+    studentAutoUpdate: (getSetting(db, 'student_auto_update') ?? '0') === '1',
   });
 });
 
@@ -141,6 +142,7 @@ settingsRouter.get('/api/v1/settings', requireAuth, requireRoles('teacher', 'adm
           .get() as { createdAt?: string } | undefined
       )?.createdAt ?? null,
     upgradesKeepCount: Number(getSetting(db, 'upgrades_keep_count') ?? 3),
+    studentAutoUpdate: (getSetting(db, 'student_auto_update') ?? '0') === '1',
     restoreConfirmEmail: getSetting(db, 'restore_confirm_email') ?? '',
     hasBackupEncryptPassphrase: Boolean((getSetting(db, 'backup_encrypt_passphrase') ?? '').trim()),
     projectionHighContrast: (getSetting(db, 'projection_high_contrast') ?? '0') === '1',
@@ -312,6 +314,21 @@ settingsRouter.patch('/api/v1/settings', requireAuth, requireRoles('teacher', 'a
       actorRole: req.user?.role,
       action: 'upgrades.keep_prune',
       detail: { keep, pruned: upgradesPruned },
+      clientIp: req.ip,
+    });
+  }
+
+  if (req.body?.studentAutoUpdate != null) {
+    const on = req.body.studentAutoUpdate === true || req.body.studentAutoUpdate === 1 || req.body.studentAutoUpdate === '1';
+    db.prepare(
+      `INSERT INTO settings (key, value) VALUES ('student_auto_update', ?)
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+    ).run(on ? '1' : '0');
+    writeAudit({
+      actorUserId: req.user?.id,
+      actorRole: req.user?.role,
+      action: 'settings.student_auto_update',
+      detail: { studentAutoUpdate: on },
       clientIp: req.ip,
     });
   }

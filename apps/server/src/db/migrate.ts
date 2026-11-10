@@ -36,6 +36,12 @@ const DEFAULT_SETTINGS: Record<string, string> = {
   fleet_drift_snapshot_minutes: '5',
   /** How many Setup*.exe to keep under /upgrades (1–20). */
   upgrades_keep_count: '3',
+  /**
+   * Optional student LAN auto-update prompt (0=off, 1=on).
+   * When on + version drift + /upgrades has Setup.exe, student shows a visible confirm then opens the LAN installer URL.
+   * Never silent; never pulls public GitHub on lab PCs.
+   */
+  student_auto_update: '0',
 };
 
 export function migrate(database?: DatabaseSync): DatabaseSync {

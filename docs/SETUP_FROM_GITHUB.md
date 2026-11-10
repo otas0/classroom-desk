@@ -1,5 +1,7 @@
 # 从 GitHub 安装（任意教室 · 无签名 · 无优盘）
 
+> **先看这个：** [教室部署一页](./CLASSROOM_DEPLOY_ONEPAGE.md)（10 分钟开课 + 可选 LAN 自动更新提示）。下面是完整冷启动细节。
+
 仓库：<https://github.com/otas0/classroom-desk>
 
 本项目是**开源、可自托管**的课堂工具：任意学校机房只要有一台「教师机/教室服务器」跑 API，学生机装未签名客户端并写入本教室的 `apiBase` + `classId` 即可。  

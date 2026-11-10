@@ -45,7 +45,7 @@ function publicBase(req: AuthedRequest): string {
   return `${proto}://${host}`;
 }
 
-upgradesRouter.get('/api/v1/upgrades', requireAuth, requireRoles('teacher', 'admin', 'assistant'), (req: AuthedRequest, res) => {
+function listUpgradeFiles(req: AuthedRequest) {
   const dir = upgradesDir();
   fs.mkdirSync(dir, { recursive: true });
   const expected = packageVersion();
@@ -64,16 +64,40 @@ upgradesRouter.get('/api/v1/upgrades', requireAuth, requireRoles('teacher', 'adm
     })
     .sort((a, b) => b.mtime.localeCompare(a.mtime));
   const setup = files.find((f) => /Setup.*\.exe$/i.test(f.name) || /ClassroomDesk.*\.exe$/i.test(f.name));
-  res.json({
+  const shaName = setup ? `${setup.name}.sha256` : null;
+  const shaFile = shaName ? files.find((f) => f.name === shaName) : null;
+  const autoUpdate = (getSetting(openDb(), 'student_auto_update') ?? '0') === '1';
+  return {
     expectedVersion: expected,
     dir,
     files,
     preferredLanUrl: setup?.url ?? null,
+    preferredLanSha256Url: shaFile?.url ?? null,
+    preferredLanName: setup?.name ?? null,
+    studentAutoUpdate: autoUpdate,
     githubReleaseUrl: `${GITHUB_RELEASES_BASE}/tag/v${expected}`,
     tipTemplate: setup
       ? `请从教室局域网安装：${setup.url}（应对齐 v${expected}）`
       : `请从 Release 安装 v${expected}：${GITHUB_RELEASES_BASE}/tag/v${expected}`,
+  };
+}
+
+/** Public latest LAN package (no auth) — students use this for drift banner / optional update prompt. */
+upgradesRouter.get('/api/v1/upgrades/latest', (req: AuthedRequest, res) => {
+  const info = listUpgradeFiles(req);
+  res.json({
+    expectedVersion: info.expectedVersion,
+    preferredLanUrl: info.preferredLanUrl,
+    preferredLanSha256Url: info.preferredLanSha256Url,
+    preferredLanName: info.preferredLanName,
+    studentAutoUpdate: info.studentAutoUpdate,
+    githubReleaseUrl: info.githubReleaseUrl,
+    tipTemplate: info.tipTemplate,
   });
+});
+
+upgradesRouter.get('/api/v1/upgrades', requireAuth, requireRoles('teacher', 'admin', 'assistant'), (req: AuthedRequest, res) => {
+  res.json(listUpgradeFiles(req));
 });
 
 upgradesRouter.post(

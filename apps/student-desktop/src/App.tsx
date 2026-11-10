@@ -89,6 +89,9 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
   const [healthOk, setHealthOk] = useState<boolean | null>(null);
   const [healthDetail, setHealthDetail] = useState('');
   const [expectedClientVersion, setExpectedClientVersion] = useState('');
+  const [lanUpgradeUrl, setLanUpgradeUrl] = useState('');
+  const [studentAutoUpdate, setStudentAutoUpdate] = useState(false);
+  const autoUpdatePromptedRef = useRef(false);
   const [newQuizPulse, setNewQuizPulse] = useState(false);
   const [openQuizCount, setOpenQuizCount] = useState(0);
   const [offlineQueueCount, setOfflineQueueCount] = useState(0);
@@ -640,6 +643,23 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
       }
       const expected = String(body.studentDesktopVersion ?? body.version ?? '').trim();
       setExpectedClientVersion(expected);
+      try {
+        const upRes = await fetch(`${base}/api/v1/upgrades/latest`, { cache: 'no-store' });
+        if (upRes.ok) {
+          const up = (await upRes.json()) as {
+            preferredLanUrl?: string | null;
+            studentAutoUpdate?: boolean;
+            expectedVersion?: string;
+          };
+          const lan = String(up.preferredLanUrl ?? '').trim();
+          setLanUpgradeUrl(lan);
+          setStudentAutoUpdate(up.studentAutoUpdate === true);
+          const exp2 = String(up.expectedVersion ?? '').trim();
+          if (exp2) setExpectedClientVersion(exp2);
+        }
+      } catch {
+        /* LAN latest is optional; keep health OK */
+      }
       setHealthOk(true);
       setHealthDetail(`正常 ${ms}ms · ${base}`);
       return true;
@@ -959,6 +979,27 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
 
   const visibleTabs = TABS.filter((t) => t.id !== 'messages' || messagesEnabled);
 
+  const versionDrift =
+    Boolean(expectedClientVersion) &&
+    CLIENT_VERSION !== '0.0.0' &&
+    expectedClientVersion !== CLIENT_VERSION;
+
+  useEffect(() => {
+    if (!versionDrift || !studentAutoUpdate || !lanUpgradeUrl || autoUpdatePromptedRef.current) {
+      return;
+    }
+    autoUpdatePromptedRef.current = true;
+    const ok = window.confirm(
+      t(
+        '教室已开启可选自动更新。本机 v{v0}，应升级到 v{v1}。打开局域网安装包？（不静默安装，可取消）',
+        { v0: CLIENT_VERSION, v1: expectedClientVersion },
+      ),
+    );
+    if (ok) {
+      window.open(lanUpgradeUrl, '_blank', 'noopener,noreferrer');
+    }
+  }, [versionDrift, studentAutoUpdate, lanUpgradeUrl, expectedClientVersion]);
+
   if (ready && needsFirstRun) {
     return (
       <div className="shell">
@@ -1051,11 +1092,6 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
     );
   }
 
-  const versionDrift =
-    Boolean(expectedClientVersion) &&
-    CLIENT_VERSION !== '0.0.0' &&
-    expectedClientVersion !== CLIENT_VERSION;
-
   return (
     <div className="shell">
       {offline ? (
@@ -1068,18 +1104,29 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
       ) : null}
       {versionDrift ? (
         <div className="offline-banner version-drift" data-no-drag role="status">
-          版本漂移：本机 v{CLIENT_VERSION}，应升级到 v{expectedClientVersion}
-          <a
-            href={`${GITHUB_RELEASES_BASE}/tag/v${expectedClientVersion}`}
-            target="_blank"
-            rel="noreferrer"
-            data-no-drag
-          >
-            打开 Release
-          </a>
-          <a href={GITHUB_RELEASES_BASE} target="_blank" rel="noreferrer" data-no-drag>
-            全部版本
-          </a>
+          {t('版本漂移：本机 v{v0}，应升级到 v{v1}', {
+            v0: CLIENT_VERSION,
+            v1: expectedClientVersion,
+          })}
+          {lanUpgradeUrl ? (
+            <a href={lanUpgradeUrl} target="_blank" rel="noreferrer" data-no-drag>
+              {t('打开局域网安装包')}
+            </a>
+          ) : (
+            <a
+              href={`${GITHUB_RELEASES_BASE}/tag/v${expectedClientVersion}`}
+              target="_blank"
+              rel="noreferrer"
+              data-no-drag
+            >
+              {t('打开 Release')}
+            </a>
+          )}
+          {!lanUpgradeUrl ? (
+            <a href={GITHUB_RELEASES_BASE} target="_blank" rel="noreferrer" data-no-drag>
+              {t('全部版本')}
+            </a>
+          ) : null}
         </div>
       ) : null}
       <header className="titlebar" data-drag>
