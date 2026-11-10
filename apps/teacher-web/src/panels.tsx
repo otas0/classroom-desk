@@ -3492,13 +3492,13 @@ export function SettingsPanel({
     }> = [];
     let offset = 0;
     let total = Infinity;
-    setExitMsg('正在分页拉取全部 CSV…');
+    setExitMsg(t('正在分页拉取全部 CSV…'));
     try {
       while (offset < total) {
         if (ac.signal.aborted) {
           csvPartialRowsRef.current = rows;
           setCsvPartialCount(rows.length);
-          setExitMsg(`已取消导出（已取 ${rows.length} 条，可下载已拉取部分）`);
+          setExitMsg(t('已取消导出（已取 {v0} 条，可下载已拉取部分）', { v0: rows.length }));
           return;
         }
         const q = new URLSearchParams({
@@ -3511,7 +3511,7 @@ export function SettingsPanel({
           signal: ac.signal,
         });
         if (!res.ok) {
-          setExitMsg(`导出失败 HTTP ${res.status}`);
+          setExitMsg(t('导出失败 HTTP {v0}', { v0: res.status }));
           return;
         }
         const body = (await res.json()) as { items?: typeof rows; total?: number };
@@ -3521,29 +3521,31 @@ export function SettingsPanel({
         csvPartialRowsRef.current = rows;
         setCsvPartialCount(rows.length);
         const denom = Number.isFinite(total) && total > 0 ? total : Math.max(rows.length, 1);
-        setExitMsg(`导出进度 ${Math.min(rows.length, denom)} / ${denom}…`);
+        setExitMsg(
+          t('导出进度 {v0} / {v1}…', { v0: Math.min(rows.length, denom), v1: denom }),
+        );
         if (!items.length) break;
         offset += items.length;
         if (offset > 50_000) {
-          setExitMsg(`导出中止：超过 50000 条安全上限（已取 ${rows.length}）`);
+          setExitMsg(t('导出中止：超过 50000 条安全上限（已取 {v0}）', { v0: rows.length }));
           break;
         }
       }
       if (ac.signal.aborted) {
         csvPartialRowsRef.current = rows;
         setCsvPartialCount(rows.length);
-        setExitMsg(`已取消导出（已取 ${rows.length} 条，可下载已拉取部分）`);
+        setExitMsg(t('已取消导出（已取 {v0} 条，可下载已拉取部分）', { v0: rows.length }));
         return;
       }
       downloadExitLockCsvRows(rows, filename);
       setCsvPartialCount(0);
       csvPartialRowsRef.current = [];
-      setExitMsg(`已导出全部 CSV（${rows.length} 条）`);
+      setExitMsg(t('已导出全部 CSV（{v0} 条）', { v0: rows.length }));
     } catch (err) {
       if (ac.signal.aborted || (err instanceof DOMException && err.name === 'AbortError')) {
         csvPartialRowsRef.current = rows;
         setCsvPartialCount(rows.length);
-        setExitMsg(`已取消导出（已取 ${rows.length} 条，可下载已拉取部分）`);
+        setExitMsg(t('已取消导出（已取 {v0} 条，可下载已拉取部分）', { v0: rows.length }));
         return;
       }
       setExitMsg(err instanceof Error ? err.message : t('导出失败'));
@@ -3561,7 +3563,7 @@ export function SettingsPanel({
     const rows = csvPartialRowsRef.current;
     if (!rows.length) return;
     downloadExitLockCsvRows(rows, 'exit-lock-events-partial.csv');
-    setExitMsg(`已下载已拉取部分（${rows.length} 条）`);
+    setExitMsg(t('已下载已拉取部分（{v0} 条）', { v0: rows.length }));
   }
 
   useEffect(() => {
@@ -4353,8 +4355,8 @@ export function SettingsPanel({
           ((healthAlert.auditRetryPending ?? 0) > 0 || healthAlert.auditRetryDegraded) ? (
             <div className="row" data-testid="audit-retry-flush-bar">
               <p className="error" role="alert">
-                审计重试队列积压 {healthAlert.auditRetryPending ?? 0}
-                {healthAlert.auditRetryDegraded ? '（degraded）' : ''}
+                {t('审计重试队列积压 {v0}', { v0: healthAlert.auditRetryPending ?? 0 })}
+                {healthAlert.auditRetryDegraded ? t('（degraded）') : ''}
               </p>
               <button
                 type="button"
@@ -4366,15 +4368,15 @@ export function SettingsPanel({
                     body: '{}',
                   })
                     .then((r) => {
-                      setFlushMsg(r.message ?? '已 flush');
+                      setFlushMsg(r.message ?? t('已 flush'));
                       void runDiag();
                     })
                     .catch((e) =>
-                      setFlushMsg(e instanceof Error ? e.message : 'flush 失败'),
+                      setFlushMsg(e instanceof Error ? e.message : t('flush 失败')),
                     )
                 }
               >
-                立即 flush 审计队列
+                {t('立即 flush 审计队列')}
               </button>
             </div>
           ) : null}
@@ -4554,12 +4556,12 @@ export function SettingsPanel({
           <h3>{t('弱口令扩展列表')}</h3>
           <p className="hint">{t('每行一条；与内置联调口令合并后用于改密校验（单一策略数据源）。')}</p>
           <label>
-            额外弱口令
+            {t('额外弱口令')}
             <textarea
               rows={4}
               value={weakExtraDraft}
               onChange={(e) => setWeakExtraDraft(e.target.value)}
-              placeholder={'SchoolDemo1\nTempPass2026'}
+              placeholder={t('每行一条弱口令（不含演示账号）')}
             />
           </label>
           <button
@@ -4577,13 +4579,18 @@ export function SettingsPanel({
                 .then(() =>
                   api<{ weakPasswords?: string[] }>('/api/v1/auth/password-policy').then((r) => {
                     setWeakPasswords(new Set(r.weakPasswords ?? []));
-                    setSaveMsg(`已保存扩展弱口令 ${list.length} 条（合计策略 ${(r.weakPasswords ?? []).length}）`);
+                    setSaveMsg(
+                      t('已保存扩展弱口令 {v0} 条（合计策略 {v1}）', {
+                        v0: list.length,
+                        v1: (r.weakPasswords ?? []).length,
+                      }),
+                    );
                   }),
                 )
                 .catch((e) => setSaveMsg(e instanceof Error ? e.message : t('保存失败')));
             }}
           >
-            保存弱口令扩展
+            {t('保存弱口令扩展')}
           </button>
 
           <h3>{t('数据保留 / 备份加密')}</h3>
@@ -5282,31 +5289,31 @@ export function SettingsPanel({
             {assistantsLiveMode === 'poll' ? (
               <p className="hint" data-testid="assistants-sse-fallback-badge" role="status">
                 <span className="badge" data-testid="assistants-sse-polling-badge">
-                  轮询中
+                  {t('轮询中')}
                 </span>{' '}
-                实时通道降级为轮询（弱网/SSE 断开，恢复后自动切回）
+                {t('实时通道降级为轮询（弱网/SSE 断开，恢复后自动切回）')}
               </p>
             ) : (
               <p className="hint" data-testid="assistants-sse-live-badge">
-                助教列表：SSE 实时推送
+                {t('助教列表：SSE 实时推送')}
               </p>
             )}
             <p className="hint">{t('助教可登录后台只读导出/出勤，不可批量删除。详见 docs/PERMISSIONS.md。')}</p>
             <label>
-              用户名
+              {t('用户名')}
               <input
                 value={asstUser}
                 onChange={(e) => setAsstUser(e.target.value)}
-                placeholder="如 assistant1"
+                placeholder={t('用户名（登录用）')}
                 autoComplete="off"
               />
             </label>
             <label>
-              显示名
+              {t('显示名')}
               <input value={asstName} onChange={(e) => setAsstName(e.target.value)} placeholder={t('助教')} />
             </label>
             <label>
-              初始口令
+              {t('初始口令')}
               <input
                 type="password"
                 value={asstPass}
@@ -5329,17 +5336,17 @@ export function SettingsPanel({
                         displayName: asstName.trim() || t('助教'),
                       }),
                     });
-                    setAsstMsg(r.message ?? '已创建');
+                    setAsstMsg(r.message ?? t('已创建'));
                     setAsstUser('');
                     setAsstPass('');
                     await loadAssistants();
                   } catch (e) {
-                    setAsstMsg(e instanceof Error ? e.message : '创建失败');
+                    setAsstMsg(e instanceof Error ? e.message : t('创建失败'));
                   }
                 })()
               }
             >
-              创建助教
+              {t('创建助教')}
             </button>
             {asstMsg ? <p className={/失败|错误|已存在/.test(asstMsg) ? 'error' : 'hint'}>{asstMsg}</p> : null}
             {assistants.length ? (
@@ -5498,16 +5505,16 @@ export function SettingsPanel({
             )}
             <p className="hint">
               <a href={permissionsDocHref()} target="_blank" rel="noreferrer">
-                权限说明（PERMISSIONS.md）
+                {t('权限说明（PERMISSIONS.md）')}
               </a>
             </p>
           </div>
           </>
           ) : (
             <p className="hint">
-              助教可改本人密码、查看退出锁定审计（只读）与导出；无批量解除/轮换码。完整权限见{' '}
+              {t('助教可改本人密码、查看退出锁定审计（只读）与导出；无批量解除/轮换码。完整权限见')}{' '}
               <a href={permissionsDocHref()} target="_blank" rel="noreferrer" data-testid="permissions-doc-link">
-                权限说明
+                {t('权限说明')}
               </a>
               。
             </p>
@@ -5563,9 +5570,12 @@ export function SettingsPanel({
           {isAssistant() ? (
             <div data-testid="input-lock-readonly">
               <p className="hint">
-                当前：键盘 {inputLock.keyboard ? t('锁') : t('开')} · 鼠标{' '}
-                {inputLock.mouse ? t('锁') : t('开')} · 语音 {inputLock.voice ? t('锁') : t('开')} · 相机{' '}
-                {inputLock.camera ? t('锁') : t('开')}（助教只读）
+                {t('当前：键盘 {v0} · 鼠标 {v1} · 语音 {v2} · 相机 {v3}（助教只读）', {
+                  v0: inputLock.keyboard ? t('锁') : t('开'),
+                  v1: inputLock.mouse ? t('锁') : t('开'),
+                  v2: inputLock.voice ? t('锁') : t('开'),
+                  v3: inputLock.camera ? t('锁') : t('开'),
+                })}
               </p>
               <p className="row" data-testid="input-lock-scope-badge">
                 <span className="hint">{t('作用范围')}</span>
@@ -5921,17 +5931,19 @@ export function SettingsPanel({
           {isAssistant() ? (
             <div data-testid="exit-lock-readonly">
               <p className="hint">
-                助教 / 投影只读：不可改解除码与轮换天数；批量解除 / 解除码轮换 / 物理输入锁由教师操作。
+                {t(
+                  '助教 / 投影只读：不可改解除码与轮换天数；批量解除 / 解除码轮换 / 物理输入锁由教师操作。',
+                )}
               </p>
               <p className="hint" data-testid="exit-lock-readonly-rotate">
-                当前轮换提醒：{rotateDays} 天
-                {codeAgeDays != null ? ` · 已使用 ${codeAgeDays} 天` : ''}
+                {t('当前轮换提醒：{v0} 天', { v0: rotateDays })}
+                {codeAgeDays != null ? t(' · 已使用 {v0} 天', { v0: codeAgeDays }) : ''}
               </p>
             </div>
           ) : (
             <>
               <label>
-                批量解除时长（分钟）
+                {t('批量解除时长（分钟）')}
                 <input
                   type="number"
                   min={1}
@@ -6257,7 +6269,7 @@ export function SettingsPanel({
                   });
                 }}
               >
-                导出当前页 CSV
+                {t('导出当前页 CSV')}
               </button>
               <button
                 type="button"
@@ -6268,14 +6280,16 @@ export function SettingsPanel({
                   e.preventDefault();
                   if (exitEventsTotal > 2000) {
                     const ok = window.confirm(
-                      `当前筛选约 ${exitEventsTotal} 条，将分页拉取后合并导出（可能较慢）。继续？`,
+                      t('当前筛选约 {v0} 条，将分页拉取后合并导出（可能较慢）。继续？', {
+                        v0: exitEventsTotal,
+                      }),
                     );
                     if (!ok) return;
                   }
                   void exportExitLockCsvAll('exit-lock-events-all.csv');
                 }}
               >
-                {csvExportBusy ? '导出中…' : '导出全部 CSV'}
+                {csvExportBusy ? t('导出中…') : t('导出全部 CSV')}
               </button>
               {csvExportBusy ? (
                 <button
@@ -6287,7 +6301,7 @@ export function SettingsPanel({
                     cancelExitLockCsvExport();
                   }}
                 >
-                  取消导出
+                  {t('取消导出')}
                 </button>
               ) : null}
               {!csvExportBusy && csvPartialCount > 0 ? (
@@ -6300,7 +6314,7 @@ export function SettingsPanel({
                     downloadExitLockCsvPartial();
                   }}
                 >
-                  下载已拉取部分（{csvPartialCount}）
+                  {t('下载已拉取部分（{v0}）', { v0: csvPartialCount })}
                 </button>
               ) : null}
             </div>
