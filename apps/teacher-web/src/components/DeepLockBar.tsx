@@ -12,6 +12,7 @@ const IDLE: DeepLockState = {
   allowlistHosts: [],
   examUrl: '',
   killForeignBrowsers: false,
+  killDistractions: false,
   focusFreeze: false,
   updatedAt: '',
 };
@@ -118,7 +119,7 @@ export function DeepLockBar({ classId }: { classId: string }) {
         <h3>{t('深锁控制台')}</h3>
         <p className="hint">
           {t(
-            '默认空闲。冻结=全屏黑屏+键鼠锁+杀浏览器+失焦记违规；仅试卷=杀外置浏览器并打开应用内试卷窗。网络意图下发 Shield（可接网关；现为 Mock）。Alt+Tab/任务管理器仍须学校 Assigned Access / Intune。私人设备零安装管不住热点。',
+            '默认空闲。冻结=主屏全屏+副屏黑屏+1.2s夺焦+键鼠锁+2.5s杀浏览器/微信QQ/游戏+失焦记违规；仅试卷=全屏试卷壳+同上杀进程。网络→Shield（CLASSROOM_DESK_SHIELD=mock|http|opnsense|unifi）。Alt+Tab/任务管理器仍须 Assigned Access。私人设备零安装管不住热点。',
           )}
         </p>
       </div>

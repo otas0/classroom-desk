@@ -101,6 +101,8 @@ export type DeepLockState = {
   examUrl: string;
   /** lab-agent may terminate non-allowlisted browsers while active. */
   killForeignBrowsers: boolean;
+  /** lab-agent may terminate chat/game/distraction apps while freeze/exam. */
+  killDistractions: boolean;
   /** lab-agent auto-freezes locally after window blur (reports violation). */
   focusFreeze: boolean;
   updatedAt: string;
@@ -117,6 +119,7 @@ export const EMPTY_DEEP_LOCK_STATE = (): DeepLockState => ({
   allowlistHosts: [],
   examUrl: '',
   killForeignBrowsers: false,
+  killDistractions: false,
   focusFreeze: false,
   updatedAt: new Date(0).toISOString(),
 });
@@ -146,6 +149,7 @@ export function normalizeDeepLockState(raw: unknown): DeepLockState {
     allowlistHosts: [...new Set(hosts)].slice(0, 64),
     examUrl: String(o.examUrl ?? '').trim().slice(0, 2000),
     killForeignBrowsers: Boolean(o.killForeignBrowsers),
+    killDistractions: Boolean(o.killDistractions),
     focusFreeze: Boolean(o.focusFreeze),
     updatedAt: String(o.updatedAt ?? base.updatedAt),
   };
@@ -183,6 +187,7 @@ export function deepLockAggressive(state: DeepLockState): boolean {
     state.netMode === 'deny' ||
     state.netMode === 'allowlist' ||
     state.killForeignBrowsers ||
+    state.killDistractions ||
     state.focusFreeze
   );
 }

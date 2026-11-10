@@ -36,6 +36,7 @@ export type StudentDesktopAPI = {
   setDeepLockExamUrl: (url: string | null) => Promise<{ ok: boolean; error?: string; closed?: boolean }>;
   enforceDeepLockBrowsers: (opts: {
     killForeignBrowsers: boolean;
+    killDistractions?: boolean;
     allowHosts?: string[];
   }) => Promise<{ ok: boolean; killed?: string[]; error?: string }>;
   getNetworkHint: () => Promise<{ ssid: string; ipv4: string; gateway: string }>;

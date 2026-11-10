@@ -14,6 +14,8 @@ const MARGIN = 16;
 
 let mainWindow: BrowserWindow | null = null;
 let examShellWindow: BrowserWindow | null = null;
+let blackoutWindows: BrowserWindow[] = [];
+let focusStealTimer: ReturnType<typeof setInterval> | null = null;
 let collapsed = false;
 /** Deep-lock armed (freeze / exam allowlist / deny) — visible classroom policy. */
 let deepLockAggressiveActive = false;
@@ -352,6 +354,71 @@ function closeExamShell() {
   examShellWindow = null;
 }
 
+function closeBlackouts() {
+  for (const w of blackoutWindows) {
+    try {
+      if (!w.isDestroyed()) w.destroy();
+    } catch {
+      /* ignore */
+    }
+  }
+  blackoutWindows = [];
+}
+
+/** Cover every non-primary display with a visible black fullscreen window. */
+function openSecondaryBlackouts() {
+  closeBlackouts();
+  const primaryId = screen.getPrimaryDisplay().id;
+  for (const d of screen.getAllDisplays()) {
+    if (d.id === primaryId) continue;
+    const w = new BrowserWindow({
+      x: d.bounds.x,
+      y: d.bounds.y,
+      width: d.bounds.width,
+      height: d.bounds.height,
+      frame: false,
+      show: true,
+      skipTaskbar: true,
+      resizable: false,
+      movable: false,
+      minimizable: false,
+      maximizable: false,
+      closable: false,
+      fullscreen: true,
+      alwaysOnTop: true,
+      backgroundColor: '#000000',
+      focusable: false,
+      webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false },
+    });
+    w.setAlwaysOnTop(true, 'screen-saver');
+    w.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+    void w.loadURL('data:text/html,<body style="margin:0;background:#000"></body>');
+    blackoutWindows.push(w);
+  }
+}
+
+function stopFocusSteal() {
+  if (focusStealTimer) {
+    clearInterval(focusStealTimer);
+    focusStealTimer = null;
+  }
+}
+
+function startFocusSteal() {
+  stopFocusSteal();
+  focusStealTimer = setInterval(() => {
+    if (!deepLockFrozenActive || !mainWindow || mainWindow.isDestroyed()) return;
+    try {
+      mainWindow.setAlwaysOnTop(true, 'screen-saver');
+      mainWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+      mainWindow.show();
+      mainWindow.focus();
+    } catch {
+      /* ignore */
+    }
+  }, 1200);
+}
+
 /** Expand widget to work-area overlay while frozen (visible kiosk freeze). */
 ipcMain.handle('deep-lock:set-frozen', (_event, frozen: boolean) => {
   if (!mainWindow || mainWindow.isDestroyed()) return { ok: false };
@@ -359,22 +426,39 @@ ipcMain.handle('deep-lock:set-frozen', (_event, frozen: boolean) => {
     deepLockFrozenActive = Boolean(frozen);
     if (frozen) deepLockAggressiveActive = true;
     const display = screen.getPrimaryDisplay();
-    const { workArea } = display;
+    const { bounds } = display;
     mainWindow.setIgnoreMouseEvents(false);
-    mainWindow.setAlwaysOnTop(true);
     mainWindow.setMinimizable(false);
     mainWindow.show();
-    mainWindow.focus();
     collapsed = false;
     if (frozen) {
       closeExamShell();
+      openSecondaryBlackouts();
       mainWindow.setBounds({
-        x: workArea.x,
-        y: workArea.y,
-        width: workArea.width,
-        height: workArea.height,
+        x: bounds.x,
+        y: bounds.y,
+        width: bounds.width,
+        height: bounds.height,
       });
+      try {
+        mainWindow.setFullScreen(true);
+      } catch {
+        /* some platforms reject — bounds already fill display */
+      }
+      mainWindow.setAlwaysOnTop(true, 'screen-saver');
+      mainWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+      mainWindow.focus();
+      startFocusSteal();
     } else {
+      stopFocusSteal();
+      closeBlackouts();
+      try {
+        mainWindow.setFullScreen(false);
+      } catch {
+        /* ignore */
+      }
+      mainWindow.setVisibleOnAllWorkspaces(false);
+      mainWindow.setAlwaysOnTop(true);
       mainWindow.setMinimizable(true);
       placeBottomRight(mainWindow, WINDOW_HEIGHT);
     }
@@ -391,8 +475,16 @@ ipcMain.handle(
     deepLockAggressiveActive = Boolean(aggressive);
     if (!deepLockAggressiveActive) {
       deepLockFrozenActive = false;
+      stopFocusSteal();
       closeExamShell();
+      closeBlackouts();
       if (mainWindow && !mainWindow.isDestroyed()) {
+        try {
+          mainWindow.setFullScreen(false);
+        } catch {
+          /* ignore */
+        }
+        mainWindow.setVisibleOnAllWorkspaces(false);
         mainWindow.setMinimizable(true);
       }
     }
@@ -416,21 +508,28 @@ ipcMain.handle('deep-lock:set-exam-url', async (_event, rawUrl: unknown) => {
   try {
     if (!examShellWindow || examShellWindow.isDestroyed()) {
       const display = screen.getPrimaryDisplay();
-      const { workArea } = display;
+      const { bounds } = display;
       examShellWindow = new BrowserWindow({
-        x: workArea.x,
-        y: workArea.y,
-        width: workArea.width,
-        height: Math.max(400, workArea.height - 80),
+        x: bounds.x,
+        y: bounds.y,
+        width: bounds.width,
+        height: bounds.height,
         show: true,
+        frame: true,
         autoHideMenuBar: true,
         alwaysOnTop: true,
+        fullscreen: true,
         title: 'Classroom Desk · Exam',
         webPreferences: {
           contextIsolation: true,
           nodeIntegration: false,
           sandbox: true,
         },
+      });
+      examShellWindow.setAlwaysOnTop(true, 'screen-saver');
+      examShellWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+      examShellWindow.on('close', (e) => {
+        if (deepLockAggressiveActive) e.preventDefault();
       });
       examShellWindow.on('closed', () => {
         examShellWindow = null;
@@ -439,13 +538,16 @@ ipcMain.handle('deep-lock:set-exam-url', async (_event, rawUrl: unknown) => {
         const key = String(input.key || '').toLowerCase();
         if (
           key === 'f12' ||
-          ((input.control || input.meta) && input.shift && (key === 'i' || key === 'j' || key === 'c'))
+          key === 'f11' ||
+          ((input.control || input.meta) && input.shift && (key === 'i' || key === 'j' || key === 'c')) ||
+          ((input.control || input.meta) && (key === 'r' || key === 'w'))
         ) {
           event.preventDefault();
         }
       });
     }
     await examShellWindow.loadURL(url);
+    examShellWindow.setFullScreen(true);
     examShellWindow.show();
     examShellWindow.focus();
     return { ok: true };
@@ -506,20 +608,72 @@ ipcMain.handle('net:get-hint', async () => {
 
 ipcMain.handle(
   'deep-lock:enforce-browsers',
-  async (_event, opts: { killForeignBrowsers?: boolean; allowHosts?: string[] }) => {
-    if (!opts?.killForeignBrowsers) return { ok: true, killed: [] as string[] };
+  async (
+    _event,
+    opts: { killForeignBrowsers?: boolean; killDistractions?: boolean; allowHosts?: string[] },
+  ) => {
+    if (!opts?.killForeignBrowsers && !opts?.killDistractions) {
+      return { ok: true, killed: [] as string[] };
+    }
     const killed: string[] = [];
+    const winBrowsers = [
+      'chrome.exe',
+      'msedge.exe',
+      'firefox.exe',
+      'brave.exe',
+      'opera.exe',
+      'vivaldi.exe',
+      'chromium.exe',
+      'iexplore.exe',
+      'Arc.exe',
+    ];
+    const winDistractions = [
+      'WeChat.exe',
+      'Weixin.exe',
+      'QQ.exe',
+      'TIM.exe',
+      'Discord.exe',
+      'Telegram.exe',
+      'Steam.exe',
+      'epicgameslauncher.exe',
+      'Slack.exe',
+      'Teams.exe',
+      'ms-teams.exe',
+      'Zoom.exe',
+      'Notion.exe',
+      'Spotify.exe',
+      'cloudmusic.exe',
+      'BiliBili.exe',
+    ];
+    const macBrowsers = [
+      'Google Chrome',
+      'Microsoft Edge',
+      'Firefox',
+      'Chromium',
+      'Brave Browser',
+      'Opera',
+      'Vivaldi',
+      'Safari',
+      'Arc',
+    ];
+    const macDistractions = [
+      'WeChat',
+      'QQ',
+      'Discord',
+      'Telegram',
+      'Steam',
+      'Slack',
+      'Microsoft Teams',
+      'zoom.us',
+      'Notion',
+      'Spotify',
+      'NeteaseMusic',
+    ];
     try {
       if (process.platform === 'win32') {
         const targets = [
-          'chrome.exe',
-          'msedge.exe',
-          'firefox.exe',
-          'brave.exe',
-          'opera.exe',
-          'vivaldi.exe',
-          'chromium.exe',
-          'iexplore.exe',
+          ...(opts.killForeignBrowsers ? winBrowsers : []),
+          ...(opts.killDistractions ? winDistractions : []),
         ];
         for (const name of targets) {
           try {
@@ -531,14 +685,8 @@ ipcMain.handle(
         }
       } else if (process.platform === 'darwin') {
         const targets = [
-          'Google Chrome',
-          'Microsoft Edge',
-          'Firefox',
-          'Chromium',
-          'Brave Browser',
-          'Opera',
-          'Vivaldi',
-          'Safari',
+          ...(opts.killForeignBrowsers ? macBrowsers : []),
+          ...(opts.killDistractions ? macDistractions : []),
         ];
         for (const name of targets) {
           try {
@@ -549,7 +697,14 @@ ipcMain.handle(
           }
         }
       } else {
-        const targets = ['chrome', 'chromium', 'firefox', 'msedge', 'brave', 'opera'];
+        const targets = [
+          ...(opts.killForeignBrowsers
+            ? ['chrome', 'chromium', 'firefox', 'msedge', 'brave', 'opera']
+            : []),
+          ...(opts.killDistractions
+            ? ['discord', 'telegram', 'steam', 'slack', 'teams', 'zoom']
+            : []),
+        ];
         for (const name of targets) {
           try {
             await execFileAsync('pkill', ['-f', name]);

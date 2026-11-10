@@ -415,9 +415,10 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
         } else {
           void desk?.setDeepLockExamUrl?.(null);
         }
-        if (next.killForeignBrowsers && aggressive) {
+        if ((next.killForeignBrowsers || next.killDistractions) && aggressive) {
           void desk?.enforceDeepLockBrowsers?.({
-            killForeignBrowsers: true,
+            killForeignBrowsers: next.killForeignBrowsers === true,
+            killDistractions: next.killDistractions === true,
             allowHosts: next.allowlistHosts,
           });
         }
@@ -512,20 +513,32 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
     };
   }, [user, deepLock.focusFreeze, deepLock.frozen, classId, showToast]);
 
-  // Re-kill foreign browsers while armed (students can relaunch Chrome otherwise).
+  // Re-kill browsers + distractions while armed (students can relaunch otherwise).
   useEffect(() => {
-    if (!deepLock.killForeignBrowsers || !deepLockAggressive(deepLock)) return;
+    if (
+      (!deepLock.killForeignBrowsers && !deepLock.killDistractions) ||
+      !deepLockAggressive(deepLock)
+    ) {
+      return;
+    }
     const desk = window.classroomDesk;
     const tick = () => {
       void desk?.enforceDeepLockBrowsers?.({
-        killForeignBrowsers: true,
+        killForeignBrowsers: deepLock.killForeignBrowsers === true,
+        killDistractions: deepLock.killDistractions === true,
         allowHosts: deepLock.allowlistHosts,
       });
     };
     tick();
-    const id = window.setInterval(tick, 8_000);
+    const id = window.setInterval(tick, 2_500);
     return () => window.clearInterval(id);
-  }, [deepLock.killForeignBrowsers, deepLock.frozen, deepLock.netMode, deepLock.allowlistHosts]);
+  }, [
+    deepLock.killForeignBrowsers,
+    deepLock.killDistractions,
+    deepLock.frozen,
+    deepLock.netMode,
+    deepLock.allowlistHosts,
+  ]);
 
   // Re-resolve when seat ids arrive (presence client id + seat map).
   useEffect(() => {

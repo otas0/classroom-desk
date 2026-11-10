@@ -18,6 +18,8 @@ import {
   restoreExamModeInputLock,
 } from './inputLock.js';
 import { getShieldConnector } from './shield/registry.js';
+import { revokeAllGatewayAccess } from './gatewayAllowlist.js';
+import { clearPortalSessionsOnLessonEnd } from './portalSessionRevoke.js';
 
 export const KEY_DEEP_LOCK = 'deep_lock_store';
 export const KEY_DEEP_LOCK_VIOLATIONS = 'deep_lock_violations';
@@ -158,6 +160,7 @@ export async function applyDeepLockAction(
         frozen: true,
         netMode: 'deny',
         killForeignBrowsers: true,
+        killDistractions: true,
         focusFreeze: true,
       };
       alsoExamInput = true;
@@ -179,6 +182,7 @@ export async function applyDeepLockAction(
         allowlistHosts: hosts.length ? hosts : next.allowlistHosts,
         examUrl,
         killForeignBrowsers: true,
+        killDistractions: true,
         focusFreeze: true,
       };
       alsoExamInput = true;
@@ -190,6 +194,7 @@ export async function applyDeepLockAction(
         frozen: false,
         netMode: 'allow',
         killForeignBrowsers: false,
+        killDistractions: false,
         focusFreeze: false,
       };
       break;
@@ -199,6 +204,7 @@ export async function applyDeepLockAction(
         frozen: true,
         netMode: 'deny',
         killForeignBrowsers: true,
+        killDistractions: true,
         focusFreeze: true,
       };
       kick = true;
@@ -229,6 +235,10 @@ export async function applyDeepLockAction(
   }
   if (restoreExamInput) {
     restoreExamModeInputLock(db, actor);
+  }
+  if (opts.action === 'end') {
+    clearPortalSessionsOnLessonEnd(db);
+    revokeAllGatewayAccess(db);
   }
 
   await pushShieldForClass(db, classId, state, kick);
