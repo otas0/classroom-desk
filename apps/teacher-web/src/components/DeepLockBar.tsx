@@ -119,7 +119,7 @@ export function DeepLockBar({ classId }: { classId: string }) {
         <h3>{t('深锁控制台')}</h3>
         <p className="hint">
           {t(
-            '默认空闲。冻结=主屏全屏+副屏黑屏+1.2s夺焦+键鼠锁+2.5s杀浏览器/微信QQ/游戏+失焦记违规；仅试卷=全屏试卷壳+同上杀进程。网络→Shield（CLASSROOM_DESK_SHIELD=mock|http|opnsense|unifi）。Alt+Tab/任务管理器仍须 Assigned Access。私人设备零安装管不住热点。',
+            '默认空闲。冻结=主屏全屏+副屏黑屏+0.6s夺焦+键鼠锁+1s杀浏览器/WebView2/微信QQ/游戏+拦截F12/刷新；仅试卷=全屏壳+域名白名单禁跳转。网络→Shield+可选 DeskDNS(CLASSROOM_DESK_DNS=1)。不拦任务管理器（见 SECURITY）；Alt+Tab 须 Assigned Access。',
           )}
         </p>
       </div>

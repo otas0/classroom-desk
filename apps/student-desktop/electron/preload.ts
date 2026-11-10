@@ -33,7 +33,10 @@ export type StudentDesktopAPI = {
   openExternal: (url: string) => Promise<{ ok: boolean; error?: string }>;
   setDeepLockFrozen: (frozen: boolean) => Promise<{ ok: boolean; error?: string }>;
   setDeepLockAggressive: (aggressive: boolean) => Promise<{ ok: boolean; aggressive?: boolean }>;
-  setDeepLockExamUrl: (url: string | null) => Promise<{ ok: boolean; error?: string; closed?: boolean }>;
+  setDeepLockExamUrl: (
+    url: string | null,
+    allowHosts?: string[],
+  ) => Promise<{ ok: boolean; error?: string; closed?: boolean }>;
   enforceDeepLockBrowsers: (opts: {
     killForeignBrowsers: boolean;
     killDistractions?: boolean;
@@ -66,7 +69,8 @@ const api: StudentDesktopAPI = {
   openExternal: (url) => ipcRenderer.invoke('shell:open-external', url),
   setDeepLockFrozen: (frozen) => ipcRenderer.invoke('deep-lock:set-frozen', frozen),
   setDeepLockAggressive: (aggressive) => ipcRenderer.invoke('deep-lock:set-aggressive', aggressive),
-  setDeepLockExamUrl: (url) => ipcRenderer.invoke('deep-lock:set-exam-url', url),
+  setDeepLockExamUrl: (url, allowHosts) =>
+    ipcRenderer.invoke('deep-lock:set-exam-url', url, allowHosts),
   enforceDeepLockBrowsers: (opts) => ipcRenderer.invoke('deep-lock:enforce-browsers', opts),
   getNetworkHint: () => ipcRenderer.invoke('net:get-hint'),
 };

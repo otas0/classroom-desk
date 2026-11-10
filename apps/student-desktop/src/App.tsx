@@ -411,7 +411,7 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
         void desk?.setDeepLockAggressive?.(aggressive);
         void desk?.setDeepLockFrozen?.(next.frozen === true);
         if (next.netMode === 'allowlist' && next.examUrl.trim()) {
-          void desk?.setDeepLockExamUrl?.(next.examUrl.trim());
+          void desk?.setDeepLockExamUrl?.(next.examUrl.trim(), next.allowlistHosts);
         } else {
           void desk?.setDeepLockExamUrl?.(null);
         }
@@ -530,7 +530,7 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
       });
     };
     tick();
-    const id = window.setInterval(tick, 2_500);
+    const id = window.setInterval(tick, 1_000);
     return () => window.clearInterval(id);
   }, [
     deepLock.killForeignBrowsers,

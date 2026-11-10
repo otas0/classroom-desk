@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, Menu, screen, session } from 'electron';
+import { app, BrowserWindow, globalShortcut, ipcMain, Menu, screen, session } from 'electron';
 import { execFile } from 'node:child_process';
 import os from 'node:os';
 import { promisify } from 'node:util';
@@ -20,6 +20,8 @@ let collapsed = false;
 /** Deep-lock armed (freeze / exam allowlist / deny) — visible classroom policy. */
 let deepLockAggressiveActive = false;
 let deepLockFrozenActive = false;
+let examAllowHosts: string[] = [];
+const registeredDeepLockShortcuts: string[] = [];
 
 /**
  * Exit lock: students cannot close/quit unless unlocked.
@@ -416,7 +418,72 @@ function startFocusSteal() {
     } catch {
       /* ignore */
     }
-  }, 1200);
+  }, 600);
+}
+
+function hostAllowedForExam(rawUrl: string): boolean {
+  try {
+    const u = new URL(rawUrl);
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') return false;
+    const host = u.hostname.toLowerCase();
+    if (!examAllowHosts.length) return true;
+    return examAllowHosts.some(
+      (h) => host === h || host.endsWith(`.${h}`) || h.endsWith(`.${host}`),
+    );
+  } catch {
+    return false;
+  }
+}
+
+/** Register visible escape-key consumers (not Task Manager — SECURITY forbids blocking it). */
+function registerDeepLockShortcuts() {
+  unregisterDeepLockShortcuts();
+  const combos = [
+    'F12',
+    'F5',
+    'CommandOrControl+R',
+    'CommandOrControl+Shift+R',
+    'CommandOrControl+W',
+    'CommandOrControl+Shift+I',
+    'CommandOrControl+Shift+J',
+    'CommandOrControl+Shift+C',
+    'Alt+F4',
+  ];
+  for (const accel of combos) {
+    try {
+      const ok = globalShortcut.register(accel, () => {
+        if (!deepLockAggressiveActive) return;
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.show();
+          mainWindow.focus();
+        }
+      });
+      if (ok) registeredDeepLockShortcuts.push(accel);
+    } catch {
+      /* platform may refuse some accelerators */
+    }
+  }
+}
+
+function unregisterDeepLockShortcuts() {
+  for (const accel of registeredDeepLockShortcuts) {
+    try {
+      globalShortcut.unregister(accel);
+    } catch {
+      /* ignore */
+    }
+  }
+  registeredDeepLockShortcuts.length = 0;
+}
+
+function applyDeepLockSessionGuards(on: boolean) {
+  try {
+    session.defaultSession.setPermissionRequestHandler((_wc, _perm, callback) => {
+      callback(!on);
+    });
+  } catch {
+    /* ignore */
+  }
 }
 
 /** Expand widget to work-area overlay while frozen (visible kiosk freeze). */
@@ -434,6 +501,8 @@ ipcMain.handle('deep-lock:set-frozen', (_event, frozen: boolean) => {
     if (frozen) {
       closeExamShell();
       openSecondaryBlackouts();
+      registerDeepLockShortcuts();
+      applyDeepLockSessionGuards(true);
       mainWindow.setBounds({
         x: bounds.x,
         y: bounds.y,
@@ -445,6 +514,11 @@ ipcMain.handle('deep-lock:set-frozen', (_event, frozen: boolean) => {
       } catch {
         /* some platforms reject — bounds already fill display */
       }
+      try {
+        mainWindow.setContentProtection(true);
+      } catch {
+        /* optional */
+      }
       mainWindow.setAlwaysOnTop(true, 'screen-saver');
       mainWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
       mainWindow.focus();
@@ -452,10 +526,17 @@ ipcMain.handle('deep-lock:set-frozen', (_event, frozen: boolean) => {
     } else {
       stopFocusSteal();
       closeBlackouts();
+      unregisterDeepLockShortcuts();
+      applyDeepLockSessionGuards(false);
       try {
         mainWindow.setFullScreen(false);
       } catch {
         /* ignore */
+      }
+      try {
+        mainWindow.setContentProtection(false);
+      } catch {
+        /* optional */
       }
       mainWindow.setVisibleOnAllWorkspaces(false);
       mainWindow.setAlwaysOnTop(true);
@@ -473,14 +554,25 @@ ipcMain.handle(
   'deep-lock:set-aggressive',
   (_event, aggressive: boolean) => {
     deepLockAggressiveActive = Boolean(aggressive);
-    if (!deepLockAggressiveActive) {
+    if (deepLockAggressiveActive) {
+      registerDeepLockShortcuts();
+      applyDeepLockSessionGuards(true);
+    } else {
       deepLockFrozenActive = false;
       stopFocusSteal();
       closeExamShell();
       closeBlackouts();
+      unregisterDeepLockShortcuts();
+      applyDeepLockSessionGuards(false);
+      examAllowHosts = [];
       if (mainWindow && !mainWindow.isDestroyed()) {
         try {
           mainWindow.setFullScreen(false);
+        } catch {
+          /* ignore */
+        }
+        try {
+          mainWindow.setContentProtection(false);
         } catch {
           /* ignore */
         }
@@ -496,65 +588,91 @@ ipcMain.handle(
  * In-app exam BrowserWindow (visible). Used with killForeignBrowsers so the
  * only allowed browser surface is this shell — not a silent OS inject.
  */
-ipcMain.handle('deep-lock:set-exam-url', async (_event, rawUrl: unknown) => {
-  const url = String(rawUrl ?? '').trim();
-  if (!url) {
-    closeExamShell();
-    return { ok: true, closed: true };
-  }
-  if (!/^https?:\/\//i.test(url)) {
-    return { ok: false, error: 'only_http_https' };
-  }
-  try {
-    if (!examShellWindow || examShellWindow.isDestroyed()) {
-      const display = screen.getPrimaryDisplay();
-      const { bounds } = display;
-      examShellWindow = new BrowserWindow({
-        x: bounds.x,
-        y: bounds.y,
-        width: bounds.width,
-        height: bounds.height,
-        show: true,
-        frame: true,
-        autoHideMenuBar: true,
-        alwaysOnTop: true,
-        fullscreen: true,
-        title: 'Classroom Desk · Exam',
-        webPreferences: {
-          contextIsolation: true,
-          nodeIntegration: false,
-          sandbox: true,
-        },
-      });
-      examShellWindow.setAlwaysOnTop(true, 'screen-saver');
-      examShellWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
-      examShellWindow.on('close', (e) => {
-        if (deepLockAggressiveActive) e.preventDefault();
-      });
-      examShellWindow.on('closed', () => {
-        examShellWindow = null;
-      });
-      examShellWindow.webContents.on('before-input-event', (event, input) => {
-        const key = String(input.key || '').toLowerCase();
-        if (
-          key === 'f12' ||
-          key === 'f11' ||
-          ((input.control || input.meta) && input.shift && (key === 'i' || key === 'j' || key === 'c')) ||
-          ((input.control || input.meta) && (key === 'r' || key === 'w'))
-        ) {
-          event.preventDefault();
-        }
-      });
+ipcMain.handle(
+  'deep-lock:set-exam-url',
+  async (_event, rawUrl: unknown, allowHosts?: unknown) => {
+    const url = String(rawUrl ?? '').trim();
+    if (!url) {
+      closeExamShell();
+      examAllowHosts = [];
+      return { ok: true, closed: true };
     }
-    await examShellWindow.loadURL(url);
-    examShellWindow.setFullScreen(true);
-    examShellWindow.show();
-    examShellWindow.focus();
-    return { ok: true };
-  } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : 'exam_shell_failed' };
-  }
-});
+    if (!/^https?:\/\//i.test(url)) {
+      return { ok: false, error: 'only_http_https' };
+    }
+    const hosts = Array.isArray(allowHosts)
+      ? allowHosts.map((h) => String(h ?? '').trim().toLowerCase()).filter(Boolean)
+      : [];
+    try {
+      const examHost = new URL(url).hostname.toLowerCase();
+      examAllowHosts = [...new Set([examHost, ...hosts])].slice(0, 64);
+    } catch {
+      examAllowHosts = hosts.slice(0, 64);
+    }
+    try {
+      if (!examShellWindow || examShellWindow.isDestroyed()) {
+        const display = screen.getPrimaryDisplay();
+        const { bounds } = display;
+        examShellWindow = new BrowserWindow({
+          x: bounds.x,
+          y: bounds.y,
+          width: bounds.width,
+          height: bounds.height,
+          show: true,
+          frame: true,
+          autoHideMenuBar: true,
+          alwaysOnTop: true,
+          fullscreen: true,
+          title: 'Classroom Desk · Exam',
+          webPreferences: {
+            contextIsolation: true,
+            nodeIntegration: false,
+            sandbox: true,
+          },
+        });
+        examShellWindow.setAlwaysOnTop(true, 'screen-saver');
+        examShellWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+        try {
+          examShellWindow.setContentProtection(true);
+        } catch {
+          /* optional */
+        }
+        examShellWindow.on('close', (e) => {
+          if (deepLockAggressiveActive) e.preventDefault();
+        });
+        examShellWindow.on('closed', () => {
+          examShellWindow = null;
+        });
+        examShellWindow.webContents.on('will-navigate', (event, navUrl) => {
+          if (!hostAllowedForExam(navUrl)) event.preventDefault();
+        });
+        examShellWindow.webContents.setWindowOpenHandler(({ url: openUrl }) =>
+          hostAllowedForExam(openUrl) ? { action: 'allow' } : { action: 'deny' },
+        );
+        examShellWindow.webContents.on('before-input-event', (event, input) => {
+          const key = String(input.key || '').toLowerCase();
+          if (
+            key === 'f12' ||
+            key === 'f11' ||
+            ((input.control || input.meta) && input.shift && (key === 'i' || key === 'j' || key === 'c')) ||
+            ((input.control || input.meta) && (key === 'r' || key === 'w'))
+          ) {
+            event.preventDefault();
+          }
+        });
+      }
+      registerDeepLockShortcuts();
+      applyDeepLockSessionGuards(true);
+      await examShellWindow.loadURL(url);
+      examShellWindow.setFullScreen(true);
+      examShellWindow.show();
+      examShellWindow.focus();
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : 'exam_shell_failed' };
+    }
+  },
+);
 
 /**
  * Visible policy: end common browser processes while deep-lock kill mode is on.
@@ -619,6 +737,7 @@ ipcMain.handle(
     const winBrowsers = [
       'chrome.exe',
       'msedge.exe',
+      'msedgewebview2.exe',
       'firefox.exe',
       'brave.exe',
       'opera.exe',
@@ -626,15 +745,21 @@ ipcMain.handle(
       'chromium.exe',
       'iexplore.exe',
       'Arc.exe',
+      '360se.exe',
+      '360chrome.exe',
+      'sogouexplorer.exe',
     ];
     const winDistractions = [
       'WeChat.exe',
       'Weixin.exe',
+      'WeChatAppEx.exe',
       'QQ.exe',
+      'QQNT.exe',
       'TIM.exe',
       'Discord.exe',
       'Telegram.exe',
       'Steam.exe',
+      'steamwebhelper.exe',
       'epicgameslauncher.exe',
       'Slack.exe',
       'Teams.exe',
@@ -644,6 +769,9 @@ ipcMain.handle(
       'Spotify.exe',
       'cloudmusic.exe',
       'BiliBili.exe',
+      'GameBar.exe',
+      'GameBarFTServer.exe',
+      'XboxApp.exe',
     ];
     const macBrowsers = [
       'Google Chrome',
