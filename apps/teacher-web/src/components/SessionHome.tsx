@@ -365,21 +365,25 @@ export function SessionHome({
           {t('投影全屏')}
         </button>
         <button type="button" className="secondary" disabled={!classId} onClick={() => void resetSession()}>
-          本场重置
+          {t('本场重置')}
         </button>
         <button type="button" className="secondary" disabled={!classId} onClick={() => void openBuzz()}>
-          开启抢答
+          {t('开启抢答')}
         </button>
         <button type="button" className="secondary" disabled={!classId} onClick={() => void refreshBuzz()}>
-          刷新抢答{buzzLive ? ' · 实时' : ''}
+          {t('刷新抢答')}
+          {buzzLive ? t(' · 实时') : ''}
         </button>
         <p className="hint help-bubble">
-          投影：<kbd>Esc</kbd> {t('退出，')}<kbd>F</kbd> {t('全屏，')}<kbd>H</kbd> 高对比。详见{' '}
+          {t('投影：')}
+          <kbd>Esc</kbd> {t('退出，')}
+          <kbd>F</kbd> {t('全屏，')}
+          <kbd>H</kbd> {t('高对比。详见')}{' '}
           <code>docs/TEACHER_PROJECTION.md</code>。
         </p>
         {onGoPrep ? (
           <button type="button" className="secondary" onClick={onGoPrep}>
-            去备课
+            {t('去备课')}
           </button>
         ) : null}
         {onGoAssign ? (
@@ -392,10 +396,13 @@ export function SessionHome({
       <ClassroomLockBar classId={classId} onOpenAdvanced={onOpenLockAdvanced} />
       {buzzRound ? (
         <section>
-          <h2>抢答器 · {buzzRound.status === 'open' ? t('进行中') : t('已结束')}</h2>
+          <h2>
+            {t('抢答器')} · {buzzRound.status === 'open' ? t('进行中') : t('已结束')}
+          </h2>
           <p className="hint">
-            理由：{buzzRound.reason}
-            {buzzLive ? ' · WebSocket 实时榜' : ' · 连接中断时可点刷新'}
+            {t('理由：')}
+            {buzzRound.reason}
+            {buzzLive ? t(' · WebSocket 实时榜') : t(' · 连接中断时可点刷新')}
           </p>
           <ol>
             {buzzHits.map((h, i) => (
@@ -406,7 +413,7 @@ export function SessionHome({
             ))}
           </ol>
           <button type="button" disabled={!buzzHits.length} onClick={() => void awardBuzzWinner()}>
-            给第一名加分（{awardPts}）
+            {t('给第一名加分（{v0}）', { v0: awardPts })}
           </button>
         </section>
       ) : null}

@@ -470,7 +470,7 @@ export function SeatMapPanel({ classId }: { classId: string }) {
               if (!from || from === s.id) return;
               void swapSeats(from, s.id);
             }}
-            title={`${s.label} · 拖到其它座位换座`}
+            title={`${s.label} · ${t('拖到其它座位换座')}`}
           >
             <span className="seat-label">{s.label}</span>
             <span className="seat-name">
@@ -483,7 +483,7 @@ export function SeatMapPanel({ classId }: { classId: string }) {
       {selected ? (
         <div className="row">
           <label>
-            绑定学生到选中机位
+            {t('绑定学生到选中机位')}
             <select
               defaultValue=""
               onChange={(e) => {
@@ -506,25 +506,27 @@ export function SeatMapPanel({ classId }: { classId: string }) {
         open={Boolean(batchConfirm)}
         title={
           batchConfirm?.action === 'lock'
-            ? `确认锁${modeLabel}空座`
-            : `确认解除${modeLabel}机位锁`
+            ? t('确认锁{v0}空座', { v0: modeLabel })
+            : t('确认解除{v0}机位锁', { v0: modeLabel })
         }
         body={
           batchConfirm ? (
             <div data-testid="seat-batch-lock-confirm-body">
               {batchConfirm.action === 'lock' ? (
                 <p>
-                  将对本范围 {batchConfirm.seatIds.length}{' '}
-                  个空座启用键鼠锁（语音/相机不变）。
+                  {t('将对本范围 {v0} 个空座启用键鼠锁（语音/相机不变）。', {
+                    v0: batchConfirm.seatIds.length,
+                  })}
                 </p>
               ) : (
                 <>
                   <p>
-                    将清除 {batchConfirm.lockedCount ?? batchConfirm.seatIds.length}{' '}
-                    个已上锁机位的输入锁（仅含当前确有 bySeat 的座位）：
+                    {t('将清除 {v0} 个已上锁机位的输入锁（仅含当前确有 bySeat 的座位）：', {
+                      v0: batchConfirm.lockedCount ?? batchConfirm.seatIds.length,
+                    })}
                     <span className="hint" data-testid="seat-batch-unlock-total">
                       {' '}
-                      共 {(batchConfirm.seatLabels ?? []).length}
+                      {t('共 {v0}', { v0: (batchConfirm.seatLabels ?? []).length })}
                     </span>
                   </p>
                   <ul data-testid="seat-batch-unlock-labels">
@@ -545,7 +547,11 @@ export function SeatMapPanel({ classId }: { classId: string }) {
                     >
                       {unlockLabelsExpanded
                         ? t('收起')
-                        : `展开其余 ${(batchConfirm.seatLabels ?? []).length - UNLOCK_LABEL_PREVIEW}（共 ${(batchConfirm.seatLabels ?? []).length}）`}
+                        : t('展开其余 {v0}（共 {v1}）', {
+                            v0:
+                              (batchConfirm.seatLabels ?? []).length - UNLOCK_LABEL_PREVIEW,
+                            v1: (batchConfirm.seatLabels ?? []).length,
+                          })}
                     </button>
                   ) : null}
                 </>

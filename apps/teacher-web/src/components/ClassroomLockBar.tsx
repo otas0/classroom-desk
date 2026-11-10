@@ -139,7 +139,9 @@ export function ClassroomLockBar({
       <div className="classroom-lock-bar-head">
         <h3>{t('课堂锁定')}</h3>
         <p className="hint">
-          {t('对本班学生端一键开关。默认只锁当前班级；指定机位/全校请用高级选项。')}
+          {t(
+            '对本班学生端一键开关（退出锁 / 键鼠语音相机）。不管其它进程、浏览器标签或系统 App；整机管控请学校 IT 配 Assigned Access / Intune（见 docs/EXIT_LOCK_MDM.md）。默认只锁当前班级；指定机位/全校请用高级选项。',
+          )}
         </p>
       </div>
       {!classId.trim() ? (

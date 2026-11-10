@@ -146,7 +146,7 @@ export function RosterPanel({
   async function addOneStudent() {
     const displayName = newStudentName.trim();
     if (!displayName) {
-      setImportResult('请填写姓名');
+      setImportResult(t('请填写姓名'));
       return;
     }
     try {
@@ -263,7 +263,7 @@ export function RosterPanel({
       const err = body.backup?.lastError;
       if (err || stale) {
         const ok = window.confirm(
-          `${err ? t('检测到备份异常。') : t('近 24 小时内未见备份。')}导入前建议在教师机执行 npm run backup:db。\n仍要继续导入吗？`,
+          `${err ? t('检测到备份异常。') : t('近 24 小时内未见备份。')}${t('导入前建议在教师机执行 npm run backup:db。')}\n${t('仍要继续导入吗？')}`,
         );
         if (!ok) return false;
       }
@@ -429,13 +429,13 @@ export function RosterPanel({
         value={csv}
         onChange={(e) => setCsv(e.target.value)}
         rows={5}
-        placeholder={'可粘贴：姓名 学号 / 学号\t姓名 / 姓名，学号\n（任意常见分隔均可）'}
+        placeholder={t('可粘贴：姓名 学号 / 学号\t姓名 / 姓名，学号\n（任意常见分隔均可）')}
       />
       <button
         type="button"
         onClick={() => {
           if (!csv.trim()) {
-            setImportResult('请粘贴真实名单，或使用上方文件上传');
+            setImportResult(t('请粘贴真实名单，或使用上方文件上传'));
             return;
           }
           void (async () => {
@@ -473,7 +473,7 @@ export function RosterPanel({
           })();
         }}
       >
-        从文本导入 CSV
+        {t('从文本导入 CSV')}
       </button>
       {importResult ? <p className={/失败|错误|无效|损坏/.test(importResult) ? 'error' : 'hint'}>{importResult}</p> : null}
       </>
