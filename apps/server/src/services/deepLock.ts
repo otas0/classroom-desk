@@ -18,7 +18,10 @@ import {
   restoreExamModeInputLock,
 } from './inputLock.js';
 import { getShieldConnector } from './shield/registry.js';
-import { revokeAllGatewayAccess } from './gatewayAllowlist.js';
+import {
+  revokeGatewayAccessForClass,
+  type GatewayAllowEntry,
+} from './gatewayAllowlist.js';
 import { clearPortalSessionsOnLessonEnd } from './portalSessionRevoke.js';
 
 export const KEY_DEEP_LOCK = 'deep_lock_store';
@@ -135,6 +138,70 @@ async function pushShieldForClass(
   }
 }
 
+/** After per-class gateway revoke — drop those IPs/MACs from Shield allow aliases. */
+async function syncShieldRemoveAllowEntries(
+  classId: string | null,
+  removed: GatewayAllowEntry[],
+) {
+  if (!removed.length) return;
+  const connector = getShieldConnector();
+  const { recordShieldLastError } = await import('./shield/lastError.js');
+  for (const e of removed) {
+    const keys = [e.mac, e.ip, e.clientKey].map((x) => String(x ?? '').trim()).filter(Boolean);
+    const seen = new Set<string>();
+    for (const clientKey of keys) {
+      if (seen.has(clientKey)) continue;
+      seen.add(clientKey);
+      const ref = {
+        clientKey,
+        classId: classId || e.classId || undefined,
+        studentId: e.studentId,
+      };
+      try {
+        const result = connector.releaseClient
+          ? await connector.releaseClient(ref)
+          : await connector.revokeClient(ref);
+        if (result && result.ok === false) {
+          const msg = `shield.releaseClient failed · ${clientKey} · ${result.detail ?? 'ok=false'}`;
+          recordShieldLastError(msg);
+          writeAudit(
+            {
+              action: 'shield.release_client_fail',
+              actorUserId: null,
+              actorRole: 'system',
+              classId,
+              detail: msg,
+            },
+            dbForShieldAudit(),
+          );
+        }
+      } catch (err) {
+        const msg = `shield.releaseClient error · ${clientKey} · ${
+          err instanceof Error ? err.message : String(err)
+        }`;
+        recordShieldLastError(msg);
+        writeAudit(
+          {
+            action: 'shield.release_client_fail',
+            actorUserId: null,
+            actorRole: 'system',
+            classId,
+            detail: msg,
+          },
+          dbForShieldAudit(),
+        );
+      }
+    }
+  }
+}
+
+function dbForShieldAudit() {
+  // Lazy import avoids circular init with openDb in hot path.
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { openDb } = require('./../db/client.js') as typeof import('./../db/client.js');
+  return openDb();
+}
+
 export async function applyDeepLockAction(
   db: DatabaseSync,
   opts: {
@@ -236,12 +303,17 @@ export async function applyDeepLockAction(
   if (restoreExamInput) {
     restoreExamModeInputLock(db, actor);
   }
+  let revokedGateway: GatewayAllowEntry[] = [];
   if (opts.action === 'end') {
-    clearPortalSessionsOnLessonEnd(db);
-    revokeAllGatewayAccess(db);
+    // Per-class epoch + allowlist so parallel classes keep their own sessions/IPs.
+    clearPortalSessionsOnLessonEnd(db, classId);
+    revokedGateway = revokeGatewayAccessForClass(db, classId);
   }
 
   await pushShieldForClass(db, classId, state, kick);
+  if (opts.action === 'end' && revokedGateway.length) {
+    await syncShieldRemoveAllowEntries(classId, revokedGateway);
+  }
 
   writeAudit(
     {

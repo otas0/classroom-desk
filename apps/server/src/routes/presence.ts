@@ -137,6 +137,8 @@ presenceRouter.post(
         : null,
       networkUnauthorized: zoneResult.unauthorized,
       networkAction: zoneResult.action,
+      networkReason: zoneResult.reason,
+      everStudentZone: zoneResult.everStudentZone,
     });
   },
 );

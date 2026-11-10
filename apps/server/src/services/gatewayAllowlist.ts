@@ -8,6 +8,7 @@ const KEY = 'gateway_allowed_clients';
 export type GatewayAllowEntry = {
   clientKey: string;
   studentId?: string;
+  classId?: string | null;
   ip?: string;
   mac?: string;
   expiresAt: number;
@@ -38,13 +39,21 @@ function write(db: DatabaseSync, bucket: Bucket) {
 /** After portal admit allow — gateway may permit this IP until TTL. */
 export function grantGatewayAccess(
   db: DatabaseSync,
-  opts: { clientKey: string; studentId?: string; ip?: string; mac?: string; ttlSec?: number },
+  opts: {
+    clientKey: string;
+    studentId?: string;
+    classId?: string | null;
+    ip?: string;
+    mac?: string;
+    ttlSec?: number;
+  },
 ): GatewayAllowEntry {
   const ttl = Math.max(60, Math.min(86_400, Number(opts.ttlSec) || 12 * 3600));
   const bucket = read(db);
   const entry: GatewayAllowEntry = {
     clientKey: opts.clientKey,
     studentId: opts.studentId,
+    classId: opts.classId ? String(opts.classId) : null,
     ip: opts.ip,
     mac: opts.mac,
     expiresAt: Date.now() + ttl * 1000,
@@ -61,8 +70,47 @@ export function revokeGatewayAccess(db: DatabaseSync, clientKey: string) {
   write(db, bucket);
 }
 
-export function revokeAllGatewayAccess(db: DatabaseSync) {
+export function revokeAllGatewayAccess(db: DatabaseSync): GatewayAllowEntry[] {
+  const prev = listGatewayAccess(db);
   upsertSetting(db, KEY, '{}');
+  return prev;
+}
+
+/**
+ * Lesson end for one class: drop only that class's admitted clients.
+ * Returns removed entries so Shield can sync-delete firewall aliases.
+ */
+export function revokeGatewayAccessForClass(
+  db: DatabaseSync,
+  classId?: string | null,
+): GatewayAllowEntry[] {
+  const cid = String(classId ?? '').trim();
+  if (!cid) {
+    return revokeAllGatewayAccess(db);
+  }
+  const bucket = read(db);
+  const studentClass = new Map<string, string>();
+  const rows = db
+    .prepare(
+      `SELECT id, class_id AS classId FROM users
+       WHERE role = 'student' AND class_id IS NOT NULL`,
+    )
+    .all() as Array<{ id: string; classId: string | null }>;
+  for (const r of rows) {
+    if (r.classId) studentClass.set(r.id, r.classId);
+  }
+  const removed: GatewayAllowEntry[] = [];
+  for (const [k, e] of Object.entries(bucket)) {
+    const entryClass =
+      String(e.classId ?? '').trim() ||
+      (e.studentId ? studentClass.get(e.studentId) ?? '' : '');
+    if (entryClass === cid) {
+      removed.push(e);
+      delete bucket[k];
+    }
+  }
+  write(db, bucket);
+  return removed;
 }
 
 export function listGatewayAccess(db: DatabaseSync): GatewayAllowEntry[] {

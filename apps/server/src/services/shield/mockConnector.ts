@@ -39,6 +39,10 @@ export class MockShieldConnector implements ShieldConnector {
     return { ok: true, detail: 'mock_kicked' };
   }
 
+  async releaseClient(opts: ShieldClientRef) {
+    return this.revokeClient(opts);
+  }
+
   async health() {
     return { ok: true, detail: `mock_clients=${this.clients.size}` };
   }

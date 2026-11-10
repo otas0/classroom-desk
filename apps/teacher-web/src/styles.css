@@ -872,11 +872,20 @@ section label.choice input {
   gap: 0.5rem;
 }
 
+.roster-virtual-wrap {
+  border: 1px solid var(--line-soft);
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  max-height: min(48vh, 480px);
+}
+
 .roster-virtual {
   height: min(48vh, 480px);
   overflow: auto;
-  border: 1px solid var(--line-soft);
+  border: 0;
   position: relative;
+  flex: 1;
 }
 
 .roster-virtual-inner {
@@ -884,17 +893,31 @@ section label.choice input {
   width: 100%;
 }
 
+.roster-virtual-header,
+.roster-virtual-row {
+  display: grid;
+  grid-template-columns: 2.5rem minmax(4.5rem, 0.9fr) minmax(4.5rem, 1fr) minmax(6rem, 1.2fr) minmax(5rem, 0.9fr) 3.5rem auto;
+  gap: 0.35rem;
+  align-items: center;
+  padding: 0 0.4rem;
+  box-sizing: border-box;
+}
+
+.roster-virtual-header {
+  font-weight: 600;
+  border-bottom: 1px solid var(--line-soft);
+  padding: 0.35rem 0.4rem;
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--paper);
+}
+
 .roster-virtual-row {
   position: absolute;
   left: 0;
   right: 0;
-  display: grid;
-  grid-template-columns: 2.5rem minmax(5rem, 1fr) minmax(5rem, 1.2fr) 4rem auto;
-  gap: 0.35rem;
-  align-items: center;
-  padding: 0 0.4rem;
   border-bottom: 1px solid var(--line-soft);
-  box-sizing: border-box;
   background: var(--paper);
 }
 
@@ -1035,6 +1058,40 @@ button.linkish {
 
 .data-table tbody tr {
   cursor: default;
+}
+
+.data-table tbody tr.row-danger {
+  background: #fde8e8;
+}
+.badge-danger {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: #8b1e1e;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+}
+.capability-list {
+  list-style: none;
+  padding: 0;
+  margin: 8px 0;
+}
+.capability-list .cap-off {
+  opacity: 0.45;
+}
+.capability-gate-off {
+  margin: 8px 0;
+  padding: 8px 10px;
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+}
+.principal-dashboard {
+  margin: 12px 0 18px;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel);
 }
 
 .data-table tbody tr.row-warn {

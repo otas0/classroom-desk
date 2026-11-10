@@ -1,0 +1,15 @@
+# Exam Box sidecar — pair with Classroom Desk teacher host.
+# Not a full OpenWRT image; use for lab pilots / x86 mini PC.
+services:
+  exam-box-proxy:
+    image: caddy:2-alpine
+    ports:
+      - "8080:80"
+    environment:
+      CD_API_BASE: ${CD_API_BASE:-http://host.docker.internal:8787}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  # Optional: run DeskDNS on host with CLASSROOM_DESK_DNS=1 instead.

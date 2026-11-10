@@ -1,9 +1,19 @@
-export type ImportRow = { name: string; studentNo: string | null; line: number };
+export type ImportRow = {
+  name: string;
+  studentNo: string | null;
+  contactEmail?: string | null;
+  contactPhone?: string | null;
+  line: number;
+};
 
 const NAME_HEADER =
-  /^(姓名|名字|学生姓名|学员姓名|学生|name|display_?name|student_?name)$/i;
+  /^(姓名|名字|学生姓名|学员姓名|学生|name|display_?name|student_?name|氏名|이름)$/i;
 const NO_HEADER =
-  /^(学号|学籍号|考号|编号|学生学号|student_?no|studentno|student_?id|id|no|number)$/i;
+  /^(学号|学籍号|考号|编号|学生学号|student_?no|studentno|student_?id|id|no|number|学籍番号|학번)$/i;
+const EMAIL_HEADER =
+  /^(邮箱|邮件|电子邮箱|联系邮箱|email|e-?mail|contact_?email|mail|メール|이메일)$/i;
+const PHONE_HEADER =
+  /^(手机|电话|手机号|联系电话|phone|mobile|contact_?phone|tel|電話|휴대폰|휴대전화)$/i;
 const JUNK_HEADER = /^(序号|班级|性别|备注|说明|index|class|sex|备注信息|#)$/i;
 
 function normalizeCell(raw: unknown): string {
@@ -103,15 +113,33 @@ export function detectNameAndNo(cells: string[]): { name: string; studentNo: str
   return null;
 }
 
+function looksLikeEmail(s: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s);
+}
+
 function isHeaderRow(cells: string[]): boolean {
   const joined = cells.map((c) => c.trim()).filter(Boolean);
   if (joined.length === 0) return false;
-  return joined.some((c) => NAME_HEADER.test(c) || NO_HEADER.test(c));
+  return joined.some(
+    (c) => NAME_HEADER.test(c) || NO_HEADER.test(c) || EMAIL_HEADER.test(c) || PHONE_HEADER.test(c),
+  );
 }
 
 export function parseDelimitedTextToRows(text: string): ImportRow[] {
   const rows: ImportRow[] = [];
   const rawLines = text.replace(/^\uFEFF/, '').split(/\r?\n/);
+  // Optional header with email/phone columns
+  let emailCol = -1;
+  let phoneCol = -1;
+  let headerIdx = -1;
+  for (let i = 0; i < Math.min(3, rawLines.length); i += 1) {
+    const parts = splitLooseLine(rawLines[i]?.trim() ?? '');
+    if (!isHeaderRow(parts)) continue;
+    headerIdx = i;
+    emailCol = parts.findIndex((c) => EMAIL_HEADER.test(c));
+    phoneCol = parts.findIndex((c) => PHONE_HEADER.test(c));
+    break;
+  }
   for (let i = 0; i < rawLines.length; i += 1) {
     const line = rawLines[i]?.trim() ?? '';
     if (!line) continue;
@@ -119,12 +147,21 @@ export function parseDelimitedTextToRows(text: string): ImportRow[] {
     if (isHeaderRow(parts)) continue;
     const detected = detectNameAndNo(parts);
     if (!detected) continue;
+    const contactEmail =
+      emailCol >= 0 && parts[emailCol] && looksLikeEmail(parts[emailCol]!)
+        ? parts[emailCol]!
+        : parts.find((p) => looksLikeEmail(p)) ?? null;
+    const contactPhone =
+      phoneCol >= 0 && parts[phoneCol] ? parts[phoneCol]! : null;
     rows.push({
       name: detected.name,
       studentNo: detected.studentNo,
+      contactEmail,
+      contactPhone,
       line: i + 1,
     });
   }
+  void headerIdx;
   return rows;
 }
 
@@ -143,14 +180,20 @@ export function parseSheetMatrixToRows(
   let headerIdx = -1;
   let nameCol = -1;
   let noCol = -1;
+  let emailCol = -1;
+  let phoneCol = -1;
   for (let r = 0; r < Math.min(5, matrix.length); r += 1) {
     const row = (matrix[r] ?? []).map(normalizeCell);
     const nIdx = row.findIndex((c) => NAME_HEADER.test(c));
     const sIdx = row.findIndex((c) => NO_HEADER.test(c));
-    if (nIdx >= 0 || sIdx >= 0) {
+    const eIdx = row.findIndex((c) => EMAIL_HEADER.test(c));
+    const pIdx = row.findIndex((c) => PHONE_HEADER.test(c));
+    if (nIdx >= 0 || sIdx >= 0 || eIdx >= 0) {
       headerIdx = r;
       nameCol = nIdx;
       noCol = sIdx;
+      emailCol = eIdx;
+      phoneCol = pIdx;
       break;
     }
   }
@@ -164,13 +207,24 @@ export function parseSheetMatrixToRows(
       // also scan other cells if missing
       if (fromCols.length < 2) {
         for (let c = 0; c < row.length; c += 1) {
-          if (c === nameCol || c === noCol) continue;
+          if (c === nameCol || c === noCol || c === emailCol || c === phoneCol) continue;
           if (row[c]) fromCols.push(row[c]!);
         }
       }
       const detected = detectNameAndNo(fromCols.length ? fromCols : row);
       if (!detected) continue;
-      rows.push({ name: detected.name, studentNo: detected.studentNo, line: r + 1 });
+      const contactEmail =
+        emailCol >= 0 && row[emailCol] && looksLikeEmail(row[emailCol]!)
+          ? row[emailCol]!
+          : row.find((c) => looksLikeEmail(c)) ?? null;
+      const contactPhone = phoneCol >= 0 && row[phoneCol] ? row[phoneCol]! : null;
+      rows.push({
+        name: detected.name,
+        studentNo: detected.studentNo,
+        contactEmail,
+        contactPhone,
+        line: r + 1,
+      });
     }
     return rows;
   }

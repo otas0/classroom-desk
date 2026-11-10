@@ -23,6 +23,8 @@ export type ZoneViolation = {
   ssid: string;
   ipv4: string;
   action: NetworkZoneUnauthorizedAction;
+  /** staff_zone | never_student_net */
+  reason: string;
   count: number;
   lastAt: string;
 };
@@ -39,12 +41,24 @@ export function getNetworkZones(db: DatabaseSync): NetworkZone[] {
   }
 }
 
+/** Staff-style zones (no student): force portal hint + at least deny on mis-entry. */
+export function applyStaffVerificationDefaults(zones: NetworkZone[]): NetworkZone[] {
+  return zones.map((z) => {
+    if (z.allowedRoles.includes('student')) return z;
+    return {
+      ...z,
+      requirePortal: true,
+      studentUnauthorized: z.studentUnauthorized === 'kick' ? 'kick' : 'deny',
+    };
+  });
+}
+
 export function saveNetworkZones(
   db: DatabaseSync,
   zones: NetworkZone[],
   actor?: { actorUserId?: string; actorRole?: string; clientIp?: string },
 ): NetworkZone[] {
-  const next = normalizeNetworkZones(zones);
+  const next = applyStaffVerificationDefaults(normalizeNetworkZones(zones));
   upsertSetting(db, KEY_NETWORK_ZONES, JSON.stringify(next));
   writeAudit(
     {
@@ -69,6 +83,19 @@ export function ensureZoneIds(zones: NetworkZone[]): NetworkZone[] {
 
 export function resolveZoneForHint(db: DatabaseSync, hint: NetworkHint | null | undefined) {
   return matchNetworkZone(getNetworkZones(db), hint);
+}
+
+export function getEverStudentZone(db: DatabaseSync, studentId: string): boolean {
+  const row = db
+    .prepare(`SELECT net_ever_student_zone AS v FROM users WHERE id = ?`)
+    .get(studentId) as { v?: number } | undefined;
+  return Number(row?.v ?? 0) === 1;
+}
+
+export function markEverStudentZone(db: DatabaseSync, studentId: string) {
+  db.prepare(`UPDATE users SET net_ever_student_zone = 1 WHERE id = ? AND role = 'student'`).run(
+    studentId,
+  );
 }
 
 export function listZoneViolations(db: DatabaseSync): ZoneViolation[] {
@@ -101,6 +128,8 @@ export function recordZoneViolation(
     classId: string;
     zone: NetworkZone;
     hint: NetworkHint;
+    action: NetworkZoneUnauthorizedAction;
+    reason: string;
   },
 ): ZoneViolation {
   const list = listZoneViolations(db);
@@ -116,7 +145,8 @@ export function recordZoneViolation(
       lastAt: at,
       ssid: String(opts.hint.ssid ?? list[idx]!.ssid ?? ''),
       ipv4: String(opts.hint.ipv4 ?? list[idx]!.ipv4 ?? ''),
-      action: opts.zone.studentUnauthorized,
+      action: opts.action,
+      reason: opts.reason,
       zoneLabel: opts.zone.label,
     };
     list[idx] = row;
@@ -128,7 +158,8 @@ export function recordZoneViolation(
       zoneLabel: opts.zone.label,
       ssid: String(opts.hint.ssid ?? ''),
       ipv4: String(opts.hint.ipv4 ?? ''),
-      action: opts.zone.studentUnauthorized,
+      action: opts.action,
+      reason: opts.reason,
       count: 1,
       lastAt: at,
     };
@@ -138,9 +169,20 @@ export function recordZoneViolation(
   return row;
 }
 
-/**
- * If student is on a zone that disallows students, flag and optionally shield deny/kick.
- */
+/** Never seen on student-allowed zone → always block (deny min). */
+export function resolveUnauthorizedAction(
+  zone: NetworkZone,
+  everStudentZone: boolean,
+): { action: NetworkZoneUnauthorizedAction; reason: string } {
+  if (!everStudentZone) {
+    return {
+      action: zone.studentUnauthorized === 'kick' ? 'kick' : 'deny',
+      reason: 'never_student_net',
+    };
+  }
+  return { action: zone.studentUnauthorized, reason: 'staff_zone' };
+}
+
 export async function enforceStudentZonePolicy(
   db: DatabaseSync,
   opts: {
@@ -153,31 +195,59 @@ export async function enforceStudentZonePolicy(
   zone: NetworkZone | null;
   unauthorized: boolean;
   action: NetworkZoneUnauthorizedAction | null;
+  reason: string | null;
+  everStudentZone: boolean;
   violation: ZoneViolation | null;
 }> {
   const zone = resolveZoneForHint(db, opts.hint);
-  const unauthorized = studentUnauthorizedOnZone(zone);
-  if (!zone || !unauthorized) {
-    return { zone, unauthorized: false, action: null, violation: null };
+  let everStudentZone = getEverStudentZone(db, opts.studentId);
+
+  if (zone && zone.allowedRoles.includes('student')) {
+    if (!everStudentZone) {
+      markEverStudentZone(db, opts.studentId);
+      everStudentZone = true;
+    }
+    return {
+      zone,
+      unauthorized: false,
+      action: null,
+      reason: null,
+      everStudentZone,
+      violation: null,
+    };
   }
 
+  const unauthorized = studentUnauthorizedOnZone(zone);
+  if (!zone || !unauthorized) {
+    return {
+      zone,
+      unauthorized: false,
+      action: null,
+      reason: null,
+      everStudentZone,
+      violation: null,
+    };
+  }
+
+  const resolved = resolveUnauthorizedAction(zone, everStudentZone);
   const violation = recordZoneViolation(db, {
     studentId: opts.studentId,
     classId: opts.classId,
     zone,
     hint: opts.hint,
+    action: resolved.action,
+    reason: resolved.reason,
   });
 
-  const action = zone.studentUnauthorized;
   const clientKey = String(opts.clientId || opts.studentId).trim();
   const connector = getShieldConnector();
-  if (clientKey && (action === 'deny' || action === 'kick')) {
+  if (clientKey && (resolved.action === 'deny' || resolved.action === 'kick')) {
     const ref = {
       clientKey,
       classId: opts.classId,
       studentId: opts.studentId,
     };
-    if (action === 'kick') await connector.kickClient(ref);
+    if (resolved.action === 'kick') await connector.kickClient(ref);
     else {
       await connector.authorizeClient({
         ...ref,
@@ -187,5 +257,12 @@ export async function enforceStudentZonePolicy(
     }
   }
 
-  return { zone, unauthorized: true, action, violation };
+  return {
+    zone,
+    unauthorized: true,
+    action: resolved.action,
+    reason: resolved.reason,
+    everStudentZone,
+    violation,
+  };
 }

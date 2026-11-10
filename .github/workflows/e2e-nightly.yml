@@ -66,6 +66,192 @@ jobs:
               core.info(`Opened #${created.data.number} (no labels)`);
             }
 
+  # Multi-class portal epoch canary (parallel lesson end).
+  portal-multi-class-epoch-smoke:
+    runs-on: ubuntu-latest
+    env:
+      PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/.pw-browsers
+      API_BASE: http://127.0.0.1:8787
+      CD_E2E_RETRIES: '0'
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/.pw-browsers
+          key: pw-chromium-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            pw-chromium-${{ runner.os }}-
+      - name: Install
+        run: npm install
+      - name: Install Playwright
+        run: npx playwright install --with-deps chromium
+      - name: Start API
+        run: |
+          JWT_SECRET=ci-secret-not-for-prod \
+          ADMIN_PASSWORD=AdminPass123 \
+          TEACHER_PASSWORD=TeacherPass123 \
+          DEFAULT_CLASS_CODE=DEMO01 \
+          CLASSROOM_DESK_E2E=1 \
+          npm run start --workspace=@classroom-desk/server &
+          for i in $(seq 1 40); do
+            curl -fsS http://127.0.0.1:8787/health >/dev/null && break
+            sleep 1
+          done
+      - name: portal-multi-class-epoch (retries=0)
+        run: npx playwright test e2e/portal-multi-class-epoch.spec.ts --reporter=line
+      - name: Upload epoch canary results
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: portal-multi-class-epoch-nightly
+          path: |
+            test-results/**
+            playwright-report/**
+          if-no-files-found: ignore
+      - name: Comment on shared Nightly e2e Issue
+        if: failure()
+        continue-on-error: true
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const title = 'Nightly e2e failed';
+            const body = [
+              `### Canary: portal-multi-class-epoch (${context.runId})`,
+              `**Run:** ${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`,
+              `**Commit:** ${context.sha}`,
+              '',
+              'Artifact: `portal-multi-class-epoch-nightly`.',
+            ].join('\n');
+            try {
+              const issues = await github.rest.issues.listForRepo({
+                owner, repo, state: 'open', labels: 'nightly-e2e', per_page: 15,
+              });
+              const existing = issues.data.find((i) => i.title.startsWith('Nightly e2e failed'));
+              if (existing) {
+                await github.rest.issues.createComment({
+                  owner, repo, issue_number: existing.number, body,
+                });
+              } else {
+                await github.rest.issues.create({
+                  owner, repo, title, body, labels: ['nightly-e2e', 'bug'],
+                });
+              }
+            } catch (e) {
+              core.warning(`Issue notify skipped: ${e.message}`);
+            }
+
+  # Portal staff-net block canary (campus net path).
+  portal-staff-block-smoke:
+    runs-on: ubuntu-latest
+    env:
+      PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/.pw-browsers
+      API_BASE: http://127.0.0.1:8787
+      TEACHER_WEB: http://localhost:5174
+      CD_E2E_RETRIES: '0'
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/.pw-browsers
+          key: pw-chromium-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            pw-chromium-${{ runner.os }}-
+      - name: Install
+        run: npm install
+      - name: Install Playwright
+        run: npx playwright install --with-deps chromium
+      - name: Start API
+        run: |
+          JWT_SECRET=ci-secret-not-for-prod \
+          ADMIN_PASSWORD=AdminPass123 \
+          TEACHER_PASSWORD=TeacherPass123 \
+          DEFAULT_CLASS_CODE=DEMO01 \
+          CLASSROOM_DESK_E2E=1 \
+          npm run start --workspace=@classroom-desk/server &
+          for i in $(seq 1 40); do
+            curl -fsS http://127.0.0.1:8787/health >/dev/null && break
+            sleep 1
+          done
+      - name: portal-staff-block (retries=0)
+        id: portal_staff
+        run: npx playwright test e2e/portal-staff-block.spec.ts --reporter=line
+      - name: Collect portal-staff-block log snippet
+        if: failure()
+        run: |
+          mkdir -p tmp
+          {
+            echo '### portal-staff-block failure snippet'
+            echo '```'
+            find test-results -type f \( -name '*.txt' -o -name 'error-context.md' -o -name 'test-failed-*.png' \) 2>/dev/null | head -20
+            find test-results -type f -name '*.txt' -print0 2>/dev/null | xargs -0 head -n 80 2>/dev/null | head -n 120
+            echo '```'
+          } | tee tmp/portal-staff-block-snippet.md
+      - name: Upload portal-staff-block results
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: portal-staff-block-nightly
+          path: |
+            test-results/**
+            playwright-report/**
+            tmp/portal-staff-block-snippet.md
+          if-no-files-found: ignore
+      - name: Open Issue with portal-staff-block snippet
+        if: failure()
+        continue-on-error: true
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            let snippet = '';
+            try {
+              snippet = fs.readFileSync('tmp/portal-staff-block-snippet.md', 'utf8').slice(0, 6000);
+            } catch {
+              snippet = '_no snippet file_';
+            }
+            const title = 'Nightly e2e failed';
+            const body = [
+              `### Canary: portal-staff-block (${context.runId})`,
+              `**Run:** ${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`,
+              `**Commit:** ${context.sha}`,
+              '',
+              'Artifact: `portal-staff-block-nightly`.',
+              '',
+              snippet,
+            ].join('\n');
+            await core.summary.addHeading('portal-staff-block failure').addRaw(body.replace(/\n/g, '  \n')).write();
+            try {
+              const issues = await github.rest.issues.listForRepo({
+                owner, repo, state: 'open', labels: 'nightly-e2e', per_page: 15,
+              });
+              const existing = issues.data.find((i) => i.title.startsWith('Nightly e2e failed'));
+              if (existing) {
+                await github.rest.issues.createComment({
+                  owner, repo, issue_number: existing.number, body,
+                });
+              } else {
+                await github.rest.issues.create({
+                  owner, repo, title, body, labels: ['nightly-e2e', 'bug'],
+                });
+              }
+            } catch (e) {
+              core.warning(`Issue notify skipped: ${e.message}`);
+            }
+
   # Zero-retry canary: audit-jump must pass without CD_E2E_RETRIES masking flakes.
   audit-jump-smoke:
     runs-on: ubuntu-latest
@@ -152,6 +338,7 @@ jobs:
           ADMIN_PASSWORD=AdminPass123 \
           TEACHER_PASSWORD=TeacherPass123 \
           DEFAULT_CLASS_CODE=DEMO01 \
+          CLASSROOM_DESK_E2E=1 \
           npm run start --workspace=@classroom-desk/server &
           npm run dev:teacher &
           ELECTRON_OFF=1 npm run dev --workspace=@classroom-desk/student-desktop &
@@ -217,14 +404,60 @@ jobs:
           script: |
             const owner = context.repo.owner;
             const repo = context.repo.repo;
-            const title = `Nightly e2e failed (${context.runId})`;
+            const fs = require('fs');
+            const path = require('path');
+            let portalSnippet = '';
+            try {
+              const walk = (dir, acc = []) => {
+                if (!fs.existsSync(dir)) return acc;
+                for (const name of fs.readdirSync(dir)) {
+                  const p = path.join(dir, name);
+                  const st = fs.statSync(p);
+                  if (st.isDirectory()) walk(p, acc);
+                  else if (/portal-staff|portal-multi/i.test(p) && /\.(txt|md|log)$/i.test(name)) acc.push(p);
+                }
+                return acc;
+              };
+              const files = walk('test-results').slice(0, 5);
+              for (const f of files) {
+                portalSnippet += `\n#### \`${f}\`\n\`\`\`\n${fs.readFileSync(f, 'utf8').slice(0, 1500)}\n\`\`\`\n`;
+              }
+            } catch (e) {
+              portalSnippet = `_snippet scan failed: ${e.message}_`;
+            }
+            const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
+            const artifactUrl = `${runUrl}#artifacts`;
+            let traceLinks = [];
+            try {
+              const walk = (dir, acc = []) => {
+                if (!fs.existsSync(dir)) return acc;
+                for (const name of fs.readdirSync(dir)) {
+                  const p = path.join(dir, name);
+                  const st = fs.statSync(p);
+                  if (st.isDirectory()) walk(p, acc);
+                  else if (/trace\.zip$/i.test(name)) acc.push(p);
+                }
+                return acc;
+              };
+              traceLinks = walk('test-results').slice(0, 8);
+            } catch { /* ignore */ }
+            // Shared Issue title so canaries + full suite aggregate into one thread.
+            const title = 'Nightly e2e failed';
             const body = [
+              `### Full suite (${context.runId})`,
               `**Workflow:** ${context.workflow}`,
-              `**Run:** ${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`,
+              `**Run:** ${runUrl}`,
               `**Commit:** ${context.sha}`,
               `**Ref:** ${context.ref}`,
               '',
-              'Automated by `e2e-nightly.yml`. Check artifacts `playwright-nightly-full`.',
+              'Automated by `e2e-nightly.yml`.',
+              `- Artifact bundle: [\`playwright-nightly-full\`](${artifactUrl}) (includes Playwright \`trace.zip\` when retained-on-failure).`,
+              traceLinks.length
+                ? `- Local trace paths in artifact:\n${traceLinks.map((p) => `  - \`${p}\``).join('\n')}`
+                : '- Trace zip: open artifact → `test-results/**/trace.zip` → `npx playwright show-trace trace.zip`',
+              '',
+              '### portal-related log snippets',
+              portalSnippet || '_none found in test-results_',
             ].join('\n');
 
             // Always mirror into Step Summary so ACL 403 never hides the failure link.

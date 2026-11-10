@@ -677,6 +677,11 @@ export function App() {
                 onGoAssign={() => setTab('assign')}
                 onSetupChanged={() => setSetupTick((n) => n + 1)}
                 onOpenLockAdvanced={() => openInputLockSettings()}
+                onOpenPresence={(cid) => {
+                  if (cid) setClassId(cid);
+                  setPrepTab('presence');
+                  setTab('prep');
+                }}
               />
             )}
             {tab === 'assign' && (

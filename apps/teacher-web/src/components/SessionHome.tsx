@@ -4,6 +4,9 @@ import { POINT_REASON_CHIPS } from '../types';
 import { ClassroomLockBar } from './ClassroomLockBar';
 import { DeepLockBar } from './DeepLockBar';
 import { NetworkZonesPanel } from './NetworkZonesPanel';
+import { PrincipalDashboard } from './PrincipalDashboard';
+import { HealthNetCard } from './HealthNetCard';
+import { CapabilityGate } from './CapabilityGates';
 import { LiveBoard } from './LiveBoard';
 import { t, te } from '@classroom-desk/i18n';
 
@@ -22,6 +25,7 @@ export function SessionHome({
   onGoAssign,
   onSetupChanged,
   onOpenLockAdvanced,
+  onOpenPresence,
 }: {
   classId: string;
   onEnterProjection: () => void;
@@ -29,6 +33,7 @@ export function SessionHome({
   onGoAssign?: () => void;
   onSetupChanged?: () => void;
   onOpenLockAdvanced?: () => void;
+  onOpenPresence?: (targetClassId: string) => void;
 }) {
   const [kind, setKind] = useState<'bool' | 'blank'>('bool');
   const [boolCorrect, setBoolCorrect] = useState<'A' | 'B'>('A');
@@ -398,6 +403,18 @@ export function SessionHome({
       <ClassroomLockBar classId={classId} onOpenAdvanced={onOpenLockAdvanced} />
       <DeepLockBar classId={classId} />
       <NetworkZonesPanel />
+      <CapabilityGate flag="examBox" label={t('Exam Box')}>
+        <p className="hint" data-testid="exam-box-hint">
+          {t('Exam Box 小盒说明见 docs/EXAM_BOX.md · compose 在 deploy/exam-box/')}
+        </p>
+      </CapabilityGate>
+      <CapabilityGate flag="netDns" label={t('DeskDNS')}>
+        <p className="hint" data-testid="desk-dns-hint">
+          {t('DeskDNS：主机设置 CLASSROOM_DESK_DNS=1，DHCP 指向本机 DNS 端口（默认 5353）。')}
+        </p>
+      </CapabilityGate>
+      <HealthNetCard />
+      <PrincipalDashboard onOpenPresence={onOpenPresence} />
       {buzzRound ? (
         <section>
           <h2>

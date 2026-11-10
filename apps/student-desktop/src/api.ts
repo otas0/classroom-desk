@@ -78,6 +78,10 @@ export class ApiError extends Error {
 export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers);
   headers.set('Content-Type', 'application/json');
+  // Lab agent identity so roster stays available when privateDevicePortalOnly is on.
+  if (!headers.has('X-Cd-Client')) {
+    headers.set('X-Cd-Client', typeof window !== 'undefined' && window.classroomDesk ? 'lab-agent' : 'web');
+  }
   const token = getToken();
   if (token) headers.set('Authorization', `Bearer ${token}`);
 

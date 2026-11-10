@@ -42,6 +42,13 @@ const DEFAULT_SETTINGS: Record<string, string> = {
    * Never silent; never pulls public GitHub on lab PCs.
    */
   student_auto_update: '0',
+  /**
+   * BYOD / browser must use /portal; lab-agent (X-Cd-Client: lab-agent) still reads public roster.
+   * Setup wizard recommends on; default seeded to 1.
+   */
+  private_device_portal_only: '1',
+  /** Reject unsigned portal SSID (setup wizard / NetworkZones can flip). Env can still force on. */
+  portal_ssid_require_sig: '0',
 };
 
 export function migrate(database?: DatabaseSync): DatabaseSync {
@@ -54,6 +61,10 @@ export function migrate(database?: DatabaseSync): DatabaseSync {
   ensureColumn(conn, 'users', 'disabled_at', 'TEXT');
   /** Per-user password-ok flag (assistants: first-login change); teachers also use settings.teacher_password_ok. */
   ensureColumn(conn, 'users', 'password_ok', 'INTEGER DEFAULT 0');
+  ensureColumn(conn, 'users', 'net_ever_student_zone', 'INTEGER NOT NULL DEFAULT 0');
+  /** Roster OTP delivery targets (portal challenge). */
+  ensureColumn(conn, 'users', 'contact_email', 'TEXT');
+  ensureColumn(conn, 'users', 'contact_phone', 'TEXT');
   ensureColumn(conn, 'questions', 'attachments', 'TEXT');
   ensureColumn(conn, 'questions', 'closed_at', 'TEXT');
   ensureColumn(conn, 'questions', 'closes_at', 'TEXT');

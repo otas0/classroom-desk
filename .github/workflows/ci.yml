@@ -20,6 +20,11 @@ jobs:
         run: npm run typecheck --workspace=@classroom-desk/server
       - name: Check i18n locale key coverage
         run: npm run check:i18n-keys
+      - name: SKU HTML generated from Markdown (no drift)
+        run: |
+          npm run generate:sku-html
+          git diff --exit-code -- docs/SKU_CAPABILITIES.html \
+            || { echo "SKU HTML out of date — run npm run generate:sku-html"; exit 1; }
       - name: Test server
         run: npm run test:server
       - name: Build teacher SPA + health / PERMISSIONS.md smoke

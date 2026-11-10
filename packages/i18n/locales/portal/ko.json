@@ -1,0 +1,13 @@
+{
+  "title": "캠퍼스 네트워크 인증",
+  "hint": "설치 없음. 학번+코드. 교직원망 미인증 차단. 지문 없음.",
+  "studentNo": "학번",
+  "code": "OTP / 공용 코드",
+  "getCode": "코드 받기",
+  "submit": "인증 후 확인",
+  "caps": "포털 · 존 · never_student_net · Shield",
+  "otpSent": "코드 전송됨",
+  "mailtoReady": "메일 준비됨",
+  "offline": "오프라인",
+  "ssidRequired": "게이트웨이 리다이렉트로 열어주세요(서명 SSID 필요)"
+}

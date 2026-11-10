@@ -2,6 +2,7 @@ import { Router } from 'express';
 import multer from 'multer';
 import * as XLSX from 'xlsx';
 import { openDb } from '../db/client.js';
+import { getSetting } from '../db/migrate.js';
 import { requireAuth, requireRoles, type AuthedRequest } from '../middleware/auth.js';
 import { RECYCLE_RETENTION_DAYS, writeAudit } from '../services/audit.js';
 import { recycleTiming } from '../utils/recycleRetention.js';
@@ -78,8 +79,8 @@ function importStudentRows(classId: string, rows: ImportRow[], opts?: { replace?
   const failures: ImportFailure[] = [];
   const createdAt = nowIso();
   const insert = db.prepare(
-    `INSERT INTO users (id, role, display_name, username, password_hash, student_no, class_id, total_points, created_at)
-     VALUES (?, 'student', ?, NULL, NULL, ?, ?, 0, ?)`,
+    `INSERT INTO users (id, role, display_name, username, password_hash, student_no, contact_email, contact_phone, class_id, total_points, created_at)
+     VALUES (?, 'student', ?, NULL, NULL, ?, ?, ?, ?, 0, ?)`,
   );
   const existsByName = db.prepare(
     `SELECT id FROM users WHERE role = 'student' AND class_id = ? AND display_name = ? COLLATE NOCASE
@@ -139,7 +140,22 @@ function importStudentRows(classId: string, rows: ImportRow[], opts?: { replace?
       });
       continue;
     }
-    insert.run(newId(), name, studentNo, classId, createdAt);
+    const contactEmail =
+      row.contactEmail === '' || row.contactEmail == null ? null : String(row.contactEmail).trim();
+    const contactPhone =
+      row.contactPhone === '' || row.contactPhone == null ? null : String(row.contactPhone).trim();
+    if (contactEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contactEmail)) {
+      skipped += 1;
+      failures.push({
+        line,
+        name,
+        studentNo,
+        reason: 'invalid_email',
+        reasonText: '邮箱格式无效',
+      });
+      continue;
+    }
+    insert.run(newId(), name, studentNo, contactEmail, contactPhone, classId, createdAt);
     created += 1;
   }
 
@@ -175,10 +191,23 @@ classesRouter.post('/api/v1/classes', requireAuth, requireRoles('teacher', 'admi
   res.status(201).json({ id, name, classCode, createdAt });
 });
 
-/** Public roster for student machines assigned to this classId (no class-code join). */
+/** Public roster for lab machines. When private_device_portal_only=1, BYOD must use /portal. */
 classesRouter.get('/api/v1/classes/:id/roster', (req, res) => {
   const classId = paramId(req.params.id);
   const db = openDb();
+  const portalOnly = getSetting(db, 'private_device_portal_only') === '1';
+  const clientHint = String(req.query.client ?? req.headers['x-cd-client'] ?? '')
+    .trim()
+    .toLowerCase();
+  // Lab Electron still allowed; browsers / byod blocked when flag on.
+  if (portalOnly && clientHint !== 'lab-agent' && clientHint !== 'electron') {
+    res.status(403).json({
+      error: 'portal_required',
+      message: '私人设备请走校园网门户认证，不开放公开名单点选',
+      portalPath: '/portal',
+    });
+    return;
+  }
   const klass = db
     .prepare(`SELECT id, name FROM classes WHERE id = ?`)
     .get(classId) as { id: string; name: string } | undefined;
@@ -188,7 +217,8 @@ classesRouter.get('/api/v1/classes/:id/roster', (req, res) => {
   }
   const items = db
     .prepare(
-      `SELECT id, display_name AS displayName, student_no AS studentNo, total_points AS totalPoints
+      `SELECT id, display_name AS displayName, student_no AS studentNo, total_points AS totalPoints,
+              contact_email AS contactEmail, contact_phone AS contactPhone
        FROM users
        WHERE role = 'student' AND class_id = ?
          AND (deleted_at IS NULL OR deleted_at = '')
@@ -205,7 +235,8 @@ classesRouter.get(
   (req, res) => {
     const students = openDb()
       .prepare(
-        `SELECT id, display_name AS displayName, student_no AS studentNo, total_points AS totalPoints, created_at AS createdAt
+        `SELECT id, display_name AS displayName, student_no AS studentNo, total_points AS totalPoints,
+                contact_email AS contactEmail, contact_phone AS contactPhone, created_at AS createdAt
          FROM users
          WHERE role = 'student' AND class_id = ?
            AND (deleted_at IS NULL OR deleted_at = '')
@@ -325,6 +356,8 @@ classesRouter.post(
       studentNoRaw === undefined || studentNoRaw === null
         ? null
         : String(studentNoRaw).trim() || null;
+    const contactEmail = String(req.body?.contactEmail ?? '').trim() || null;
+    const contactPhone = String(req.body?.contactPhone ?? '').trim() || null;
 
     if (!/^[\u4e00-\u9fffA-Za-z0-9·•\s._-]{1,40}$/.test(displayName)) {
       res.status(400).json({ error: 'invalid_name', message: '姓名含非法字符或过长' });
@@ -332,6 +365,10 @@ classesRouter.post(
     }
     if (studentNo && !/^[A-Za-z0-9_-]{1,32}$/.test(studentNo)) {
       res.status(400).json({ error: 'invalid_student_no', message: '学号含非法字符（仅字母数字_-）' });
+      return;
+    }
+    if (contactEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contactEmail)) {
+      res.status(400).json({ error: 'invalid_email', message: '邮箱格式无效' });
       return;
     }
     if (
@@ -361,10 +398,18 @@ classesRouter.post(
     const id = newId();
     const createdAt = nowIso();
     db.prepare(
-      `INSERT INTO users (id, role, display_name, username, password_hash, student_no, class_id, total_points, created_at)
-       VALUES (?, 'student', ?, NULL, NULL, ?, ?, 0, ?)`,
-    ).run(id, displayName, studentNo, classId, createdAt);
-    res.status(201).json({ id, displayName, studentNo, totalPoints: 0, createdAt });
+      `INSERT INTO users (id, role, display_name, username, password_hash, student_no, contact_email, contact_phone, class_id, total_points, created_at)
+       VALUES (?, 'student', ?, NULL, NULL, ?, ?, ?, ?, 0, ?)`,
+    ).run(id, displayName, studentNo, contactEmail, contactPhone, classId, createdAt);
+    res.status(201).json({
+      id,
+      displayName,
+      studentNo,
+      contactEmail,
+      contactPhone,
+      totalPoints: 0,
+      createdAt,
+    });
   },
 );
 
@@ -426,11 +471,18 @@ classesRouter.patch(
     const db = openDb();
     const row = db
       .prepare(
-        `SELECT id, display_name AS displayName, student_no AS studentNo
+        `SELECT id, display_name AS displayName, student_no AS studentNo,
+                contact_email AS contactEmail, contact_phone AS contactPhone
          FROM users WHERE id = ? AND role = 'student' AND class_id = ?`,
       )
       .get(studentId, classId) as
-      | { id: string; displayName: string; studentNo: string | null }
+      | {
+          id: string;
+          displayName: string;
+          studentNo: string | null;
+          contactEmail: string | null;
+          contactPhone: string | null;
+        }
       | undefined;
     if (!row) {
       res.status(404).json({ error: 'student_not_found', message: '学生不在本班名单中' });
@@ -443,6 +495,14 @@ classesRouter.patch(
       req.body?.studentNo !== undefined
         ? String(req.body.studentNo ?? '').trim() || null
         : row.studentNo;
+    const contactEmail =
+      req.body?.contactEmail !== undefined
+        ? String(req.body.contactEmail ?? '').trim() || null
+        : row.contactEmail;
+    const contactPhone =
+      req.body?.contactPhone !== undefined
+        ? String(req.body.contactPhone ?? '').trim() || null
+        : row.contactPhone;
 
     if (!/^[\u4e00-\u9fffA-Za-z0-9·•\s._-]{1,40}$/.test(nextName)) {
       res.status(400).json({ error: 'invalid_name', message: '姓名含非法字符或过长' });
@@ -450,6 +510,10 @@ classesRouter.patch(
     }
     if (hasNo && !/^[A-Za-z0-9_-]{1,32}$/.test(hasNo)) {
       res.status(400).json({ error: 'invalid_student_no', message: '学号含非法字符（仅字母数字_-）' });
+      return;
+    }
+    if (contactEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contactEmail)) {
+      res.status(400).json({ error: 'invalid_email', message: '邮箱格式无效' });
       return;
     }
 
@@ -478,16 +542,16 @@ classesRouter.patch(
       }
     }
 
-    db.prepare(`UPDATE users SET display_name = ?, student_no = ? WHERE id = ?`).run(
-      nextName,
-      hasNo,
-      studentId,
-    );
+    db.prepare(
+      `UPDATE users SET display_name = ?, student_no = ?, contact_email = ?, contact_phone = ? WHERE id = ?`,
+    ).run(nextName, hasNo, contactEmail, contactPhone, studentId);
     res.json({
       ok: true,
       id: studentId,
       displayName: nextName,
       studentNo: hasNo,
+      contactEmail,
+      contactPhone,
     });
   },
 );

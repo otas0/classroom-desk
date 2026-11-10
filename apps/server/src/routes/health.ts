@@ -10,6 +10,8 @@ import { readAuditWriteFailure } from '../services/auditFail.js';
 import { auditRetryHealth } from '../services/auditRetry.js';
 import { exportTempStats } from '../utils/exportTempTracker.js';
 import { config } from '../config.js';
+import { getDeskDnsStatus } from '../services/deskDns.js';
+import { getShieldConnector, listShieldAdapterIds } from '../services/shield/registry.js';
 
 export const healthRouter = Router();
 
@@ -126,6 +128,8 @@ function buildHealthPayload() {
     }
   }
   const degraded = Boolean(auditLastError) || auditRetry.degraded || exportTmp.tmpLeaked > 0;
+  const deskDns = getDeskDnsStatus();
+  const shield = getShieldConnector();
   return {
     ok: dbOk,
     degraded,
@@ -163,6 +167,17 @@ function buildHealthPayload() {
       permissionsUrl: '/admin/PERMISSIONS.md',
     },
     lastCleanupAt: getSetting(db, 'last_cleanup_at'),
+    deskDns: {
+      enabled: deskDns.enabled,
+      running: deskDns.running,
+      port: deskDns.port,
+      error: deskDns.error,
+    },
+    shield: {
+      active: shield.id,
+      displayName: shield.displayName,
+      adapters: listShieldAdapterIds(),
+    },
   };
 }
 
@@ -202,6 +217,7 @@ function healthHtmlPage(payload: ReturnType<typeof buildHealthPayload>): string 
     <p>${ok ? '本机浏览器已连通教室服务器。请关闭本页，打开课堂客户端。' : '请告诉老师：检查教师机是否开机、防火墙、是否同一 Wi‑Fi，并关闭 AP/访客隔离。'}</p>
     <p class="meta">时间：${payload.time}</p>
     <p class="meta">数据库：${payload.db.ok ? '正常' : '异常'} · 备份：${payload.backup.latestAt ?? '无'}${err ? ` · 备份错误：${String(err.message)}` : ''}</p>
+    <p class="meta">DeskDNS：${payload.deskDns.enabled ? (payload.deskDns.running ? `运行中 udp/${payload.deskDns.port}` : `已启用未绑定${payload.deskDns.error ? `（${payload.deskDns.error}）` : ''}`) : '未启用'} · Shield：${payload.shield.displayName}（${payload.shield.active}）</p>
     <p class="meta">接口：<code>/health</code>（JSON 客户端仍返回 JSON）</p>
     <button type="button" onclick="location.reload()">重新检测</button>
   </main>
@@ -227,4 +243,72 @@ healthRouter.get('/ready', (req, res) => {
 
 healthRouter.get('/health', (req, res) => {
   sendHealth(req, res);
+});
+
+/**
+ * DeskDNS :53 / bind acceptance for teacher UI one-click.
+ * Runs ss -ulnp when available (Linux); always returns /health deskDns block.
+ */
+healthRouter.get('/api/v1/health/deskdns-check', async (_req, res) => {
+  const deskDns = getDeskDnsStatus();
+  let probe = '';
+  let probeTool: 'ss' | 'lsof' | 'none' = 'none';
+  let listening53: boolean | null = null;
+  const { execFile } = await import('node:child_process');
+  const { promisify } = await import('node:util');
+  const execFileAsync = promisify(execFile);
+
+  try {
+    const { stdout } = await execFileAsync('ss', ['-ulnp'], {
+      timeout: 3_000,
+      maxBuffer: 512_000,
+    });
+    probe = String(stdout).slice(0, 4_000);
+    probeTool = 'ss';
+    listening53 = /:53\b/.test(probe);
+  } catch {
+    // macOS / BSD: fall back to lsof
+    try {
+      const { stdout } = await execFileAsync('lsof', ['-nP', '-iUDP:53'], {
+        timeout: 3_000,
+        maxBuffer: 512_000,
+      });
+      probe = String(stdout).slice(0, 4_000);
+      probeTool = 'lsof';
+      listening53 = /UDP.*:53\b|:53\b/i.test(probe) && probe.trim().length > 0;
+      if (!probe.trim()) listening53 = false;
+    } catch (e2) {
+      // Also try 5353 for lab default
+      try {
+        const { stdout } = await execFileAsync('lsof', ['-nP', '-iUDP:5353'], {
+          timeout: 3_000,
+          maxBuffer: 256_000,
+        });
+        probe = String(stdout).slice(0, 4_000);
+        probeTool = 'lsof';
+        if (deskDns.port === 53) listening53 = false;
+        else listening53 = probe.trim().length > 0 ? true : false;
+      } catch {
+        probe = e2 instanceof Error ? e2.message : 'probe_unavailable';
+        listening53 = null;
+      }
+    }
+  }
+  const ok =
+    !deskDns.enabled ||
+    (deskDns.running && (deskDns.port !== 53 || listening53 !== false));
+  res.status(ok ? 200 : 503).json({
+    ok,
+    deskDns,
+    listening53,
+    probeTool,
+    ssSample: probe
+      .split('\n')
+      .filter((l) => /:53\b|:5353\b|UNCONN|udp|UDP|COMMAND/i.test(l))
+      .slice(0, 20),
+    hint:
+      deskDns.port === 53 && listening53 === false
+        ? 'CLASSROOM_DESK_DNS_PORT=53 but no udp/53 listener — see docs/DESKDNS_PORT53.md'
+        : null,
+  });
 });

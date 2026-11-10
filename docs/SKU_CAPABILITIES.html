@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Classroom Desk · 能力旗标 ↔ SKU</title>
+  <meta name="generator" content="scripts/generate-sku-html.mjs" />
+  <style>
+    :root { color-scheme: light; font-family: "PingFang SC", "Noto Sans SC", "Segoe UI", sans-serif; }
+    body { margin: 0; padding: 2rem; background: linear-gradient(160deg, #eef4f7, #f7f3ea); color: #1a1a1a; }
+    main { max-width: 52rem; margin: 0 auto; background: #fff; padding: 2rem; border: 1px solid #d7d0c4; border-radius: 12px; }
+    h1 { margin: 0 0 .4rem; font-size: 1.75rem; }
+    .sub { color: #555; margin: 0 0 1.25rem; }
+    table { width: 100%; border-collapse: collapse; font-size: .95rem; }
+    th, td { border-bottom: 1px solid #e5e0d6; padding: .55rem .4rem; text-align: left; vertical-align: top; }
+    th { font-size: .8rem; text-transform: uppercase; letter-spacing: .04em; color: #666; }
+    code { background: #f4f1ea; padding: .1rem .3rem; border-radius: .25rem; font-size: .85em; }
+    .packs { margin-top: 1.5rem; }
+    .packs li { margin: .35rem 0; }
+    .actions { margin-top: 1.5rem; display: flex; gap: .75rem; flex-wrap: wrap; }
+    button, a.btn { font: inherit; padding: .55rem 1rem; border: 0; border-radius: 8px; background: #0b4f6c; color: #fff; cursor: pointer; text-decoration: none; }
+    @media print {
+      body { background: #fff; padding: 0; }
+      .actions { display: none; }
+      main { border: 0; box-shadow: none; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Classroom Desk · 能力旗标 ↔ SKU</h1>
+    <p class="sub">销售一页纸 · 打印或「另存为 PDF」。由 Markdown 自动生成，勿手改本文件。</p>
+    <table>
+      <thead>
+        <tr><th>能力旗标</th><th>SKU / 交付物</th><th>学校前置</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>labAgent</code></td><td>机房桌面端（Electron）</td><td>Windows 机房；可选 Assigned Access</td></tr>
+        <tr><td><code>deepLock</code></td><td>深锁控制台（冻结 / 仅试卷 / 下课）</td><td>教师 Web</td></tr>
+        <tr><td><code>networkZones</code></td><td>自定义网络配置档（SSID/CIDR）</td><td>多 SSID 或分网段</td></tr>
+        <tr><td><code>netPortal</code></td><td>零安装 Captive Portal <code>/portal</code></td><td>网关跳转 + 花名册</td></tr>
+        <tr><td><code>portalSignedSsid</code> / <code>portalSsidRequireSig</code></td><td>网关 HMAC 注入 SSID</td><td><code>sign-ssid</code> 或 openNDS FAS</td></tr>
+        <tr><td><code>gatewayAllowlist</code></td><td>admit 后 IP 放行表</td><td>OPNsense / openNDS / UniFi</td></tr>
+        <tr><td><code>netShield</code> + <code>opnsense</code> / <code>unifi</code></td><td>Shield 适配器</td><td>防火墙/控制器 API</td></tr>
+        <tr><td><code>netDns</code> / <code>netDnsRunning</code></td><td>DeskDNS（单网只改 DNS）</td><td>DHCP 指向教师机；可绑 53</td></tr>
+        <tr><td><code>neverStudentNetBlock</code></td><td>从未学生网 → 教工网拦截</td><td>区配置 <code>studentUnauthorized</code></td></tr>
+        <tr><td><code>privateDevicePortalOnly</code></td><td>私人设备默认走门户</td><td>开通默认开；lab-agent 例外</td></tr>
+        <tr><td><code>examBox</code></td><td>Exam Box 文档 + compose 镜像</td><td>考场旁路小盒</td></tr>
+        <tr><td><code>examBoxHardware</code></td><td>量产刷机镜像（未交付时灰显）</td><td>采购硬件 SKU</td></tr>
+        <tr><td><code>enterprise8021x</code></td><td>802.1X 对接白皮书</td><td>RADIUS / IdP</td></tr>
+        <tr><td><code>principalDashboard</code></td><td>校长只读能力/在线看板</td><td>教师或管理员账号</td></tr>
+        <tr><td><code>deviceFingerprinting</code></td><td>**始终 false**（不做隐蔽指纹）</td><td>—</td></tr>
+      </tbody>
+    </table>
+    <div class="packs">
+      <strong>打包建议</strong>
+      <ol>
+        <li>**机房包**：labAgent + deepLock</li>
+        <li>**校园网包**：netPortal + networkZones + gatewayAllowlist + Shield</li>
+        <li>**单网校包**：DeskDNS（+ 可选门户）</li>
+        <li>**考场包**：Exam Box compose / 后续硬件</li>
+        <li>**企业包**：802.1X 白皮书 + 强制签名 SSID</li>
+        <li>旗标驱动教师 UI 灰显未交付项（如 <code>examBoxHardware</code>、未启 <code>netDnsRunning</code>）。</li>
+      </ol>
+    </div>
+    <div class="actions">
+      <button type="button" onclick="window.print()">打印 / 另存 PDF</button>
+      <a class="btn" href="./SKU_CAPABILITIES.md">打开 Markdown</a>
+    </div>
+  </main>
+</body>
+</html>

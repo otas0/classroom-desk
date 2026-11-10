@@ -1,0 +1,29 @@
+# OPNsense / pfSense-style walled garden + Classroom Desk aliases
+# Create host aliases first:
+#   classroom_desk_allow  — admitted client IPs (Shield allow/allowlist)
+#   classroom_desk_block  — kicked / deny clients
+#   classroom_desk_portal — teacher host IP(s) serving /portal + API
+#
+# Floating / LAN rules (conceptual order — implement in OPNsense Firewall → Rules):
+
+# 1) Always allow DNS to DeskDNS / portal host (optional if using OPNsense DNS)
+# pass in quick on $lan proto { tcp udp } from any to $classroom_desk_portal port { 53 5353 8787 }
+
+# 2) Captive / unauthenticated: only portal + DHCP + DNS
+# pass in quick on $lan proto tcp from !$classroom_desk_allow to $classroom_desk_portal port { 80 443 8787 }
+# pass in quick on $lan proto udp from any to any port 53
+# pass in quick on $lan proto udp from any to any port 67
+
+# 3) Explicit block list (kick / never_student_net)
+# block in quick on $lan from $classroom_desk_block to any
+
+# 4) Admitted clients full egress (or restrict as school policy)
+# pass in on $lan from $classroom_desk_allow to any
+
+# 5) Default deny remaining LAN clients until portal admit
+# block in on $lan from any to !(self|$classroom_desk_portal) 
+
+# Notes:
+# - Shield adapter writes IPs into allow/block aliases via alias_util + reconfigure.
+# - openNDS can sync the same allowlist via deploy/opennds/auth_allowlist.sh
+# - Screenshot checklist: see docs/OPNSENSE_ACCEPTANCE.md
