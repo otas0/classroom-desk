@@ -16,10 +16,16 @@ test.describe('campus preset audit', () => {
     const { token } = (await login.json()) as { token: string };
     const auth = { Authorization: `Bearer ${token}` };
 
-    await page.getByRole('button', { name: '上课', exact: true }).click();
+    await page
+      .locator('aside')
+      .getByRole('button', { name: /上课|Live class|上課|授業|수업/ })
+      .click();
     const panel = page.getByTestId('network-zones-panel');
     await expect(panel).toBeVisible({ timeout: 20_000 });
-    await panel.getByTestId('campus-preset-apply').click();
+    await panel.scrollIntoViewIfNeeded();
+    const apply = panel.getByTestId('campus-preset-apply');
+    await expect(apply).toBeVisible({ timeout: 15_000 });
+    await apply.click();
     await expect(page.getByText(/已应用校园网预设|Applied campus preset/)).toBeVisible({
       timeout: 15_000,
     });

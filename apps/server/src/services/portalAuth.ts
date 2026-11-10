@@ -174,7 +174,7 @@ export async function verifyPortalSession(
       const { getPortalSessionEpoch } = await import('./portalSessionRevoke.js');
       const epoch = getPortalSessionEpoch(db, classId);
       const iat = Number(payload.iat ?? 0);
-      if (epoch > 0 && iat > 0 && iat < epoch) return null;
+      if (epoch > 0 && iat > 0 && iat <= epoch) return null;
     }
     return {
       studentId: payload.sub,

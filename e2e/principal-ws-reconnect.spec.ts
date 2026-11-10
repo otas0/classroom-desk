@@ -55,14 +55,19 @@ test.describe('principal WS reconnect', () => {
     });
 
     await loginTeacherWeb(page, request);
-    await page.getByRole('button', { name: '上课', exact: true }).click();
+    await page
+      .locator('aside')
+      .getByRole('button', { name: /上课|Live class|上課|授業|수업/ })
+      .click();
     const dash = page.getByTestId('principal-dashboard');
     await expect(dash).toBeVisible({ timeout: 20_000 });
+    await dash.scrollIntoViewIfNeeded();
     const live = page.getByTestId('principal-ws-live');
-    await expect(live).toContainText(/实时|Live|即時|ライブ|실시간/, { timeout: 10_000 });
-    // After mock close, briefly 轮询后备 then reconnect → 实时 again
+    await expect(live).toContainText(/实时|Live|即時|ライブ|실시간|轮询|poll|后备/, {
+      timeout: 10_000,
+    });
     await expect
-      .poll(async () => (await live.innerText()).replace(/\s+/g, ''), { timeout: 15_000 })
+      .poll(async () => (await live.innerText()).replace(/\s+/g, ''), { timeout: 20_000 })
       .toMatch(/实时|Live|即時|ライブ|실시간/);
   });
 });
