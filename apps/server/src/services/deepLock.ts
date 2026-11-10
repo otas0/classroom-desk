@@ -196,6 +196,13 @@ async function syncShieldRemoveAllowEntries(
   }
 }
 
+function db {
+  // Lazy import avoids circular init with openDb in hot path.
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { openDb } = require('./../db/client.js') as typeof import('./../db/client.js');
+  return openDb();
+}
+
 export async function applyDeepLockAction(
   db: DatabaseSync,
   opts: {
