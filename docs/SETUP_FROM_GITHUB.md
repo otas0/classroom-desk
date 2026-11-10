@@ -1,6 +1,6 @@
 # 从 GitHub 安装（任意教室 · 无签名 · 无优盘）
 
-> **先看这个：** [教室部署一页](./CLASSROOM_DEPLOY_ONEPAGE.md)（10 分钟开课 + 可选 LAN 自动更新提示）。下面是完整冷启动细节。
+> **先看这个：** [教室部署（只要三步）](./CLASSROOM_DEPLOY_ONEPAGE.md) — `npm run start:classroom` 即可。下面是例外场景细项，**默认不要读完**。
 
 仓库：<https://github.com/otas0/classroom-desk>
 
@@ -15,8 +15,8 @@
 
 | 角色 | 做什么 |
 |------|--------|
-| 教师机 | `git clone` → 安装依赖 → **`npm run fonts:cjk`** → 固定 IP（可选）→ 放行防火墙 → 启动服务 → 浏览器开 `/admin/` |
-| 学生机 | 下载 Release 的 `ClassroomDesk-Setup-*.exe` → 写入 `config.json` → 浏览器先验 `/ready` → 开客户端 |
+| 教师机 | `git clone` → `npm install` → **`npm run start:classroom`** → 浏览器开 `/admin/`（字体/构建已含） |
+| 学生机 | 下载 `ClassroomDesk-Setup-*.exe` → 扫码指派（或手填 `apiBase` + `classId`） |
 
 未签名安装包：Windows SmartScreen →「更多信息」→「仍要运行」。说明见 [SMARTSCREEN.md](./SMARTSCREEN.md)。
 

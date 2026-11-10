@@ -5,6 +5,9 @@ import { t } from '@classroom-desk/i18n';
 
 export type SetupDest = 'prep' | 'assign' | 'session' | 'prep-roster' | 'prep-questions' | 'prep-presence';
 
+/**
+ * First-run teacher path: three actions only. No SKU/capability matrix here.
+ */
 export function SetupChecklist({
   classId,
   classes,
@@ -25,9 +28,6 @@ export function SetupChecklist({
   const [hasQuestion, setHasQuestion] = useState(false);
   const [questionKnown, setQuestionKnown] = useState(false);
   const [serverOk, setServerOk] = useState<boolean | null>(null);
-  const [serverVersion, setServerVersion] = useState('');
-  const [studentPkgVersion, setStudentPkgVersion] = useState('');
-  const [connectedVersions, setConnectedVersions] = useState<string[]>([]);
   const [connectedCount, setConnectedCount] = useState(0);
 
   useEffect(() => {
@@ -59,37 +59,26 @@ export function SetupChecklist({
     void (async () => {
       try {
         const res = await fetch(`${API_BASE}/health`, { cache: 'no-store' });
-        const body = (await res.json()) as {
-          ok?: boolean;
-          version?: string;
-          studentDesktopVersion?: string;
-        };
+        const body = (await res.json()) as { ok?: boolean };
         if (cancelled) return;
         setServerOk(Boolean(res.ok && body.ok));
-        setServerVersion(String(body.version ?? ''));
-        setStudentPkgVersion(String(body.studentDesktopVersion ?? body.version ?? ''));
       } catch {
         if (cancelled) return;
         setServerOk(false);
-        setServerVersion('');
-        setStudentPkgVersion('');
       }
       if (!classId) {
-        setConnectedVersions([]);
         setConnectedCount(0);
         return;
       }
       try {
-        const clients = await api<{ count: number; versions: string[] }>(
+        const clients = await api<{ count: number }>(
           `/api/v1/presence/clients?classId=${encodeURIComponent(classId)}`,
         );
         if (cancelled) return;
         setConnectedCount(clients.count);
-        setConnectedVersions(clients.versions ?? []);
       } catch {
         if (cancelled) return;
         setConnectedCount(0);
-        setConnectedVersions([]);
       }
     })();
     return () => {
@@ -98,18 +87,41 @@ export function SetupChecklist({
   }, [refreshTick, classId]);
 
   const rosterDone = classes.length > 0 && Boolean(classId) && studentCount > 0;
-  const assignDone = hasApiBase && Boolean(classId);
+  const studentsOnline = hasApiBase && Boolean(classId) && serverOk === true && connectedCount > 0;
+  const studentsPending = serverOk === null;
   const questionDone = hasQuestion;
-  const healthDone = serverOk === true;
-  const clientsKnown = serverOk !== null;
-  const coreDone = rosterDone && assignDone && healthDone && (!questionKnown || questionDone);
-  if (coreDone && connectedCount > 0) return null;
+  const coreDone = rosterDone && studentsOnline && (!questionKnown || questionDone);
+  if (coreDone) return null;
+
+  function goCreateOrRoster() {
+    if (classes.length === 0 && onCreateClass) onCreateClass();
+    else onGo('prep-roster');
+  }
+
+  function goAssignWithAudit(source: string) {
+    const at = Date.now();
+    try {
+      sessionStorage.setItem(`cd_assign_cta_at_${classId}`, String(at));
+    } catch {
+      /* ignore */
+    }
+    void api('/api/v1/audit/events', {
+      method: 'POST',
+      body: JSON.stringify({
+        action: 'setup.scan_assign_cta',
+        classId,
+        detail: { at: new Date(at).toISOString(), source },
+      }),
+    }).catch(() => undefined);
+    onGo('assign');
+  }
 
   type Step = {
     n: number;
     label: string;
     done: boolean;
     pending: boolean;
+    detail?: string;
     actionLabel?: string;
     action?: () => void;
   };
@@ -121,15 +133,23 @@ export function SetupChecklist({
       done: rosterDone,
       pending: false,
       actionLabel: classes.length === 0 ? t('去建班') : t('去导入名单'),
-      action: () => (classes.length === 0 ? (onCreateClass ? onCreateClass() : onGo('prep-roster')) : onGo('prep-roster')),
+      action: goCreateOrRoster,
     },
     {
       n: 2,
-      label: t('指派学生机'),
-      done: assignDone,
-      pending: false,
+      label: t('学生机扫码连上'),
+      done: studentsOnline,
+      pending: studentsPending,
+      detail:
+        serverOk === null
+          ? t('检测中…')
+          : serverOk === false
+            ? t('服务器不可达，请先在教师机启动服务')
+            : connectedCount === 0
+              ? t('服务已通 · 请扫码让学生机连上')
+              : t('已连 {v0} 台', { v0: String(connectedCount) }),
       actionLabel: t('去指派'),
-      action: () => onGo('assign'),
+      action: () => goAssignWithAudit('setup_step2'),
     },
     {
       n: 3,
@@ -139,100 +159,32 @@ export function SetupChecklist({
       actionLabel: t('去发第一题'),
       action: () => onGo('session'),
     },
-    {
-      n: 4,
-      label: t('服务器可达 / 学生端版本'),
-      done: healthDone,
-      pending: !clientsKnown,
-      actionLabel: connectedCount === 0 && healthDone ? t('扫码指派学生机') : t('重新检测'),
-      action: () => {
-        if (connectedCount === 0 && healthDone) {
-          const at = Date.now();
-          try {
-            sessionStorage.setItem(`cd_assign_cta_at_${classId}`, String(at));
-          } catch {
-            /* ignore */
-          }
-          void api('/api/v1/audit/events', {
-            method: 'POST',
-            body: JSON.stringify({
-              action: 'setup.scan_assign_cta',
-              classId,
-              detail: { at: new Date(at).toISOString(), source: 'setup_step4' },
-            }),
-          }).catch(() => undefined);
-        }
-        onGo('assign');
-      },
-    },
   ];
 
   let ctaLabel = t('去发第一题');
   let cta = () => onGo('session');
   if (!rosterDone) {
-    if (classes.length === 0) {
-      ctaLabel = t('创建班级');
-      cta = () => (onCreateClass ? onCreateClass() : onGo('prep-roster'));
-    } else {
-      ctaLabel = t('去导入名单');
-      cta = () => onGo('prep-roster');
-    }
-  } else if (!assignDone) {
-    ctaLabel = t('去指派学生机');
-    cta = () => onGo('assign');
-  } else if (!healthDone) {
-    ctaLabel = t('检查服务器');
-    cta = () => onGo('assign');
-  } else if (connectedCount === 0) {
-    ctaLabel = t('扫码指派学生机');
-    cta = () => {
-      const at = Date.now();
-      try {
-        sessionStorage.setItem(`cd_assign_cta_at_${classId}`, String(at));
-      } catch {
-        /* ignore */
-      }
-      void api('/api/v1/audit/events', {
-        method: 'POST',
-        body: JSON.stringify({
-          action: 'setup.scan_assign_cta',
-          classId,
-          detail: { at: new Date(at).toISOString(), source: 'setup_checklist_cta' },
-        }),
-      }).catch(() => undefined);
-      onGo('assign');
-    };
+    ctaLabel = classes.length === 0 ? t('创建班级') : t('去导入名单');
+    cta = goCreateOrRoster;
+  } else if (!studentsOnline) {
+    ctaLabel = serverOk === false ? t('检查服务器') : t('扫码指派学生机');
+    cta = () => goAssignWithAudit('setup_checklist_cta');
   }
 
-  const connectedLabel =
-    connectedCount === 0
-      ? t('暂无在线桌面端')
-      : `已连桌面端 ${connectedCount} 台 · 版本 ${connectedVersions.length ? connectedVersions.join(' / ') : t('未上报')}`;
-
   return (
-    <section className="setup-checklist">
+    <section className="setup-checklist" data-testid="setup-checklist-simple">
       <h2>{t('开课准备')}</h2>
-      <p className="hint">{t('完成以下步骤后，本清单会自动收起。未完成项可一键跳转。')}</p>
+      <p className="hint">{t('三步即可上课。做完会自动收起。')}</p>
       <ol className="setup-steps">
         {steps.map((step) => (
           <li key={step.n} className={step.done ? 'setup-step done' : 'setup-step'}>
             <span>
               {step.n}. {step.label}
-              {step.n === 4 ? (
-                <span className="hint">
-                  {' '}
-                  ·{' '}
-                  {serverOk === null
-                    ? t('检测中…')
-                    : serverOk
-                      ? `可达 · 服务端 v${serverVersion || '—'} · ${connectedLabel}${
-                          studentPkgVersion ? ` · 安装包应对齐 v${studentPkgVersion}` : ''
-                        }`
-                      : t('不可达，请检查教师机服务')}
-                </span>
-              ) : null}
+              {step.detail ? <span className="hint"> · {step.detail}</span> : null}
             </span>
-            <span className="status">{step.done ? t('已完成') : step.pending ? t('检查中') : t('未完成')}</span>
+            <span className="status">
+              {step.done ? t('已完成') : step.pending ? t('检查中') : t('未完成')}
+            </span>
             {!step.done && !step.pending && step.action && step.actionLabel ? (
               <button type="button" className="secondary setup-step-jump" onClick={step.action}>
                 {step.actionLabel}
@@ -241,15 +193,6 @@ export function SetupChecklist({
           </li>
         ))}
       </ol>
-      {healthDone && connectedCount === 0 ? (
-        <p className="hint">
-          尚无学生机心跳。请在「指派学生机」展示 QR，让学生端首次引导扫码，或打开{' '}
-          <button type="button" className="linkish" onClick={() => onGo('prep-presence')}>
-            {t('在线机位')}
-          </button>{' '}
-          查看连接。
-        </p>
-      ) : null}
       <button type="button" onClick={cta}>
         {ctaLabel}
       </button>

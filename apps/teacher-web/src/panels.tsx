@@ -5115,8 +5115,8 @@ export function SettingsPanel({
             </div>
           ) : null}
 
-          <h3>{t('LAN 升级包（Setup.exe）')}</h3>
-          <p className="hint">{t('上传到服务器 /upgrades；.exe 自动配对生成 .sha256；超出保留份数自动删旧。')}</p>
+          <h3>{t('学生机升级包')}</h3>
+          <p className="hint">{t('上传 Setup.exe → 自动 sha256 → 旧包自动删。')}</p>
           <label className="row" data-testid="student-auto-update-toggle">
             <input
               type="checkbox"
@@ -5130,9 +5130,7 @@ export function SettingsPanel({
                 })
                   .then(() =>
                     setUpgradeMsg(
-                      on
-                        ? t('已开启学生端可选自动更新（版本漂移时弹确认并打开局域网安装包；不静默、不走公网）')
-                        : t('已关闭学生端可选自动更新'),
+                      on ? t('已开启：版本不一致时确认后打开局域网安装包') : t('已关闭自动更新提示'),
                     ),
                   )
                   .catch((err) => {
@@ -5141,13 +5139,8 @@ export function SettingsPanel({
                   });
               }}
             />
-            {t('可选：学生端版本漂移时提示打开局域网安装包（默认关）')}
+            {t('版本不一致时提示打开安装包（默认关）')}
           </label>
-          <p className="hint">
-            {t(
-              '仅教室 LAN /upgrades；需先上传 Setup.exe。不做静默覆盖、不拉 GitHub。部署一页说明见 docs/CLASSROOM_DEPLOY_ONEPAGE.md。',
-            )}
-          </p>
           <label className="secondary" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             {t('上传 Setup.exe')}
             <input
@@ -5174,14 +5167,27 @@ export function SettingsPanel({
                       error?: string;
                     };
                     if (!res.ok) throw new Error(body.message || body.error || `HTTP ${res.status}`);
-                    setUpgradeMsg(
-                      body.sha256Name
-                        ? t('已上传 {v0}，并生成 {v1}', {
-                            v0: body.name ?? file.name,
-                            v1: body.sha256Name,
-                          })
-                        : t('已上传 {v0}', { v0: body.name ?? file.name }),
-                    );
+                    const uploaded = body.name ?? file.name;
+                    if (/\.exe$/i.test(uploaded)) {
+                      try {
+                        const v = await api<{ message?: string; match?: boolean | null }>(
+                          '/api/v1/upgrades/verify-sha256',
+                          { method: 'POST', body: JSON.stringify({ name: uploaded }) },
+                        );
+                        setUpgradeMsg(
+                          t('已上传并校验：{v0}{v1}', {
+                            v0: uploaded,
+                            v1: v.message ? ` · ${v.message}` : '',
+                          }),
+                        );
+                      } catch {
+                        setUpgradeMsg(
+                          t('已上传 {v0}（sha256 校验失败，请删包重传）', { v0: uploaded }),
+                        );
+                      }
+                    } else {
+                      setUpgradeMsg(t('已上传 {v0}', { v0: uploaded }));
+                    }
                     return api<{ files?: Array<{ name: string } | string> }>('/api/v1/upgrades');
                   })
                   .then((r) =>
@@ -5200,50 +5206,32 @@ export function SettingsPanel({
                 <li key={f} className="row">
                   <span>{f}</span>
                   {/\.exe$/i.test(f) ? (
-                    <>
-                      <button
-                        type="button"
-                        className="secondary"
-                        onClick={() =>
-                          void api<{ message?: string; match?: boolean | null }>(
-                            '/api/v1/upgrades/verify-sha256',
-                            { method: 'POST', body: JSON.stringify({ name: f }) },
+                    <button
+                      type="button"
+                      className="secondary"
+                      onClick={() => {
+                        if (!window.confirm(t('删除 {v0}？', { v0: f }))) return;
+                        void api(`/api/v1/upgrades/${encodeURIComponent(f)}`, {
+                          method: 'DELETE',
+                        })
+                          .then(() =>
+                            api<{ files?: Array<{ name: string } | string> }>('/api/v1/upgrades'),
                           )
-                            .then((r) => setUpgradeMsg(r.message ?? t('已校验')))
-                            .catch((e) =>
-                              setUpgradeMsg(e instanceof Error ? e.message : t('校验失败')),
-                            )
-                        }
-                      >
-                        {t('校验 sha256')}
-                      </button>
-                      <button
-                        type="button"
-                        className="secondary"
-                        onClick={() => {
-                          if (!window.confirm(t('删除 {v0}？', { v0: f }))) return;
-                          void api(`/api/v1/upgrades/${encodeURIComponent(f)}`, {
-                            method: 'DELETE',
-                          })
-                            .then(() =>
-                              api<{ files?: Array<{ name: string } | string> }>('/api/v1/upgrades'),
-                            )
-                            .then((r) => {
-                              setUpgradeFiles(
-                                (r.files ?? [])
-                                  .map((x) => (typeof x === 'string' ? x : x.name))
-                                  .filter(Boolean),
-                              );
-                              setUpgradeMsg(t('已删除 {v0}', { v0: f }));
-                            })
-                            .catch((e) =>
-                              setUpgradeMsg(e instanceof Error ? e.message : t('删除失败')),
+                          .then((r) => {
+                            setUpgradeFiles(
+                              (r.files ?? [])
+                                .map((x) => (typeof x === 'string' ? x : x.name))
+                                .filter(Boolean),
                             );
-                        }}
-                      >
-                        {t('删除')}
-                      </button>
-                    </>
+                            setUpgradeMsg(t('已删除 {v0}', { v0: f }));
+                          })
+                          .catch((e) =>
+                            setUpgradeMsg(e instanceof Error ? e.message : t('删除失败')),
+                          );
+                      }}
+                    >
+                      {t('删除')}
+                    </button>
                   ) : null}
                 </li>
               ))}
