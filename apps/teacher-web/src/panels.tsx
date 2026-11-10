@@ -4476,12 +4476,12 @@ export function SettingsPanel({
                       lastError: r.lastError ?? null,
                       lastAutoBackupAt: r.lastAutoBackupAt ?? null,
                     });
-                    setBackupMsg(r.ok ? '备份成功' : r.error ?? '备份失败');
+                    setBackupMsg(r.ok ? t('备份成功') : r.error ?? t('备份失败'));
                   })
-                  .catch((e) => setBackupMsg(e instanceof Error ? e.message : '备份失败'))
+                  .catch((e) => setBackupMsg(e instanceof Error ? e.message : t('备份失败')))
               }
             >
-              立即备份
+              {t('立即备份')}
             </button>
             <button
               type="button"
@@ -4510,19 +4510,22 @@ export function SettingsPanel({
                       );
                     }
                     if (r.opened) {
-                      setBackupMsg(`已在教师机打开备份目录：${r.dir ?? ''}`);
+                      setBackupMsg(t('已在教师机打开备份目录：{v0}', { v0: r.dir ?? '' }));
                     } else {
                       setBackupMsg(
                         r.dir
-                          ? `备份目录：${r.dir}${r.message ? `（${r.message}）` : '（无图形环境）'} — 可用「复制路径」`
-                          : r.message ?? '无法读取备份目录',
+                          ? t('备份目录：{v0}{v1} — 可用「复制路径」', {
+                              v0: r.dir,
+                              v1: r.message ? `（${r.message}）` : t('（无图形环境）'),
+                            })
+                          : r.message ?? t('无法读取备份目录'),
                       );
                     }
                   })
-                  .catch((e) => setBackupMsg(e instanceof Error ? e.message : '打开失败'))
+                  .catch((e) => setBackupMsg(e instanceof Error ? e.message : t('打开失败')))
               }
             >
-              显示备份目录
+              {t('显示备份目录')}
             </button>
             <button
               type="button"
@@ -4531,19 +4534,19 @@ export function SettingsPanel({
               onClick={() => {
                 const dir = backupDirPath || backupInfo?.dir || '';
                 if (!dir) {
-                  setBackupMsg('尚无备份目录路径');
+                  setBackupMsg(t('尚无备份目录路径'));
                   return;
                 }
                 void navigator.clipboard
                   .writeText(dir)
-                  .then(() => setBackupMsg(`已复制路径：${dir}`))
+                  .then(() => setBackupMsg(t('已复制路径：{v0}', { v0: dir })))
                   .catch(() => {
-                    window.prompt('复制备份目录路径', dir);
-                    setBackupMsg(`路径：${dir}`);
+                    window.prompt(t('复制备份目录路径'), dir);
+                    setBackupMsg(t('路径：{v0}', { v0: dir }));
                   });
               }}
             >
-              复制路径
+              {t('复制路径')}
             </button>
           </div>
           {backupMsg ? <p className="hint">{backupMsg}</p> : null}
@@ -4870,12 +4873,12 @@ export function SettingsPanel({
                     setRestoreConfirmInput('');
                     setRestoreMailtoUrl('');
                     setRestoreEmailDelivered(false);
-                    setBackupMsg(r.message ?? '已替换 live DB，请重启服务');
+                    setBackupMsg(r.message ?? t('已替换 live DB，请重启服务'));
                   })
-                  .catch((e) => setBackupMsg(e instanceof Error ? e.message : '替换失败'));
+                  .catch((e) => setBackupMsg(e instanceof Error ? e.message : t('替换失败')));
               }}
             >
-              2. 输入确认码后替换 live DB
+              {t('2. 输入确认码后替换 live DB')}
             </button>
           </div>
           {restoreSha ? <p className="hint">sha256={restoreSha}</p> : null}
@@ -4888,16 +4891,18 @@ export function SettingsPanel({
                   void navigator.clipboard
                     .writeText(restoreConfirmCode)
                     .then(() => {
-                      setBackupMsg('确认码已复制到剪贴板（仅此一次，页面不回显）');
+                      setBackupMsg(t('确认码已复制到剪贴板（仅此一次，页面不回显）'));
                       setRestoreConfirmCode('');
                     })
                     .catch(() => {
-                      setBackupMsg('无法写入剪贴板：请允许站点剪贴板权限后重试，或查收邮件中的确认码');
+                      setBackupMsg(
+                        t('无法写入剪贴板：请允许站点剪贴板权限后重试，或查收邮件中的确认码'),
+                      );
                       /* keep restoreConfirmCode so user can retry copy — never echo digits into UI */
                     });
                 }}
               >
-                复制确认码（一次）
+                {t('复制确认码（一次）')}
               </button>
               <button
                 type="button"
@@ -4906,18 +4911,18 @@ export function SettingsPanel({
                 onClick={() => {
                   if (restoreEmailDelivered || !restoreMailtoUrl) return;
                   window.location.href = restoreMailtoUrl;
-                  setBackupMsg('已打开邮件草稿（确认码在邮件正文，页面不回显）');
+                  setBackupMsg(t('已打开邮件草稿（确认码在邮件正文，页面不回显）'));
                 }}
               >
-                {restoreEmailDelivered ? t('已投递 webhook') : '发到邮箱/打开邮件'}
+                {restoreEmailDelivered ? t('已投递 webhook') : t('发到邮箱/打开邮件')}
               </button>
               {restoreEmailDelivered ? <p className="hint">{t('已投递 webhook')}</p> : null}
               <label>
-                粘贴二次确认码
+                {t('粘贴二次确认码')}
                 <input
                   value={restoreConfirmInput}
                   onChange={(e) => setRestoreConfirmInput(e.target.value)}
-                  placeholder="从剪贴板或邮件粘贴"
+                  placeholder={t('从剪贴板或邮件粘贴')}
                   autoComplete="one-time-code"
                 />
               </label>
@@ -4931,18 +4936,18 @@ export function SettingsPanel({
                 onClick={() => {
                   if (restoreEmailDelivered || !restoreMailtoUrl) return;
                   window.location.href = restoreMailtoUrl;
-                  setBackupMsg('已打开邮件草稿（确认码在邮件正文，页面不回显）');
+                  setBackupMsg(t('已打开邮件草稿（确认码在邮件正文，页面不回显）'));
                 }}
               >
-                {restoreEmailDelivered ? t('已投递 webhook') : '发到邮箱/打开邮件'}
+                {restoreEmailDelivered ? t('已投递 webhook') : t('发到邮箱/打开邮件')}
               </button>
               {restoreEmailDelivered ? <p className="hint">{t('已投递 webhook')}</p> : null}
               <label>
-                粘贴二次确认码
+                {t('粘贴二次确认码')}
                 <input
                   value={restoreConfirmInput}
                   onChange={(e) => setRestoreConfirmInput(e.target.value)}
-                  placeholder="从剪贴板或邮件粘贴"
+                  placeholder={t('从剪贴板或邮件粘贴')}
                   autoComplete="one-time-code"
                 />
               </label>
@@ -5510,28 +5515,36 @@ export function SettingsPanel({
 
           <h3 id="exit-lock-settings">{t('学生端退出锁定')}</h3>
           <p className="hint">
-            默认禁止学生关闭客户端。批量解除后，全班可在时限内退出；或本机输入解除码退出。
+            {t('默认禁止学生关闭客户端。批量解除后，全班可在时限内退出；或本机输入解除码退出。')}
             {(() => {
               void nowTick;
-              if (!exitAllowed) return ' 当前：已锁定';
+              if (!exitAllowed) return t(' 当前：已锁定');
               if (!exitUnlockUntil) return t(' 当前：已允许退出');
               const left = Math.max(0, Date.parse(exitUnlockUntil) - Date.now());
               const sec = Math.ceil(left / 1000);
               const m = Math.floor(sec / 60);
               const s = String(sec % 60).padStart(2, '0');
-              return ` 当前：可退出剩余 ${m}:${s}（至 ${new Date(exitUnlockUntil).toLocaleString()}）`;
+              return t(' 当前：可退出剩余 {v0}:{v1}（至 {v2}）', {
+                v0: m,
+                v1: s,
+                v2: new Date(exitUnlockUntil).toLocaleString(),
+              });
             })()}
             <span data-testid="exit-unlock-code-status">
               {!exitCodeStatusReady
-                ? ' · 解除码状态加载中…'
+                ? t(' · 解除码状态加载中…')
                 : hasExitCode
-                  ? ' · 已设置解除码'
+                  ? t(' · 已设置解除码')
                   : t(' · 尚未单独设置解除码（可用管理密码）')}
             </span>
-            {exitCodeStatusReady && codeAgeDays != null ? ` · 解除码已使用 ${codeAgeDays} 天` : ''}
+            {exitCodeStatusReady && codeAgeDays != null
+              ? t(' · 解除码已使用 {v0} 天', { v0: codeAgeDays })
+              : ''}
           </p>
           {codeRotationDue ? (
-            <p className="error">解除码已超过轮换周期（{rotateDays} 天），请尽快更换。</p>
+            <p className="error">
+              {t('解除码已超过轮换周期（{v0} 天），请尽快更换。', { v0: rotateDays })}
+            </p>
           ) : null}
           <h4 id="input-lock-settings">{t('物理输入锁')}</h4>
           <p className="hint">
@@ -5959,13 +5972,13 @@ export function SettingsPanel({
                     })();
                   }}
             >
-              批量允许关闭学生端
+              {t('批量允许关闭学生端')}
             </button>
             <button
               type="button"
               className="secondary"
                   onClick={() => {
-                    if (!window.confirm('确认重新锁定？学生端将无法退出。')) return;
+                    if (!window.confirm(t('确认重新锁定？学生端将无法退出。'))) return;
                 void api<{
                   clientExitAllowed?: boolean;
                   clientExitUnlockUntil?: string | null;
@@ -5976,17 +5989,17 @@ export function SettingsPanel({
                       .then(async (r) => {
                     setExitAllowed(r.clientExitAllowed === true);
                     setExitUnlockUntil(r.clientExitUnlockUntil ?? null);
-                    setExitMsg('已重新锁定：学生端无法退出');
+                    setExitMsg(t('已重新锁定：学生端无法退出'));
                         await refreshExitLock().catch(() => undefined);
                   })
-                      .catch((e) => setExitMsg(e instanceof Error ? e.message : '锁定失败'));
+                      .catch((e) => setExitMsg(e instanceof Error ? e.message : t('锁定失败')))
                   }}
             >
               {t('重新锁定')}
             </button>
           </div>
           <label>
-            手动设置/更换解除码（至少 6 位，不预填）
+            {t('手动设置/更换解除码（至少 6 位，不预填）')}
             <input
               type="password"
               value={exitCodeDraft}
@@ -6013,13 +6026,13 @@ export function SettingsPanel({
                     }
                     setExitCodeDraft('');
                     setGeneratedExitCode(null);
-                    setExitMsg('解除码已更新（请自行记入密码本）');
+                    setExitMsg(t('解除码已更新（请自行记入密码本）'));
                     await refreshExitLock().catch(() => undefined);
                   })
-                  .catch((e) => setExitMsg(e instanceof Error ? e.message : '保存解除码失败'))
+                  .catch((e) => setExitMsg(e instanceof Error ? e.message : t('保存解除码失败')))
               }
             >
-              保存解除码
+              {t('保存解除码')}
             </button>
             <button
               type="button"
@@ -6029,7 +6042,9 @@ export function SettingsPanel({
               onClick={() => {
                 if (
                   !window.confirm(
-                    '系统将生成新解除码（明文仅显示一次）。旧码立即失效。轮换最快间隔 30 秒。确认？',
+                    t(
+                      '系统将生成新解除码（明文仅显示一次）。旧码立即失效。轮换最快间隔 30 秒。确认？',
+                    ),
                   )
                 ) {
                   return;
@@ -6053,18 +6068,22 @@ export function SettingsPanel({
                     const plain = r.generatedExitUnlockCode?.trim() ?? '';
                     if (plain) {
                       setGeneratedExitCode(plain);
-                      setExitMsg('新解除码已生成 — 请立即复制并记入密码本（关闭后无法再查看明文）');
+                      setExitMsg(
+                        t('新解除码已生成 — 请立即复制并记入密码本（关闭后无法再查看明文）'),
+                      );
                     } else {
                       setGeneratedExitCode(null);
-                      setExitMsg('解除码已轮换，但响应未含明文，请重试生成');
+                      setExitMsg(t('解除码已轮换，但响应未含明文，请重试生成'));
                     }
                     await refreshExitLock().catch(() => undefined);
                   })
-                  .catch((e) => setExitMsg(e instanceof Error ? e.message : '系统生成解除码失败'))
+                  .catch((e) =>
+                    setExitMsg(e instanceof Error ? e.message : t('系统生成解除码失败')),
+                  )
                   .finally(() => setExitCodeGenerateBusy(false));
               }}
             >
-              {exitCodeGenerateBusy ? '生成中…' : '系统生成并轮换'}
+              {exitCodeGenerateBusy ? t('生成中…') : t('系统生成并轮换')}
             </button>
           </div>
           {generatedExitCode ? (
@@ -6080,21 +6099,21 @@ export function SettingsPanel({
                   onClick={() => {
                     void navigator.clipboard
                       .writeText(generatedExitCode)
-                      .then(() => setExitMsg('已复制到剪贴板 — 请同步记入密码本'))
-                      .catch(() => setExitMsg('复制失败，请手动选中上方码值'));
+                      .then(() => setExitMsg(t('已复制到剪贴板 — 请同步记入密码本')))
+                      .catch(() => setExitMsg(t('复制失败，请手动选中上方码值')));
                   }}
                 >
-                  复制
+                  {t('复制')}
                 </button>
                 <button
                   type="button"
                   className="secondary"
                   onClick={() => {
                     setGeneratedExitCode(null);
-                    setExitMsg('已关闭明文显示（服务端仅存哈希，无法再找回）');
+                    setExitMsg(t('已关闭明文显示（服务端仅存哈希，无法再找回）'));
                   }}
                 >
-                  已记入密码本并关闭
+                  {t('已记入密码本并关闭')}
                 </button>
               </div>
             </div>
