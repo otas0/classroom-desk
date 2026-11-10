@@ -301,6 +301,8 @@ healthRouter.get('/api/v1/health/deskdns-check', async (_req, res) => {
         if (deskDns.port === 53) listening53 = false;
         else listening53 = probe.trim().length > 0;
       } catch {
+        // Still report probeTool=lsof so macOS CI / HealthNetCard know which tool ran.
+        probeTool = 'lsof';
         probe = e2 instanceof Error ? e2.message : 'probe_unavailable';
         listening53 = null;
       }
