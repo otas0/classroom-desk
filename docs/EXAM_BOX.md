@@ -12,11 +12,11 @@
 | [`docs/OPENNDS_BINAUTH.md`](./OPENNDS_BINAUTH.md) | BinAuth 联调一页 |
 | 本说明 | 学校采购/刷机步骤 |
 
-GHCR 拉取示例：
+GHCR 拉取示例（owner=`otas0`，与本仓库 GitHub 一致）：
 
 ```bash
 # main 构建带 :latest；版本 tag 推送 :vX.Y.Z
-docker pull ghcr.io/<owner>/classroom-desk-exam-box:latest
+docker pull ghcr.io/otas0/classroom-desk-exam-box:latest
 ```
 
 ### Cosign 验签（keyless）
@@ -24,10 +24,14 @@ docker pull ghcr.io/<owner>/classroom-desk-exam-box:latest
 CI 使用 Sigstore keyless cosign 签名镜像 digest。验证：
 
 ```bash
-IMAGE=ghcr.io/<owner>/classroom-desk-exam-box
-DIGEST=$(crane digest ${IMAGE}:latest)   # 或 docker buildx imagetools inspect
+IMAGE=ghcr.io/otas0/classroom-desk-exam-box
+# 首次 main/exam-box-image 发布后：
+#   crane digest ghcr.io/otas0/classroom-desk-exam-box:latest
+# 把输出贴回本段（当前仓库尚未拉到公开 digest 时保留命令即可）
+DIGEST=$(crane digest ${IMAGE}:latest)
+echo "crane digest → $DIGEST"
 cosign verify \
-  --certificate-identity-regexp='https://github.com/<owner>/<repo>/.*' \
+  --certificate-identity-regexp='https://github.com/otas0/classroom-desk/.*' \
   --certificate-oidc-issuer=https://token.actions.githubusercontent.com \
   ${IMAGE}@${DIGEST}
 ```
@@ -36,9 +40,9 @@ cosign verify \
 
 ```bash
 cosign verify \
-  --certificate-identity-regexp='https://github.com/.*/classroom-desk/.*' \
+  --certificate-identity-regexp='https://github.com/otas0/classroom-desk/.*' \
   --certificate-oidc-issuer=https://token.actions.githubusercontent.com \
-  ghcr.io/<owner>/classroom-desk-exam-box:sha-<12字短 sha>
+  ghcr.io/otas0/classroom-desk-exam-box:sha-<12字短 sha>
 ```
 
 ## 能力旗标

@@ -1,8 +1,28 @@
 # Exam Box sidecar — pair with Classroom Desk teacher host.
 # Not a full OpenWRT image; use for lab pilots / x86 mini PC.
 services:
+  # Fail fast when teacher API is unreachable (exit 1 → compose fails).
+  api-ready:
+    image: curlimages/curl:8.11.1
+    environment:
+      CD_API_BASE: ${CD_API_BASE:-http://host.docker.internal:8787}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        set -e
+        echo "Checking $$CD_API_BASE/health ..."
+        curl -fsS --connect-timeout 5 --max-time 15 "$$CD_API_BASE/health" >/dev/null
+        echo "CD_API_BASE healthy"
+    restart: "no"
+
   exam-box-proxy:
-    image: caddy:2-alpine
+    build:
+      context: ../..
+      dockerfile: deploy/exam-box/Dockerfile
+    image: classroom-desk-exam-box:local
     ports:
       - "8080:80"
     environment:
@@ -11,5 +31,18 @@ services:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    depends_on:
+      api-ready:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "curl -fsS --connect-timeout 3 --max-time 8 \"$$CD_API_BASE/health\" >/dev/null || exit 1",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
 
   # Optional: run DeskDNS on host with CLASSROOM_DESK_DNS=1 instead.

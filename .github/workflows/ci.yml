@@ -24,7 +24,10 @@ jobs:
         run: |
           npm run generate:sku-html
           git diff --exit-code -- docs/SKU_CAPABILITIES.html \
-            || { echo "SKU HTML out of date — run npm run generate:sku-html"; exit 1; }
+            || {
+              echo "::error::SKU HTML out of date — run npm run generate:sku-html and commit docs/SKU_CAPABILITIES.html (see PR checklist)"
+              exit 1
+            }
       - name: Test server
         run: npm run test:server
       - name: Build teacher SPA + health / PERMISSIONS.md smoke
@@ -400,3 +403,31 @@ jobs:
             test "$actual" = "$expected"
           done
           echo "Artifact SHA256 OK (${#exes[@]} file(s))"
+
+  # macOS DeskDNS probe matrix: prefer lsof -iUDP:53
+  deskdns-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Install
+        run: npm install
+      - name: DeskDNS probe unit (darwin → lsof)
+        run: npx tsx apps/server/src/test/deskDnsProbe.test.ts
+      - name: deskdns-check asserts probeTool=lsof on macOS
+        run: |
+          JWT_SECRET=ci-secret-not-for-prod \
+          ADMIN_PASSWORD=AdminPass123 \
+          TEACHER_PASSWORD=TeacherPass123 \
+          npm run start --workspace=@classroom-desk/server &
+          for i in $(seq 1 40); do
+            curl -fsS http://127.0.0.1:8787/health >/dev/null && break
+            sleep 1
+          done
+          body=$(curl -fsS http://127.0.0.1:8787/api/v1/health/deskdns-check || true)
+          echo "$body"
+          echo "$body" | grep -q '"probeTool":"lsof"'
+          npm run test:principal-ws

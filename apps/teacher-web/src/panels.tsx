@@ -644,14 +644,8 @@ export function RosterPanel({
           {t('已选 {v0} 人 · Shift+点击连选 · ↑↓ / Space 多选', { v0: selectedIds.size })}
         </div>
       ) : null}
-      <div className="row" style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 4 }}>
-        <span style={{ width: '2.5rem' }}>{t('选')}</span>
-        <span style={{ flex: 1 }}>{t('学号')}</span>
-        <span style={{ flex: 1.2 }}>{t('姓名')}</span>
-        <span style={{ width: '4rem' }}>{t('积分')}</span>
-        <span>{t('操作')}</span>
-      </div>
       {filteredStudents.length === 0 ? <p className="hint">{t('暂无学生')}</p> : null}
+      <div className="roster-virtual-wrap" data-testid="roster-virtual-wrap">
       <div
         className="roster-virtual"
         style={{ height: ROSTER_VIEW_H }}
@@ -665,6 +659,17 @@ export function RosterPanel({
           onRosterKeyDown(e, { ensureVisible: (index) => ensureRosterVisible(index) })
         }
       >
+        <div
+          className="roster-virtual-header"
+          style={{ fontSize: 13, color: 'var(--muted)' }}
+          data-testid="roster-virtual-header"
+        >
+          <span>{t('选')}</span>
+          <span>{t('学号')}</span>
+          <span>{t('姓名')}</span>
+          <span>{t('积分')}</span>
+          <span>{t('操作')}</span>
+        </div>
         <div className="roster-virtual-inner" style={{ height: rosterVirtual.totalH }}>
           {filteredStudents.slice(rosterVirtual.start, rosterVirtual.end).map((s, i) => {
             const idx = rosterVirtual.start + i;
@@ -691,6 +696,7 @@ export function RosterPanel({
             );
           })}
         </div>
+      </div>
       </div>
       <ConfirmModal
         open={Boolean(impactModal)}

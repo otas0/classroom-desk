@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { t } from '@classroom-desk/i18n';
 import { API_BASE, api, getToken } from '../api';
+import { attachPrincipalWsReconnect, type PrincipalWsLike } from '../principalWsReconnect';
 
 type Stats = {
   onlineTotal?: number;
@@ -25,18 +26,18 @@ type Stats = {
 /** Read-only capability + live counts board for principals / admins. */
 export function PrincipalDashboard({
   onOpenPresence,
+  wsFactory,
 }: {
   onOpenPresence?: (classId: string) => void;
+  /** Inject for tests (disconnect/backoff mocks). */
+  wsFactory?: (url: string) => PrincipalWsLike;
 }) {
   const [stats, setStats] = useState<Stats>({});
   const [err, setErr] = useState('');
   const [live, setLive] = useState(false);
-  const attemptRef = useRef(0);
 
   useEffect(() => {
     let cancelled = false;
-    let ws: WebSocket | null = null;
-    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
     void api<Stats>('/api/v1/principal/stats')
       .then((s) => {
@@ -46,69 +47,40 @@ export function PrincipalDashboard({
         if (!cancelled) setErr(e instanceof Error ? e.message : t('加载失败'));
       });
 
-    function clearTimer() {
-      if (reconnectTimer) {
-        clearTimeout(reconnectTimer);
-        reconnectTimer = null;
-      }
-    }
+    const factory =
+      wsFactory ??
+      ((url: string) => new WebSocket(url) as unknown as PrincipalWsLike);
 
-    function connect() {
-      if (cancelled) return;
-      const token = getToken();
-      if (!token) return;
-      try {
+    const ctl = attachPrincipalWsReconnect({
+      buildUrl: () => {
+        const token = getToken();
+        if (!token) return null;
         const base = API_BASE.replace(/^http/, 'ws');
-        ws = new WebSocket(`${base}/api/v1/principal/ws?token=${encodeURIComponent(token)}`);
-        ws.onopen = () => {
-          if (cancelled) return;
-          attemptRef.current = 0;
-          setLive(true);
-          setErr('');
-        };
-        ws.onmessage = (ev) => {
-          try {
-            const data = JSON.parse(String(ev.data)) as Stats;
-            if (!cancelled && data && typeof data.onlineTotal === 'number') {
-              setStats((prev) => ({ ...prev, ...data, live: true }));
-            }
-          } catch {
-            /* ignore */
-          }
-        };
-        ws.onclose = () => {
-          if (cancelled) return;
-          setLive(false);
-          const attempt = attemptRef.current + 1;
-          attemptRef.current = attempt;
-          const delay = Math.min(30_000, 1_000 * 2 ** Math.min(attempt - 1, 5));
-          clearTimer();
-          reconnectTimer = setTimeout(connect, delay);
-        };
-        ws.onerror = () => {
-          try {
-            ws?.close();
-          } catch {
-            /* ignore */
-          }
-        };
-      } catch {
-        /* REST only */
-      }
-    }
-
-    connect();
+        return `${base}/api/v1/principal/ws?token=${encodeURIComponent(token)}`;
+      },
+      wsFactory: factory,
+      schedule: (fn, ms) => setTimeout(fn, ms),
+      clearSchedule: (id) => clearTimeout(id),
+      onLive: (v) => {
+        if (!cancelled) {
+          setLive(v);
+          if (v) setErr('');
+        }
+      },
+      onMessage: (data) => {
+        if (cancelled) return;
+        const d = data as Stats;
+        if (d && typeof d.onlineTotal === 'number') {
+          setStats((prev) => ({ ...prev, ...d, live: true }));
+        }
+      },
+    });
 
     return () => {
       cancelled = true;
-      clearTimer();
-      try {
-        ws?.close();
-      } catch {
-        /* ignore */
-      }
+      ctl.dispose();
     };
-  }, []);
+  }, [wsFactory]);
 
   const caps = stats.capabilities ?? {};
   const rows: Array<{ key: string; label: string; shipped: boolean }> = [
@@ -136,7 +108,7 @@ export function PrincipalDashboard({
       <p className="hint">
         {t('只读：本校已纳入产品的能力。灰色项表示未交付或未启用。当前 Shield：')}
         {String(stats.shield?.active ?? caps.netShieldActive ?? 'mock')}
-        {live ? ` · ${t('实时')}` : ` · ${t('轮询后备')}`}
+        <span data-testid="principal-ws-live">{live ? ` · ${t('实时')}` : ` · ${t('轮询后备')}`}</span>
       </p>
       {err ? <p className="error">{err}</p> : null}
       <div className="principal-live" data-testid="principal-live-counts">

@@ -12,6 +12,13 @@ import { exportTempStats } from '../utils/exportTempTracker.js';
 import { config } from '../config.js';
 import { getDeskDnsStatus } from '../services/deskDns.js';
 import { getShieldConnector, listShieldAdapterIds } from '../services/shield/registry.js';
+import { clearShieldLastError, getShieldLastError } from '../services/shield/lastError.js';
+import {
+  parseLsofUdp53,
+  preferDeskDnsProbeTool,
+} from '../services/deskDnsProbe.js';
+import { requireAuth, requireRoles } from '../middleware/auth.js';
+import { STAFF_ROLES } from '../middleware/roles.js';
 
 export const healthRouter = Router();
 
@@ -177,6 +184,7 @@ function buildHealthPayload() {
       active: shield.id,
       displayName: shield.displayName,
       adapters: listShieldAdapterIds(),
+      lastError: getShieldLastError(),
     },
   };
 }
@@ -257,8 +265,13 @@ healthRouter.get('/api/v1/health/deskdns-check', async (_req, res) => {
   const { execFile } = await import('node:child_process');
   const { promisify } = await import('node:util');
   const execFileAsync = promisify(execFile);
+  const preferred = preferDeskDnsProbeTool({
+    platform: process.platform,
+    hasSs: process.platform === 'linux',
+    hasLsof: true,
+  });
 
-  try {
+  const trySs = async () => {
     const { stdout } = await execFileAsync('ss', ['-ulnp'], {
       timeout: 3_000,
       maxBuffer: 512_000,
@@ -266,8 +279,9 @@ healthRouter.get('/api/v1/health/deskdns-check', async (_req, res) => {
     probe = String(stdout).slice(0, 4_000);
     probeTool = 'ss';
     listening53 = /:53\b/.test(probe);
-  } catch {
-    // macOS / BSD: fall back to lsof
+  };
+
+  const tryLsof = async () => {
     try {
       const { stdout } = await execFileAsync('lsof', ['-nP', '-iUDP:53'], {
         timeout: 3_000,
@@ -275,10 +289,8 @@ healthRouter.get('/api/v1/health/deskdns-check', async (_req, res) => {
       });
       probe = String(stdout).slice(0, 4_000);
       probeTool = 'lsof';
-      listening53 = /UDP.*:53\b|:53\b/i.test(probe) && probe.trim().length > 0;
-      if (!probe.trim()) listening53 = false;
+      listening53 = parseLsofUdp53(probe);
     } catch (e2) {
-      // Also try 5353 for lab default
       try {
         const { stdout } = await execFileAsync('lsof', ['-nP', '-iUDP:5353'], {
           timeout: 3_000,
@@ -287,11 +299,21 @@ healthRouter.get('/api/v1/health/deskdns-check', async (_req, res) => {
         probe = String(stdout).slice(0, 4_000);
         probeTool = 'lsof';
         if (deskDns.port === 53) listening53 = false;
-        else listening53 = probe.trim().length > 0 ? true : false;
+        else listening53 = probe.trim().length > 0;
       } catch {
         probe = e2 instanceof Error ? e2.message : 'probe_unavailable';
         listening53 = null;
       }
+    }
+  };
+
+  if (preferred === 'lsof') {
+    await tryLsof();
+  } else {
+    try {
+      await trySs();
+    } catch {
+      await tryLsof();
     }
   }
   const ok =
@@ -312,3 +334,14 @@ healthRouter.get('/api/v1/health/deskdns-check', async (_req, res) => {
         : null,
   });
 });
+
+/** Clear process-local Shield lastError (after ops fix the gateway). */
+healthRouter.post(
+  '/api/v1/health/shield-error/clear',
+  requireAuth,
+  requireRoles(...STAFF_ROLES),
+  (_req, res) => {
+    clearShieldLastError();
+    res.json({ ok: true, shield: { lastError: null } });
+  },
+);

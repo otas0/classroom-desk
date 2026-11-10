@@ -123,7 +123,8 @@ jobs:
             const repo = context.repo.repo;
             const title = 'Nightly e2e failed';
             const body = [
-              `### Canary: portal-multi-class-epoch (${context.runId})`,
+              `### Canary: portal-epoch (${context.runId})`,
+              '`canary:portal-epoch`',
               `**Run:** ${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`,
               `**Commit:** ${context.sha}`,
               '',
@@ -140,7 +141,7 @@ jobs:
                 });
               } else {
                 await github.rest.issues.create({
-                  owner, repo, title, body, labels: ['nightly-e2e', 'bug'],
+                  owner, repo, title, body, labels: ['nightly-e2e', 'bug', 'canary:portal-epoch'],
                 });
               }
             } catch (e) {
@@ -225,7 +226,8 @@ jobs:
             }
             const title = 'Nightly e2e failed';
             const body = [
-              `### Canary: portal-staff-block (${context.runId})`,
+              `### Canary: staff-block (${context.runId})`,
+              '`canary:staff-block`',
               `**Run:** ${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`,
               `**Commit:** ${context.sha}`,
               '',
@@ -245,7 +247,7 @@ jobs:
                 });
               } else {
                 await github.rest.issues.create({
-                  owner, repo, title, body, labels: ['nightly-e2e', 'bug'],
+                  owner, repo, title, body, labels: ['nightly-e2e', 'bug', 'canary:staff-block'],
                 });
               }
             } catch (e) {
@@ -445,6 +447,7 @@ jobs:
             const title = 'Nightly e2e failed';
             const body = [
               `### Full suite (${context.runId})`,
+              '`canary:full`',
               `**Workflow:** ${context.workflow}`,
               `**Run:** ${runUrl}`,
               `**Commit:** ${context.sha}`,
@@ -488,6 +491,9 @@ jobs:
 
               await ensureLabel('nightly-e2e', 'B60205');
               await ensureLabel('bug', 'd73a4a');
+              await ensureLabel('canary:full', '0E8A16');
+              await ensureLabel('canary:portal-epoch', '1D76DB');
+              await ensureLabel('canary:staff-block', 'FBCA04');
 
               let existing = null;
               try {
@@ -508,7 +514,7 @@ jobs:
                   owner,
                   repo,
                   issue_number: existing.number,
-                  body: `### Re-failed\n\n${body}`,
+                  body: `### Re-failed · \`canary:full\`\n\n${body}`,
                 });
                 core.info(`Commented on #${existing.number}`);
               } else {
@@ -518,7 +524,7 @@ jobs:
                     repo,
                     title,
                     body,
-                    labels: ['nightly-e2e', 'bug'],
+                    labels: ['nightly-e2e', 'bug', 'canary:full'],
                   });
                   core.info(`Opened #${created.data.number}`);
                 } catch (e) {
@@ -535,6 +541,49 @@ jobs:
             } catch (e) {
               core.warning(`Issue notify skipped (ACL?): ${e.message}. See Step Summary.`);
             }
+
+  # Optional: walled-garden template vs live OPNsense export via teacher JWT.
+  # Manual dispatch; set secret CD_STAFF_TOKEN (and optional OPNSENSE_WALLED_GARDEN_JSON).
+  walled-garden-diff:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    env:
+      CD_API_BASE: http://127.0.0.1:8787
+      CD_STAFF_TOKEN: ${{ secrets.CD_STAFF_TOKEN }}
+      OPNSENSE_LIVE_JSON: ${{ secrets.OPNSENSE_WALLED_GARDEN_JSON }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Install
+        run: npm install
+      - name: Start API + mint teacher JWT when secret missing
+        run: |
+          JWT_SECRET=ci-secret-not-for-prod \
+          ADMIN_PASSWORD=AdminPass123 \
+          TEACHER_PASSWORD=E2eTeacherPass9 \
+          npm run start --workspace=@classroom-desk/server &
+          for i in $(seq 1 40); do
+            curl -fsS http://127.0.0.1:8787/health >/dev/null && break
+            sleep 1
+          done
+          if [ -z "${CD_STAFF_TOKEN:-}" ]; then
+            TOKEN=$(curl -fsS -X POST http://127.0.0.1:8787/api/v1/auth/login \
+              -H 'content-type: application/json' \
+              -d '{"username":"teacher","password":"E2eTeacherPass9"}' | node -pe 'JSON.parse(fs.readFileSync(0,"utf8")).token')
+            echo "CD_STAFF_TOKEN=$TOKEN" >> "$GITHUB_ENV"
+          fi
+      - name: Diff walled-garden (--fetch)
+        run: |
+          if [ -n "${OPNSENSE_LIVE_JSON:-}" ]; then
+            printf '%s' "$OPNSENSE_LIVE_JSON" > /tmp/opnsense-live.json
+            npm run diff:walled-garden -- --fetch --live /tmp/opnsense-live.json
+          else
+            npm run diff:walled-garden -- --fetch
+          fi
 
   windows-student-smoke:
     runs-on: windows-latest

@@ -63,10 +63,20 @@ tmp/live-evidence/<YYYY-MM-DD>/screenshots/
   opennds-fas-redirect.png     # Captive → /portal?ssid_ts&ssid_sig
 ```
 
+文档内链（相对证据目录；无图时保持文件名约定，勿提交含密钥的 PNG）：
+
+| 场景 | 预期文件 |
+|---|---|
+| BinAuth 放行 | [`../tmp/live-evidence/`](../tmp/live-evidence/)…`/screenshots/opennds-binauth-allow.png` |
+| BinAuth 拒绝 | …`/screenshots/opennds-binauth-deny.png` |
+| FAS → 门户 | …`/screenshots/opennds-fas-redirect.png` |
+
 归档后跑脱敏：
 
 ```bash
 npm run check:live-evidence
+# 可选：证据里误写内网管理 URL 时失败
+npm run check:live-evidence -- --fail-on-rfc1918-leak
 ```
 
-占位说明：无真机时目录可为空；`archive:live-shield` 会创建当日 `screenshots/`。
+占位说明：当前环境无 OPNsense/openNDS 真机凭据时目录可为空；`npm run archive:live-shield` 会创建当日 `screenshots/`。填入学校凭据后重跑并粘贴上述三张图。

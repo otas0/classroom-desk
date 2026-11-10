@@ -18,6 +18,7 @@ import {
   restoreExamModeInputLock,
 } from './inputLock.js';
 import { getShieldConnector } from './shield/registry.js';
+import { recordShieldLastError } from './shield/lastError.js';
 import {
   revokeGatewayAccessForClass,
   type GatewayAllowEntry,
@@ -140,12 +141,12 @@ async function pushShieldForClass(
 
 /** After per-class gateway revoke — drop those IPs/MACs from Shield allow aliases. */
 async function syncShieldRemoveAllowEntries(
+  db: DatabaseSync,
   classId: string | null,
   removed: GatewayAllowEntry[],
 ) {
   if (!removed.length) return;
   const connector = getShieldConnector();
-  const { recordShieldLastError } = await import('./shield/lastError.js');
   for (const e of removed) {
     const keys = [e.mac, e.ip, e.clientKey].map((x) => String(x ?? '').trim()).filter(Boolean);
     const seen = new Set<string>();
@@ -172,7 +173,7 @@ async function syncShieldRemoveAllowEntries(
               classId,
               detail: msg,
             },
-            dbForShieldAudit(),
+            db,
           );
         }
       } catch (err) {
@@ -188,18 +189,11 @@ async function syncShieldRemoveAllowEntries(
             classId,
             detail: msg,
           },
-          dbForShieldAudit(),
+          db,
         );
       }
     }
   }
-}
-
-function dbForShieldAudit() {
-  // Lazy import avoids circular init with openDb in hot path.
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const { openDb } = require('./../db/client.js') as typeof import('./../db/client.js');
-  return openDb();
 }
 
 export async function applyDeepLockAction(
@@ -312,7 +306,7 @@ export async function applyDeepLockAction(
 
   await pushShieldForClass(db, classId, state, kick);
   if (opts.action === 'end' && revokedGateway.length) {
-    await syncShieldRemoveAllowEntries(classId, revokedGateway);
+    await syncShieldRemoveAllowEntries(db, classId, revokedGateway);
   }
 
   writeAudit(

@@ -87,7 +87,9 @@ export function SetupChecklist({
   }, [refreshTick, classId]);
 
   const rosterDone = classes.length > 0 && Boolean(classId) && studentCount > 0;
-  const studentsOnline = hasApiBase && Boolean(classId) && serverOk === true && connectedCount > 0;
+  // Presence heartbeats are enough; do not require a non-localhost assign apiBase
+  // (teachers often open /admin on 127.0.0.1 while students use the LAN IP).
+  const studentsOnline = Boolean(classId) && serverOk === true && connectedCount > 0;
   const studentsPending = serverOk === null;
   const questionDone = hasQuestion;
   const coreDone = rosterDone && studentsOnline && (!questionKnown || questionDone);
@@ -146,7 +148,9 @@ export function SetupChecklist({
           : serverOk === false
             ? t('服务器不可达，请先在教师机启动服务')
             : connectedCount === 0
-              ? t('服务已通 · 请扫码让学生机连上')
+              ? hasApiBase
+                ? t('服务已通 · 请扫码让学生机连上')
+                : t('服务已通 · 去指派页展示二维码（学生填局域网 IP）')
               : t('已连 {v0} 台', { v0: String(connectedCount) }),
       actionLabel: t('去指派'),
       action: () => goAssignWithAudit('setup_step2'),

@@ -381,7 +381,6 @@
   "名单为空，无法抽答": "The roster is empty, so no one can be called on",
   "默认": "Default",
   "默认禁止学生关闭客户端。批量解除后，全班可在时限内退出；或本机输入解除码退出。": "Students cannot quit by default. After a batch unlock, the class may quit within the time window, or use a local unlock code.",
-  "默认空闲。冻结=主屏全屏+副屏黑屏+1.2s夺焦+键鼠锁+2.5s杀浏览器/微信QQ/游戏+失焦记违规；仅试卷=全屏试卷壳+同上杀进程。网络→Shield（CLASSROOM_DESK_SHIELD=mock|http|opnsense|unifi）。Alt+Tab/任务管理器仍须 Assigned Access。私人设备零安装管不住热点。": "Idle by default. Freeze=fullscreen primary + black secondary displays + 1.2s focus steal + input lock + 2.5s kill browsers/WeChat/QQ/games + blur violations. Exam-only=fullscreen exam shell + same kills. Net→Shield (CLASSROOM_DESK_SHIELD=mock|http|opnsense|unifi). Alt+Tab/Task Manager still need Assigned Access. BYOD with no agent cannot block hotspots.",
   "判断": "True/False",
   "判断题": "True/False question",
   "判断题模板": "True/false template",
@@ -946,5 +945,9 @@
   "一键校园网预设（私人设备门户 + 强制签名）": "Apply campus preset (BYOD portal + signed SSID)",
   "已应用校园网预设：私人设备门户 + 强制签名 SSID": "Applied campus preset: BYOD portal + signed SSID",
   "预设应用失败": "Preset failed",
-  "复制失败": "Copy failed"
+  "复制失败": "Copy failed",
+  "清除 Shield 错误": "Clear Shield error",
+  "刷新重试": "Refresh / retry",
+  "清除失败": "Clear failed",
+  "默认空闲。冻结=主屏全屏+副屏黑屏+0.6s夺焦+键鼠锁+1s杀浏览器/WebView2/微信QQ/游戏+拦截F12/刷新；仅试卷=全屏壳+域名白名单禁跳转。网络→Shield+可选 DeskDNS(CLASSROOM_DESK_DNS=1)。不拦任务管理器（见 SECURITY）；Alt+Tab 须 Assigned Access。": "Idle by default. Freeze=fullscreen primary + black secondary + 0.6s focus steal + input lock + 1s kill browsers/WebView2/WeChat/QQ/games + block F12/reload. Exam-only=fullscreen shell + host allowlist (blocks off-list nav). Net→Shield + optional DeskDNS (CLASSROOM_DESK_DNS=1). Does not block Task Manager (see SECURITY); Alt+Tab needs Assigned Access."
 }

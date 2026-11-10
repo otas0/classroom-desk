@@ -4,7 +4,12 @@ import { API_BASE, api } from '../api';
 
 type HealthNet = {
   deskDns?: { enabled?: boolean; running?: boolean; port?: number | null; error?: string | null };
-  shield?: { active?: string; displayName?: string; adapters?: string[] };
+  shield?: {
+    active?: string;
+    displayName?: string;
+    adapters?: string[];
+    lastError?: { at?: string; message?: string } | null;
+  };
 };
 
 type DeskDnsCheck = {
@@ -93,6 +98,31 @@ export function HealthNetCard() {
     }
   }
 
+  async function clearShieldError() {
+    setBusy(true);
+    setErr('');
+    try {
+      await api('/api/v1/health/shield-error/clear', { method: 'POST', body: '{}' });
+      await refreshHealth();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : t('清除失败'));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function retryHealth() {
+    setBusy(true);
+    setErr('');
+    try {
+      await refreshHealth();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : t('加载失败'));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const dns = h.deskDns;
   const shield = h.shield;
 
@@ -111,6 +141,11 @@ export function HealthNetCard() {
       <p className="hint" data-testid="health-shield">
         Shield：{shield?.displayName ?? '—'}（{shield?.active ?? 'mock'}）
         {shield?.adapters?.length ? ` · ${shield.adapters.join(' / ')}` : ''}
+        {shield?.lastError?.message
+          ? ` · lastError：${shield.lastError.message}${
+              shield.lastError.at ? ` @ ${shield.lastError.at}` : ''
+            }`
+          : ''}
       </p>
       <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
         <button
@@ -131,6 +166,26 @@ export function HealthNetCard() {
         >
           {t('SSID 签名自检')}
         </button>
+        <button
+          type="button"
+          className="secondary"
+          disabled={busy}
+          data-testid="health-retry-btn"
+          onClick={() => void retryHealth()}
+        >
+          {t('刷新重试')}
+        </button>
+        {shield?.lastError?.message ? (
+          <button
+            type="button"
+            className="secondary"
+            disabled={busy}
+            data-testid="shield-error-clear-btn"
+            onClick={() => void clearShieldError()}
+          >
+            {t('清除 Shield 错误')}
+          </button>
+        ) : null}
       </div>
       {dnsCheck ? (
         <p className="hint" data-testid="deskdns-check-result">
