@@ -128,7 +128,7 @@ export function HardeningHealthPanel({ classId }: { classId: string }) {
     const text = lines.join('\n');
     try {
       await navigator.clipboard.writeText(text);
-      setCopyMsg(`已复制 ${unhardenedRows.length} 台未加固机位提示`);
+      setCopyMsg(t('已复制 {v0} 台未加固机位提示', { v0: unhardenedRows.length }));
     } catch {
       setCopyMsg(t('剪贴板不可用，请手动选择下方文本'));
       setCopyFallback(text);
@@ -206,7 +206,21 @@ export function HardeningHealthPanel({ classId }: { classId: string }) {
     <section data-testid="hardening-health-panel">
       <h2>{t('加固体检')}</h2>
       <p className="hint">
-        读取服务 <code>/health</code> 与本班学生 presence 的 Assigned Access / MDM 信号汇总。空班显示真实空状态；不写假机位。
+        {t(
+          '读取服务 /health 与本班学生 presence 的 Assigned Access / MDM 信号汇总。空班显示真实空状态；不写假机位。',
+        )}
+      </p>
+      <p className="hint" data-testid="hardening-scope-note">
+        {t(
+          '应用内退出锁 / 键鼠锁 ≠ 管整机进程、浏览器或系统 App。整机管控请学校 IT 按 Assigned Access / Intune 配置（见 docs/EXIT_LOCK_MDM.md）。',
+        )}{' '}
+        <a
+          href="https://github.com/otas0/classroom-desk/blob/main/docs/EXIT_LOCK_MDM.md"
+          target="_blank"
+          rel="noreferrer"
+        >
+          docs/EXIT_LOCK_MDM.md
+        </a>
       </p>
       <div className="row">
         <button type="button" disabled={busy} onClick={() => void load()}>
@@ -219,7 +233,7 @@ export function HardeningHealthPanel({ classId }: { classId: string }) {
           disabled={unhardenedRows.length === 0}
           onClick={() => void copyUnhardenedTip()}
         >
-          复制未加固升级提示（{unhardenedRows.length}）
+          {t('复制未加固升级提示（{v0}）', { v0: unhardenedRows.length })}
         </button>
         <button
           type="button"
@@ -227,7 +241,7 @@ export function HardeningHealthPanel({ classId }: { classId: string }) {
           data-testid="aa-checklist-export"
           onClick={exportAaChecklist}
         >
-          导出 Assigned Access 清单
+          {t('导出 Assigned Access 清单')}
         </button>
       </div>
       {copyMsg ? (
@@ -259,7 +273,7 @@ export function HardeningHealthPanel({ classId }: { classId: string }) {
               el.select();
             }}
           >
-            一键全选
+            {t('一键全选')}
           </button>
         </div>
       ) : null}
@@ -272,14 +286,30 @@ export function HardeningHealthPanel({ classId }: { classId: string }) {
       ) : health ? (
         <ul className="hint" data-testid="hardening-health-summary">
           <li>
-            状态：{health.ok ? 'ok' : t('异常')}
-            {health.degraded ? '（degraded）' : ''}
+            {t('状态：')}
+            {health.ok ? 'ok' : t('异常')}
+            {health.degraded ? t('（degraded）') : ''}
           </li>
-          <li>服务版本：{health.version || '—'}</li>
-          <li>学生端期望版本：{health.studentDesktopVersion || health.version || '—'}</li>
-          <li>主机：{health.hostName || '—'}</li>
-          <li>建议 API：{health.suggestedApiBase || '—'}</li>
-          <li>时间：{health.time || '—'}</li>
+          <li>
+            {t('服务版本：')}
+            {health.version || '—'}
+          </li>
+          <li>
+            {t('学生端期望版本：')}
+            {health.studentDesktopVersion || health.version || '—'}
+          </li>
+          <li>
+            {t('主机：')}
+            {health.hostName || '—'}
+          </li>
+          <li>
+            {t('建议 API：')}
+            {health.suggestedApiBase || '—'}
+          </li>
+          <li>
+            {t('时间：')}
+            {health.time || '—'}
+          </li>
         </ul>
       ) : (
         <p className="hint">{t('尚未拉取 /health')}</p>
@@ -297,11 +327,15 @@ export function HardeningHealthPanel({ classId }: { classId: string }) {
       ) : (
         <>
           <p className="hint" data-testid="hardening-presence-summary">
-            在线 {items.length} · 已加固 {hardenedCount} · 未加固 {unhardenedCount}
+            {t('在线 {v0} · 已加固 {v1} · 未加固 {v2}', {
+              v0: items.length,
+              v1: hardenedCount,
+              v2: unhardenedCount,
+            })}
           </p>
           {items.length === 0 ? (
             <p className="hint" data-testid="hardening-presence-empty">
-              当前无在线学生机（心跳窗口内）
+              {t('当前无在线学生机（心跳窗口内）')}
             </p>
           ) : (
             <table>

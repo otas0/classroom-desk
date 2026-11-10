@@ -102,7 +102,7 @@ export function OpsDashboard({
                   data-testid="ops-unhardened-threshold-link"
                   onClick={() => onGoUnhardenedThreshold()}
                 >
-                  设置 → 运维调度锚点
+                  {t('设置 → 运维调度锚点')}
                 </button>
                 ）
               </>
@@ -110,16 +110,22 @@ export function OpsDashboard({
               t('（设置 → 运维调度可改）')
             )}
             {dash.fleet.onlineTotal > 0
-              ? ` · 当前占比 ${((dash.fleet.unhardenedRate ?? 0) * 100).toFixed(0)}%`
-              : ' · 当前无在线机'}
+              ? t(' · 当前占比 {v0}%', {
+                  v0: ((dash.fleet.unhardenedRate ?? 0) * 100).toFixed(0),
+                })
+              : t(' · 当前无在线机')}
           </p>
           {dash.fleet.unhardenedAlert ? (
             <p className="error" role="alert" data-testid="ops-unhardened-alert">
-              未加固机位占比{' '}
-              {((dash.fleet.unhardenedRate ?? 0) * 100).toFixed(0)}%（
-              {dash.fleet.unhardenedOnline ?? 0}/{dash.fleet.onlineTotal}
-              ）≥ 阈值 {((dash.fleet.unhardenedAlertThreshold ?? 0.25) * 100).toFixed(0)}
-              %。请到「加固体检」核对 Assigned Access / MDM。
+              {t(
+                '未加固机位占比 {v0}%（{v1}/{v2}）≥ 阈值 {v3}%。请到「加固体检」核对 Assigned Access / MDM（锁≠管整机，见 docs/EXIT_LOCK_MDM.md）。',
+                {
+                  v0: ((dash.fleet.unhardenedRate ?? 0) * 100).toFixed(0),
+                  v1: dash.fleet.unhardenedOnline ?? 0,
+                  v2: dash.fleet.onlineTotal,
+                  v3: ((dash.fleet.unhardenedAlertThreshold ?? 0.25) * 100).toFixed(0),
+                },
+              )}
             </p>
           ) : null}
           <div className="ops-kpis">

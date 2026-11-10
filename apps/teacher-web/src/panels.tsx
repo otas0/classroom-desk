@@ -1060,10 +1060,10 @@ export function StudentRow({
         {allowWrite ? (
           <>
         <button type="button" className="secondary" disabled={busy} onClick={() => void save()}>
-          保存
+          {t('保存')}
         </button>{' '}
         <button type="button" disabled={busy} onClick={() => void remove()}>
-          删除
+          {t('删除')}
         </button>
           </>
         ) : (
@@ -1687,7 +1687,7 @@ export function QuestionsPanel({ classId }: { classId: string }) {
             })()
           }
         >
-          清空截止
+          {t('清空截止')}
         </button>
         <button
           type="button"
@@ -1717,7 +1717,7 @@ export function QuestionsPanel({ classId }: { classId: string }) {
       </div>
       {selectedQIds.size > 0 ? (
         <div className="selection-sticky" data-testid="questions-selection-sticky">
-          已选 {selectedQIds.size} 题 · Shift+点击连选 · ↑↓ 移动 · Space 勾选
+          {t('已选 {v0} 题 · Shift+点击连选 · ↑↓ 移动 · Space 勾选', { v0: selectedQIds.size })}
         </div>
       ) : null}
       {items.length === 0 ? <p className="hint">{t('暂无题目')}</p> : null}
@@ -5535,7 +5535,16 @@ export function SettingsPanel({
           ) : null}
           <h4 id="input-lock-settings">{t('物理输入锁')}</h4>
           <p className="hint">
-            {t('上课页也有同样的快捷锁定。这里可改范围（全校/机位）与课次到期。仅限制本应用，不能代替 Assigned Access。')}
+            {t(
+              '上课页也有同样的快捷锁定。这里可改范围（全校/机位）与课次到期。仅限制本应用（退出锁 / 键鼠语音相机），不管其它进程、浏览器标签或系统 App；整机请学校 IT 配 Assigned Access / Intune（见 docs/EXIT_LOCK_MDM.md）。',
+            )}{' '}
+            <a
+              href="https://github.com/otas0/classroom-desk/blob/main/docs/EXIT_LOCK_MDM.md"
+              target="_blank"
+              rel="noreferrer"
+            >
+              docs/EXIT_LOCK_MDM.md
+            </a>
           </p>
           <ClassroomLockBar classId={currentTeacherClassId()} />
           {isAssistant() ? (
@@ -6292,7 +6301,7 @@ export function SettingsPanel({
                         data-testid="audit-jump-input-lock"
                         onClick={() => jumpToInputLockSettings()}
                       >
-                        跳转物理输入锁
+                        {t('跳转物理输入锁')}
                       </button>
                     </>
                   ) : null}
@@ -6304,12 +6313,12 @@ export function SettingsPanel({
 
           <div className="card">
             <button type="button" className="secondary" onClick={() => setShowExitHelp((v) => !v)}>
-              {showExitHelp ? '收起帮助' : '帮助：锁定状态机'}
+              {showExitHelp ? t('收起帮助') : t('帮助：锁定状态机')}
             </button>
             {showExitHelp ? (
               <div className="hint">
                 <p>
-                  完整说明（含 C2 手测表 / Assigned Access / Intune）：{' '}
+                  {t('完整说明（含 C2 手测表 / Assigned Access / Intune）：')}{' '}
                   <a
                     href="https://github.com/otas0/classroom-desk/blob/main/docs/EXIT_LOCK_MDM.md"
                     target="_blank"
