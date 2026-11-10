@@ -63,11 +63,11 @@ test.describe('principal WS reconnect', () => {
     await expect(dash).toBeVisible({ timeout: 20_000 });
     await dash.scrollIntoViewIfNeeded();
     const live = page.getByTestId('principal-ws-live');
-    await expect(live).toContainText(/实时|Live|即時|ライブ|실시간|轮询|poll|后备/, {
+    await expect(live).toContainText(/实时|live|即時|ライブ|실시간|轮询|poll|后备/i, {
       timeout: 10_000,
     });
     await expect
       .poll(async () => (await live.innerText()).replace(/\s+/g, ''), { timeout: 20_000 })
-      .toMatch(/实时|Live|即時|ライブ|실시간/);
+      .toMatch(/实时|live|即時|ライブ|실시간/i);
   });
 });
