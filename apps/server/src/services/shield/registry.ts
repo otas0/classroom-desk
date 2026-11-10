@@ -1,7 +1,16 @@
+import { HttpShieldConnector } from './httpConnector.js';
 import { MockShieldConnector } from './mockConnector.js';
 import type { ShieldConnector } from './types.js';
 
-let active: ShieldConnector = new MockShieldConnector();
+function createDefaultConnector(): ShieldConnector {
+  const url = String(process.env.CLASSROOM_DESK_SHIELD_URL ?? '').trim();
+  if (url) {
+    return new HttpShieldConnector(url, process.env.CLASSROOM_DESK_SHIELD_TOKEN ?? '');
+  }
+  return new MockShieldConnector();
+}
+
+let active: ShieldConnector = createDefaultConnector();
 
 export function getShieldConnector(): ShieldConnector {
   return active;
@@ -14,5 +23,11 @@ export function setShieldConnector(connector: ShieldConnector) {
 
 export function resetShieldConnectorToMock() {
   active = new MockShieldConnector();
+  return active;
+}
+
+/** Re-read env (after tests mutate CLASSROOM_DESK_SHIELD_URL). */
+export function refreshShieldConnectorFromEnv() {
+  active = createDefaultConnector();
   return active;
 }

@@ -977,6 +977,40 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
     } else setCollapsed((c) => !c);
   }
 
+  const visibleTabs = TABS.filter((t) => t.id !== 'messages' || messagesEnabled);
+
+  const versionDrift =
+    Boolean(expectedClientVersion) &&
+    CLIENT_VERSION !== '0.0.0' &&
+    expectedClientVersion !== CLIENT_VERSION;
+
+  const openUpgradeUrl = useCallback(async (url: string) => {
+    const target = String(url ?? '').trim();
+    if (!target) return;
+    if (window.classroomDesk?.openExternal) {
+      const r = await window.classroomDesk.openExternal(target);
+      if (r?.ok) return;
+    }
+    window.open(target, '_blank', 'noopener,noreferrer');
+  }, []);
+
+  // Must stay above every early return — conditional hooks white-screen the student shell.
+  useEffect(() => {
+    if (!versionDrift || !studentAutoUpdate || !lanUpgradeUrl || autoUpdatePromptedRef.current) {
+      return;
+    }
+    autoUpdatePromptedRef.current = true;
+    const ok = window.confirm(
+      t(
+        '教室已开启可选自动更新。本机 v{v0}，应升级到 v{v1}。打开局域网安装包？（不静默安装，可取消）',
+        { v0: CLIENT_VERSION, v1: expectedClientVersion },
+      ),
+    );
+    if (ok) {
+      void openUpgradeUrl(lanUpgradeUrl);
+    }
+  }, [versionDrift, studentAutoUpdate, lanUpgradeUrl, expectedClientVersion, openUpgradeUrl]);
+
   if (!ready) {
     return (
       <div className="shell">
@@ -1069,39 +1103,6 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
       </div>
     );
   }
-
-  const visibleTabs = TABS.filter((t) => t.id !== 'messages' || messagesEnabled);
-
-  const versionDrift =
-    Boolean(expectedClientVersion) &&
-    CLIENT_VERSION !== '0.0.0' &&
-    expectedClientVersion !== CLIENT_VERSION;
-
-  const openUpgradeUrl = useCallback(async (url: string) => {
-    const target = String(url ?? '').trim();
-    if (!target) return;
-    if (window.classroomDesk?.openExternal) {
-      const r = await window.classroomDesk.openExternal(target);
-      if (r?.ok) return;
-    }
-    window.open(target, '_blank', 'noopener,noreferrer');
-  }, []);
-
-  useEffect(() => {
-    if (!versionDrift || !studentAutoUpdate || !lanUpgradeUrl || autoUpdatePromptedRef.current) {
-      return;
-    }
-    autoUpdatePromptedRef.current = true;
-    const ok = window.confirm(
-      t(
-        '教室已开启可选自动更新。本机 v{v0}，应升级到 v{v1}。打开局域网安装包？（不静默安装，可取消）',
-        { v0: CLIENT_VERSION, v1: expectedClientVersion },
-      ),
-    );
-    if (ok) {
-      void openUpgradeUrl(lanUpgradeUrl);
-    }
-  }, [versionDrift, studentAutoUpdate, lanUpgradeUrl, expectedClientVersion, openUpgradeUrl]);
 
   if (ready && needsFirstRun) {
     return (

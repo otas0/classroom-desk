@@ -33,7 +33,8 @@ test.describe('assistants SSE list refresh', () => {
     await expect(page.getByTestId(`assistant-row-${user}`)).not.toContainText('已停用');
     await expect(page.getByTestId('assistants-sse-live-badge').or(page.getByTestId('assistants-sse-fallback-badge'))).toBeVisible();
 
-    // UI path: 停用 button (also exercises SSE refresh after mutation from same tab)
+    // UI path: 停用 button (confirm dialog; Playwright auto-dismiss would cancel)
+    page.once('dialog', (d) => void d.accept());
     await page.getByTestId(`assistant-disable-${user}`).click();
     await expect(page.getByTestId(`assistant-row-${user}`)).toContainText('已停用', {
       timeout: 12_000,
