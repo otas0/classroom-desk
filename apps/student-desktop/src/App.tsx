@@ -32,7 +32,18 @@ import {
   type InputLockStore,
 } from './inputLock';
 import { deepLockBannerText, parseDeepLockPayload, type DeepLockState } from './deepLock';
-import { EMPTY_DEEP_LOCK_STATE, deepLockAggressive } from '@classroom-desk/shared';
+import {
+  DEFAULT_OFFLINE_LOCK_POLICY,
+  EMPTY_DEEP_LOCK_STATE,
+  EMPTY_DEVICE_CONTROL_POLICY,
+  deepLockAggressive,
+  normalizeDeviceControlCommand,
+  normalizeDeviceControlPolicy,
+  normalizeOfflineLockPolicy,
+  type DeviceControlCommand,
+  type DeviceControlPolicy,
+  type OfflineLockPolicy,
+} from '@classroom-desk/shared';
 import { normalizeUiLocale, t, type UiLocale } from '@classroom-desk/i18n';
 declare const __APP_VERSION__: string;
 const CLIENT_VERSION = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.0.0';
@@ -128,6 +139,18 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
   const [inputLock, setInputLock] = useState<InputLockFlags>(EMPTY_INPUT_LOCK);
   const [inputLockStoreState, setInputLockStore] = useState<InputLockStore | null>(null);
   const [deepLock, setDeepLock] = useState<DeepLockState>(() => EMPTY_DEEP_LOCK_STATE());
+  const [devicePolicy, setDevicePolicy] = useState<DeviceControlPolicy>(() =>
+    EMPTY_DEVICE_CONTROL_POLICY(),
+  );
+  const [offlinePolicy, setOfflinePolicy] = useState<OfflineLockPolicy>(() =>
+    DEFAULT_OFFLINE_LOCK_POLICY(),
+  );
+  const [offlineHardLocked, setOfflineHardLocked] = useState(false);
+  const [offlineWarn, setOfflineWarn] = useState(false);
+  const [offlineUnlockCode, setOfflineUnlockCode] = useState('');
+  const [offlineUnlockMsg, setOfflineUnlockMsg] = useState('');
+  const lastDeviceCmdIdRef = useRef('');
+  const offlineFailSinceRef = useRef<number | null>(null);
   const [raiseHandBusy, setRaiseHandBusy] = useState(false);
   const inputLockToastAtRef = useRef(0);
   const deepLockFocusTimerRef = useRef(0);
@@ -539,6 +562,154 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
     deepLock.netMode,
     deepLock.allowlistHosts,
   ]);
+
+  // Device control: policy + one-shot open/close + blocked apps kill loop.
+  useEffect(() => {
+    if (!ready || !healthOk) return;
+    const base = getApiBase();
+    let closed = false;
+    let es: EventSource | null = null;
+
+    function applyPayload(raw: unknown) {
+      try {
+        const data = typeof raw === 'string' ? JSON.parse(raw) : raw;
+        if (!data || data.type !== 'device_control') return;
+        const policy = normalizeDeviceControlPolicy(data.policy);
+        const offline = normalizeOfflineLockPolicy(data.offline);
+        setDevicePolicy(policy);
+        setOfflinePolicy(offline);
+        void window.classroomDesk?.setBlockedHosts?.(policy.blockedHosts);
+        const cmd = normalizeDeviceControlCommand(data.command);
+        if (cmd && cmd.id && cmd.id !== lastDeviceCmdIdRef.current) {
+          if (!cmd.classId || cmd.classId === classId) {
+            lastDeviceCmdIdRef.current = cmd.id;
+            void applyDeviceCommand(cmd);
+          }
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+
+    async function applyDeviceCommand(cmd: DeviceControlCommand) {
+      const desk = window.classroomDesk;
+      if (cmd.kind === 'open_url' && cmd.url) {
+        const r = await desk?.openExternal?.(cmd.url);
+        if (r && !r.ok) showToast(t('打开网页失败：{v0}', { v0: r.error || '' }));
+      } else if (cmd.kind === 'open_app' && cmd.app) {
+        const r = await desk?.openApp?.(cmd.app);
+        if (r && !r.ok) showToast(t('打开应用失败：{v0}', { v0: r.error || '' }));
+      } else if (cmd.kind === 'close_apps') {
+        const apps = cmd.apps?.length ? cmd.apps : [];
+        if (apps.length) void desk?.killApps?.(apps);
+      }
+    }
+
+    void fetch(`${base}/api/v1/device-control/public`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (!closed) applyPayload(data);
+      })
+      .catch(() => undefined);
+
+    es = new EventSource(`${base}/api/v1/device-control/stream`);
+    es.addEventListener('device_control', (ev) => applyPayload((ev as MessageEvent).data));
+    es.onmessage = (ev) => applyPayload(ev.data);
+
+    return () => {
+      closed = true;
+      es?.close();
+    };
+  }, [ready, healthOk, classId, showToast]);
+
+  useEffect(() => {
+    if (!devicePolicy.blockedApps.length) return;
+    const tick = () => {
+      void window.classroomDesk?.killApps?.(devicePolicy.blockedApps);
+    };
+    tick();
+    const id = window.setInterval(tick, 2_000);
+    return () => window.clearInterval(id);
+  }, [devicePolicy.blockedApps]);
+
+  // Offline hard-lock: no teacher host → fullscreen until code or reconnect policy.
+  useEffect(() => {
+    if (!ready) return;
+    let cancelled = false;
+    const tick = async () => {
+      try {
+        const r = await fetch(`${getApiBase()}/health`, { cache: 'no-store' });
+        if (!r.ok) throw new Error('health_bad');
+        offlineFailSinceRef.current = null;
+        if (cancelled) return;
+        setOfflineWarn(false);
+        if (offlineHardLocked) {
+          if (offlinePolicy.holdUntilUnlockCode) {
+            /* stay locked until unlock code */
+          } else if (offlinePolicy.collapseOnReconnect) {
+            setOfflineHardLocked(false);
+            void window.classroomDesk?.setDeepLockFrozen?.(false);
+            void window.classroomDesk?.snapBottomRight?.();
+            showToast(t('已连上教师机，回到右下角'));
+          } else {
+            setOfflineHardLocked(false);
+            void window.classroomDesk?.setDeepLockFrozen?.(false);
+          }
+        }
+      } catch {
+        const now = Date.now();
+        if (offlineFailSinceRef.current == null) offlineFailSinceRef.current = now;
+        const elapsed = now - offlineFailSinceRef.current;
+        if (elapsed < offlinePolicy.graceMs) return;
+        if (offlinePolicy.mode === 'off') return;
+        if (offlinePolicy.mode === 'warn') {
+          setOfflineWarn(true);
+          return;
+        }
+        if (!offlineHardLocked) {
+          setOfflineHardLocked(true);
+          setOfflineWarn(false);
+          void window.classroomDesk?.setDeepLockFrozen?.(true);
+          showToast(t('与教师机断开：已强硬锁屏'));
+        }
+      }
+    };
+    void tick();
+    const id = window.setInterval(() => void tick(), 2_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [
+    ready,
+    offlineHardLocked,
+    offlinePolicy.graceMs,
+    offlinePolicy.mode,
+    offlinePolicy.collapseOnReconnect,
+    offlinePolicy.holdUntilUnlockCode,
+    showToast,
+  ]);
+
+  async function clearOfflineHardLockWithCode() {
+    if (!offlinePolicy.unlockWithCode) {
+      setOfflineUnlockMsg(t('教师未允许用解除码解除掉线锁'));
+      return;
+    }
+    setOfflineUnlockMsg('');
+    try {
+      await api('/api/v1/auth/exit-unlock', {
+        method: 'POST',
+        body: JSON.stringify({ code: offlineUnlockCode }),
+      });
+      setOfflineHardLocked(false);
+      setOfflineUnlockCode('');
+      void window.classroomDesk?.setDeepLockFrozen?.(false);
+      void window.classroomDesk?.snapBottomRight?.();
+      showToast(t('解除码有效，已解除掉线锁'));
+    } catch (e) {
+      setOfflineUnlockMsg(e instanceof Error ? e.message : t('解除失败'));
+    }
+  }
 
   // Re-resolve when seat ids arrive (presence client id + seat map).
   useEffect(() => {
@@ -1458,10 +1629,42 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
         </div>
       ) : null}
 
-      {deepLock.frozen ? (
+      {deepLock.frozen && !offlineHardLocked ? (
         <div className="deep-lock-freeze-overlay" data-testid="deep-lock-freeze-overlay">
           <p>{t('已冻结')}</p>
           <p className="hint">{t('请等待教师指令。切离窗口将记为违规。')}</p>
+        </div>
+      ) : null}
+
+      {offlineWarn ? (
+        <div className="deep-lock-banner" role="status" data-testid="offline-warn-banner">
+          <p>{t('与教师机连接不稳定，请检查网线/Wi‑Fi')}</p>
+        </div>
+      ) : null}
+
+      {offlineHardLocked ? (
+        <div className="deep-lock-freeze-overlay offline-hard-lock" data-testid="offline-hard-lock">
+          <p>{t('与教师机断开 · 已强硬锁屏')}</p>
+          <p className="hint">
+            {offlinePolicy.unlockWithCode
+              ? t('输入解除码，或等待重新连上教师机')
+              : t('请等待重新连上教师机')}
+          </p>
+          {offlinePolicy.unlockWithCode ? (
+            <div className="offline-unlock-row">
+              <input
+                type="password"
+                value={offlineUnlockCode}
+                onChange={(e) => setOfflineUnlockCode(e.target.value)}
+                placeholder={t('解除码')}
+                autoComplete="off"
+              />
+              <button type="button" onClick={() => void clearOfflineHardLockWithCode()}>
+                {t('解除')}
+              </button>
+            </div>
+          ) : null}
+          {offlineUnlockMsg ? <p className="error">{offlineUnlockMsg}</p> : null}
         </div>
       ) : null}
 

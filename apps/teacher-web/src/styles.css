@@ -33,13 +33,16 @@
   --accent-soft: #fff;
   --alert: #000;
   --alert-bg: #fff;
-  --radius: 10px;
-  --radius-sm: 6px;
+  --radius: 2px;
+  --radius-sm: 2px;
   --shadow: none;
-  --font-sans: "Source Sans 3", "Noto Sans SC", "Noto Sans JP", "Noto Sans KR",
+  --font-sans: "IBM Plex Sans", "Noto Sans SC", "Noto Sans JP", "Noto Sans KR",
     "PingFang SC", "Hiragino Sans", "Yu Gothic UI", "Malgun Gothic", sans-serif;
-  --font-display: "Source Serif 4", "Noto Serif SC", "Songti SC", serif;
+  --font-display: "IBM Plex Sans", "Noto Sans SC", "Noto Sans JP", "Noto Sans KR",
+    sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, Menlo, Consolas, monospace;
   font-family: var(--font-sans);
+  letter-spacing: 0;
   color: var(--ink);
   background: var(--paper);
   line-height: 1.45;
@@ -1380,6 +1383,72 @@ aside .nav.active .pending-badge {
   gap: 8px;
 }
 
+.device-control-bar,
+.session-more-net,
+.session-more-groups {
+  border: 2px solid var(--ink);
+  background: var(--panel);
+  padding: 12px 14px;
+  border-radius: var(--radius);
+}
+
+.device-control-bar h3 {
+  margin: 0 0 6px;
+  font-size: 1rem;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+}
+
+.device-control-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px 10px;
+  align-items: end;
+  margin: 10px 0;
+}
+
+.device-control-blocks,
+.device-control-offline,
+.session-more-net,
+.session-more-groups {
+  margin-top: 8px;
+}
+
+.device-control-blocks summary,
+.device-control-offline summary,
+.session-more-net summary,
+.session-more-groups summary {
+  cursor: pointer;
+  font-weight: 600;
+  list-style: none;
+}
+
+.device-control-blocks summary::-webkit-details-marker,
+.device-control-offline summary::-webkit-details-marker,
+.session-more-net summary::-webkit-details-marker,
+.session-more-groups summary::-webkit-details-marker {
+  display: none;
+}
+
+.device-control-blocks summary::before,
+.device-control-offline summary::before,
+.session-more-net summary::before,
+.session-more-groups summary::before {
+  content: "+ ";
+  font-family: var(--font-mono);
+}
+
+details[open] > summary::before {
+  content: "− ";
+}
+
+code,
+kbd,
+.device-control-bar input,
+.deep-lock-bar input {
+  font-family: var(--font-mono);
+}
+
 @media (min-width: 960px) {
   .session-home {
     grid-template-columns: minmax(300px, 420px) minmax(0, 1fr);
@@ -1402,8 +1471,8 @@ aside .nav.active .pending-badge {
   background: var(--panel);
   color: var(--ink-soft);
   border-color: var(--line);
-  border-radius: 999px;
-  padding: 7px 14px;
+  border-radius: var(--radius-sm);
+  padding: 7px 12px;
   font-weight: 600;
 }
 

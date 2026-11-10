@@ -43,6 +43,9 @@ export type StudentDesktopAPI = {
     allowHosts?: string[];
   }) => Promise<{ ok: boolean; killed?: string[]; error?: string }>;
   getNetworkHint: () => Promise<{ ssid: string; ipv4: string; gateway: string }>;
+  killApps: (apps: string[]) => Promise<{ ok: boolean; killed?: string[] }>;
+  openApp: (app: string) => Promise<{ ok: boolean; error?: string }>;
+  setBlockedHosts: (hosts: string[]) => Promise<{ ok: boolean; count?: number }>;
 };
 
 const api: StudentDesktopAPI = {
@@ -73,6 +76,9 @@ const api: StudentDesktopAPI = {
     ipcRenderer.invoke('deep-lock:set-exam-url', url, allowHosts),
   enforceDeepLockBrowsers: (opts) => ipcRenderer.invoke('deep-lock:enforce-browsers', opts),
   getNetworkHint: () => ipcRenderer.invoke('net:get-hint'),
+  killApps: (apps) => ipcRenderer.invoke('device-control:kill-apps', apps),
+  openApp: (app) => ipcRenderer.invoke('device-control:open-app', app),
+  setBlockedHosts: (hosts) => ipcRenderer.invoke('device-control:set-blocked-hosts', hosts),
 };
 
 contextBridge.exposeInMainWorld('classroomDesk', api);
