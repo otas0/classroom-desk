@@ -38,7 +38,7 @@ export function ClassroomConnect({
         .replace(/\/$/, '');
       const storedIsLoopback = !stored || /127\.0\.0\.1|localhost/i.test(stored);
       const lanOk = Boolean(lanSuggested) && !/127\.0\.0\.1|localhost/i.test(lanSuggested);
-      // Default-write LAN apiBase when unset or still loopback (students cannot use 127.0.0.1).
+      // Only auto-write when unset/loopback. A saved non-loopback value must survive refresh.
       let next = stored;
       if (storedIsLoopback && lanOk) {
         next = lanSuggested;
@@ -47,6 +47,8 @@ export function ClassroomConnect({
           body: JSON.stringify({ classroomApiBase: next }),
         });
         onApiBaseSaved?.();
+      } else if (!storedIsLoopback) {
+        next = stored;
       } else if (!next) {
         next =
           lanSuggested ||
@@ -79,14 +81,14 @@ export function ClassroomConnect({
     return {
       apiBase: base,
       classId,
-      comment: `本教室 ${klass?.name ?? classId}。学生机专用，禁止 127.0.0.1。`,
+      comment: t('本教室 {v0}。学生机专用，禁止 127.0.0.1。', { v0: klass?.name ?? classId }),
     };
   }
 
   function downloadConfig() {
     const base = apiBase.replace(/\/$/, '');
     if (/127\.0\.0\.1|localhost/i.test(base)) {
-      window.alert('禁止使用 127.0.0.1 / localhost，请填教师机局域网 IP');
+      window.alert(t('禁止使用 127.0.0.1 / localhost，请填教师机局域网 IP'));
       return;
     }
     const cfg = configObject();
@@ -102,10 +104,10 @@ export function ClassroomConnect({
   async function copyText(label: string, text: string) {
     try {
       await navigator.clipboard.writeText(text);
-      setCopyMsg(`已复制${label}`);
+      setCopyMsg(t('已复制{v0}', { v0: label }));
       window.setTimeout(() => setCopyMsg(''), 2500);
     } catch {
-      window.prompt(`复制${label}：`, text);
+      window.prompt(t('复制{v0}：', { v0: label }), text);
     }
   }
 
@@ -126,11 +128,13 @@ export function ClassroomConnect({
       <h2>{t('上课前指派学生机')}</h2>
       {copyMsg ? <p className="toast-inline">{copyMsg}</p> : null}
       <div className="help-bubble">
-        每台学生机必须配置<strong>{t('本教师机局域网地址')}</strong>{t('与本班')} <code>classId</code>。禁止 127.0.0.1。
-        学生浏览器先打开下方 /health；通过后再装客户端或写入 config。
+        {t(
+          '每台学生机必须配置本教师机局域网地址与本班 classId。禁止 127.0.0.1。学生浏览器先打开下方 /health；通过后再装客户端或写入 config。',
+        )}
       </div>
       <p>
-        当前班级：<strong>{klass?.name ?? '—'}</strong>
+        {t('当前班级：')}
+        <strong>{klass?.name ?? '—'}</strong>
       </p>
       <p>
         classId：<code>{classId || t('（请先选班）')}</code>{' '}
@@ -140,7 +144,7 @@ export function ClassroomConnect({
           disabled={!classId}
           onClick={() => void copyText('classId', classId)}
         >
-          复制 classId
+          {t('复制 classId')}
         </button>
       </p>
       <p>
@@ -151,12 +155,13 @@ export function ClassroomConnect({
           disabled={!apiBase}
           onClick={() => void copyText('apiBase', apiBase.replace(/\/$/, ''))}
         >
-          复制 apiBase
+          {t('复制 apiBase')}
         </button>
       </p>
       {lanIps.length ? (
         <p className="hint">
-          本机检测到局域网 IP：{lanIps.map((ip) => (
+          {t('本机检测到局域网 IP：')}
+          {lanIps.map((ip) => (
             <button
               key={ip}
               type="button"
@@ -166,18 +171,18 @@ export function ClassroomConnect({
               {ip}
             </button>
           ))}
-          （点击填入）
+          {t('（点击填入）')}
         </p>
       ) : null}
       <label>
-        教师机 apiBase（学生机用）
+        {t('教师机 apiBase（学生机用）')}
         <input value={apiBase} onChange={(e) => setApiBase(e.target.value)} placeholder="http://192.168.x.x:8787" />
       </label>
       <button type="button" onClick={() => void saveApiBase().catch((e) => window.alert(String(e)))}>
-        保存为教室地址
+        {t('保存为教室地址')}
       </button>{' '}
       <button type="button" disabled={!classId || !apiBase} onClick={downloadConfig}>
-        下载本教室 config.json
+        {t('下载本教室 config.json')}
       </button>{' '}
       <button
         type="button"
@@ -185,7 +190,7 @@ export function ClassroomConnect({
         disabled={!classId || !apiBase}
         onClick={() => void copyText('config.json', JSON.stringify(configObject(), null, 2))}
       >
-        复制 config.json
+        {t('复制 config.json')}
       </button>
       {qrDataUrl ? (
         <div className="qr-block">
@@ -194,13 +199,13 @@ export function ClassroomConnect({
         </div>
       ) : null}
       <p className="hint">
-        学生浏览器强制检测：{' '}
+        {t('学生浏览器强制检测：')}{' '}
         <a href={healthHint} target="_blank" rel="noreferrer">
           {healthHint || '—'}
         </a>
       </p>
       <p className="hint">
-        打本教室安装包：
+        {t('打本教室安装包：')}
         <code>
           node scripts/pack-classroom-config.mjs --apiBase {apiBase || t('http://教师IP:8787')} --classId{' '}
           {classId || '<id>'}
