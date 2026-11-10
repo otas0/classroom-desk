@@ -367,14 +367,14 @@ export function RosterPanel({
           placeholder={t('学号（可选）')}
         />
         <button type="button" disabled={!classId} onClick={() => void addOneStudent()}>
-          添加学生
+          {t('添加学生')}
         </button>
       </div>
 
       <h3>{t('随机抽答 / 加分')}</h3>
       <div className="row">
         <button type="button" disabled={!classId} onClick={drawStudent}>
-          抽一人
+          {t('抽一人')}
         </button>
         <input
           type="number"
@@ -385,7 +385,7 @@ export function RosterPanel({
         />
         <input value={awardReason} onChange={(e) => setAwardReason(e.target.value)} placeholder={t('理由')} />
         <button type="button" disabled={!picked} onClick={() => void awardPicked()}>
-          给抽中的人加分
+          {t('给抽中的人加分')}
         </button>
       </div>
       <div className="chip-row">
@@ -501,7 +501,7 @@ export function RosterPanel({
               }
             }}
           />
-          全选当前列表（{filteredStudents.length}）
+          {t('全选当前列表（{v0}）', { v0: filteredStudents.length })}
         </label>
         <button
           type="button"
@@ -574,7 +574,7 @@ export function RosterPanel({
             })()
           }
         >
-          加前缀
+          {t('加前缀')}
         </button>
         <button
           type="button"
@@ -602,7 +602,7 @@ export function RosterPanel({
             })()
           }
         >
-          清空学号
+          {t('清空学号')}
         </button>
         <button
           type="button"
@@ -633,13 +633,13 @@ export function RosterPanel({
             })()
           }
         >
-          批量删除（{selectedIds.size}）
+          {t('批量删除（{v0}）', { v0: selectedIds.size })}
         </button>
         {!allowDelete ? <span className="hint">{t('助教不可批量删除/改学号')}</span> : null}
       </div>
       {selectedIds.size > 0 ? (
         <div className="selection-sticky" data-testid="roster-selection-sticky">
-          已选 {selectedIds.size} 人 · Shift+点击连选 · ↑↓ / Space 多选
+          {t('已选 {v0} 人 · Shift+点击连选 · ↑↓ / Space 多选', { v0: selectedIds.size })}
         </div>
       ) : null}
       <div className="row" style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 4 }}>
@@ -1429,10 +1429,10 @@ export function QuestionsPanel({ classId }: { classId: string }) {
         {allowWrite ? (
           <>
         <button type="button" className="chip" onClick={() => applyTemplate('bool')}>
-          判断题模板
+          {t('判断题模板')}
         </button>
         <button type="button" className="chip" onClick={() => applyTemplate('blank')}>
-          填空题模板
+          {t('填空题模板')}
         </button>
           </>
         ) : null}
@@ -1442,7 +1442,7 @@ export function QuestionsPanel({ classId }: { classId: string }) {
             checked={showArchived}
             onChange={(e) => setShowArchived(e.target.checked)}
           />
-          显示已下线
+          {t('显示已下线')}
         </label>
       </div>
       {allowWrite ? (
@@ -1586,7 +1586,7 @@ export function QuestionsPanel({ classId }: { classId: string }) {
             : undefined
         }
       >
-        发布题目
+        {t('发布题目')}
       </button>
       {type === 'multi' && !correctMulti.A && !correctMulti.B && !correctMulti.C ? (
         <p className="error">{t('请至少勾选一个正确答案后再发布')}</p>
@@ -1614,7 +1614,7 @@ export function QuestionsPanel({ classId }: { classId: string }) {
             setSelectedQIds(new Set(items.filter((q) => q.closed).map((q) => String(q.id))))
           }
         >
-          全选已收卷
+          {t('全选已收卷')}
         </button>
         <button
           type="button"
@@ -1624,19 +1624,19 @@ export function QuestionsPanel({ classId }: { classId: string }) {
             setSelectedQIds(new Set(items.filter((q) => q.archived).map((q) => String(q.id))))
           }
         >
-          全选已下线
+          {t('全选已下线')}
         </button>
         <button type="button" className="secondary" disabled={bulkQBusy || selectedQIds.size === 0} onClick={() => void bulkQuestions('close')}>
-          批量收卷
+          {t('批量收卷')}
         </button>
         <button type="button" className="secondary" disabled={bulkQBusy || selectedQIds.size === 0} onClick={() => void bulkQuestions('reopen')}>
-          批量重开
+          {t('批量重开')}
         </button>
         <button type="button" className="secondary" disabled={bulkQBusy || selectedQIds.size === 0} onClick={() => void bulkQuestions('archive')}>
-          批量下线
+          {t('批量下线')}
         </button>
         <button type="button" className="secondary" disabled={bulkQBusy || selectedQIds.size === 0} onClick={() => void bulkQuestions('unarchive')}>
-          批量恢复上线
+          {t('批量恢复上线')}
         </button>
         <input
           type="datetime-local"
