@@ -34,7 +34,7 @@ test.describe('portal per-class epoch', () => {
 
     await request.put(`${API}/api/v1/portal/settings`, {
       headers: auth,
-      data: { portalSharedCode: 'E2EEPOCH' },
+      data: { portalSharedCode: 'E2EEPOCH', portalSsidRequireSig: false },
     });
 
     const addStu = async (cid: string, name: string) => {
@@ -146,7 +146,7 @@ test.describe('portal per-class epoch', () => {
 
     await request.put(`${API}/api/v1/portal/settings`, {
       headers: auth,
-      data: { portalSharedCode: 'E2ETRI' },
+      data: { portalSharedCode: 'E2ETRI', portalSsidRequireSig: false },
     });
 
     const addStu = async (cid: string, name: string) => {
@@ -254,7 +254,7 @@ test.describe('portal per-class epoch', () => {
 
     await request.put(`${API}/api/v1/portal/settings`, {
       headers: auth,
-      data: { portalSharedCode: 'E2EQUAD' },
+      data: { portalSharedCode: 'E2EQUAD', portalSsidRequireSig: false },
     });
 
     const addStu = async (cid: string, name: string) => {
