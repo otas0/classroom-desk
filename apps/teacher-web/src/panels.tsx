@@ -3982,7 +3982,7 @@ export function SettingsPanel({
     );
     if (wasEmpty) {
       setGrantMsg(
-        '当前为空表：助教仍可全局只读导出。首次勾选并保存后将改为仅授权班级可导出/加分。',
+        t('当前为空表：助教仍可全局只读导出。首次勾选并保存后将改为仅授权班级可导出/加分。'),
       );
     }
   }
@@ -4000,15 +4000,15 @@ export function SettingsPanel({
     const touched = next.some((r) => r.canExport || r.canAwardPoints);
     if (!touched) {
       setGrantMsg(
-        '当前为空表：助教仍可全局只读导出。首次勾选并保存后将改为仅授权班级可导出/加分。',
+        t('当前为空表：助教仍可全局只读导出。首次勾选并保存后将改为仅授权班级可导出/加分。'),
       );
       return;
     }
     const lose = classesLosingExport(next);
     setGrantMsg(
       lose.length
-        ? `首次勾选后将失去导出的班级（未勾选可导出）：${lose.join('、')}`
-        : '所有班级都已勾选可导出。',
+        ? t('首次勾选后将失去导出的班级（未勾选可导出）：{v0}', { v0: lose.join('、') })
+        : t('所有班级都已勾选可导出。'),
     );
   }
 
@@ -4028,8 +4028,8 @@ export function SettingsPanel({
     setGrantWasEmpty(grants.length === 0);
     setGrantMsg(
       grants.length === 0
-        ? '已清空按班授权（助教恢复全局只读导出）'
-        : `已保存 ${grants.length} 个班级授权`,
+        ? t('已清空按班授权（助教恢复全局只读导出）')
+        : t('已保存 {v0} 个班级授权', { v0: grants.length }),
     );
   }
 
@@ -4078,8 +4078,10 @@ export function SettingsPanel({
         meta?.students === 0 &&
         meta?.questions === 0);
     if (emptyExpired) {
-      setPurgeJumpHint('审计预览：当前无已过期可硬删项（学生 0 · 题目 0），无需执行清理');
-      setSaveMsg('无过期回收站条目可 purge');
+      setPurgeJumpHint(
+        t('审计预览：当前无已过期可硬删项（学生 0 · 题目 0），无需执行清理'),
+      );
+      setSaveMsg(t('无过期回收站条目可 purge'));
       const elEmpty = document.getElementById('recycle-purge-confirm');
       elEmpty?.scrollIntoView({ behavior: 'smooth', block: 'center' });
       elEmpty?.classList.add('cd-audit-jump-hl');
@@ -4090,14 +4092,14 @@ export function SettingsPanel({
       return;
     }
     const parts: string[] = [];
-    if (meta?.count != null) parts.push(`预览共 ${meta.count} 条`);
-    if (meta?.students != null) parts.push(`学生 ${meta.students}`);
-    if (meta?.questions != null) parts.push(`题目 ${meta.questions}`);
-    if (meta?.classId) parts.push(`班级已选中`);
-    setPurgeJumpHint(parts.join(' · ') || '跳转清理确认');
+    if (meta?.count != null) parts.push(t('预览共 {v0} 条', { v0: meta.count }));
+    if (meta?.students != null) parts.push(t('学生 {v0}', { v0: meta.students }));
+    if (meta?.questions != null) parts.push(t('题目 {v0}', { v0: meta.questions }));
+    if (meta?.classId) parts.push(t('班级已选中'));
+    setPurgeJumpHint(parts.join(' · ') || t('跳转清理确认'));
     const el = document.getElementById('recycle-purge-confirm');
     if (!el) {
-      setSaveMsg('当前账号看不到回收站清理确认');
+      setSaveMsg(t('当前账号看不到回收站清理确认'));
       if (window.location.hash.startsWith('#recycle-purge-confirm')) {
         window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}`);
       }
@@ -4595,11 +4597,13 @@ export function SettingsPanel({
 
           <h3>{t('数据保留 / 备份加密')}</h3>
           <p className="hint">
-            回收站默认 {RECYCLE_RETENTION_DAYS} 天（与 @classroom-desk/shared · docs/PERMISSIONS.md 对齐）；
-            调度按 recycle_retention_days 自动 purge。即将到期高亮阈值默认 ≤{RECYCLE_URGENT_DAYS} 天。
+            {t(
+              '回收站默认 {v0} 天（与 @classroom-desk/shared · docs/PERMISSIONS.md 对齐）；调度按 recycle_retention_days 自动 purge。即将到期高亮阈值默认 ≤{v1} 天。',
+              { v0: RECYCLE_RETENTION_DAYS, v1: RECYCLE_URGENT_DAYS },
+            )}
           </p>
           <label>
-            回收站保留天数
+            {t('回收站保留天数')}
             <input
               type="number"
               min={1}
@@ -4618,20 +4622,23 @@ export function SettingsPanel({
                   method: 'PATCH',
                   body: JSON.stringify({ recycleRetentionDays: days }),
                 })
-                  .then(() => setSaveMsg(`回收站保留 ${days} 天（调度按此 purge）`))
+                  .then(() =>
+                    setSaveMsg(t('回收站保留 {v0} 天（调度按此 purge）', { v0: days })),
+                  )
                   .catch((err) => setSaveMsg(te(err, '保存失败')));
               }}
             />
           </label>
           {recycleDays !== RECYCLE_RETENTION_DAYS ? (
             <p className="hint" data-testid="recycle-retention-mismatch">
-              当前 {recycleDays} 天，与 shared / 文档默认 {RECYCLE_RETENTION_DAYS}{' '}
-              天不一致（可改回默认；升级时仅会自动把历史默认 30 迁到{' '}
-              {RECYCLE_RETENTION_DAYS}）。
+              {t(
+                '当前 {v0} 天，与 shared / 文档默认 {v1} 天不一致（可改回默认；升级时仅会自动把历史默认 30 迁到 {v1}）。',
+                { v0: recycleDays, v1: RECYCLE_RETENTION_DAYS },
+              )}
             </p>
           ) : null}
           <label>
-            即将到期高亮（剩余天数 ≤）
+            {t('即将到期高亮（剩余天数 ≤）')}
             <input
               type="number"
               min={0}
@@ -4647,23 +4654,30 @@ export function SettingsPanel({
                   method: 'PATCH',
                   body: JSON.stringify({ recycleUrgentDays: days }),
                 })
-                  .then(() => setSaveMsg(`即将到期阈值：剩余 ≤${days} 天时醒目`))
+                  .then(() =>
+                    setSaveMsg(t('即将到期阈值：剩余 ≤{v0} 天时醒目', { v0: days })),
+                  )
                   .catch((err) => setSaveMsg(te(err, '保存失败')));
               }}
             />
           </label>
-          {saveMsg.includes('即将到期阈值') ? (
+          {/即将到期阈值|Urgent due-soon threshold/.test(saveMsg) ? (
             <p className="hint" data-testid="recycle-urgent-save-msg">
               {saveMsg}
             </p>
           ) : null}
           {purgeJumpHint ? (
             <p
-              className={/无已过期|无过期/.test(purgeJumpHint) ? 'error' : 'hint'}
+              className={
+                /无已过期|无过期|no expired|尚未有過期|期限切れなし|만료된/.test(purgeJumpHint)
+                  ? 'error'
+                  : 'hint'
+              }
               data-testid="purge-jump-hint"
             >
-              审计跳转：{purgeJumpHint}
-              {/无已过期|无过期/.test(purgeJumpHint) ? (
+              {t('审计跳转：')}
+              {purgeJumpHint}
+              {/无已过期|无过期|no expired|尚未有過期|期限切れなし|만료된/.test(purgeJumpHint) ? (
                 <>
                   {' '}
                   <button
@@ -4676,7 +4690,7 @@ export function SettingsPanel({
                       if (el instanceof HTMLInputElement) el.focus();
                     }}
                   >
-                    去改保留天数
+                    {t('去改保留天数')}
                   </button>
                 </>
               ) : null}
@@ -4691,11 +4705,16 @@ export function SettingsPanel({
                   '/api/v1/settings/recycle-purge-now',
                   { method: 'POST', body: JSON.stringify({ dryRun: true }) },
                 )
-                  .then((r) => setSaveMsg(r.message ?? `预览 学生${r.students} 题目${r.questions}`))
-                  .catch((e) => setSaveMsg(e instanceof Error ? e.message : '预览失败'))
+                  .then((r) =>
+                    setSaveMsg(
+                      r.message ??
+                        t('预览 学生{v0} 题目{v1}', { v0: r.students, v1: r.questions }),
+                    ),
+                  )
+                  .catch((e) => setSaveMsg(e instanceof Error ? e.message : t('预览失败')))
               }
             >
-              预览将 purge 数量
+              {t('预览将 purge 数量')}
             </button>
             <button
               type="button"
@@ -4709,7 +4728,13 @@ export function SettingsPanel({
                   .then((preview) => {
                     if (
                       !window.confirm(
-                        `${preview.message ?? `将删学生 ${preview.students} · 题目 ${preview.questions}`}\n确认执行硬删？`,
+                        `${
+                          preview.message ??
+                          t('将删学生 {v0} · 题目 {v1}', {
+                            v0: preview.students,
+                            v1: preview.questions,
+                          })
+                        }\n${t('确认执行硬删？')}`,
                       )
                     ) {
                       return;
@@ -4718,13 +4743,16 @@ export function SettingsPanel({
                       '/api/v1/settings/recycle-purge-now',
                       { method: 'POST', body: JSON.stringify({ dryRun: false }) },
                     ).then((r) =>
-                      setSaveMsg(r.message ?? `已清理 学生${r.students} 题目${r.questions}`),
+                      setSaveMsg(
+                        r.message ??
+                          t('已清理 学生{v0} 题目{v1}', { v0: r.students, v1: r.questions }),
+                      ),
                     );
                   })
-                  .catch((e) => setSaveMsg(e instanceof Error ? e.message : '清理失败'));
+                  .catch((e) => setSaveMsg(e instanceof Error ? e.message : t('清理失败')));
               }}
             >
-              预览后执行 purge
+              {t('预览后执行 purge')}
             </button>
           </div>
           <label>
@@ -5423,18 +5451,18 @@ export function SettingsPanel({
                           })()
                         }
                       >
-                        重置口令
+                        {t('重置口令')}
                       </button>
                       <button
                         type="button"
                         className="secondary"
                         onClick={() =>
                           void openAssistantGrants(a.id).catch((e) =>
-                            setAsstMsg(e instanceof Error ? e.message : '加载授权失败'),
+                            setAsstMsg(e instanceof Error ? e.message : t('加载授权失败')),
                           )
                         }
                       >
-                        按班授权
+                        {t('按班授权')}
                       </button>
                     </div>
                     {grantEditId === a.id ? (
@@ -5455,7 +5483,7 @@ export function SettingsPanel({
                                       updateGrantRow(row.classId, { canExport: e.target.checked })
                                     }
                                   />
-                                  可导出
+                                  {t('可导出')}
                                 </label>
                                 <label className="row">
                                   <input
@@ -5465,7 +5493,7 @@ export function SettingsPanel({
                                       updateGrantRow(row.classId, { canAwardPoints: e.target.checked })
                                     }
                                   />
-                                  可加分
+                                  {t('可加分')}
                                 </label>
                               </li>
                             ))}
@@ -5480,7 +5508,7 @@ export function SettingsPanel({
                               )
                             }
                           >
-                            保存授权
+                            {t('保存授权')}
                           </button>
                           <button
                             type="button"
@@ -5491,7 +5519,7 @@ export function SettingsPanel({
                               setGrantMsg('');
                             }}
                           >
-                            关闭
+                            {t('关闭')}
                           </button>
                         </div>
                         {grantMsg ? <p className="hint">{grantMsg}</p> : null}
@@ -6561,13 +6589,13 @@ stateDiagram-v2
       )}
       <ConfirmModal
         open={grantMigrateOpen}
-        title="离开「空表 = 全班可导出」"
+        title={t('离开「空表 = 全班可导出」')}
         busy={grantMigrateBusy}
         confirmLabel={t('确定保存')}
         body={
           <div data-testid="grants-migrate-confirm">
             <p>
-              保存后仅勾选了「可导出」的班级可以导出。将失去导出的班级（未勾选可导出）：
+              {t('保存后仅勾选了「可导出」的班级可以导出。将失去导出的班级（未勾选可导出）：')}
             </p>
             {grantLoseNames.length === 0 ? (
               <p className="hint">{t('（无 — 所有班级都已勾选可导出）')}</p>
