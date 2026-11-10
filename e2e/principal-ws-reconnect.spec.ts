@@ -57,7 +57,7 @@ test.describe('principal WS reconnect', () => {
     await loginTeacherWeb(page, request);
     await page
       .locator('aside')
-      .getByRole('button', { name: /上课|Live class|上課|授業|수업/ })
+      .getByRole('button', { name: /^(上课|Live class|上課|授業|수업)$/ })
       .click();
     const dash = page.getByTestId('principal-dashboard');
     await expect(dash).toBeVisible({ timeout: 20_000 });

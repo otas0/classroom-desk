@@ -17,9 +17,10 @@ export async function loginTeacherWeb(
   await page.goto(TEACHER_WEB);
 
   const loginHeading = page.getByRole('heading', { name: /教师后台|Teacher console|教師後台|教師コンソール|교사/ });
+  // Exact live-class label — bare /수업/ also matches Korean 수업 준비.
   const sessionNav = page
     .locator('aside')
-    .getByRole('button', { name: /上课|Live class|上課|授業|수업/ });
+    .getByRole('button', { name: /^(上课|Live class|上課|授業|수업)$/ });
   const prepNav = page
     .locator('aside')
     .getByRole('button', { name: /备课|Lesson prep|備課|授業準備|수업 준비/ });

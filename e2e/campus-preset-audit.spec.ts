@@ -18,7 +18,7 @@ test.describe('campus preset audit', () => {
 
     await page
       .locator('aside')
-      .getByRole('button', { name: /上课|Live class|上課|授業|수업/ })
+      .getByRole('button', { name: /^(上课|Live class|上課|授業|수업)$/ })
       .click();
     const panel = page.getByTestId('network-zones-panel');
     await expect(panel).toBeVisible({ timeout: 20_000 });
