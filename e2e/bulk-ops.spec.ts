@@ -58,7 +58,8 @@ test.describe('bulk soft-delete students & questions', () => {
     expect(soft.ok()).toBeTruthy();
     expect(((await soft.json()) as { deleted: number }).deleted).toBe(2);
 
-    const roster = await request.get(`${API}/api/v1/classes/${classId}/roster`);
+    const roster = await request.get(`${API}/api/v1/classes/${classId}/roster?client=lab-agent`);
+    expect(roster.ok()).toBeTruthy();
     const rosterIds = new Set(
       ((await roster.json()) as { items: Array<{ id: string }> }).items.map((x) => x.id),
     );

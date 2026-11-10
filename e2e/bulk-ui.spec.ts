@@ -39,7 +39,10 @@ test.describe('bulk delete UI path', () => {
 
     await expect(page.getByTestId(`student-check-${studentId}`)).toHaveCount(0, { timeout: 10_000 });
 
-    const roster = await request.get(`${API}/api/v1/classes/${classId}/roster`, { headers: auth });
+    const roster = await request.get(`${API}/api/v1/classes/${classId}/roster?client=lab-agent`, {
+      headers: auth,
+    });
+    expect(roster.ok()).toBeTruthy();
     const ids = ((await roster.json()) as { items: Array<{ id: string }> }).items.map((x) => x.id);
     expect(ids.includes(studentId)).toBeFalsy();
 
