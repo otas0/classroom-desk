@@ -30,20 +30,42 @@ export function ClassroomConnect({
           studentHealthUrl?: string;
         }>,
       ]);
-      const suggested =
-        settings.classroomApiBase ||
-        health.suggestedApiBase ||
-        (typeof window !== 'undefined' ? window.location.origin : '');
-      setApiBase(String(suggested).replace(/\/$/, ''));
+      const stored = String(settings.classroomApiBase ?? '')
+        .trim()
+        .replace(/\/$/, '');
+      const lanSuggested = String(health.suggestedApiBase ?? '')
+        .trim()
+        .replace(/\/$/, '');
+      const storedIsLoopback = !stored || /127\.0\.0\.1|localhost/i.test(stored);
+      const lanOk = Boolean(lanSuggested) && !/127\.0\.0\.1|localhost/i.test(lanSuggested);
+      // Default-write LAN apiBase when unset or still loopback (students cannot use 127.0.0.1).
+      let next = stored;
+      if (storedIsLoopback && lanOk) {
+        next = lanSuggested;
+        await api('/api/v1/settings', {
+          method: 'PATCH',
+          body: JSON.stringify({ classroomApiBase: next }),
+        });
+        onApiBaseSaved?.();
+      } else if (!next) {
+        next =
+          lanSuggested ||
+          (typeof window !== 'undefined' ? window.location.origin.replace(/\/$/, '') : '');
+      }
+      setApiBase(next);
       setLanIps(health.lanIps ?? []);
-      setHealthHint(health.studentHealthUrl ?? `${String(suggested).replace(/\/$/, '')}/health`);
+      setHealthHint(health.studentHealthUrl ?? `${next}/health`);
     })().catch(() => {
       if (typeof window !== 'undefined') setApiBase(window.location.origin);
     });
-  }, []);
+  }, [onApiBaseSaved]);
 
   async function saveApiBase() {
     const base = apiBase.replace(/\/$/, '');
+    if (/127\.0\.0\.1|localhost/i.test(base)) {
+      window.alert(t('禁止使用 127.0.0.1 / localhost，请填教师机局域网 IP'));
+      return;
+    }
     await api('/api/v1/settings', {
       method: 'PATCH',
       body: JSON.stringify({ classroomApiBase: base }),
