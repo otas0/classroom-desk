@@ -2336,14 +2336,14 @@ export function QuestionEditForm({
             .catch((e) => setMsg(te(e, '失败')))
         }
       >
-        保存编辑
+        {t('保存编辑')}
       </button>{' '}
       <button
         type="button"
         className="secondary"
         disabled={!qid}
         onClick={() => {
-          if (!window.confirm(`确定删除题目「${title || qid}」？`)) return;
+          if (!window.confirm(t('确定删除题目「{v0}」？', { v0: title || qid }))) return;
           void api(`/api/v1/questions/${qid}`, { method: 'DELETE' })
             .then(() => {
               setMsg(t('已删除'));
@@ -2352,7 +2352,7 @@ export function QuestionEditForm({
             .catch((e) => setMsg(te(e, '删除失败')));
         }}
       >
-        删除题目
+        {t('删除题目')}
       </button>
       {msg ? <p className="hint">{msg}</p> : null}
     </div>
@@ -5253,7 +5253,7 @@ export function SettingsPanel({
           <h3>{t('投影只读自动开启')}</h3>
           <p className="hint">{t('按本场出勤课次 startAt 起算，N 分钟后投影自动只读。0 = 关闭。')}</p>
           <label>
-            上课后分钟数
+            {t('上课后分钟数')}
             <input
               type="number"
               min={0}
@@ -5770,10 +5770,10 @@ export function SettingsPanel({
                             ?.writeText(id)
                             .then(() => {
                               setSeatIdCopied(true);
-                              setExitMsg(`已复制 seat_map.id：${id}`);
+                              setExitMsg(t('已复制 seat_map.id：{v0}', { v0: id }));
                               window.setTimeout(() => setSeatIdCopied(false), 2000);
                             })
-                            .catch(() => setExitMsg('复制失败，请手动选中复制'));
+                            .catch(() => setExitMsg(t('复制失败，请手动选中复制')));
                         }}
                       >
                         {seatIdCopied ? t('已复制') : t('复制 id')}
@@ -5897,18 +5897,20 @@ export function SettingsPanel({
                       .then(async () => {
                         setInputLockExpiresAt(null);
                         setInputLockSessionId('');
-                        setExitMsg('已清除课次到期');
+                        setExitMsg(t('已清除课次到期'));
                         await refreshExitLock().catch(() => undefined);
                       })
-                      .catch((e) => setExitMsg(e instanceof Error ? e.message : '清除到期失败'))
+                      .catch((e) =>
+                        setExitMsg(e instanceof Error ? e.message : t('清除到期失败')),
+                      )
                       .finally(() => setInputLockBusy(false));
                   }}
                 >
-                  清除到期
+                  {t('清除到期')}
                 </button>
                 {inputLockExpiresAt ? (
                   <span className="hint" data-testid="input-lock-expires-at">
-                    到期：{new Date(inputLockExpiresAt).toLocaleString()}
+                    {t('到期：{v0}', { v0: new Date(inputLockExpiresAt).toLocaleString() })}
                   </span>
                 ) : (
                   <span className="hint">{t('未绑定课次到期')}</span>
@@ -5922,7 +5924,7 @@ export function SettingsPanel({
                   onClick={() => {
                     if (
                       !window.confirm(
-                        '开启考试模式？将锁定键鼠语音相机，并重新锁定学生端退出。',
+                        t('开启考试模式？将锁定键鼠语音相机，并重新锁定学生端退出。'),
                       )
                     ) {
                       return;
@@ -5944,15 +5946,19 @@ export function SettingsPanel({
                           camera: true,
                         });
                         setExamModeSnapshot(true);
-                        setExitMsg('考试模式已开启：输入全锁 + 退出锁定（已保存进考前快照）');
+                        setExitMsg(
+                          t('考试模式已开启：输入全锁 + 退出锁定（已保存进考前快照）'),
+                        );
                         await refreshExitLock().catch(() => undefined);
                         await loadAudit().catch(() => undefined);
                       })
-                      .catch((e) => setExitMsg(e instanceof Error ? e.message : '考试模式失败'))
+                      .catch((e) =>
+                        setExitMsg(e instanceof Error ? e.message : t('考试模式失败')),
+                      )
                       .finally(() => setExamModeBusy(false));
                   }}
                 >
-                  {examModeBusy ? '开启中…' : t('一键考试模式')}
+                  {examModeBusy ? t('开启中…') : t('一键考试模式')}
                 </button>
                 <button
                   type="button"
@@ -5961,13 +5967,13 @@ export function SettingsPanel({
                   data-testid="exam-mode-restore-btn"
                   title={
                     examModeSnapshot
-                      ? '恢复进考前物理输入锁快照（不影响退出锁定）'
-                      : '尚无考试模式快照'
+                      ? t('恢复进考前物理输入锁快照（不影响退出锁定）')
+                      : t('尚无考试模式快照')
                   }
                   onClick={() => {
                     if (
                       !window.confirm(
-                        '解除考试模式？将恢复进考前的物理输入锁快照（退出锁定状态不变）。',
+                        t('解除考试模式？将恢复进考前的物理输入锁快照（退出锁定状态不变）。'),
                       )
                     ) {
                       return;
@@ -5992,14 +5998,14 @@ export function SettingsPanel({
                         setExamModeSnapshot(false);
                         setExitMsg(
                           r.examModeRestored
-                            ? '已解除考试模式并恢复进考前输入锁'
-                            : '已解除考试模式（无快照，输入锁已全开）',
+                            ? t('已解除考试模式并恢复进考前输入锁')
+                            : t('已解除考试模式（无快照，输入锁已全开）'),
                         );
                         await refreshExitLock().catch(() => undefined);
                         await loadAudit().catch(() => undefined);
                       })
                       .catch((e) =>
-                        setExitMsg(e instanceof Error ? e.message : '解除考试模式失败'),
+                        setExitMsg(e instanceof Error ? e.message : t('解除考试模式失败')),
                       )
                       .finally(() => setExamModeBusy(false));
                   }}
@@ -6276,24 +6282,24 @@ export function SettingsPanel({
                     }),
                   })
                     .then(async () => {
-                      setExitMsg('限流/轮换设置已保存');
+                      setExitMsg(t('限流/轮换设置已保存'));
                       await refreshExitLock().catch(() => undefined);
                     })
                     .catch((e) => setExitMsg(e instanceof Error ? e.message : t('保存失败')))
                 }
               >
-                保存限流与轮换
+                {t('保存限流与轮换')}
               </button>
             </>
           )}
 
           <div className="card">
             <p className="hint">
-              退出锁定审计（每页 {EXIT_PAGE_SIZE} 条）
+              {t('退出锁定审计（每页 {v0} 条）', { v0: EXIT_PAGE_SIZE })}
               {isAssistant() ? t(' · 助教只读') : ''}
             </p>
             <label>
-              按类型筛选
+              {t('按类型筛选')}
               <select
                 value={exitKindFilter}
                 onChange={(e) => {

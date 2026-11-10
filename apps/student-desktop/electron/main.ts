@@ -261,6 +261,20 @@ ipcMain.handle('admin:open-uninstall-guide', async () => {
   return { ok: true, platform: process.platform, hint: 'use_system_package_manager' };
 });
 
+ipcMain.handle('shell:open-external', async (_event, rawUrl: unknown) => {
+  const url = String(rawUrl ?? '').trim();
+  if (!/^https?:\/\//i.test(url)) {
+    return { ok: false, error: 'only_http_https' };
+  }
+  const { shell } = await import('electron');
+  try {
+    await shell.openExternal(url);
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : 'open_failed' };
+  }
+});
+
 ipcMain.handle('config:get', () => loadConfig());
 
 ipcMain.handle('config:set', (_event, patch: { apiBase?: string; classId?: string }) => {

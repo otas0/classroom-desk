@@ -29,6 +29,8 @@ export type StudentDesktopAPI = {
   onBlockedClose: (cb: () => void) => () => void;
   getKioskHardening: () => Promise<KioskHardening>;
   setInputMouseLocked: (locked: boolean) => Promise<{ ok: boolean; mouseLocked?: boolean; error?: string }>;
+  /** Open http(s) URLs via OS browser / download handler (LAN Setup.exe, Release). */
+  openExternal: (url: string) => Promise<{ ok: boolean; error?: string }>;
 };
 
 const api: StudentDesktopAPI = {
@@ -52,6 +54,7 @@ const api: StudentDesktopAPI = {
   },
   getKioskHardening: () => ipcRenderer.invoke('kiosk:get-hardening'),
   setInputMouseLocked: (locked) => ipcRenderer.invoke('lock:set-input-mouse-locked', locked),
+  openExternal: (url) => ipcRenderer.invoke('shell:open-external', url),
 };
 
 contextBridge.exposeInMainWorld('classroomDesk', api);

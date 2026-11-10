@@ -984,6 +984,16 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
     CLIENT_VERSION !== '0.0.0' &&
     expectedClientVersion !== CLIENT_VERSION;
 
+  const openUpgradeUrl = useCallback(async (url: string) => {
+    const target = String(url ?? '').trim();
+    if (!target) return;
+    if (window.classroomDesk?.openExternal) {
+      const r = await window.classroomDesk.openExternal(target);
+      if (r?.ok) return;
+    }
+    window.open(target, '_blank', 'noopener,noreferrer');
+  }, []);
+
   useEffect(() => {
     if (!versionDrift || !studentAutoUpdate || !lanUpgradeUrl || autoUpdatePromptedRef.current) {
       return;
@@ -996,9 +1006,9 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
       ),
     );
     if (ok) {
-      window.open(lanUpgradeUrl, '_blank', 'noopener,noreferrer');
+      void openUpgradeUrl(lanUpgradeUrl);
     }
-  }, [versionDrift, studentAutoUpdate, lanUpgradeUrl, expectedClientVersion]);
+  }, [versionDrift, studentAutoUpdate, lanUpgradeUrl, expectedClientVersion, openUpgradeUrl]);
 
   if (ready && needsFirstRun) {
     return (
@@ -1109,7 +1119,16 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
             v1: expectedClientVersion,
           })}
           {lanUpgradeUrl ? (
-            <a href={lanUpgradeUrl} target="_blank" rel="noreferrer" data-no-drag>
+            <a
+              href={lanUpgradeUrl}
+              target="_blank"
+              rel="noreferrer"
+              data-no-drag
+              onClick={(e) => {
+                e.preventDefault();
+                void openUpgradeUrl(lanUpgradeUrl);
+              }}
+            >
               {t('打开局域网安装包')}
             </a>
           ) : (
@@ -1118,12 +1137,25 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
               target="_blank"
               rel="noreferrer"
               data-no-drag
+              onClick={(e) => {
+                e.preventDefault();
+                void openUpgradeUrl(`${GITHUB_RELEASES_BASE}/tag/v${expectedClientVersion}`);
+              }}
             >
               {t('打开 Release')}
             </a>
           )}
           {!lanUpgradeUrl ? (
-            <a href={GITHUB_RELEASES_BASE} target="_blank" rel="noreferrer" data-no-drag>
+            <a
+              href={GITHUB_RELEASES_BASE}
+              target="_blank"
+              rel="noreferrer"
+              data-no-drag
+              onClick={(e) => {
+                e.preventDefault();
+                void openUpgradeUrl(GITHUB_RELEASES_BASE);
+              }}
+            >
               {t('全部版本')}
             </a>
           ) : null}
