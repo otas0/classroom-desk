@@ -3,7 +3,7 @@
 ## 自动化
 
 ```bash
-# mock（CI / 本地）
+# 联调 mock（仅 CI / 本地；生产请用 unifi）
 npm run test:unifi-acceptance
 
 # 真机

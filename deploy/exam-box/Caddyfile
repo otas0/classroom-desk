@@ -1,20 +1,18 @@
 :80 {
-  # Walled garden: only portal + API until gateway allowlist says otherwise.
-  handle_path /portal* {
-    reverse_proxy {$CD_API_BASE}
-  }
-  handle /api/v1/portal* {
-    reverse_proxy {$CD_API_BASE}
-  }
-  handle /api/v1/gateway/check* {
-    reverse_proxy {$CD_API_BASE}
-  }
-  handle /health {
-    reverse_proxy {$CD_API_BASE}
-  }
-  handle {
-    respond "Exam Box: authenticate at /portal" 302 {
-      header Location /portal
-    }
-  }
+	# Walled garden: only portal + API until gateway allowlist says otherwise.
+	handle /portal* {
+		reverse_proxy {$CD_API_BASE}
+	}
+	handle /api/v1/portal* {
+		reverse_proxy {$CD_API_BASE}
+	}
+	handle /api/v1/gateway/check* {
+		reverse_proxy {$CD_API_BASE}
+	}
+	handle /health {
+		reverse_proxy {$CD_API_BASE}
+	}
+	handle {
+		redir * /portal 302
+	}
 }

@@ -1,5 +1,6 @@
 import { HttpShieldConnector } from './httpConnector.js';
 import { MockShieldConnector } from './mockConnector.js';
+import { OffShieldConnector } from './offConnector.js';
 import { OpnsenseShieldConnector } from './opnsenseConnector.js';
 import { UnifiShieldConnector } from './unifiConnector.js';
 import type { ShieldConnector } from './types.js';
@@ -18,12 +19,14 @@ function createFromEnv(): ShieldConnector {
       process.env.CLASSROOM_DESK_SHIELD_TOKEN ?? '',
     );
   }
+  // Explicit lab-only in-memory adapter (tests / wiring proof). Never the product default.
+  if (kind === 'mock') return new MockShieldConnector();
   // Legacy: SHIELD_URL alone implies HTTP adapter.
   const url = String(process.env.CLASSROOM_DESK_SHIELD_URL ?? '').trim();
   if (url) {
     return new HttpShieldConnector(url, process.env.CLASSROOM_DESK_SHIELD_TOKEN ?? '');
   }
-  return new MockShieldConnector();
+  return new OffShieldConnector();
 }
 
 export function getShieldConnector(): ShieldConnector {
@@ -34,6 +37,7 @@ export function setShieldConnector(connector: ShieldConnector) {
   active = connector;
 }
 
+/** Test helper: force lab mock adapter. */
 export function resetShieldConnectorToMock() {
   active = new MockShieldConnector();
   return active;
@@ -45,5 +49,11 @@ export function reloadShieldConnectorFromEnv() {
 }
 
 export function listShieldAdapterIds(): string[] {
-  return ['mock', 'http', 'opnsense', 'unifi'];
+  return ['off', 'http', 'opnsense', 'unifi', 'mock'];
+}
+
+export function formatShieldActiveLabel(id: string | null | undefined): string {
+  const v = String(id ?? '').trim().toLowerCase();
+  if (!v || v === 'off') return 'off';
+  return v;
 }

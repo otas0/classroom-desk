@@ -2,6 +2,7 @@ import { createHash, randomInt } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
 import { SignJWT, jwtVerify } from 'jose';
 import { config } from '../config.js';
+import { openDb } from '../db/client.js';
 import { getSetting } from '../db/migrate.js';
 import { nowIso } from '../utils/id.js';
 import { upsertSetting } from './exitLock.js';
@@ -13,6 +14,7 @@ import {
 } from './networkZones.js';
 import type { NetworkHint } from '@classroom-desk/shared';
 import { studentUnauthorizedOnZone } from '@classroom-desk/shared';
+import { getShieldConnector, listShieldAdapterIds } from './shield/registry.js';
 
 const encoder = new TextEncoder();
 const COOKIE = 'cd_portal_sess';
@@ -308,10 +310,28 @@ export async function admitPortalClient(
   };
 }
 
+function examBoxHardwareAccepted(): boolean {
+  if (
+    process.env.CLASSROOM_DESK_EXAM_BOX_HARDWARE === '1' ||
+    process.env.CLASSROOM_DESK_EXAM_BOX_HARDWARE === 'true'
+  ) {
+    return true;
+  }
+  try {
+    const db = openDb();
+    const accepted = (getSetting(db, 'exam_box_hardware_accepted') ?? '0') === '1';
+    const serial = String(getSetting(db, 'exam_box_serial') ?? '').trim();
+    const tag = String(getSetting(db, 'exam_box_image_tag') ?? '').trim();
+    return accepted && Boolean(serial) && Boolean(tag);
+  } catch {
+    return false;
+  }
+}
+
 /** Product capability flags for UI / open-api. */
 export function productCapabilities() {
   const dnsOn = process.env.CLASSROOM_DESK_DNS === '1';
-  const shield = String(process.env.CLASSROOM_DESK_SHIELD ?? 'mock').toLowerCase();
+  const shieldId = getShieldConnector().id;
   return {
     labAgent: true,
     deepLock: true,
@@ -320,10 +340,11 @@ export function productCapabilities() {
     netDns: true,
     netDnsRunning: dnsOn,
     netShield: true,
-    netShieldAdapters: ['mock', 'opnsense', 'unifi'],
-    netShieldActive: shield === 'opnsense' || shield === 'unifi' ? shield : 'mock',
+    netShieldAdapters: listShieldAdapterIds(),
+    netShieldActive: shieldId,
     examBox: true, // SKU docs + compose shipped; hardware optional
-    examBoxHardware: false,
+    /** True only after first-unit acceptance (settings or CLASSROOM_DESK_EXAM_BOX_HARDWARE=1). */
+    examBoxHardware: examBoxHardwareAccepted(),
     enterprise8021x: true,
     deviceFingerprinting: false,
     portalCookieSession: true,

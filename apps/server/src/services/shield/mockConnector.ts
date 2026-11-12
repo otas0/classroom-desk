@@ -6,10 +6,13 @@ type Entry = {
   updatedAt: string;
 };
 
-/** In-memory shield for labs without a gateway — proves control-plane wiring. */
+/**
+ * Lab-only in-memory shield (`CLASSROOM_DESK_SHIELD=mock` or tests).
+ * Product default is OffShieldConnector — do not use this as silent production fallback.
+ */
 export class MockShieldConnector implements ShieldConnector {
   readonly id = 'mock';
-  readonly displayName = 'Mock Shield (in-memory)';
+  readonly displayName = 'Mock Shield（仅联调，非生产）';
   readonly clients = new Map<string, Entry>();
   readonly kicks: string[] = [];
   /** When true, releaseClient throws (for failure-path tests). */

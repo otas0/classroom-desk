@@ -306,6 +306,15 @@ settingsRouter.get('/api/v1/settings', requireAuth, requireRoles('teacher', 'adm
     sisRosterIntervalMinutes: Number(getSetting(db, 'sis_roster_interval_minutes') ?? 0),
     sisRosterLastApplyAvailable: readSisRosterLastApplySnapshot(db) != null,
     enterprise8021xRequired: (getSetting(db, 'enterprise_8021x_required') ?? '0') === '1',
+    enterprise8021xIdp: getSetting(db, 'enterprise_8021x_idp') ?? '',
+    enterprise8021xStaffSsid: getSetting(db, 'enterprise_8021x_staff_ssid') ?? '',
+    enterprise8021xStaffVlan: getSetting(db, 'enterprise_8021x_staff_vlan') ?? '',
+    enterprise8021xStudentSsid: getSetting(db, 'enterprise_8021x_student_ssid') ?? '',
+    enterprise8021xStudentVlan: getSetting(db, 'enterprise_8021x_student_vlan') ?? '',
+    examBoxSerial: getSetting(db, 'exam_box_serial') ?? '',
+    examBoxImageTag: getSetting(db, 'exam_box_image_tag') ?? '',
+    examBoxHardwareAccepted: (getSetting(db, 'exam_box_hardware_accepted') ?? '0') === '1',
+    examBoxAcceptedAt: getSetting(db, 'exam_box_accepted_at') ?? '',
     restoreConfirmEmail: getSetting(db, 'restore_confirm_email') ?? '',
     hasBackupEncryptPassphrase: Boolean((getSetting(db, 'backup_encrypt_passphrase') ?? '').trim()),
     projectionHighContrast: (getSetting(db, 'projection_high_contrast') ?? '0') === '1',
@@ -679,6 +688,60 @@ settingsRouter.patch('/api/v1/settings', requireAuth, requireRoles('teacher', 'a
       req.body.enterprise8021xRequired === 1 ||
       req.body.enterprise8021xRequired === '1';
     upsertSettingKey('enterprise_8021x_required', on ? '1' : '0');
+  }
+  if (req.body?.enterprise8021xIdp !== undefined) {
+    upsertSettingKey('enterprise_8021x_idp', String(req.body.enterprise8021xIdp ?? '').trim().slice(0, 64));
+  }
+  if (req.body?.enterprise8021xStaffSsid !== undefined) {
+    upsertSettingKey(
+      'enterprise_8021x_staff_ssid',
+      String(req.body.enterprise8021xStaffSsid ?? '').trim().slice(0, 64),
+    );
+  }
+  if (req.body?.enterprise8021xStaffVlan !== undefined) {
+    upsertSettingKey(
+      'enterprise_8021x_staff_vlan',
+      String(req.body.enterprise8021xStaffVlan ?? '').trim().slice(0, 16),
+    );
+  }
+  if (req.body?.enterprise8021xStudentSsid !== undefined) {
+    upsertSettingKey(
+      'enterprise_8021x_student_ssid',
+      String(req.body.enterprise8021xStudentSsid ?? '').trim().slice(0, 64),
+    );
+  }
+  if (req.body?.enterprise8021xStudentVlan !== undefined) {
+    upsertSettingKey(
+      'enterprise_8021x_student_vlan',
+      String(req.body.enterprise8021xStudentVlan ?? '').trim().slice(0, 16),
+    );
+  }
+  if (req.body?.examBoxSerial !== undefined) {
+    upsertSettingKey('exam_box_serial', String(req.body.examBoxSerial ?? '').trim().slice(0, 64));
+  }
+  if (req.body?.examBoxImageTag !== undefined) {
+    upsertSettingKey('exam_box_image_tag', String(req.body.examBoxImageTag ?? '').trim().slice(0, 128));
+  }
+  if (req.body?.examBoxHardwareAccepted != null) {
+    const on =
+      req.body.examBoxHardwareAccepted === true ||
+      req.body.examBoxHardwareAccepted === 1 ||
+      req.body.examBoxHardwareAccepted === '1';
+    const serial = String(
+      req.body?.examBoxSerial ?? getSetting(db, 'exam_box_serial') ?? '',
+    ).trim();
+    const tag = String(
+      req.body?.examBoxImageTag ?? getSetting(db, 'exam_box_image_tag') ?? '',
+    ).trim();
+    if (on && (!serial || !tag)) {
+      res.status(400).json({
+        error: 'exam_box_accept_incomplete',
+        message: '验收须同时填写序列号与镜像 tag（见 deploy/exam-box/HARDWARE.md）',
+      });
+      return;
+    }
+    upsertSettingKey('exam_box_hardware_accepted', on ? '1' : '0');
+    upsertSettingKey('exam_box_accepted_at', on ? new Date().toISOString() : '');
   }
   if (req.body?.federationHubUrl !== undefined) {
     const url = String(req.body.federationHubUrl ?? '').trim().slice(0, 500);

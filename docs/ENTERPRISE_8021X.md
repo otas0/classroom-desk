@@ -2,7 +2,9 @@
 
 Classroom Desk **不内置 RADIUS 服务器**。学校用现有 IdP（Windows NPS、FreeRADIUS、Cisco ISE、UniFi RADIUS 等）做每人一密 / 证书上网；本产品负责 **认人后的课堂策略**（门户、网络配置档、Shield、深锁）。
 
-教师设置可勾选 **要求 802.1X**（`enterprise_8021x_required`）：写入设置并在校长看板运营视图提示 IT，**不会在应用内伪造 RADIUS 认证**。
+**学校交接包（可改模板）：** [`deploy/radius/`](../deploy/radius/README.md)（FreeRADIUS / NPS / UniFi）。
+
+教师设置可勾选 **要求 802.1X**，并登记 IdP / 教工·学生 SSID·VLAN（仅登记，**不会在应用内伪造 RADIUS 认证**）。
 
 ## 为何需要
 
@@ -35,6 +37,26 @@ Classroom Desk **不内置 RADIUS 服务器**。学校用现有 IdP（Windows NP
 4. DHCP DNS 可指 DeskDNS（`CLASSROOM_DESK_DNS=1`）。  
 5. 验收：学生账号无法关联教工 VLAN；学生连教工失败或门户 block。
 6. 连班 PIN / HTTP 仅在教室 VLAN 内信任；勿将 `:8787` 暴露到公网。见 [CLASSROOM_JOIN_SECURITY.md](./CLASSROOM_JOIN_SECURITY.md)。
+
+## 学校 IT 验收表（RADIUS / VLAN · 本仓不代跑）
+
+Classroom Desk 只提供设置勾选 **要求 802.1X**（`enterprise_8021x_required`）与校长/健康页提示。  
+**RADIUS、交换机 VLAN、AP 企业认证由学校 IT 在现有 IdP 上完成**；应用内不会出现伪 RADIUS 成功态。
+
+| 项 | 填写 / 勾选 |
+|---|---|
+| IdP（NPS / FreeRADIUS / ISE / UniFi …） | |
+| 教工 SSID 名 · VLAN ID | |
+| 学生 SSID 名 · VLAN ID | |
+| 教工 SSID 已关 PSK、仅 Enterprise | □ |
+| RADIUS 组映射：教工 ≠ 学生 VLAN | □ |
+| 学生账号关联教工 SSID → 失败或隔离 | □ |
+| 教工账号关联学生 SSID → 按策略（通常拒绝或访客档） | □ |
+| Classroom Desk 网络配置档：`allowedRoles` 教工档不含 `student` | □ |
+| 教师设置已勾「要求 802.1X」（可选，仅提示 IT） | □ |
+| `:8787` 未暴露公网；连班仅教室 VLAN | □ |
+
+负向：学生用已知教工 PSK（若仍残留）或学生证书进教工 VLAN → 产品侧应 `never_student_net` / Shield block，而不是「应用替你做了 802.1X」。
 
 ## 明确不做
 

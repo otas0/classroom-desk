@@ -1,0 +1,44 @@
+import assert from 'node:assert/strict';
+import { OffShieldConnector } from '../services/shield/offConnector.js';
+import {
+  getShieldConnector,
+  reloadShieldConnectorFromEnv,
+  resetShieldConnectorToMock,
+  setShieldConnector,
+} from '../services/shield/registry.js';
+import { productCapabilities } from '../services/portalAuth.js';
+
+const prev = process.env.CLASSROOM_DESK_SHIELD;
+const prevUrl = process.env.CLASSROOM_DESK_SHIELD_URL;
+delete process.env.CLASSROOM_DESK_SHIELD;
+delete process.env.CLASSROOM_DESK_SHIELD_URL;
+
+reloadShieldConnectorFromEnv();
+const off = getShieldConnector();
+assert.equal(off.id, 'off');
+assert.match(off.displayName, /未配置/);
+const auth = await off.authorizeClient({ clientKey: 'c1', mode: 'deny' });
+assert.equal(auth.ok, false);
+assert.equal(auth.detail, 'shield_not_configured');
+
+const caps = productCapabilities();
+assert.equal(caps.netShieldActive, 'off');
+assert.ok(caps.netShieldAdapters.includes('off'));
+assert.ok(caps.netShieldAdapters.includes('opnsense'));
+
+process.env.CLASSROOM_DESK_SHIELD = 'mock';
+reloadShieldConnectorFromEnv();
+assert.equal(getShieldConnector().id, 'mock');
+
+setShieldConnector(new OffShieldConnector());
+assert.equal(getShieldConnector().id, 'off');
+resetShieldConnectorToMock();
+assert.equal(getShieldConnector().id, 'mock');
+
+if (prev === undefined) delete process.env.CLASSROOM_DESK_SHIELD;
+else process.env.CLASSROOM_DESK_SHIELD = prev;
+if (prevUrl === undefined) delete process.env.CLASSROOM_DESK_SHIELD_URL;
+else process.env.CLASSROOM_DESK_SHIELD_URL = prevUrl;
+reloadShieldConnectorFromEnv();
+
+console.log('shieldOffDefault.test.ts: ok');

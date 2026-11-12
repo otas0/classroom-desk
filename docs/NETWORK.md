@@ -61,7 +61,19 @@ curl http://192.168.1.50:8787/health
 
 家用路由器常见菜单位置（名称因品牌而异）：无线设置 → 高级 → **AP 隔离**；或访客网络 → **允许访问局域网**（需开启）。
 
+## Shield（网关断网）
+
+默认 **未配置**（`off`）：深锁/踢网不会假装成功。要真断网时设置其一：
+
+```bash
+export CLASSROOM_DESK_SHIELD=opnsense   # 或 unifi / http
+# http 时另设 CLASSROOM_DESK_SHIELD_URL + CLASSROOM_DESK_SHIELD_TOKEN
+```
+
+`CLASSROOM_DESK_SHIELD=mock` 仅联调控制面，**不要**当生产默认。
+
 ## 不建议
 
 - 把 8787 映射到公网
 - 依赖开发端口 5174 做教室部署
+- 生产环境使用 `CLASSROOM_DESK_SHIELD=mock`（会假装放行/踢网成功）

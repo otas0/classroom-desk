@@ -3216,6 +3216,16 @@ export function SettingsPanel({
     wouldRemove: Array<{ name: string; studentNo: string | null }>;
   } | null>(null);
   const [sisRosterLastApplyAvailable, setSisRosterLastApplyAvailable] = useState(false);
+  const [enterprise8021xRequired, setEnterprise8021xRequired] = useState(false);
+  const [enterprise8021xIdp, setEnterprise8021xIdp] = useState('');
+  const [enterprise8021xStaffSsid, setEnterprise8021xStaffSsid] = useState('');
+  const [enterprise8021xStaffVlan, setEnterprise8021xStaffVlan] = useState('');
+  const [enterprise8021xStudentSsid, setEnterprise8021xStudentSsid] = useState('');
+  const [enterprise8021xStudentVlan, setEnterprise8021xStudentVlan] = useState('');
+  const [examBoxSerial, setExamBoxSerial] = useState('');
+  const [examBoxImageTag, setExamBoxImageTag] = useState('');
+  const [examBoxHardwareAccepted, setExamBoxHardwareAccepted] = useState(false);
+  const [examBoxAcceptedAt, setExamBoxAcceptedAt] = useState('');
   const [grantEditId, setGrantEditId] = useState<string | null>(null);
   const [grantRows, setGrantRows] = useState<
     Array<{ classId: string; name: string; canExport: boolean; canAwardPoints: boolean }>
@@ -3263,6 +3273,16 @@ export function SettingsPanel({
       upgradesKeepCount?: number;
       studentAutoUpdate?: boolean;
       sisRosterLastApplyAvailable?: boolean;
+      enterprise8021xRequired?: boolean;
+      enterprise8021xIdp?: string;
+      enterprise8021xStaffSsid?: string;
+      enterprise8021xStaffVlan?: string;
+      enterprise8021xStudentSsid?: string;
+      enterprise8021xStudentVlan?: string;
+      examBoxSerial?: string;
+      examBoxImageTag?: string;
+      examBoxHardwareAccepted?: boolean;
+      examBoxAcceptedAt?: string;
       restoreConfirmEmail?: string;
       clientExitAllowed?: boolean;
       clientExitUnlockUntil?: string | null;
@@ -3318,6 +3338,16 @@ export function SettingsPanel({
     }
     setStudentAutoUpdate(s.studentAutoUpdate ?? true);
     setSisRosterLastApplyAvailable(Boolean(s.sisRosterLastApplyAvailable));
+    setEnterprise8021xRequired(Boolean(s.enterprise8021xRequired));
+    setEnterprise8021xIdp(String(s.enterprise8021xIdp ?? ''));
+    setEnterprise8021xStaffSsid(String(s.enterprise8021xStaffSsid ?? ''));
+    setEnterprise8021xStaffVlan(String(s.enterprise8021xStaffVlan ?? ''));
+    setEnterprise8021xStudentSsid(String(s.enterprise8021xStudentSsid ?? ''));
+    setEnterprise8021xStudentVlan(String(s.enterprise8021xStudentVlan ?? ''));
+    setExamBoxSerial(String(s.examBoxSerial ?? ''));
+    setExamBoxImageTag(String(s.examBoxImageTag ?? ''));
+    setExamBoxHardwareAccepted(Boolean(s.examBoxHardwareAccepted));
+    setExamBoxAcceptedAt(String(s.examBoxAcceptedAt ?? ''));
     if (s.recycleUrgentDays != null && Number.isFinite(Number(s.recycleUrgentDays))) {
       setRecycleUrgentDays(Number(s.recycleUrgentDays));
     }
@@ -5463,15 +5493,153 @@ export function SettingsPanel({
           <label className="row" data-testid="enterprise-8021x-required">
             <input
               type="checkbox"
+              checked={enterprise8021xRequired}
               onChange={(e) => {
+                const on = e.target.checked;
+                setEnterprise8021xRequired(on);
                 void api('/api/v1/settings', {
                   method: 'PATCH',
-                  body: JSON.stringify({ enterprise8021xRequired: e.target.checked }),
+                  body: JSON.stringify({ enterprise8021xRequired: on }),
                 }).catch((err) => setUpgradeMsg(te(err, '保存失败')));
               }}
             />
             {t('要求学生 SSID 使用 802.1X（IT 提示；见 docs/ENTERPRISE_8021X.md）')}
           </label>
+          <p className="hint">
+            {t('学校 RADIUS 模板：')}{' '}
+            <a
+              href="https://github.com/otas0/classroom-desk/blob/main/deploy/radius/README.md"
+              target="_blank"
+              rel="noreferrer"
+            >
+              deploy/radius/
+            </a>
+            {' — '}
+            {t('不内置 RADIUS；下列为 IT 登记字段。')}
+          </p>
+          <div className="row" data-testid="enterprise-8021x-registry" style={{ flexWrap: 'wrap', gap: 8 }}>
+            <label>
+              IdP
+              <input
+                value={enterprise8021xIdp}
+                onChange={(e) => setEnterprise8021xIdp(e.target.value)}
+                placeholder={t('如 NPS / FreeRADIUS / UniFi')}
+              />
+            </label>
+            <label>
+              {t('教工 SSID')}
+              <input
+                value={enterprise8021xStaffSsid}
+                onChange={(e) => setEnterprise8021xStaffSsid(e.target.value)}
+              />
+            </label>
+            <label>
+              {t('教工 VLAN')}
+              <input
+                value={enterprise8021xStaffVlan}
+                onChange={(e) => setEnterprise8021xStaffVlan(e.target.value)}
+                placeholder="VLAN ID"
+              />
+            </label>
+            <label>
+              {t('学生 SSID')}
+              <input
+                value={enterprise8021xStudentSsid}
+                onChange={(e) => setEnterprise8021xStudentSsid(e.target.value)}
+              />
+            </label>
+            <label>
+              {t('学生 VLAN')}
+              <input
+                value={enterprise8021xStudentVlan}
+                onChange={(e) => setEnterprise8021xStudentVlan(e.target.value)}
+                placeholder="VLAN ID"
+              />
+            </label>
+            <button
+              type="button"
+              className="secondary"
+              onClick={() => {
+                void api('/api/v1/settings', {
+                  method: 'PATCH',
+                  body: JSON.stringify({
+                    enterprise8021xIdp,
+                    enterprise8021xStaffSsid,
+                    enterprise8021xStaffVlan,
+                    enterprise8021xStudentSsid,
+                    enterprise8021xStudentVlan,
+                  }),
+                })
+                  .then(() => setUpgradeMsg(t('已保存 802.1X IT 登记')))
+                  .catch((err) => setUpgradeMsg(te(err, '保存失败')));
+              }}
+            >
+              {t('保存 802.1X 登记')}
+            </button>
+          </div>
+
+          <h3 data-testid="exam-box-hardware-settings">{t('Exam Box 量产验收')}</h3>
+          <p className="hint">
+            {t('按 deploy/exam-box/HARDWARE.md 装盒验收后填写。未填序列号+镜像 tag 不能勾选验收。')}{' '}
+            <a
+              href="https://github.com/otas0/classroom-desk/blob/main/deploy/exam-box/BOM.md"
+              target="_blank"
+              rel="noreferrer"
+            >
+              BOM
+            </a>
+          </p>
+          <div className="row" style={{ flexWrap: 'wrap', gap: 8 }}>
+            <label>
+              {t('序列号')}
+              <input
+                value={examBoxSerial}
+                onChange={(e) => setExamBoxSerial(e.target.value)}
+                data-testid="exam-box-serial"
+              />
+            </label>
+            <label>
+              {t('镜像 tag')}
+              <input
+                value={examBoxImageTag}
+                onChange={(e) => setExamBoxImageTag(e.target.value)}
+                placeholder="latest / sha-… / v0.1.7"
+                data-testid="exam-box-image-tag"
+              />
+            </label>
+            <label className="row">
+              <input
+                type="checkbox"
+                checked={examBoxHardwareAccepted}
+                data-testid="exam-box-hardware-accepted"
+                onChange={(e) => {
+                  const on = e.target.checked;
+                  void api('/api/v1/settings', {
+                    method: 'PATCH',
+                    body: JSON.stringify({
+                      examBoxSerial,
+                      examBoxImageTag,
+                      examBoxHardwareAccepted: on,
+                    }),
+                  })
+                    .then(async () => {
+                      setExamBoxHardwareAccepted(on);
+                      await refreshExitLock();
+                      setUpgradeMsg(
+                        on ? t('已登记 Exam Box 硬件验收（examBoxHardware 将开启）') : t('已取消硬件验收登记'),
+                      );
+                    })
+                    .catch((err) => setUpgradeMsg(te(err, '保存失败')));
+                }}
+              />
+              {t('首台硬件验收已通过')}
+            </label>
+            {examBoxAcceptedAt ? (
+              <span className="hint">
+                {t('验收时间')}：{examBoxAcceptedAt}
+              </span>
+            ) : null}
+          </div>
 
           <h3 id="teacher-upgrades-panel">{t('学生机升级包')}</h3>
           <p className="hint">

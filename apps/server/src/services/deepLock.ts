@@ -124,17 +124,32 @@ async function pushShieldForClass(
       studentId: String(row.student_id ?? '') || undefined,
     };
     if (kick) {
-      await connector.kickClient(ref);
+      const kicked = await connector.kickClient(ref);
+      if (kicked && kicked.ok === false) {
+        recordShieldLastError(
+          `shield.kickClient failed · ${clientKey} · ${kicked.detail ?? 'ok=false'}`,
+        );
+      }
       continue;
     }
     if (state.netMode === 'allow' && !deepLockAggressive(state)) {
-      await connector.revokeClient(ref);
+      const revoked = await connector.revokeClient(ref);
+      if (revoked && revoked.ok === false) {
+        recordShieldLastError(
+          `shield.revokeClient failed · ${clientKey} · ${revoked.detail ?? 'ok=false'}`,
+        );
+      }
     } else {
-      await connector.authorizeClient({
+      const authorized = await connector.authorizeClient({
         ...ref,
         mode: state.netMode,
         allowlistHosts: state.allowlistHosts,
       });
+      if (authorized && authorized.ok === false) {
+        recordShieldLastError(
+          `shield.authorizeClient failed · ${clientKey} · ${authorized.detail ?? 'ok=false'}`,
+        );
+      }
     }
   }
 }

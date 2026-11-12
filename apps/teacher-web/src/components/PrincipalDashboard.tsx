@@ -108,7 +108,12 @@ export function PrincipalDashboard({
       <h3>{t('校长能力看板')}</h3>
       <p className="hint">
         {t('运营视图：在线/加固相关能力旗标与实时在线。灰色=未交付或未启用。Shield：')}
-        {String(stats.shield?.active ?? caps.netShieldActive ?? 'mock')}
+        {(() => {
+          const active = String(stats.shield?.active ?? caps.netShieldActive ?? 'off');
+          if (!active || active === 'off') return t('未配置');
+          if (active === 'mock') return t('联调 mock（非生产）');
+          return active;
+        })()}
         <span data-testid="principal-ws-live">{live ? ` · ${t('实时')}` : ` · ${t('轮询后备')}`}</span>
       </p>
       <p className="hint" data-testid="principal-ops-summary">

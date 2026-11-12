@@ -443,7 +443,7 @@ export function SessionHome({
           </a>
         </p>
         <p className="hint" data-testid="exam-box-hardware-scaffold">
-          {t('量产硬件 SKU（examBoxHardware）仍为未交付 — 仅脚手架：')}{' '}
+          {t('量产：BOM + install-appliance.sh + 设置里登记序列号/镜像 tag 验收。')}{' '}
           <a
             href="https://github.com/otas0/classroom-desk/blob/main/deploy/exam-box/HARDWARE.md"
             target="_blank"
@@ -466,6 +466,14 @@ export function SessionHome({
             rel="noreferrer"
           >
             docs/ENTERPRISE_8021X.md
+          </a>
+          {' · '}
+          <a
+            href="https://github.com/otas0/classroom-desk/blob/main/deploy/radius/README.md"
+            target="_blank"
+            rel="noreferrer"
+          >
+            deploy/radius/
           </a>
         </p>
       </CapabilityGate>
