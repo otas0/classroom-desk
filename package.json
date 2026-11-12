@@ -51,7 +51,8 @@
     "verify:c2-evidence": "node scripts/verify-c2-evidence.mjs",
     "ops:webhook-dry-run": "node scripts/ops-webhook-dry-run.mjs",
     "cleanup:e2e-classes": "node scripts/cleanup-e2e-classes.mjs",
-    "verify:exam-box-proxy-live": "node scripts/verify-exam-box-proxy-live.mjs"
+    "verify:exam-box-proxy-live": "node scripts/verify-exam-box-proxy-live.mjs",
+    "verify:install-teacher": "node scripts/verify-install-teacher.mjs"
   },
   "type": "module",
   "engines": {

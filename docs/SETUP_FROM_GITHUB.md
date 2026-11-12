@@ -1,6 +1,7 @@
 # 从 GitHub 安装（任意教室 · 无签名 · 无优盘）
 
-> **先看这个：** [教室部署（只要三步）](./CLASSROOM_DEPLOY_ONEPAGE.md) — `npm run start:classroom` 即可。下面是例外场景细项，**默认不要读完**。
+> **Easiest teacher install:** [TEACHER_EASY_SETUP.md](./TEACHER_EASY_SETUP.md) — Admin PowerShell one-liner or double-click **`Install-Teacher.bat`**.  
+> **One-pager:** [CLASSROOM_DEPLOY_ONEPAGE.md](./CLASSROOM_DEPLOY_ONEPAGE.md). Below is the manual path — **skip unless needed**.
 
 仓库：<https://github.com/otas0/classroom-desk>
 
