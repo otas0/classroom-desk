@@ -14,8 +14,9 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const API = process.env.API_BASE ?? 'http://127.0.0.1:8787';
 const user = process.env.TEACHER_USERNAME ?? 'teacher';
 const passwords = [
-  process.env.TEACHER_PASSWORD || 'TeacherPass123',
+  process.env.TEACHER_PASSWORD || 'CiTeacherPass9!',
   process.env.TEACHER_NEW_PASSWORD || 'E2eTeacherPass9',
+  'TeacherPass123', // legacy local DBs
 ].filter((v, i, a) => a.indexOf(v) === i);
 
 const log = [];

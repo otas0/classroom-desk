@@ -45,10 +45,10 @@ jobs:
             sleep 1
           }
           free_8787
-          JWT_SECRET=ci-secret-not-for-prod \
-          ADMIN_PASSWORD=AdminPass123 \
-          TEACHER_PASSWORD=CiTeacherPass9! \
-          DEFAULT_CLASS_CODE=DEMO01 \
+          export JWT_SECRET=ci-secret-not-for-prod
+          export ADMIN_PASSWORD=AdminPass123
+          export TEACHER_PASSWORD=CiTeacherPass9!
+          export DEFAULT_CLASS_CODE=DEMO01
           npm run start --workspace=@classroom-desk/server &
           ready=
           for i in $(seq 1 40); do
