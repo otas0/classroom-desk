@@ -4411,11 +4411,11 @@ export function SettingsPanel({
         </div>
       ) : null}
       <label>
-        当前密码
+        {t('当前密码')}
         <input type="password" value={curPwd} onChange={(e) => setCurPwd(e.target.value)} autoComplete="current-password" />
       </label>
       <label>
-        新密码
+        {t('新密码')}
         <input type="password" value={newPwd} onChange={(e) => setNewPwd(e.target.value)} autoComplete="new-password" />
       </label>
       <button
@@ -4435,7 +4435,7 @@ export function SettingsPanel({
             .catch((e) => setPwdMsg(e instanceof Error ? e.message : '改密失败'))
         }
       >
-        修改登录密码
+        {t('修改登录密码')}
       </button>
       {pwdMsg ? <p className="hint">{pwdMsg}</p> : null}
 

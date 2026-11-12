@@ -988,5 +988,8 @@
   "打本教室安装包：": "Pack this classroom install:",
   "已复制{v0}": "Copied {v0}",
   "复制{v0}：": "Copy {v0}:",
-  "本教室 {v0}。学生机专用，禁止 127.0.0.1。": "Classroom {v0}. Student devices only; no 127.0.0.1."
+  "本教室 {v0}。学生机专用，禁止 127.0.0.1。": "Classroom {v0}. Student devices only; no 127.0.0.1.",
+  "当前密码": "Current password",
+  "新密码": "New password",
+  "修改登录密码": "Change login password"
 }

@@ -3,6 +3,9 @@ import { expect } from '@playwright/test';
 
 const API = process.env.API_BASE ?? 'http://127.0.0.1:8787';
 
+/** Exact live-class nav. Bare /수업/ also matches Korean 수업 준비. */
+export const LIVE_CLASS_NAV = /^(上课|Live class|上課|授業|수업)$/;
+
 /** Align UI class select with the classId used by API seed (avoids localStorage drift). */
 export async function selectTeacherClass(page: Page, classId: string): Promise<void> {
   const sel = page.locator('aside select').first();

@@ -11,6 +11,7 @@
  * path always runs with a real post-change teacher password.
  */
 import { expect, test } from '@playwright/test';
+import { LIVE_CLASS_NAV } from './helpers/navPrep';
 import {
   ensureTeacherPasswordReady,
   loginTeacherUi,
@@ -29,7 +30,7 @@ test('teacher checklist path and classId copy when student web is absent', async
   const password = await ensureTeacherPasswordReady(request);
   await loginTeacherUi(page, password);
 
-  const sessionNav = page.getByRole('button', { name: '上课' });
+  const sessionNav = page.getByRole('button', { name: LIVE_CLASS_NAV });
   await expect(sessionNav).toBeVisible();
   await expect(page.getByRole('button', { name: '备课', exact: true })).toBeVisible();
   await expect(page.getByText('请先修改个人密码')).toHaveCount(0);
@@ -44,7 +45,7 @@ test('teacher checklist path and classId copy when student web is absent', async
   if ((await checklist.count()) > 0) {
     await expect(checklist).toBeVisible();
     await expect(page.getByText(/建班并导入名单/)).toBeVisible();
-    await expect(page.getByText(/学生机扫码连上|指派学生机/)).toBeVisible();
+    await expect(page.getByText(/学生机扫码连上|指派学生机/).first()).toBeVisible();
     await expect(page.getByText(/发第一题/).first()).toBeVisible();
     await expect(
       page.getByRole('button', { name: /创建班级|去导入名单|扫码指派学生机|去发第一题|去指派|去建班|检查服务器/ }).first(),

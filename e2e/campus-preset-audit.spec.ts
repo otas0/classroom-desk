@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { LIVE_CLASS_NAV } from './helpers/navPrep';
 import { loginTeacherWeb } from './helpers/teacherWebLogin';
 
 const API = process.env.API_BASE ?? 'http://127.0.0.1:8787';
@@ -18,7 +19,7 @@ test.describe('campus preset audit', () => {
 
     await page
       .locator('aside')
-      .getByRole('button', { name: /^(上课|Live class|上課|授業|수업)$/ })
+      .getByRole('button', { name: LIVE_CLASS_NAV })
       .click();
     const panel = page.getByTestId('network-zones-panel');
     await expect(panel).toBeVisible({ timeout: 20_000 });
