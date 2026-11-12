@@ -12,14 +12,15 @@
 
 开源自托管：任意教室一台教师机跑 API，学生机装客户端并写入**本教室**的 `apiBase` + `classId`。不绑定固定示范 IP。
 
-**完整说明书（固定 IP / 防火墙 / 自启 / 名单 / SmartScreen / 验收）：**  
+**Teacher PC (easiest):** [docs/TEACHER_EASY_SETUP.md](docs/TEACHER_EASY_SETUP.md) · double-click **`Install-Teacher.bat`** · [one-pager](docs/CLASSROOM_DEPLOY_ONEPAGE.md)  
+**Full manual (fixed IP / firewall / SmartScreen / acceptance):**  
 → **[docs/SETUP_FROM_GITHUB.md](docs/SETUP_FROM_GITHUB.md)**
 
-| 角色 | 怎么装 |
+| Role | Install |
 |---|---|
-| 教师机 | `git clone` → `npm install` → **`npm run fonts:cjk`** → `build:teacher` → 按本教室改 Windows 固定 IP 脚本 → `npm run start:server` → `/admin/` |
-| 学生机 | [Releases](https://github.com/otas0/classroom-desk/releases) 下 `ClassroomDesk-Setup-*.exe`；安装后首次引导填服务器/机位并校验 `/health`（也可手写 `config.json`）→ 浏览器可先验 `/ready` |
-| 发版 | `git tag v0.1.2 && git push origin v0.1.2` → Actions `Release` 挂 exe（无证书则为未签名包） |
+| Teacher | **Recommended:** `Install-Teacher.bat` / `install-teacher.ps1` (portable Node, no git). Or `git clone` → `npm run start:classroom` |
+| Student | [Releases](https://github.com/otas0/classroom-desk/releases) `ClassroomDesk-Setup-*.exe` → Find classroom |
+| Release | `git tag vX.Y.Z && git push origin vX.Y.Z` → Actions builds dual-arch Setup |
 
 - 需求：[docs/REQUIREMENTS.md](docs/REQUIREMENTS.md)
 - API：[docs/API.md](docs/API.md)

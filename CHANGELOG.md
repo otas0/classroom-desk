@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+## v0.1.9 — 2026-11-12
+
+教师机最大简化首装（英文入口）+ 校验；产品课堂路径与 v0.1.8 一键热更保持不变。
+
+### Teacher easy install
+
+- 根目录 **`Install-Teacher.bat`** / **`install-teacher.ps1`**：管理员一键装教师机（便携 Node 22、GitHub Release 源码 zip、写 `Desktop\ClassroomDesk-Desk-Login.txt`、防火墙 8787、开机自启、启动并打开 `/admin/`）
+- 文档：[docs/TEACHER_EASY_SETUP.md](./docs/TEACHER_EASY_SETUP.md)、[docs/CLASSROOM_DEPLOY_ONEPAGE.md](./docs/CLASSROOM_DEPLOY_ONEPAGE.md)
+- 校验：`npm run verify:install-teacher`
+- 远程一条命令（合入后）：`irm …/install-teacher.ps1`（见 TEACHER_EASY_SETUP）
+
+### Tests
+
+- `scheduleDeepLock` 测试改用临时库，避免污染共享 `classroom.db`
+
 ## v0.1.8 — 2026-11-12
 
 机房最初试点版：GitHub Release **同一按钮**热更教师机 + 学生机双架构包（x64 / arm64）。

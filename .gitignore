@@ -48,3 +48,6 @@ docs/assets/classroom-desk-logo.png
 docs/assets/github-qr.png
 docs/assets/*.pdf
 tmp/
+# Teacher easy-install portable Node + local marker (Install-Teacher.bat)
+runtime/
+.classroom-desk-installed-tag

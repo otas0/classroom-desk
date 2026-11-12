@@ -1,55 +1,50 @@
-# 教室部署（只要三步）
+# Classroom deploy (short)
 
-不要一开始读完全部文档。大多数教室只做下面三步。
+## 1. Teacher PC
 
-## 1. 教师机开服务
+**Admin PowerShell:**
 
-```bash
-git clone <本仓库> && cd classroom-desk
-npm install
-npm run start:classroom
+```powershell
+irm https://raw.githubusercontent.com/otas0/classroom-desk/v0.1.9/install-teacher.ps1 -OutFile $env:TEMP\install-teacher.ps1; powershell -ExecutionPolicy Bypass -File $env:TEMP\install-teacher.ps1
 ```
 
-浏览器打开 `http://127.0.0.1:8787/admin/` → 登录 → **建班 / 导入名单 / 指派学生机**（上课页「开课准备」三步清单）。
+Or double-click **`Install-Teacher.bat`** in the repo.
 
-> `start:classroom` = 缺字体时拉 CJK → 构建教师端 → 启动 API（`0.0.0.0:8787`）。
+Then: Desktop **`ClassroomDesk-Desk-Login.txt`** → `http://127.0.0.1:8787/admin/`.  
+Details: [TEACHER_EASY_SETUP.md](./TEACHER_EASY_SETUP.md).
 
-## 2. 学生机装客户端
+## 2. Student PCs
 
-1. 拷 **已签名** `ClassroomDesk-Setup-<version>.exe`（Release / CI artifact / U 盘；ARM 用 `*-arm64.exe`）。命名规则见 [ARTIFACTS.md](./ARTIFACTS.md)。
-2. 对照旁路 `.sha256` 后安装；SmartScreen 见 [SMARTSCREEN.md](./SMARTSCREEN.md)（**禁止**关闭 Defender / SmartScreen）。装完会直接打开客户端做首次配置。
-3. **傻瓜批量（推荐）**：教师「指派学生机」勾选「开放本班一键连班」、可填讲台显示名（如「高一3班讲台」）→ 学生「查找教室」（同 /24 扫 :8787）→ 认准显示名/班名 →「确认连接」。备选：U 盘 `classroom-desk-config.json` / 扫码。
+1. Install `ClassroomDesk-Setup-<version>.exe` from [Releases](https://github.com/otas0/classroom-desk/releases) (ARM: `*-arm64.exe`).  
+2. Do **not** turn off Defender / SmartScreen.  
+3. Teacher enables one-click join → students **Find classroom**.
 
-## 3.（可选）以后升级
+## 3. Later updates
 
-设置 → **学生机升级包** → 上传新 `Setup.exe`（自动生成并校验 sha256，旧包自动删）。  
-「学生机强制跟教师端同版本」**默认开**（教师可关）。上传新 `Setup.exe` 会自动打开。开启后学生端不可取消，从教室 LAN 静默安装，不拉公网。
+Settings → **One-click update (teacher host + student packages)** (x64 + arm64 Setup + teacher host restart).
 
-### 真机验收（强制同版 + 锁控）
+### Acceptance (version lock + hardening)
 
-- [ ] 教师机上传新 Setup →「强制同版本」自动开；旧版学生机强制安装（不可取消）
-- [ ] Freeze 录屏：全屏、副屏黑、失焦 ≤0.6s
-- [ ] 试卷壳非白名单 URL 拦截
-- [ ] Freeze 后 Chrome/Edge/微信/QQ ≤1s 消失
-- [ ] **学校机 L3 必配**：Assigned Access + Intune 试验组 → Alt+Tab/Win 无效、任务管理器结束被拒；录 `C2-alttab-win.mp4` / `C2-taskmgr-deny.mp4`；试验结束用 rollback.xml。无 AA = 部署未完成（见 SECURITY）
-- [ ] C2/AA 收口：[C2_OPERATOR_RUNBOOK.md](./C2_OPERATOR_RUNBOOK.md) → `npm run verify:c2-evidence` 通过
-- [ ] 干净机 `npm run start:classroom` 记耗时与 `/admin/`
-- [ ] 真机 Shield connector 后打 `shield/health`
-- [ ] U 盘 Setup + 黑白 `--ink` 截图
-- [ ] 学生扫码连班，清单收起
-- [ ] 真机验应用开/关、拉黑、掉线锁与重连回角
-- [ ] 在线缓存解除码后拔网验离线解除
-- [ ] DHCP → 教师机 5353，确认拉黑域名解析 `0.0.0.0`
+- [ ] Teacher install opens `/admin/`; Desktop login card exists  
+- [ ] Force same version after Setup pull; old clients upgrade  
+- [ ] Freeze: fullscreen, secondary black, refocus ≤0.6s  
+- [ ] Exam shell blocks non-allowlist URLs  
+- [ ] Freeze kills Chrome/Edge/WeChat/QQ ≤1s  
+- [ ] **L3 required:** Assigned Access + Intune trial → Alt+Tab/Win dead; Task Manager end denied; evidence videos; rollback XML. No AA = incomplete deploy ([SECURITY.md](./SECURITY.md))  
+- [ ] [C2_OPERATOR_RUNBOOK.md](./C2_OPERATOR_RUNBOOK.md) → `npm run verify:c2-evidence`  
+- [ ] Real Shield connector → `shield/health`  
+- [ ] Offline unlock after cached code  
+- [ ] DHCP → teacher :5353 blocks resolve to `0.0.0.0`
 
 ---
 
-加固（深锁 / Assigned Access）、U 盘清单、systemd 等：**用到再查**
-
-| 需要时 | 文档 |
+| Need | Doc |
 |---|---|
-| 冷启动细项 | [SETUP_FROM_GITHUB.md](./SETUP_FROM_GITHUB.md) |
-| 讲台塑封卡 | [PRINT_DESK_CARD.md](./PRINT_DESK_CARD.md) |
-| U 盘 | [LOCAL_USB_CHECKLIST.md](./LOCAL_USB_CHECKLIST.md) |
-| 整机 AA / C2 | [EXIT_LOCK_MDM.md](./EXIT_LOCK_MDM.md) |
-| 安全边界 | [SECURITY.md](./SECURITY.md) |
-| 连班 PIN / LAN / TLS | [CLASSROOM_JOIN_SECURITY.md](./CLASSROOM_JOIN_SECURITY.md) |
+| Teacher one-click | [TEACHER_EASY_SETUP.md](./TEACHER_EASY_SETUP.md) |
+| Manual cold start | [SETUP_FROM_GITHUB.md](./SETUP_FROM_GITHUB.md) |
+| Desk card print | [PRINT_DESK_CARD.md](./PRINT_DESK_CARD.md) |
+| USB | [LOCAL_USB_CHECKLIST.md](./LOCAL_USB_CHECKLIST.md) |
+| AA / C2 | [EXIT_LOCK_MDM.md](./EXIT_LOCK_MDM.md) |
+| Security | [SECURITY.md](./SECURITY.md) |
+| Join / TLS | [CLASSROOM_JOIN_SECURITY.md](./CLASSROOM_JOIN_SECURITY.md) |
+| Release sync | [RELEASE_SYNC.md](./RELEASE_SYNC.md) |
