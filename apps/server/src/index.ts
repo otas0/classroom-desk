@@ -9,6 +9,15 @@ import { attachBuzzWebSocket } from './services/buzzHub.js';
 import { attachExitLockWebSocket, broadcastExitLockPayload } from './services/exitLockHub.js';
 import { attachPrincipalWebSocket } from './services/principalHub.js';
 import { startDeskDns, stopDeskDns } from './services/deskDns.js';
+import {
+  startClassroomBeacon,
+  stopClassroomBeacon,
+} from './services/classroomBeacon.js';
+import { startClassroomMdns, stopClassroomMdns } from './services/classroomMdns.js';
+import {
+  startFederationAnnounce,
+  stopFederationAnnounce,
+} from './services/federationHub.js';
 import { reloadShieldConnectorFromEnv } from './services/shield/registry.js';
 
 const db = migrate();
@@ -18,6 +27,9 @@ reloadShieldConnectorFromEnv();
 const app = createApp();
 startCleanupScheduler();
 startDeskDns();
+startClassroomBeacon();
+startClassroomMdns();
+startFederationAnnounce();
 
 const server = app.listen(config.port, config.host, () => {
   console.log(`[classroom-desk-server] listening on http://${config.host}:${config.port}`);
@@ -41,6 +53,9 @@ attachPrincipalWebSocket(server);
 broadcastExitLockPayload(getClientExitLockState(db));
 
 function shutdown() {
+  stopFederationAnnounce();
+  stopClassroomMdns();
+  stopClassroomBeacon();
   stopDeskDns();
   stopCleanupScheduler();
   server.close(() => {

@@ -30,6 +30,8 @@ import { deviceControlRouter } from './routes/deviceControl.js';
 import { networkZonesRouter } from './routes/networkZones.js';
 import { portalRouter } from './routes/portal.js';
 import { principalRouter } from './routes/principal.js';
+import { federationRouter } from './routes/federation.js';
+import { c2EvidenceRouter } from './routes/c2Evidence.js';
 
 function resolveTeacherDist(): string | null {
   const here = path.dirname(fileURLToPath(import.meta.url));
@@ -64,6 +66,8 @@ export function createApp() {
   app.use(networkZonesRouter);
   app.use(portalRouter);
   app.use(principalRouter);
+  app.use(federationRouter);
+  app.use(c2EvidenceRouter);
   app.use(authRouter);
   app.use(assistantGrantsRouter);
   app.use(auditRouter);

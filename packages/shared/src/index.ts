@@ -425,6 +425,13 @@ export type DeviceControlCommand = {
   apps?: string[];
 };
 
+export {
+  encodeRoomCode,
+  decodeRoomCode,
+  roomCodeToApiBase,
+  looksLikeRoomCode,
+} from './roomCode.js';
+
 export function normalizeDeviceControlCommand(raw: unknown): DeviceControlCommand | null {
   if (!raw || typeof raw !== 'object') return null;
   const o = raw as Partial<DeviceControlCommand>;

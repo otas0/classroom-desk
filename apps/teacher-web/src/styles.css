@@ -720,6 +720,19 @@ section label.choice input {
   font-size: 11px;
 }
 
+aside button.top-pending-devices {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  margin: 8px 0 4px;
+  padding: 8px 10px;
+  font-size: 13px;
+  border: 1px solid var(--border, #c9d4e0);
+  background: var(--paper);
+  cursor: pointer;
+}
+
 .pending-badge:empty {
   display: none;
 }
@@ -1395,6 +1408,85 @@ aside .nav.active .pending-badge {
 .setup-checklist h2 {
   margin: 0;
   font-size: 18px;
+}
+
+.setup-health-alerts {
+  display: grid;
+  gap: 8px;
+}
+
+.setup-health-alert {
+  margin: 0;
+  padding: 10px 12px;
+  border: 2px solid var(--danger, #b42318);
+  background: color-mix(in srgb, var(--danger, #b42318) 12%, var(--paper));
+  font-weight: 600;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.setup-blockers-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.setup-blocker-light {
+  font-size: 12px;
+  font-weight: 700;
+  padding: 4px 10px;
+  border: 2px solid var(--ink);
+  text-transform: none;
+}
+
+.setup-blocker-light--ok {
+  background: color-mix(in srgb, #12b76a 18%, var(--paper));
+  border-color: #027a48;
+}
+
+.setup-blocker-light--bad {
+  background: color-mix(in srgb, var(--danger, #b42318) 14%, var(--paper));
+  border-color: var(--danger, #b42318);
+}
+
+.setup-blocker-light--unknown {
+  background: var(--paper);
+  opacity: 0.85;
+}
+
+.projection-room-banner {
+  margin: 0 0 16px;
+  padding: 16px 12px;
+  border: 2px solid var(--ink);
+  text-align: center;
+  display: grid;
+  gap: 6px;
+}
+
+.projection-room-name {
+  margin: 0;
+  font-size: 1.4rem;
+  font-weight: 700;
+}
+
+.projection-room-qr-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.25rem;
+  justify-content: center;
+  margin-top: 0.75rem;
+}
+
+.projection-room-code {
+  margin: 0;
+  font-size: clamp(2.5rem, 8vw, 4.5rem);
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
 }
 
 .setup-steps {

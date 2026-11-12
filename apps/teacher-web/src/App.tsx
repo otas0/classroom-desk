@@ -32,6 +32,12 @@ import {
 import { assistantPrepTabs, isAssistant, setStaffRole } from './authRole';
 import { preferClassroomId, type ClassItem } from './types';
 import { t } from '@classroom-desk/i18n';
+import {
+  pendingDeviceBeepMuted,
+  playPendingDeviceBeep,
+  setPendingDeviceBeepMuted,
+  unlockPendingDeviceAudio,
+} from './pendingDeviceBeep';
 
 type Tab = TeacherTab;
 type PrepTab = TeacherPrepTab;
@@ -74,10 +80,13 @@ export function App() {
   const [studentCount, setStudentCount] = useState(0);
   const [hasApiBase, setHasApiBase] = useState(false);
   const [setupTick, setSetupTick] = useState(0);
-  const [pendingCount, setPendingCount] = useState(0);
+  const [pendingJoinDeviceCount, setPendingJoinDeviceCount] = useState(0);
+  const [pendingBeepMute, setPendingBeepMute] = useState(() => pendingDeviceBeepMuted());
+  const prevPendingJoinRef = useRef(-1);
   const [codeRotationBanner, setCodeRotationBanner] = useState('');
   const [apiRestartTip, setApiRestartTip] = useState('');
   const healthWasDownRef = useRef(false);
+  const prevClassIdRef = useRef(classId);
 
   useEffect(() => {
     let cancelled = false;
@@ -208,28 +217,44 @@ export function App() {
   }, [tokenReady, classId, tab, prepTab, setupTick]);
 
   useEffect(() => {
-    if (!tokenReady || !classId || mustChangePassword) {
-      setPendingCount(0);
+    if (!tokenReady || mustChangePassword || isAssistant()) {
+      setPendingJoinDeviceCount(0);
+      prevPendingJoinRef.current = 0;
       return;
     }
     let cancelled = false;
-    async function loadPending() {
+    async function loadPendingDevices() {
       try {
-        const r = await api<{ items: unknown[] }>(
-          `/api/v1/point-requests/pending?classId=${encodeURIComponent(classId)}`,
-        );
-        if (!cancelled) setPendingCount(r.items.length);
+        const r = await api<{ items: unknown[] }>('/api/v1/classroom/join/pending-devices');
+        const n = r.items?.length ?? 0;
+        if (cancelled) return;
+        const prev = prevPendingJoinRef.current;
+        if (prev >= 0 && n > prev) playPendingDeviceBeep();
+        prevPendingJoinRef.current = n;
+        setPendingJoinDeviceCount(n);
       } catch {
-        if (!cancelled) setPendingCount(0);
+        if (!cancelled) setPendingJoinDeviceCount(0);
       }
     }
-    void loadPending();
-    const _cdTimer = window.setInterval(() => void loadPending(), 5000);
+    void loadPendingDevices();
+    const _cdTimer = window.setInterval(() => void loadPendingDevices(), 8000);
     return () => {
       cancelled = true;
       window.clearInterval(_cdTimer);
     };
-  }, [tokenReady, classId, mustChangePassword]);
+  }, [tokenReady, mustChangePassword]);
+
+  function openJoinPendingDevices() {
+    unlockPendingDeviceAudio();
+    setProjectionMode(false);
+    setTab('assign');
+    window.requestAnimationFrame(() => {
+      document.querySelector('[data-testid="join-pending-devices"]')?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'start',
+      });
+    });
+  }
 
   useEffect(() => {
     if (!tokenReady) return;
@@ -381,6 +406,32 @@ export function App() {
     localStorage.setItem(NAV_CLASS_KEY, classId);
   }, [classId]);
 
+  // Optional: switching class clears easy-join so the previous podium vanishes from LAN scan.
+  useEffect(() => {
+    const prev = prevClassIdRef.current;
+    prevClassIdRef.current = classId;
+    if (!tokenReady || mustChangePassword || !prev || !classId || prev === classId) return;
+    void (async () => {
+      try {
+        const s = await api<{
+          studentEasyJoin?: boolean;
+          studentEasyJoinClassId?: string;
+          studentEasyJoinAutoOff?: boolean;
+        }>('/api/v1/settings');
+        if (s.studentEasyJoinAutoOff === false) return;
+        if (!s.studentEasyJoin) return;
+        if (s.studentEasyJoinClassId && s.studentEasyJoinClassId !== prev) return;
+        await api('/api/v1/settings', {
+          method: 'PATCH',
+          body: JSON.stringify({ studentEasyJoin: false, studentEasyJoinClassId: '' }),
+        });
+        setSetupTick((n) => n + 1);
+      } catch {
+        /* ignore */
+      }
+    })();
+  }, [classId, tokenReady, mustChangePassword]);
+
   useEffect(() => {
     const onSel = (e: Event) => {
       const id = (e as CustomEvent<{ classId?: string }>).detail?.classId;
@@ -407,6 +458,7 @@ export function App() {
 
   async function login() {
     setError('');
+    unlockPendingDeviceAudio();
     try {
       const res = await api<{
         token: string;
@@ -521,6 +573,33 @@ export function App() {
       {projectionMode ? null : (
         <aside>
           <h1>{APP_NAME}</h1>
+          {!mustChangePassword && pendingJoinDeviceCount > 0 ? (
+            <button
+              type="button"
+              className="top-pending-devices"
+              data-testid="top-pending-devices-badge"
+              onClick={() => openJoinPendingDevices()}
+              title={t('待批准设备')}
+            >
+              {t('待批准设备')}
+              <span className="pending-badge">{pendingJoinDeviceCount}</span>
+            </button>
+          ) : null}
+          {!mustChangePassword ? (
+            <label className="hint row" style={{ fontSize: '0.85rem' }}>
+              <input
+                type="checkbox"
+                checked={pendingBeepMute}
+                onChange={(e) => {
+                  const mute = e.target.checked;
+                  setPendingBeepMute(mute);
+                  setPendingDeviceBeepMuted(mute);
+                  if (!mute) unlockPendingDeviceAudio();
+                }}
+              />
+              {t('静音待批设备提示音')}
+            </label>
+          ) : null}
           {apiRestartTip ? (
             <div className="banner-alert" role="status" aria-live="polite">
               <p>{apiRestartTip}</p>
@@ -601,13 +680,18 @@ export function App() {
                   type="button"
                   className={tab === id ? 'nav active' : 'nav'}
                   onClick={() => {
+                    unlockPendingDeviceAudio();
                     setProjectionMode(false);
+                    if (id === 'assign' && pendingJoinDeviceCount > 0) {
+                      openJoinPendingDevices();
+                      return;
+                    }
                     setTab(id);
                   }}
                 >
                   {label}
-                  {id === 'session' && pendingCount > 0 ? (
-                    <span className="pending-badge">{pendingCount}</span>
+                  {id === 'assign' && pendingJoinDeviceCount > 0 ? (
+                    <span className="pending-badge">{pendingJoinDeviceCount}</span>
                   ) : null}
                 </button>
               ))
@@ -681,6 +765,16 @@ export function App() {
                   if (cid) setClassId(cid);
                   setPrepTab('presence');
                   setTab('prep');
+                }}
+                onOpenUpgrades={() => {
+                  setPrepTab('settings');
+                  setTab('prep');
+                  window.requestAnimationFrame(() => {
+                    document.getElementById('teacher-upgrades-panel')?.scrollIntoView({
+                      behavior: 'smooth',
+                      block: 'start',
+                    });
+                  });
                 }}
               />
             )}
