@@ -122,7 +122,11 @@ export function DeviceControlBar({ classId }: { classId: string }) {
   return (
     <section className="device-control-bar" data-testid="device-control-bar">
       <h3>{t('学生机应用与网页')}</h3>
-      <p className="hint">{t('打开/关闭学生机上的应用或网页；拉黑名单持续拦截。掉线时可强硬全屏锁。')}</p>
+      <p className="hint">
+        {t(
+          '打开/关闭学生机上的应用或网页；拉黑名单持续拦截（学生端请求 + 教师机 CLASSROOM_DESK_DNS=1 时 DNS 返回 0.0.0.0）。掉线时可强硬全屏锁。',
+        )}
+      </p>
 
       <div className="device-control-grid">
         <label>

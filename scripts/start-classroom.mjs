@@ -5,6 +5,7 @@
  */
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
+import net from 'node:net';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -37,6 +38,21 @@ if (!fs.existsSync(font)) {
 
 console.log('[start:classroom] build teacher…');
 await run(npm, ['run', 'build:teacher']);
+
+const port = Number(process.env.PORT || 8787);
+const busy = await new Promise((resolve) => {
+  const socket = net.connect({ port, host: '127.0.0.1' }, () => {
+    socket.end();
+    resolve(true);
+  });
+  socket.on('error', () => resolve(false));
+});
+if (busy) {
+  console.error(
+    `[start:classroom] 127.0.0.1:${port} already listening — refusing a second start:server`,
+  );
+  process.exit(1);
+}
 
 console.log('[start:classroom] starting server on HOST=%s …', process.env.HOST || '0.0.0.0');
 console.log('[start:classroom] open http://127.0.0.1:8787/admin/');

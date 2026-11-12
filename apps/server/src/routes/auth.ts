@@ -136,6 +136,14 @@ authRouter.post('/api/v1/auth/admin-unlock', async (req, res) => {
   res.json({ ok: true });
 });
 
+/** Logged-in clients cache the bcrypt hash so offline unlock works without the teacher host. */
+authRouter.get('/api/v1/auth/exit-unlock-verifier', requireAuth, (_req: AuthedRequest, res) => {
+  const db = openDb();
+  const hash = getSetting(db, 'exit_unlock_code_hash');
+  const setAt = getSetting(db, 'exit_unlock_code_set_at');
+  res.json({ hash: hash || null, setAt: setAt || null });
+});
+
 /** Local student-desktop exit: dedicated 解除码 or admin password (rate-limited). */
 authRouter.post('/api/v1/auth/exit-unlock', async (req, res) => {
   const code = String(req.body?.code ?? req.body?.password ?? '');
