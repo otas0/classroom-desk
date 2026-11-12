@@ -131,3 +131,19 @@ npm run ops:webhook-dry-run
    - 频道 POST（`Release ops dual-touch dry-run`）  
    验完关掉该 Issue。正式 `record-artifacts` 失败时同样双触达。  
 4. 未配置 secret 时 webhook 跳过，Issue 仍应创建。
+
+## 发版记录（自动追加）
+
+由 `scripts/append-artifacts-release.mjs` 在 Release 时写入。
+
+<!-- release-record:v0.1.8 -->
+### 发版记录 v0.1.8（2026-11-12）
+
+| 字段 | 值 |
+|---|---|
+| **tag** | `v0.1.8` |
+| **tree SHA** | `d247a84493096bcc6e07ad53aeced7c87eed77c4` |
+| **commit SHA**（可能与远程 tip 字面不同） | `0fe1c7337678aea4730a4de2096366e40098d558` |
+
+badge / 样机核对：优先 **tag**；内容对齐用 **tree SHA**（见上文「Commit SHA vs tree SHA」）。
+
