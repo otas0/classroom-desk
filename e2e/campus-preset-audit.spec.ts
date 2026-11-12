@@ -21,6 +21,10 @@ test.describe('campus preset audit', () => {
       .locator('aside')
       .getByRole('button', { name: LIVE_CLASS_NAV })
       .click();
+    const more = page.locator('details.session-more-net');
+    if (await more.count()) {
+      await more.locator('summary').click();
+    }
     const panel = page.getByTestId('network-zones-panel');
     await expect(panel).toBeVisible({ timeout: 20_000 });
     await panel.scrollIntoViewIfNeeded();
