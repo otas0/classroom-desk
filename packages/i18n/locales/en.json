@@ -1051,5 +1051,14 @@
   "单选/判断二次确认提交（默认开启）": "Confirm before submitting choice/true-false (default on)",
   "有效期（分钟）": "TTL (minutes)",
   "数据库：服务进程每天自动备份一次（保留约 14 份）；也可手动 npm run backup:db。确认 /health 无 backup/audit lastError。": "The server backs up the database daily (about 14 copies). You can also run npm run backup:db. Check /health has no backup/audit lastError.",
-  "尚未缓存解除码，连上教师机一次后再离线验证": "Unlock hash not cached yet — connect to the teacher host once, then verify offline."
+  "尚未缓存解除码，连上教师机一次后再离线验证": "Unlock hash not cached yet — connect to the teacher host once, then verify offline.",
+  "已开启：学生机强制跟教师端同版本（学生不可取消）": "ON: students must match teacher version (students cannot cancel)",
+  "已关闭学生强制同版本": "Forced same-version for students OFF",
+  "学生机强制跟教师端同版本（教师可选，默认关；开启后学生不可取消）": "Force students to match teacher version (teacher optional, default off; students cannot cancel)",
+  "须先上传本版 Setup.exe。开启后版本不一致的学生机会下载局域网安装包并静默安装。": "Upload this version’s Setup.exe first. When on, mismatched students download the LAN installer and install silently.",
+  "教师已要求同版本，请等待教师上传 Setup.exe": "Teacher requires the same version — wait for Setup.exe upload",
+  "正在强制升级到教师端 v{v0}…": "Forcing upgrade to teacher v{v0}…",
+  "强制升级失败：{v0}，将重试": "Forced upgrade failed: {v0}; will retry",
+  "教师端要求保持同版本 · 本机 v{v0} → v{v1}": "Teacher requires same version · local v{v0} → v{v1}",
+  "不可取消；安装完成后自动重启学生端": "Cannot cancel; student app restarts after install"
 }

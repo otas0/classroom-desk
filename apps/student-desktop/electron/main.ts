@@ -1,6 +1,9 @@
 import { app, BrowserWindow, globalShortcut, ipcMain, Menu, screen, session } from 'electron';
 import bcrypt from 'bcryptjs';
-import { execFile } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
+import fs from 'node:fs';
+import http from 'node:http';
+import https from 'node:https';
 import os from 'node:os';
 import { promisify } from 'node:util';
 import path from 'node:path';
@@ -964,5 +967,78 @@ ipcMain.handle('lock:verify-offline-code', async (_event, code: unknown, hash: u
     return { ok: await bcrypt.compare(plain, stored) };
   } catch {
     return { ok: false };
+  }
+});
+
+function downloadToFile(url: string, dest: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const mod = url.startsWith('https:') ? https : http;
+    const req = mod.get(url, { timeout: 120_000 }, (res) => {
+      if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+        res.resume();
+        void downloadToFile(String(res.headers.location), dest).then(resolve, reject);
+        return;
+      }
+      if ((res.statusCode ?? 500) >= 400) {
+        res.resume();
+        reject(new Error(`http_${res.statusCode}`));
+        return;
+      }
+      const out = fs.createWriteStream(dest);
+      res.pipe(out);
+      out.on('finish', () => out.close(() => resolve()));
+      out.on('error', reject);
+    });
+    req.on('error', reject);
+    req.on('timeout', () => {
+      req.destroy();
+      reject(new Error('download_timeout'));
+    });
+  });
+}
+
+/**
+ * Teacher-enabled force sync: download LAN Setup from teacher host and run NSIS /S.
+ * Only allows http(s) URLs whose path contains /upgrades/ and host matches configured apiBase.
+ */
+ipcMain.handle('upgrade:force-lan-setup', async (_event, rawUrl: unknown) => {
+  const url = String(rawUrl ?? '').trim();
+  if (!/^https?:\/\//i.test(url) || !/\/upgrades\//i.test(url) || !/\.exe(\?|$)/i.test(url)) {
+    return { ok: false, error: 'invalid_upgrade_url' };
+  }
+  try {
+    const cfg = loadConfig();
+    const apiHost = new URL(String(cfg.apiBase || 'http://127.0.0.1:8787')).hostname.toLowerCase();
+    const u = new URL(url);
+    if (u.hostname.toLowerCase() !== apiHost) {
+      return { ok: false, error: 'host_mismatch' };
+    }
+  } catch {
+    return { ok: false, error: 'bad_api_base' };
+  }
+  const dest = path.join(app.getPath('temp'), 'ClassroomDesk-Forced-Setup.exe');
+  try {
+    await downloadToFile(url, dest);
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : 'download_failed' };
+  }
+  try {
+    if (process.platform === 'win32') {
+      spawn(dest, ['/S'], { detached: true, stdio: 'ignore' }).unref();
+    } else if (process.platform === 'darwin') {
+      spawn('open', [dest], { detached: true, stdio: 'ignore' }).unref();
+    } else {
+      spawn(dest, [], { detached: true, stdio: 'ignore' }).unref();
+    }
+    setTimeout(() => {
+      try {
+        app.exit(0);
+      } catch {
+        /* ignore */
+      }
+    }, 800);
+    return { ok: true, path: dest };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : 'spawn_failed' };
   }
 });

@@ -5134,7 +5134,9 @@ export function SettingsPanel({
                 })
                   .then(() =>
                     setUpgradeMsg(
-                      on ? t('已开启：版本不一致时确认后打开局域网安装包') : t('已关闭自动更新提示'),
+                      on
+                        ? t('已开启：学生机强制跟教师端同版本（学生不可取消）')
+                        : t('已关闭学生强制同版本'),
                     ),
                   )
                   .catch((err) => {
@@ -5143,8 +5145,11 @@ export function SettingsPanel({
                   });
               }}
             />
-            {t('版本不一致时提示打开安装包（默认关）')}
+            {t('学生机强制跟教师端同版本（教师可选，默认关；开启后学生不可取消）')}
           </label>
+          <p className="hint">
+            {t('须先上传本版 Setup.exe。开启后版本不一致的学生机会下载局域网安装包并静默安装。')}
+          </p>
           <label className="secondary" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             {t('上传 Setup.exe')}
             <input

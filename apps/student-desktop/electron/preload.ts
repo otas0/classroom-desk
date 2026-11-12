@@ -47,6 +47,7 @@ export type StudentDesktopAPI = {
   openApp: (app: string) => Promise<{ ok: boolean; error?: string }>;
   setBlockedHosts: (hosts: string[]) => Promise<{ ok: boolean; count?: number }>;
   verifyOfflineCode: (code: string, hash: string) => Promise<{ ok: boolean }>;
+  forceLanSetup: (url: string) => Promise<{ ok: boolean; error?: string; path?: string }>;
 };
 
 const api: StudentDesktopAPI = {
@@ -81,6 +82,7 @@ const api: StudentDesktopAPI = {
   openApp: (app) => ipcRenderer.invoke('device-control:open-app', app),
   setBlockedHosts: (hosts) => ipcRenderer.invoke('device-control:set-blocked-hosts', hosts),
   verifyOfflineCode: (code, hash) => ipcRenderer.invoke('lock:verify-offline-code', code, hash),
+  forceLanSetup: (url) => ipcRenderer.invoke('upgrade:force-lan-setup', url),
 };
 
 contextBridge.exposeInMainWorld('classroomDesk', api);

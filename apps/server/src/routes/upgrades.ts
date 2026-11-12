@@ -82,7 +82,7 @@ function listUpgradeFiles(req: AuthedRequest) {
   };
 }
 
-/** Public latest LAN package (no auth) — students use this for drift banner / optional update prompt. */
+/** Public latest LAN package (no auth) — students use for drift banner / teacher-forced sync. */
 upgradesRouter.get('/api/v1/upgrades/latest', (req: AuthedRequest, res) => {
   const info = listUpgradeFiles(req);
   res.json({

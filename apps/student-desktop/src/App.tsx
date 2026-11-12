@@ -104,7 +104,8 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
   const [expectedClientVersion, setExpectedClientVersion] = useState('');
   const [lanUpgradeUrl, setLanUpgradeUrl] = useState('');
   const [studentAutoUpdate, setStudentAutoUpdate] = useState(false);
-  const autoUpdatePromptedRef = useRef(false);
+  const forceUpgradeBusyRef = useRef(false);
+  const [forceUpgradeMsg, setForceUpgradeMsg] = useState('');
   const [newQuizPulse, setNewQuizPulse] = useState(false);
   const [openQuizCount, setOpenQuizCount] = useState(0);
   const [offlineQueueCount, setOfflineQueueCount] = useState(0);
@@ -1203,21 +1204,50 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
     window.open(target, '_blank', 'noopener,noreferrer');
   }, []);
 
-  // Must stay above every early return — conditional hooks white-screen the student shell.
+  // Teacher-optional force sync: when on, students cannot cancel — must match teacher version.
   useEffect(() => {
-    if (!versionDrift || !studentAutoUpdate || !lanUpgradeUrl || autoUpdatePromptedRef.current) {
-      return;
-    }
-    autoUpdatePromptedRef.current = true;
-    const ok = window.confirm(
-      t(
-        '教室已开启可选自动更新。本机 v{v0}，应升级到 v{v1}。打开局域网安装包？（不静默安装，可取消）',
-        { v0: CLIENT_VERSION, v1: expectedClientVersion },
-      ),
-    );
-    if (ok) {
-      void openUpgradeUrl(lanUpgradeUrl);
-    }
+    if (!versionDrift || !studentAutoUpdate) return;
+    let cancelled = false;
+    const run = async () => {
+      if (!lanUpgradeUrl) {
+        setForceUpgradeMsg(t('教师已要求同版本，请等待教师上传 Setup.exe'));
+        return;
+      }
+      if (forceUpgradeBusyRef.current) return;
+      forceUpgradeBusyRef.current = true;
+      setForceUpgradeMsg(t('正在强制升级到教师端 v{v0}…', { v0: expectedClientVersion }));
+      try {
+        const desk = window.classroomDesk;
+        if (desk?.forceLanSetup) {
+          const r = await desk.forceLanSetup(lanUpgradeUrl);
+          if (cancelled) return;
+          if (!r.ok) {
+            setForceUpgradeMsg(t('强制升级失败：{v0}，将重试', { v0: r.error || '' }));
+            forceUpgradeBusyRef.current = false;
+          }
+          return;
+        }
+        await openUpgradeUrl(lanUpgradeUrl);
+        forceUpgradeBusyRef.current = false;
+      } catch (e) {
+        if (!cancelled) {
+          setForceUpgradeMsg(
+            t('强制升级失败：{v0}，将重试', {
+              v0: e instanceof Error ? e.message : '',
+            }),
+          );
+        }
+        forceUpgradeBusyRef.current = false;
+      }
+    };
+    void run();
+    const id = window.setInterval(() => {
+      if (!forceUpgradeBusyRef.current) void run();
+    }, 20_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
   }, [versionDrift, studentAutoUpdate, lanUpgradeUrl, expectedClientVersion, openUpgradeUrl]);
 
   if (!ready) {
@@ -1415,7 +1445,23 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
           </button>
         </div>
       ) : null}
-      {versionDrift ? (
+      {studentAutoUpdate && versionDrift ? (
+        <div
+          className="deep-lock-freeze-overlay force-upgrade-overlay"
+          data-testid="force-upgrade-overlay"
+          role="alert"
+          aria-live="assertive"
+        >
+          <p>
+            {t('教师端要求保持同版本 · 本机 v{v0} → v{v1}', {
+              v0: CLIENT_VERSION,
+              v1: expectedClientVersion,
+            })}
+          </p>
+          <p className="hint">{forceUpgradeMsg || t('不可取消；安装完成后自动重启学生端')}</p>
+        </div>
+      ) : null}
+      {versionDrift && !studentAutoUpdate ? (
         <div className="offline-banner version-drift" data-no-drag role="status">
           {t('版本漂移：本机 v{v0}，应升级到 v{v1}', {
             v0: CLIENT_VERSION,
