@@ -3,6 +3,7 @@ import { DatabaseSync } from 'node:sqlite';
 import fs from 'node:fs';
 import path from 'node:path';
 import { ensureTeacherPasswordReady, TEACHER_USER } from './helpers/teacherLogin';
+import { resetUiLocaleZhCN } from './helpers/uiLocale';
 
 const API = process.env.API_BASE ?? 'http://127.0.0.1:8787';
 const TEACHER_WEB = process.env.TEACHER_WEB ?? 'http://127.0.0.1:5174';
@@ -26,6 +27,7 @@ function backdateUnlockCodeSetAtViaSqlite() {
 
 test.describe('exit-lock rotation banner', () => {
   test('login banner deep-links to settings exit-lock', async ({ page, request }) => {
+    await resetUiLocaleZhCN(request);
     const password = await ensureTeacherPasswordReady(request);
     const login = await request.post(`${API}/api/v1/auth/login`, {
       data: { username: TEACHER_USER, password },
@@ -52,28 +54,28 @@ test.describe('exit-lock rotation banner', () => {
       backdateUnlockCodeSetAtViaSqlite();
     }
 
-    let due = false;
-    for (let i = 0; i < 20; i++) {
-      const pub = await request.get(`${API}/api/v1/settings/public`);
-      const body = (await pub.json()) as { exitUnlockCodeRotationDue?: boolean };
-      if (body.exitUnlockCodeRotationDue) {
-        due = true;
-        break;
-      }
-      await new Promise((r) => setTimeout(r, 250));
-    }
-    expect(due).toBeTruthy();
+    await expect
+      .poll(
+        async () => {
+          const pub = await request.get(`${API}/api/v1/settings/public`);
+          if (!pub.ok()) return false;
+          const body = (await pub.json()) as { exitUnlockCodeRotationDue?: boolean };
+          return body.exitUnlockCodeRotationDue === true;
+        },
+        { timeout: 20_000, intervals: [250, 500, 1000] },
+      )
+      .toBe(true);
 
     await page.goto(`${TEACHER_WEB}/`);
-    const banner = page.getByRole('status').filter({ hasText: /解除码已使用/ });
+    const banner = page.getByRole('status').filter({ hasText: /解除码已使用|unlock code has been in use|解除碼已使用|解除コード|해제 코드/i });
     await expect(banner).toBeVisible({ timeout: 15_000 });
-    await page.getByRole('button', { name: '去设置更换解除码' }).click();
+    await page.getByRole('button', { name: /去设置更换解除码|Change unlock code|去設定更換解除碼|設定で解除コード|설정에서 해제 코드/ }).click();
 
-    await page.getByLabel('用户名').fill(TEACHER_USER);
-    await page.getByLabel('密码').fill(password);
-    await page.getByRole('button', { name: '登录', exact: true }).click();
+    await page.getByLabel(/用户名|Username|使用者名稱|ユーザー名|사용자/).fill(TEACHER_USER);
+    await page.getByLabel(/密码|Password|密碼|パスワード|비밀번호/).fill(password);
+    await page.getByRole('button', { name: /登录|Sign in|登入|ログイン|로그인/ }).click();
 
-    const gate = page.getByText('请先修改个人密码');
+    const gate = page.getByText(/请先修改个人密码|Change your personal password|必須先改成個人密碼|個人パスワード|개인 비밀번호/);
     const exitLock = page.locator('#exit-lock-settings');
     await gate.or(exitLock).waitFor({ state: 'visible', timeout: 20_000 });
     if (await gate.isVisible()) {
@@ -81,6 +83,6 @@ test.describe('exit-lock rotation banner', () => {
     }
 
     await expect(exitLock).toBeVisible({ timeout: 15_000 });
-    await expect(page.getByRole('heading', { name: '学生端退出锁定' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: /学生端退出锁定|Student exit lock|學生端退出鎖定|退出ロック|학생 종료 잠금/ })).toBeVisible();
   });
 });

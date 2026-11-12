@@ -530,7 +530,7 @@ export function App() {
             <div className="banner-alert" role="status">
               <p>{codeRotationBanner}</p>
               <button type="button" className="linkish" onClick={() => openExitLockSettings()}>
-                去设置更换解除码
+                {t('去设置更换解除码')}
               </button>
             </div>
           ) : null}
