@@ -6,6 +6,9 @@ import {
   shouldRunDailyCleanup,
 } from '../services/cleanup.js';
 import { openScheduledAttendanceSessions } from '../services/attendanceSchedule.js';
+import { syncEasyJoinToSchedules, syncEasyJoinTtl } from '../services/easyJoinSchedule.js';
+import { syncDeepLockToSchedules } from '../services/scheduleDeepLock.js';
+import { syncSisRosterOnce } from '../services/sisRosterSync.js';
 import { purgeExpiredSoftDeletes } from '../services/audit.js';
 import { flushAuditRetryQueue } from '../services/auditRetry.js';
 import { runDbBackup, shouldRunDailyBackup } from '../services/backup.js';
@@ -66,6 +69,38 @@ export function startCleanupScheduler(): void {
       const opened = openScheduledAttendanceSessions(db);
       if (opened > 0) {
         console.log(`[attendance] opened scheduled sessions: ${opened}`);
+      }
+      try {
+        const ej = syncEasyJoinToSchedules(db);
+        if (ej.opened) console.log(`[easy-join] schedule opened class=${ej.classId}`);
+        if (ej.closed) console.log(`[easy-join] schedule closed`);
+        if (syncEasyJoinTtl(db)) console.log(`[easy-join] ttl expired → off`);
+      } catch (e) {
+        console.warn('[easy-join] schedule sync failed', e instanceof Error ? e.message : e);
+      }
+      try {
+        void syncDeepLockToSchedules(db).then((dl) => {
+          if (dl.applied) console.log(`[deep-lock] schedule profile class=${dl.classId}`);
+          if (dl.restored) console.log(`[deep-lock] schedule restored baseline`);
+        });
+      } catch (e) {
+        console.warn('[deep-lock] schedule sync failed', e instanceof Error ? e.message : e);
+      }
+      try {
+        const last = getSetting(db, 'sis_roster_last_sync_at');
+        const intervalMin = Number(getSetting(db, 'sis_roster_interval_minutes') ?? 0);
+        const due =
+          intervalMin > 0 &&
+          (!last || Date.now() - Date.parse(last) >= intervalMin * 60_000);
+        if (due) {
+          void syncSisRosterOnce(db).then((r) => {
+            if (r.ok && (r.upserted ?? 0) > 0) {
+              console.log(`[sis] synced upserted=${r.upserted}`);
+            }
+          });
+        }
+      } catch (e) {
+        console.warn('[sis] sync failed', e instanceof Error ? e.message : e);
       }
       const closed = autoCloseQuestions();
       if (closed > 0) {

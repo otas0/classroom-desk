@@ -50,6 +50,58 @@ const DEFAULT_SETTINGS: Record<string, string> = {
   student_easy_join: '0',
   /** classId published by easy join (empty = off even if student_easy_join=1). */
   student_easy_join_class_id: '',
+  /** Optional friendly label for join list, e.g. 高一3班讲台. */
+  classroom_display_name: '',
+  /** When 1: ending deep-lock / switching class clears student_easy_join. */
+  student_easy_join_auto_off: '1',
+  /** ISO time when easy-join was last turned on (TTL countdown). */
+  student_easy_join_opened_at: '',
+  /** Auto-off minutes after open; 0 = disabled. */
+  student_easy_join_ttl_minutes: '0',
+  /** When 1: open/close easy-join from attendance_schedules windows. */
+  student_easy_join_follow_schedule: '0',
+  /** When 1: attendance_schedules deep_lock_profile applies quiz/self-study patches. */
+  deep_lock_follow_schedule: '0',
+  /** JSON map profile name → partial DeepLockState (quiz, self-study, …). */
+  deep_lock_schedule_profiles: JSON.stringify({
+    quiz: {
+      frozen: true,
+      netMode: 'deny',
+      killForeignBrowsers: true,
+      killDistractions: true,
+      focusFreeze: true,
+    },
+    'self-study': {
+      frozen: false,
+      netMode: 'allow',
+      killForeignBrowsers: false,
+      killDistractions: false,
+      focusFreeze: false,
+    },
+  }),
+  /** Hostname IT points at DeskDNS for DHCP clients (resolve probe). */
+  deskdns_probe_hostname: '',
+  /** Physical room id for room-mode join, e.g. 302. */
+  classroom_room_id: '',
+  /** IPv4 to encode in room code / mDNS / beacon when set; empty = auto. */
+  advertise_lan_ip: '',
+  /** Optional SIS CSV URL for roster sync. */
+  sis_roster_url: '',
+  sis_roster_class_id: '',
+  sis_roster_last_sync_at: '',
+  /** JSON snapshot for undo after last non–dry-run SIS apply. */
+  sis_roster_last_apply: '',
+  /** Minutes between SIS pulls; 0 = manual only. */
+  sis_roster_interval_minutes: '0',
+  /** Hint only: IT requires 802.1X on student SSID. */
+  enterprise_8021x_required: '0',
+  /** Bcrypt hash of optional classroom join PIN (empty = off). */
+  student_join_pin_hash: '',
+  /** When 1: unknown deviceId must be teacher-approved before join attach. */
+  student_join_require_approval: '0',
+  /** When 1: roster students poll pull-join to auto-attach without LAN scan. */
+  class_list_pull_enabled: '0',
+  class_list_pull_class_id: '',
   /**
    * BYOD / browser must use /portal; lab-agent (X-Cd-Client: lab-agent) still reads public roster.
    * Setup wizard recommends on; default seeded to 1.
@@ -83,6 +135,7 @@ export function migrate(database?: DatabaseSync): DatabaseSync {
   ensureColumn(conn, 'messages', 'read_at', 'TEXT');
   ensureColumn(conn, 'presence_heartbeats', 'client_version', `TEXT NOT NULL DEFAULT ''`);
   ensureColumn(conn, 'presence_heartbeats', 'client_platform', `TEXT NOT NULL DEFAULT ''`);
+  ensureColumn(conn, 'presence_heartbeats', 'client_arch', `TEXT NOT NULL DEFAULT ''`);
   /** Stable per-machine id from student desktop (localStorage); used for seat-scoped input lock. */
   ensureColumn(conn, 'presence_heartbeats', 'client_id', `TEXT NOT NULL DEFAULT ''`);
   /** 1 when student reports Assigned Access / MDM hardening signal (see getKioskHardening). */
@@ -104,6 +157,9 @@ export function migrate(database?: DatabaseSync): DatabaseSync {
     student_id TEXT REFERENCES users(id) ON DELETE SET NULL,
     UNIQUE(class_id, row_index, col_index)
   )`);
+  ensureColumn(conn, 'seat_map', 'hostname', `TEXT NOT NULL DEFAULT ''`);
+  ensureColumn(conn, 'attendance_schedules', 'deep_lock_profile', `TEXT NOT NULL DEFAULT ''`);
+  ensureColumn(conn, 'presence_heartbeats', 'net_dns_servers', `TEXT NOT NULL DEFAULT ''`);
   conn.exec(`CREATE INDEX IF NOT EXISTS idx_seat_map_class ON seat_map(class_id)`);
   // One student → at most one seat per class (NULLs allowed multiple times).
   conn.exec(
@@ -176,6 +232,19 @@ export function migrate(database?: DatabaseSync): DatabaseSync {
     reason TEXT NOT NULL DEFAULT 'soft_deleted',
     created_at TEXT NOT NULL
   )`);
+  conn.exec(`CREATE TABLE IF NOT EXISTS join_device_approvals (
+    id TEXT PRIMARY KEY,
+    device_id TEXT NOT NULL UNIQUE,
+    hostname TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL CHECK (status IN ('pending', 'approved', 'denied')) DEFAULT 'pending',
+    client_ip TEXT,
+    created_at TEXT NOT NULL,
+    decided_at TEXT,
+    decided_by TEXT
+  )`);
+  conn.exec(
+    `CREATE INDEX IF NOT EXISTS idx_join_device_approvals_status ON join_device_approvals(status, created_at)`,
+  );
   ensureAssistantRoleAllowed(conn);
   seedSettings(conn);
   backfillAssistantPasswordOk(conn);

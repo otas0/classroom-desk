@@ -5,10 +5,10 @@ import {
   ATTENDANCE_NOTICE,
   RECYCLE_RETENTION_DAYS,
   RECYCLE_URGENT_DAYS,
+  encodeRoomCode,
 } from '@classroom-desk/shared';
 import { DEFAULT_UI_LOCALE, isUiLocale, normalizeUiLocale } from '@classroom-desk/i18n';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { getDataDir, getDbPath, openDb } from '../db/client.js';
 import { getSetting } from '../db/migrate.js';
@@ -56,8 +56,30 @@ import {
 } from '../services/restoreConfirm.js';
 import { notifyRestoreConfirm } from '../services/notifyEmail.js';
 import { pruneOldSetupExes } from './upgrades.js';
+import { readSisRosterLastApplySnapshot, undoSisRosterLastApply } from '../services/sisRosterSync.js';
 import { getExtraWeakPasswords, setExtraWeakPasswords } from '../services/weakPasswords.js';
 import { nowIso } from '../utils/id.js';
+import {
+  attemptClassroomJoinAttach,
+  buildClassroomJoinPayload,
+  clientIpFromReq,
+  decideJoinDevice,
+  getJoinFailRateLimit,
+  joinPinRequired,
+  joinRequireDeviceApproval,
+  listPendingJoinDevices,
+  countRecentJoinRateLimits,
+  resolvePullJoinForStudent,
+  setJoinPin,
+  setJoinRequireApproval,
+  setPullJoin,
+} from '../services/joinAuth.js';
+import {
+  listDetectedLanIpv4s,
+  listLanIpv4Interfaces,
+  resolveAdvertiseLanIp,
+} from '../services/lanNetwork.js';
+import { bumpClassroomMdnsAnnounce } from '../services/classroomMdns.js';
 
 export const settingsRouter = Router();
 
@@ -65,57 +87,110 @@ export const settingsRouter = Router();
  * Foolproof batch join (no auth): students on the LAN discover the teacher PC
  * and pull apiBase + classId in one click. Teacher must enable + pick a class.
  */
+settingsRouter.get(
+  '/api/v1/network/interfaces',
+  requireAuth,
+  requireRoles('teacher', 'admin', 'assistant'),
+  (_req, res) => {
+    const db = openDb();
+    const interfaces = listLanIpv4Interfaces();
+    const advertiseLanIp = resolveAdvertiseLanIp(db) || null;
+    res.json({
+      interfaces,
+      detectedLanIps: listDetectedLanIpv4s(),
+      advertiseLanIp,
+      roomCode: advertiseLanIp ? encodeRoomCode(advertiseLanIp) : null,
+    });
+  },
+);
+
 settingsRouter.get('/api/v1/classroom/join', (req, res) => {
   const db = openDb();
-  const enabled = (getSetting(db, 'student_easy_join') ?? '0') === '1';
-  const classId = String(getSetting(db, 'student_easy_join_class_id') ?? '').trim();
-  let className = '';
-  if (classId) {
-    const row = db
-      .prepare(`SELECT name FROM classes WHERE id = ?`)
-      .get(classId) as { name?: string } | undefined;
-    className = String(row?.name ?? '').trim();
-  }
-  const storedBase = String(getSetting(db, 'classroom_api_base') ?? '')
-    .trim()
-    .replace(/\/$/, '');
-  const proto = String(req.headers['x-forwarded-proto'] ?? req.protocol ?? 'http').split(',')[0].trim();
-  const host = String(req.headers['x-forwarded-host'] ?? req.get('host') ?? '')
-    .split(',')[0]
-    .trim();
-  const requestBase =
-    host && !/127\.0\.0\.1|localhost/i.test(host) ? `${proto}://${host}`.replace(/\/$/, '') : '';
-  const apiBase = storedBase && !/127\.0\.0\.1|localhost/i.test(storedBase) ? storedBase : requestBase;
-  const hostName = os.hostname();
-  let lanIp = '';
-  try {
-    if (apiBase) lanIp = new URL(apiBase).hostname;
-  } catch {
-    lanIp = '';
-  }
-  if (!enabled || !classId || !apiBase) {
-    res.json({
+  const clientIp = clientIpFromReq(req);
+  const rl = getJoinFailRateLimit(clientIp);
+  if (rl.limited) {
+    res.setHeader('Retry-After', String(rl.retryAfterSec));
+    res.status(429).json({
       ok: false,
-      enabled: false,
-      reason: !enabled ? 'disabled' : !classId ? 'no_class' : 'no_api_base',
-      apiBase: null,
-      classId: null,
-      className: null,
-      hostName,
-      lanIp: lanIp || null,
+      error: 'join_rate_limited',
+      message: `尝试过多，请 ${rl.retryAfterSec} 秒后再试`,
+      retryAfterSec: rl.retryAfterSec,
     });
+    return;
+  }
+  res.json(buildClassroomJoinPayload(db, req));
+});
+
+settingsRouter.post('/api/v1/classroom/join/attach', async (req, res) => {
+  const db = openDb();
+  const result = await attemptClassroomJoinAttach(db, req, {
+    pin: req.body?.pin,
+    deviceId: req.body?.deviceId,
+    hostname: req.body?.hostname,
+  });
+  if (!result.ok) {
+    if (result.retryAfterSec) res.setHeader('Retry-After', String(result.retryAfterSec));
+    res.status(result.status).json({
+      ok: false,
+      error: result.error,
+      message: result.message,
+      retryAfterSec: result.retryAfterSec,
+      remainingAttempts: result.remainingAttempts,
+    });
+    return;
+  }
+  res.json({ ...result.payload, attachOk: true });
+});
+
+settingsRouter.get(
+  '/api/v1/classroom/join/pending-devices',
+  requireAuth,
+  requireRoles('teacher', 'admin', 'assistant'),
+  (_req, res) => {
+    res.json({ items: listPendingJoinDevices(openDb()) });
+  },
+);
+
+settingsRouter.post(
+  '/api/v1/classroom/join/devices/:id/decision',
+  requireAuth,
+  requireRoles('teacher', 'admin'),
+  (req: AuthedRequest, res) => {
+    const decision = String(req.body?.decision ?? '').trim();
+    if (decision !== 'approved' && decision !== 'denied') {
+      res.status(400).json({ error: 'invalid_decision' });
+      return;
+    }
+    const ok = decideJoinDevice(openDb(), String(req.params.id), decision, {
+      actorUserId: req.user?.id,
+      actorRole: req.user?.role,
+      clientIp: clientIpFromReq(req),
+    });
+    if (!ok) {
+      res.status(404).json({ error: 'pending_not_found' });
+      return;
+    }
+    res.json({ ok: true, decision });
+  },
+);
+
+/** Logged-in roster students: teacher-enabled pull-join target (no LAN scan). */
+settingsRouter.get('/api/v1/session/pull-join', requireAuth, (req: AuthedRequest, res) => {
+  if (req.user?.role !== 'student') {
+    res.json({ ok: false, reason: 'not_student' });
+    return;
+  }
+  const db = openDb();
+  const r = resolvePullJoinForStudent(db, req.user.id);
+  if (!r.ok) {
+    res.json({ ok: false, reason: r.reason ?? 'unavailable' });
     return;
   }
   res.json({
     ok: true,
-    enabled: true,
-    apiBase,
-    classId,
-    className: className || null,
-    hostName,
-    lanIp: lanIp || null,
-    /** Human label so students can tell teachers apart before confirming. */
-    label: [className || null, hostName, lanIp || null].filter(Boolean).join(' · '),
+    apiBase: r.apiBase,
+    classId: r.classId,
+    className: r.className,
   });
 });
 
@@ -204,10 +279,32 @@ settingsRouter.get('/api/v1/settings', requireAuth, requireRoles('teacher', 'adm
     studentAutoUpdate: (getSetting(db, 'student_auto_update') ?? '1') === '1',
     studentEasyJoin: (getSetting(db, 'student_easy_join') ?? '0') === '1',
     studentEasyJoinClassId: getSetting(db, 'student_easy_join_class_id') ?? '',
+    studentEasyJoinAutoOff: (getSetting(db, 'student_easy_join_auto_off') ?? '1') === '1',
+    studentEasyJoinOpenedAt: getSetting(db, 'student_easy_join_opened_at') ?? '',
+    studentEasyJoinTtlMinutes: Number(getSetting(db, 'student_easy_join_ttl_minutes') ?? 0),
+    studentEasyJoinFollowSchedule:
+      (getSetting(db, 'student_easy_join_follow_schedule') ?? '0') === '1',
+    deepLockFollowSchedule: (getSetting(db, 'deep_lock_follow_schedule') ?? '0') === '1',
+    deskdnsProbeHostname: getSetting(db, 'deskdns_probe_hostname') ?? '',
+    studentJoinPinConfigured: joinPinRequired(db),
+    studentJoinRequireApproval: joinRequireDeviceApproval(db),
+    joinPendingDeviceCount: listPendingJoinDevices(db).length,
+    joinRateLimitEventsLastHour: countRecentJoinRateLimits(db),
+    classListPullEnabled: (getSetting(db, 'class_list_pull_enabled') ?? '0') === '1',
+    classListPullClassId: getSetting(db, 'class_list_pull_class_id') ?? '',
+    classroomDisplayName: getSetting(db, 'classroom_display_name') ?? '',
+    classroomRoomId: getSetting(db, 'classroom_room_id') ?? '',
+    sisRosterUrl: getSetting(db, 'sis_roster_url') ?? '',
+    sisRosterClassId: getSetting(db, 'sis_roster_class_id') ?? '',
+    sisRosterLastSyncAt: getSetting(db, 'sis_roster_last_sync_at') ?? '',
+    sisRosterIntervalMinutes: Number(getSetting(db, 'sis_roster_interval_minutes') ?? 0),
+    sisRosterLastApplyAvailable: readSisRosterLastApplySnapshot(db) != null,
+    enterprise8021xRequired: (getSetting(db, 'enterprise_8021x_required') ?? '0') === '1',
     restoreConfirmEmail: getSetting(db, 'restore_confirm_email') ?? '',
     hasBackupEncryptPassphrase: Boolean((getSetting(db, 'backup_encrypt_passphrase') ?? '').trim()),
     projectionHighContrast: (getSetting(db, 'projection_high_contrast') ?? '0') === '1',
     classroomApiBase: getSetting(db, 'classroom_api_base') ?? '',
+    advertiseLanIp: getSetting(db, 'advertise_lan_ip') ?? '',
     uiLocale: normalizeUiLocale(getSetting(db, 'ui_locale') ?? DEFAULT_UI_LOCALE),
     noticeText: getSetting(db, 'notice_text') ?? APP_NOTICE,
     attendanceNoticeText: getSetting(db, 'attendance_notice_text') ?? ATTENDANCE_NOTICE,
@@ -234,6 +331,8 @@ settingsRouter.get('/api/v1/settings', requireAuth, requireRoles('teacher', 'adm
 
 settingsRouter.patch('/api/v1/settings', requireAuth, requireRoles('teacher', 'admin'), async (req: AuthedRequest, res) => {
   const db = openDb();
+  let sisSync: unknown = null;
+  let sisUndo: unknown = null;
   if (req.body?.pointRequestTtlMinutes != null) {
     const ttl = Number(req.body.pointRequestTtlMinutes);
     if (
@@ -394,6 +493,91 @@ settingsRouter.patch('/api/v1/settings', requireAuth, requireRoles('teacher', 'a
     });
   }
 
+  if (req.body?.studentEasyJoinAutoOff != null) {
+    const on =
+      req.body.studentEasyJoinAutoOff === true ||
+      req.body.studentEasyJoinAutoOff === 1 ||
+      req.body.studentEasyJoinAutoOff === '1';
+    db.prepare(
+      `INSERT INTO settings (key, value) VALUES ('student_easy_join_auto_off', ?)
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+    ).run(on ? '1' : '0');
+    writeAudit({
+      actorUserId: req.user?.id,
+      actorRole: req.user?.role,
+      action: 'settings.student_easy_join_auto_off',
+      detail: { studentEasyJoinAutoOff: on },
+      clientIp: req.ip,
+    });
+  }
+
+  if (req.body?.studentJoinPin !== undefined) {
+    try {
+      await setJoinPin(db, req.body.studentJoinPin);
+      writeAudit({
+        actorUserId: req.user?.id,
+        actorRole: req.user?.role,
+        action: 'settings.student_join_pin',
+        detail: {
+          configured: Boolean(String(req.body.studentJoinPin ?? '').trim()),
+        },
+        clientIp: req.ip,
+      });
+    } catch {
+      res.status(400).json({ error: 'invalid_join_pin', message: '连班 PIN 须为 4–32 位' });
+      return;
+    }
+  }
+
+  if (req.body?.studentJoinRequireApproval != null) {
+    const on =
+      req.body.studentJoinRequireApproval === true ||
+      req.body.studentJoinRequireApproval === 1 ||
+      req.body.studentJoinRequireApproval === '1';
+    setJoinRequireApproval(db, on);
+    writeAudit({
+      actorUserId: req.user?.id,
+      actorRole: req.user?.role,
+      action: 'settings.student_join_require_approval',
+      detail: { studentJoinRequireApproval: on },
+      clientIp: req.ip,
+    });
+  }
+
+  if (req.body?.classListPullEnabled != null || req.body?.classListPullClassId != null) {
+    const on =
+      req.body.classListPullEnabled === undefined
+        ? (getSetting(db, 'class_list_pull_enabled') ?? '0') === '1'
+        : req.body.classListPullEnabled === true ||
+          req.body.classListPullEnabled === 1 ||
+          req.body.classListPullEnabled === '1';
+  const pullClassId =
+      req.body.classListPullClassId !== undefined
+        ? String(req.body.classListPullClassId ?? '').trim()
+        : String(getSetting(db, 'class_list_pull_class_id') ?? '').trim();
+    if (on && !pullClassId) {
+      res.status(400).json({ error: 'pull_class_required', message: '开启名单拉取须指定班级' });
+      return;
+    }
+    if (pullClassId) {
+      const row = db.prepare(`SELECT id FROM classes WHERE id = ?`).get(pullClassId) as
+        | { id?: string }
+        | undefined;
+      if (!row?.id) {
+        res.status(400).json({ error: 'class_not_found', message: '班级不存在' });
+        return;
+      }
+    }
+    setPullJoin(db, on, on ? pullClassId : '');
+    writeAudit({
+      actorUserId: req.user?.id,
+      actorRole: req.user?.role,
+      action: 'settings.class_list_pull',
+      detail: { classListPullEnabled: on, classListPullClassId: on ? pullClassId : null },
+      clientIp: req.ip,
+    });
+  }
+
   if (req.body?.studentEasyJoin != null || req.body?.studentEasyJoinClassId != null) {
     const on =
       req.body.studentEasyJoin === undefined
@@ -429,12 +613,79 @@ settingsRouter.patch('/api/v1/settings', requireAuth, requireRoles('teacher', 'a
       `INSERT INTO settings (key, value) VALUES ('student_easy_join_class_id', ?)
        ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
     ).run(on ? classId : '');
+    db.prepare(
+      `INSERT INTO settings (key, value) VALUES ('student_easy_join_opened_at', ?)
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+    ).run(on ? new Date().toISOString() : '');
     writeAudit({
       actorUserId: req.user?.id,
       actorRole: req.user?.role,
       action: 'settings.student_easy_join',
       detail: { studentEasyJoin: on, classId: on ? classId : null },
       clientIp: req.ip,
+    });
+  }
+
+  function upsertSettingKey(key: string, value: string) {
+    db.prepare(
+      `INSERT INTO settings (key, value) VALUES (?, ?)
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+    ).run(key, value);
+  }
+
+  if (req.body?.studentEasyJoinTtlMinutes != null) {
+    const n = Math.max(0, Math.min(480, Number(req.body.studentEasyJoinTtlMinutes) || 0));
+    upsertSettingKey('student_easy_join_ttl_minutes', String(n));
+  }
+  if (req.body?.studentEasyJoinFollowSchedule != null) {
+    const on =
+      req.body.studentEasyJoinFollowSchedule === true ||
+      req.body.studentEasyJoinFollowSchedule === 1 ||
+      req.body.studentEasyJoinFollowSchedule === '1';
+    upsertSettingKey('student_easy_join_follow_schedule', on ? '1' : '0');
+  }
+  if (req.body?.deepLockFollowSchedule != null) {
+    const on =
+      req.body.deepLockFollowSchedule === true ||
+      req.body.deepLockFollowSchedule === 1 ||
+      req.body.deepLockFollowSchedule === '1';
+    upsertSettingKey('deep_lock_follow_schedule', on ? '1' : '0');
+  }
+  if (req.body?.deskdnsProbeHostname !== undefined) {
+    upsertSettingKey('deskdns_probe_hostname', String(req.body.deskdnsProbeHostname ?? '').trim().slice(0, 253));
+  }
+  if (req.body?.classroomRoomId !== undefined) {
+    upsertSettingKey('classroom_room_id', String(req.body.classroomRoomId ?? '').trim().slice(0, 32));
+  }
+  if (req.body?.sisRosterUrl !== undefined) {
+    upsertSettingKey('sis_roster_url', String(req.body.sisRosterUrl ?? '').trim().slice(0, 500));
+  }
+  if (req.body?.sisRosterClassId !== undefined) {
+    upsertSettingKey('sis_roster_class_id', String(req.body.sisRosterClassId ?? '').trim());
+  }
+  if (req.body?.sisRosterIntervalMinutes != null) {
+    const n = Math.max(0, Math.min(24 * 60, Number(req.body.sisRosterIntervalMinutes) || 0));
+    upsertSettingKey('sis_roster_interval_minutes', String(n));
+  }
+  if (req.body?.enterprise8021xRequired != null) {
+    const on =
+      req.body.enterprise8021xRequired === true ||
+      req.body.enterprise8021xRequired === 1 ||
+      req.body.enterprise8021xRequired === '1';
+    upsertSettingKey('enterprise_8021x_required', on ? '1' : '0');
+  }
+  if (req.body?.sisRosterSyncNow === true || req.body?.sisRosterSyncNow === 1) {
+    const dryRun =
+      req.body?.sisRosterDryRun === true ||
+      req.body?.sisRosterDryRun === 1 ||
+      req.body?.sisRosterDryRun === '1';
+    const { syncSisRosterOnce } = await import('../services/sisRosterSync.js');
+    sisSync = await syncSisRosterOnce(db, { dryRun });
+  }
+  if (req.body?.sisRosterUndoLast === true || req.body?.sisRosterUndoLast === 1) {
+    sisUndo = undoSisRosterLastApply(db, {
+      actorUserId: req.user?.id,
+      actorRole: req.user?.role,
     });
   }
 
@@ -483,6 +734,33 @@ settingsRouter.patch('/api/v1/settings', requireAuth, requireRoles('teacher', 'a
     ).run(req.body.projectionHighContrast ? '1' : '0');
   }
 
+  if (req.body?.advertiseLanIp !== undefined) {
+    const ip = String(req.body.advertiseLanIp ?? '').trim();
+    if (ip && !/^\d{1,3}(\.\d{1,3}){3}$/.test(ip)) {
+      res.status(400).json({ error: 'invalid_advertise_lan_ip', message: '广播 IPv4 格式不正确' });
+      return;
+    }
+    if (ip) {
+      const detected = listDetectedLanIpv4s();
+      if (detected.length && !detected.includes(ip)) {
+        res.status(400).json({
+          error: 'advertise_ip_not_local',
+          message: '所选 IP 未出现在本机网卡列表中',
+        });
+        return;
+      }
+    }
+    upsertSettingKey('advertise_lan_ip', ip);
+    bumpClassroomMdnsAnnounce();
+    writeAudit({
+      actorUserId: req.user?.id,
+      actorRole: req.user?.role,
+      action: 'settings.advertise_lan_ip',
+      detail: { advertiseLanIp: ip || null },
+      clientIp: req.ip,
+    });
+  }
+
   if (req.body?.classroomApiBase != null) {
     const base = String(req.body.classroomApiBase).trim().replace(/\/$/, '');
     if (base && !/^https?:\/\/[^/\s]+/i.test(base)) {
@@ -500,6 +778,21 @@ settingsRouter.patch('/api/v1/settings', requireAuth, requireRoles('teacher', 'a
       `INSERT INTO settings (key, value) VALUES ('classroom_api_base', ?)
        ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
     ).run(base);
+  }
+
+  if (req.body?.classroomDisplayName !== undefined) {
+    const name = String(req.body.classroomDisplayName ?? '').trim().slice(0, 64);
+    db.prepare(
+      `INSERT INTO settings (key, value) VALUES ('classroom_display_name', ?)
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+    ).run(name);
+    writeAudit({
+      actorUserId: req.user?.id,
+      actorRole: req.user?.role,
+      action: 'settings.classroom_display_name',
+      detail: { classroomDisplayName: name },
+      clientIp: req.ip,
+    });
   }
 
   if (req.body?.uiLocale != null) {
@@ -800,6 +1093,8 @@ settingsRouter.patch('/api/v1/settings', requireAuth, requireRoles('teacher', 'a
     ...getClientExitLockState(db),
     ...(upgradesPruned ? { pruned: upgradesPruned } : {}),
     ...(generatedExitUnlockCode ? { generatedExitUnlockCode } : {}),
+    ...(sisSync ? { sisSync } : {}),
+    ...(sisUndo ? { sisUndo } : {}),
   });
 });
 

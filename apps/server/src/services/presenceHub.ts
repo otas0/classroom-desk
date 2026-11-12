@@ -9,6 +9,7 @@ export type PresenceClientRow = {
   lastSeenAt: string;
   clientVersion: string;
   clientPlatform: string;
+  clientArch: string;
   /** Stable machine id from student desktop (for seat-scoped input lock). */
   clientId: string;
   /** Student-reported Assigned Access / MDM signal (0/1). */
@@ -44,6 +45,7 @@ export function listPresenceClients(classId: string, sinceMs = ONLINE_MS): Prese
     .prepare(
       `SELECT p.student_id AS studentId, p.class_id AS classId, p.last_seen_at AS lastSeenAt,
               p.client_version AS clientVersion, p.client_platform AS clientPlatform,
+              COALESCE(p.client_arch, '') AS clientArch,
               COALESCE(p.client_id, '') AS clientId,
               COALESCE(p.hardened, 0) AS hardenedInt,
               COALESCE(p.net_ssid, '') AS netSsid,

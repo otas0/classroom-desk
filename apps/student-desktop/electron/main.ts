@@ -1,6 +1,7 @@
 import { app, BrowserWindow, globalShortcut, ipcMain, Menu, screen, session } from 'electron';
 import bcrypt from 'bcryptjs';
 import { execFile, spawn } from 'node:child_process';
+import dns from 'node:dns';
 import fs from 'node:fs';
 import http from 'node:http';
 import https from 'node:https';
@@ -422,11 +423,12 @@ ipcMain.handle('config:find-removable', () => {
   return { ok: true, hits };
 });
 
-/** Quick LAN probe: gateway + .1/.254 on same /24 for teacher /health. */
-ipcMain.handle('config:discover-lan', async () => {
-  const hint = await (async () => {
+/** Scan same /24 for :8787 (TCP first), then /health + /classroom/join. */
+ipcMain.handle('config:discover-lan', async (event) => {
+  const net = await import('node:net');
+  const dgram = await import('node:dgram');
+  const hint = (() => {
     try {
-      // reuse net hint logic inline (gateway/ipv4)
       const nets = os.networkInterfaces();
       let ipv4 = '';
       for (const list of Object.values(nets)) {
@@ -439,37 +441,51 @@ ipcMain.handle('config:discover-lan', async () => {
         if (ipv4) break;
       }
       const parts = ipv4.split('.').map(Number);
-      const gateway =
-        parts.length === 4 ? `${parts[0]}.${parts[1]}.${parts[2]}.1` : '';
+      const gateway = parts.length === 4 ? `${parts[0]}.${parts[1]}.${parts[2]}.1` : '';
       return { ipv4, gateway };
     } catch {
       return { ipv4: '', gateway: '' };
     }
   })();
 
-  const candidates = new Set<string>();
-  if (hint.gateway) candidates.add(hint.gateway);
+  const prefixes: string[] = [];
   if (hint.ipv4) {
     const p = hint.ipv4.split('.');
-    if (p.length === 4) {
-      candidates.add(`${p[0]}.${p[1]}.${p[2]}.1`);
-      candidates.add(`${p[0]}.${p[1]}.${p[2]}.254`);
-    }
+    if (p.length === 4) prefixes.push(`${p[0]}.${p[1]}.${p[2]}`);
   }
-  // UTM / common lab gateways
-  candidates.add('192.168.64.1');
-  candidates.add('192.168.1.1');
+  // Always include common lab/UTM subnets so discovery works even if iface pick is odd.
+  for (const pref of ['192.168.64', '192.168.1', '192.168.0', '10.0.0']) {
+    if (!prefixes.includes(pref)) prefixes.push(pref);
+  }
 
-  const found: Array<{
-    apiBase: string;
-    version?: string;
-    classId?: string;
-    className?: string;
-    hostName?: string;
-    lanIp?: string;
-    label?: string;
-    easyJoin?: boolean;
-  }> = [];
+  const candidates = new Set<string>();
+  if (hint.gateway) candidates.add(hint.gateway);
+  for (const pref of prefixes.slice(0, 2)) {
+    // Cap: two /24s max to keep find under ~few seconds with concurrency.
+    for (let i = 1; i <= 254; i++) candidates.add(`${pref}.${i}`);
+  }
+
+  function tcpOpen(host: string, port: number, timeoutMs: number): Promise<boolean> {
+    return new Promise((resolve) => {
+      const socket = new net.Socket();
+      let done = false;
+      const finish = (ok: boolean) => {
+        if (done) return;
+        done = true;
+        try {
+          socket.destroy();
+        } catch {
+          /* ignore */
+        }
+        resolve(ok);
+      };
+      socket.setTimeout(timeoutMs);
+      socket.once('connect', () => finish(true));
+      socket.once('timeout', () => finish(false));
+      socket.once('error', () => finish(false));
+      socket.connect(port, host);
+    });
+  }
 
   function getJson(url: string, timeoutMs: number): Promise<unknown | null> {
     return new Promise((resolve) => {
@@ -495,60 +511,230 @@ ipcMain.handle('config:discover-lan', async () => {
     });
   }
 
-  await Promise.all(
-    [...candidates].map(async (host) => {
-      const base = `http://${host}:8787`;
-      const health = (await getJson(`${base}/health`, 900)) as {
-        ok?: boolean;
-        version?: string;
-        hostName?: string;
-        lanIps?: string[];
-      } | null;
-      if (!health || !(health.ok === true || health.version)) return;
-      const join = (await getJson(`${base}/api/v1/classroom/join`, 900)) as {
-        ok?: boolean;
-        enabled?: boolean;
-        apiBase?: string;
-        classId?: string;
-        className?: string;
-        hostName?: string;
-        lanIp?: string;
-        label?: string;
-      } | null;
-      const hostName = String(join?.hostName ?? health.hostName ?? '').trim() || undefined;
-      const lanIp =
-        String(join?.lanIp ?? '').trim() ||
-        (Array.isArray(health.lanIps) && health.lanIps[0] ? String(health.lanIps[0]) : host);
-      const className = join?.className ? String(join.className) : undefined;
-      const classId = join?.classId ? String(join.classId) : undefined;
-      const easyJoin = Boolean(join?.ok && join?.enabled && classId);
-      const label =
-        String(join?.label ?? '').trim() ||
-        [className, hostName, lanIp].filter(Boolean).join(' · ') ||
-        base;
-      found.push({
-        apiBase: join?.apiBase && !/127\.0\.0\.1|localhost/i.test(join.apiBase) ? String(join.apiBase).replace(/\/$/, '') : base,
-        version: health.version,
-        easyJoin,
-        classId,
-        className,
-        hostName,
-        lanIp,
-        label,
+  /** Chunked pool with optional pause between waves to reduce Wi-Fi broadcast storms on large /24 scans. */
+  async function mapPoolWaves<T, R>(
+    items: T[],
+    concurrency: number,
+    waveDelayMs: number,
+    fn: (item: T, index: number) => Promise<R>,
+    onChunkDone?: (done: number, total: number) => void,
+  ): Promise<R[]> {
+    const out: R[] = new Array(items.length);
+    const limit = Math.max(1, Math.min(concurrency, 64));
+    for (let start = 0; start < items.length; start += limit) {
+      if (start > 0 && waveDelayMs > 0) {
+        await new Promise((r) => setTimeout(r, waveDelayMs));
+      }
+      const chunk = items.slice(start, start + limit);
+      await Promise.all(
+        chunk.map(async (item, j) => {
+          const idx = start + j;
+          out[idx] = await fn(item, idx);
+        }),
+      );
+      onChunkDone?.(Math.min(start + limit, items.length), items.length);
+    }
+    return out;
+  }
+
+  // mDNS browse `_classroomdesk._tcp.local` (best-effort; may fail without multicast).
+  try {
+    const multicastDns = (await import('multicast-dns')).default;
+    const mdnsHosts = await new Promise<string[]>((resolve) => {
+      const found = new Set<string>();
+      let mdns: ReturnType<typeof multicastDns> | null = null;
+      const finish = () => {
+        try {
+          mdns?.destroy();
+        } catch {
+          /* ignore */
+        }
+        resolve([...found]);
+      };
+      try {
+        mdns = multicastDns();
+        mdns.on('response', (res: { answers?: Array<{ type?: string; data?: unknown }> }) => {
+          for (const a of res.answers ?? []) {
+            if (a.type === 'A' && typeof a.data === 'string') found.add(a.data);
+            if (a.type === 'TXT' && Array.isArray(a.data)) {
+              for (const line of a.data) {
+                const s = String(line);
+                const m = s.match(/^apiBase=https?:\/\/([\d.]+)/i);
+                if (m?.[1]) found.add(m[1]);
+              }
+            }
+          }
+        });
+        mdns.query({ questions: [{ name: '_classroomdesk._tcp.local', type: 'PTR' }] });
+        setTimeout(finish, 800);
+      } catch {
+        finish();
+      }
+    });
+    for (const h of mdnsHosts) candidates.add(h);
+  } catch {
+    /* multicast-dns optional on student pack — still have UDP + /24 */
+  }
+
+  // UDP beacon (teacher broadcasts to 8799) — same L2, not AP-isolation.
+  const beaconHosts = await new Promise<string[]>((resolve) => {
+    const found = new Set<string>();
+    let sock: ReturnType<typeof dgram.createSocket> | null = null;
+    const finish = () => {
+      try {
+        sock?.close();
+      } catch {
+        /* ignore */
+      }
+      resolve([...found]);
+    };
+    try {
+      sock = dgram.createSocket({ type: 'udp4', reuseAddr: true });
+      sock.on('message', (msg) => {
+        try {
+          const j = JSON.parse(String(msg)) as { s?: string; p?: number; lanIps?: string[] };
+          if (j.s !== 'classroom-desk') return;
+          for (const ip of j.lanIps ?? []) {
+            if (/^\d+\.\d+\.\d+\.\d+$/.test(ip)) found.add(ip);
+          }
+        } catch {
+          /* ignore */
+        }
       });
-    }),
-  );
-  // Prefer hosts with easy-join enabled.
-  found.sort((a, b) => Number(b.easyJoin) - Number(a.easyJoin));
-  return { ok: true, found, hint };
+      sock.on('error', () => finish());
+      sock.bind(8799, () => {
+        setTimeout(finish, 900);
+      });
+    } catch {
+      finish();
+    }
+  });
+  for (const h of beaconHosts) candidates.add(h);
+
+  const hostList = [...candidates];
+  const total = hostList.length;
+  let scanned = 0;
+  const emitProgress = (phase: string) => {
+    try {
+      event.sender.send('config:discover-progress', { done: scanned, total, phase });
+    } catch {
+      /* window gone */
+    }
+  };
+  emitProgress('tcp');
+  const tcpConcurrency = hostList.length > 200 ? 16 : hostList.length > 128 ? 24 : 32;
+  const waveDelayMs = hostList.length > 128 ? 45 : hostList.length > 64 ? 25 : 0;
+  const openHosts = (
+    await mapPoolWaves(
+      hostList,
+      tcpConcurrency,
+      waveDelayMs,
+      async (host) => {
+        const ok = await tcpOpen(host, 8787, 280);
+        return ok ? host : null;
+      },
+      (done) => {
+        scanned = done;
+        emitProgress('tcp');
+      },
+    )
+  ).filter((h): h is string => Boolean(h));
+
+  const found: Array<{
+    apiBase: string;
+    version?: string;
+    classId?: string;
+    className?: string;
+    hostName?: string;
+    displayName?: string;
+    lanIp?: string;
+    label?: string;
+    easyJoin?: boolean;
+  }> = [];
+
+  const probeConcurrency = openHosts.length > 32 ? 12 : 16;
+  await mapPoolWaves(openHosts, probeConcurrency, openHosts.length > 24 ? 30 : 0, async (host) => {
+    const base = `http://${host}:8787`;
+    const health = (await getJson(`${base}/health`, 700)) as {
+      ok?: boolean;
+      version?: string;
+      hostName?: string;
+      lanIps?: string[];
+      service?: string;
+    } | null;
+    if (!health || health.service !== 'classroom-desk-server') {
+      if (!health || !(health.ok === true || health.version)) return;
+    }
+    const join = (await getJson(`${base}/api/v1/classroom/join`, 700)) as {
+      ok?: boolean;
+      enabled?: boolean;
+      apiBase?: string;
+      classId?: string;
+      className?: string;
+      hostName?: string;
+      displayName?: string;
+      lanIp?: string;
+      label?: string;
+    } | null;
+    const hostName = String(join?.hostName ?? health.hostName ?? '').trim() || undefined;
+    const displayName = String(join?.displayName ?? '').trim() || undefined;
+    const lanIp =
+      String(join?.lanIp ?? '').trim() ||
+      (Array.isArray(health.lanIps) && health.lanIps[0] ? String(health.lanIps[0]) : host);
+    const className = join?.className ? String(join.className) : undefined;
+    const classId = join?.classId ? String(join.classId) : undefined;
+    const easyJoin = Boolean(
+      join?.ok && join?.enabled && (classId || (join as { easyJoinOpen?: boolean }).easyJoinOpen),
+    );
+    const label =
+      String(join?.label ?? '').trim() ||
+      [displayName, className, hostName, lanIp].filter(Boolean).join(' · ') ||
+      base;
+    found.push({
+      apiBase:
+        join?.apiBase && !/127\.0\.0\.1|localhost/i.test(join.apiBase)
+          ? String(join.apiBase).replace(/\/$/, '')
+          : base,
+      version: health.version,
+      easyJoin,
+      classId,
+      className,
+      hostName,
+      displayName,
+      lanIp,
+      label,
+    });
+  });
+
+  found.sort((a, b) => {
+    if (Number(b.easyJoin) !== Number(a.easyJoin)) return Number(b.easyJoin) - Number(a.easyJoin);
+    const an = (a.displayName || a.className || a.hostName || a.apiBase).toLowerCase();
+    const bn = (b.displayName || b.className || b.hostName || b.apiBase).toLowerCase();
+    return an.localeCompare(bn);
+  });
+  return {
+    ok: true,
+    found,
+    hint,
+    scannedHosts: hostList.length,
+    openPorts: openHosts.length,
+  };
 });
 
-ipcMain.handle('config:set', (_event, patch: { apiBase?: string; classId?: string }) => {
-  return saveConfig({
-    apiBase: patch?.apiBase != null ? String(patch.apiBase) : undefined,
-    classId: patch?.classId != null ? String(patch.classId) : undefined,
-  });
-});
+ipcMain.handle(
+  'config:set',
+  (
+    _event,
+    patch: { apiBase?: string; classId?: string; displayName?: string; className?: string },
+  ) => {
+    return saveConfig({
+      apiBase: patch?.apiBase != null ? String(patch.apiBase) : undefined,
+      classId: patch?.classId != null ? String(patch.classId) : undefined,
+      displayName: patch?.displayName != null ? String(patch.displayName) : undefined,
+      className: patch?.className != null ? String(patch.className) : undefined,
+    });
+  },
+);
 
 /**
  * Soft Assigned Access / kiosk signal (ethical, visible tip only).
@@ -916,6 +1102,86 @@ ipcMain.handle(
  * Does not hide itself; does not touch OS security tools. Requires school-owned agent.
  */
 /** Best-effort SSID + primary IPv4 for school-defined network zone matching. */
+ipcMain.handle('sys:get-arch', () => {
+  // Electron process.arch: x64 | arm64 | ia32 …
+  const a = String(process.arch || '').toLowerCase();
+  if (a === 'arm64' || a === 'aarch64') return 'arm64';
+  if (a === 'x64' || a === 'amd64' || a === 'x86_64') return 'x64';
+  return a || 'unknown';
+});
+
+ipcMain.handle('sys:get-hostname', () => os.hostname());
+
+let dnsServersCache: { at: number; servers: string[] } | null = null;
+const DNS_SERVERS_CACHE_MS = 60_000;
+
+function normalizeDnsList(raw: string[]): string[] {
+  const out: string[] = [];
+  for (const item of raw) {
+    const s = String(item ?? '').trim();
+    if (!s) continue;
+    if (out.includes(s)) continue;
+    out.push(s);
+  }
+  return out;
+}
+
+async function resolveDnsServersBestEffort(): Promise<string[]> {
+  const fromNode = normalizeDnsList(dns.getServers());
+  if (fromNode.length) return fromNode;
+
+  if (process.platform === 'win32') {
+    try {
+      const { stdout } = await execFileAsync(
+        'powershell',
+        [
+          '-NoProfile',
+          '-NonInteractive',
+          '-Command',
+          `(Get-DnsClientServerAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue | ` +
+            `Select-Object -ExpandProperty ServerAddresses -Unique) -join ','`,
+        ],
+        { windowsHide: true, timeout: 5000 },
+      );
+      const split = stdout
+        .trim()
+        .split(/[,;\s]+/)
+        .map((x) => x.trim())
+        .filter(Boolean);
+      const ps = normalizeDnsList(split);
+      if (ps.length) return ps;
+    } catch {
+      /* ignore */
+    }
+  }
+
+  try {
+    const hints: string[] = [];
+    const ifaces = os.networkInterfaces();
+    for (const rows of Object.values(ifaces)) {
+      for (const row of rows ?? []) {
+        if (row.family === 'IPv4' && !row.internal && row.address) {
+          const parts = row.address.split('.');
+          if (parts.length === 4) hints.push(`${parts[0]}.${parts[1]}.${parts[2]}.1`);
+        }
+      }
+    }
+    return normalizeDnsList(hints);
+  } catch {
+    return [];
+  }
+}
+
+ipcMain.handle('net:get-dns-servers', async () => {
+  const now = Date.now();
+  if (dnsServersCache && now - dnsServersCache.at < DNS_SERVERS_CACHE_MS) {
+    return dnsServersCache.servers;
+  }
+  const servers = await resolveDnsServersBestEffort();
+  dnsServersCache = { at: now, servers };
+  return servers;
+});
+
 ipcMain.handle('net:get-hint', async () => {
   let ssid = '';
   let ipv4 = '';

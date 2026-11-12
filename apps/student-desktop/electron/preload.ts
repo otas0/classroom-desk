@@ -1,6 +1,11 @@
 import { contextBridge, ipcRenderer } from 'electron';
 
-export type AppConfig = { apiBase: string; classId: string };
+export type AppConfig = {
+  apiBase: string;
+  classId: string;
+  displayName?: string;
+  className?: string;
+};
 
 export type ExitLockState = {
   exitAllowed: boolean;
@@ -35,12 +40,16 @@ export type StudentDesktopAPI = {
       classId?: string;
       className?: string;
       hostName?: string;
+      displayName?: string;
       lanIp?: string;
       label?: string;
       easyJoin?: boolean;
     }>;
     hint?: { ipv4: string; gateway: string };
+    scannedHosts?: number;
+    openPorts?: number;
   }>;
+  onDiscoverProgress: (cb: (p: { done: number; total: number; phase?: string }) => void) => () => void;
   getExitLockState: () => Promise<ExitLockState>;
   setExitAllowed: (allowed: boolean) => Promise<ExitLockState>;
   grantExitAndQuit: () => Promise<boolean>;
@@ -61,6 +70,9 @@ export type StudentDesktopAPI = {
     allowHosts?: string[];
   }) => Promise<{ ok: boolean; killed?: string[]; error?: string }>;
   getNetworkHint: () => Promise<{ ssid: string; ipv4: string; gateway: string }>;
+  getDnsServers: () => Promise<string[]>;
+  getClientArch: () => Promise<string>;
+  getClientHostName: () => Promise<string>;
   killApps: (apps: string[]) => Promise<{ ok: boolean; killed?: string[] }>;
   openApp: (app: string) => Promise<{ ok: boolean; error?: string }>;
   setBlockedHosts: (hosts: string[]) => Promise<{ ok: boolean; count?: number }>;
@@ -81,6 +93,11 @@ const api: StudentDesktopAPI = {
   setApiBase: (apiBase) => ipcRenderer.invoke('config:set', { apiBase }),
   findRemovableConfig: () => ipcRenderer.invoke('config:find-removable'),
   discoverLanClassroom: () => ipcRenderer.invoke('config:discover-lan'),
+  onDiscoverProgress: (cb) => {
+    const handler = (_: unknown, p: { done: number; total: number; phase?: string }) => cb(p);
+    ipcRenderer.on('config:discover-progress', handler);
+    return () => ipcRenderer.removeListener('config:discover-progress', handler);
+  },
   getExitLockState: () => ipcRenderer.invoke('lock:get-state'),
   setExitAllowed: (allowed) => ipcRenderer.invoke('lock:set-exit-allowed', allowed),
   grantExitAndQuit: () => ipcRenderer.invoke('lock:grant-exit-and-quit'),
@@ -98,6 +115,9 @@ const api: StudentDesktopAPI = {
     ipcRenderer.invoke('deep-lock:set-exam-url', url, allowHosts),
   enforceDeepLockBrowsers: (opts) => ipcRenderer.invoke('deep-lock:enforce-browsers', opts),
   getNetworkHint: () => ipcRenderer.invoke('net:get-hint'),
+  getDnsServers: () => ipcRenderer.invoke('net:get-dns-servers'),
+  getClientArch: () => ipcRenderer.invoke('sys:get-arch'),
+  getClientHostName: () => ipcRenderer.invoke('sys:get-hostname'),
   killApps: (apps) => ipcRenderer.invoke('device-control:kill-apps', apps),
   openApp: (app) => ipcRenderer.invoke('device-control:open-app', app),
   setBlockedHosts: (hosts) => ipcRenderer.invoke('device-control:set-blocked-hosts', hosts),

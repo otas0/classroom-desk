@@ -45,10 +45,10 @@ jobs:
             sleep 1
           }
           free_8787
-          JWT_SECRET=ci-secret-not-for-prod \
-          ADMIN_PASSWORD=AdminPass123 \
-          TEACHER_PASSWORD=TeacherPass123 \
-          DEFAULT_CLASS_CODE=DEMO01 \
+          export JWT_SECRET=ci-secret-not-for-prod
+          export ADMIN_PASSWORD=AdminPass123
+          export TEACHER_PASSWORD=CiTeacherPass9!
+          export DEFAULT_CLASS_CODE=DEMO01
           npm run start --workspace=@classroom-desk/server &
           ready=
           for i in $(seq 1 40); do
@@ -109,7 +109,7 @@ jobs:
         run: |
           JWT_SECRET=ci-secret-not-for-prod \
           ADMIN_PASSWORD=AdminPass123 \
-          TEACHER_PASSWORD=TeacherPass123 \
+          TEACHER_PASSWORD=CiTeacherPass9! \
           DEFAULT_CLASS_CODE=DEMO01 \
           npm run start --workspace=@classroom-desk/server &
           npm run dev:teacher &
@@ -218,7 +218,7 @@ jobs:
         run: |
           JWT_SECRET=ci-secret-not-for-prod \
           ADMIN_PASSWORD=AdminPass123 \
-          TEACHER_PASSWORD=TeacherPass123 \
+          TEACHER_PASSWORD=CiTeacherPass9! \
           DEFAULT_CLASS_CODE=DEMO01 \
           npm run start --workspace=@classroom-desk/server &
           npm run dev:teacher &
@@ -329,7 +329,7 @@ jobs:
         shell: pwsh
         run: |
           $sw = [System.Diagnostics.Stopwatch]::StartNew()
-          npm run dist:win --workspace=@classroom-desk/student-desktop
+          npm run dist:win:dual --workspace=@classroom-desk/student-desktop
           $sw.Stop()
           Write-Host ("dist_win_seconds={0:N1}" -f $sw.Elapsed.TotalSeconds)
           Write-Host ("electron_cache_hit={0}" -f '${{ steps.electron-cache.outputs.cache-hit }}')
@@ -337,22 +337,44 @@ jobs:
           ### windows-pack timing
           - electron_cache_hit: `${{ steps.electron-cache.outputs.cache-hit }}`
           - dist_win_seconds: $([math]::Round($sw.Elapsed.TotalSeconds,1))
+          - arch: dual (x64 + arm64)
           Compare a MISS run vs next HIT run on the same lockfile to judge cache value.
           "@
       - name: Assert installer artifact path
         shell: pwsh
         run: |
-          $exe = Get-ChildItem -Path 'apps/student-desktop/release' -Filter '*.exe' -ErrorAction SilentlyContinue
+          $exe = Get-ChildItem -Path 'apps/student-desktop/release' -Filter 'ClassroomDesk-Setup-*.exe' -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -notlike '*.sha256' }
           if (-not $exe) {
             Write-Error @"
           windows-pack failed: no .exe under apps/student-desktop/release/
-          Expected: apps/student-desktop/release/ClassroomDesk-Setup-*.exe
+          Expected: ClassroomDesk-Setup-*-x64.exe and *-arm64.exe (+ legacy unsuffixed x64)
           Upload artifact name: classroom-desk-windows-setup
           Check electron-builder logs above (schema/signing/NSIS).
           "@
             exit 1
           }
+          $names = @($exe | ForEach-Object { $_.Name })
+          if (-not ($names | Where-Object { $_ -match '-x64\.exe$' -or $_ -notmatch '-arm64\.exe$' })) {
+            Write-Error "missing x64 installer among: $($names -join ', ')"
+            exit 1
+          }
+          if (-not ($names | Where-Object { $_ -match '-arm64\.exe$' })) {
+            Write-Error "missing arm64 installer among: $($names -join ', ')"
+            exit 1
+          }
           Write-Host "Found installer(s): $($exe.FullName -join ', ')"
+      - name: Optional Authenticode sign (WINDOWS_CERT_*)
+        shell: pwsh
+        env:
+          WINDOWS_CERT_PFX_BASE64: ${{ secrets.WINDOWS_CERT_PFX_BASE64 }}
+          WINDOWS_CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
+        run: .github/workflows/authenticode-sign.ps1
+      - name: Write installer SHA256 sidecars
+        shell: pwsh
+        run: |
+          $exe = Get-ChildItem -Path 'apps/student-desktop/release' -Filter 'ClassroomDesk-Setup-*.exe' -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -notlike '*.sha256' }
           foreach ($f in $exe) {
             $hash = (Get-FileHash -Algorithm SHA256 $f.FullName).Hash.ToLower()
             Write-Host ("sha256 {0} {1}" -f $hash, $f.Name)
@@ -421,7 +443,7 @@ jobs:
         run: |
           JWT_SECRET=ci-secret-not-for-prod \
           ADMIN_PASSWORD=AdminPass123 \
-          TEACHER_PASSWORD=TeacherPass123 \
+          TEACHER_PASSWORD=CiTeacherPass9! \
           npm run start --workspace=@classroom-desk/server &
           for i in $(seq 1 40); do
             curl -fsS http://127.0.0.1:8787/health >/dev/null && break

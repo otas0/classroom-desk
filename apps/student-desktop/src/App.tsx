@@ -1,5 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { APP_NAME, GITHUB_RELEASES_BASE } from '@classroom-desk/shared';
+import {
+  APP_NAME,
+  GITHUB_RELEASES_BASE,
+  roomCodeToApiBase,
+  looksLikeRoomCode,
+} from '@classroom-desk/shared';
 import jsQR from 'jsqr';
 import {
   ApiError,
@@ -45,6 +50,7 @@ import {
   type OfflineLockPolicy,
 } from '@classroom-desk/shared';
 import { normalizeUiLocale, t, type UiLocale } from '@classroom-desk/i18n';
+import { fetchClassroomJoin, resolveClassroomJoin } from './classroomJoin';
 declare const __APP_VERSION__: string;
 const CLIENT_VERSION = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.0.0';
 
@@ -132,6 +138,7 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
   const [selecting, setSelecting] = useState(false);
   const [gateAdmin, setGateAdmin] = useState(false);
   const [needsFirstRun, setNeedsFirstRun] = useState(false);
+  const [classroomLabel, setClassroomLabel] = useState('');
   const [exitAllowed, setExitAllowed] = useState(false);
   const [exitUnlockUntil, setExitUnlockUntil] = useState<string | null>(null);
   const [quizConfirmSubmit, setQuizConfirmSubmit] = useState(true);
@@ -891,14 +898,28 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
         } catch {
           networkHint = {};
         }
+        const clientArch =
+          typeof window.classroomDesk?.getClientArch === 'function'
+            ? await window.classroomDesk.getClientArch()
+            : '';
+        let dnsServers: string[] = [];
+        try {
+          if (typeof window.classroomDesk?.getDnsServers === 'function') {
+            dnsServers = (await window.classroomDesk.getDnsServers()).filter(Boolean);
+          }
+        } catch {
+          dnsServers = [];
+        }
         await api('/api/v1/presence/heartbeat', {
           method: 'POST',
           body: JSON.stringify({
             clientVersion: CLIENT_VERSION,
             clientPlatform: navigator.userAgent.includes('Electron') ? 'electron' : 'web',
+            clientArch: clientArch || undefined,
             clientId: presenceClientId,
             hardened,
             networkHint,
+            dnsServers: dnsServers.length ? dnsServers : undefined,
           }),
         });
       } catch {
@@ -947,7 +968,16 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
       const expected = String(body.studentDesktopVersion ?? body.version ?? '').trim();
       setExpectedClientVersion(expected);
       try {
-        const upRes = await fetch(`${base}/api/v1/upgrades/latest`, { cache: 'no-store' });
+        let archQ = '';
+        try {
+          if (window.classroomDesk?.getClientArch) {
+            const a = await window.classroomDesk.getClientArch();
+            if (a === 'arm64' || a === 'x64') archQ = `?arch=${a}`;
+          }
+        } catch {
+          /* ignore */
+        }
+        const upRes = await fetch(`${base}/api/v1/upgrades/latest${archQ}`, { cache: 'no-store' });
         if (upRes.ok) {
           const up = (await upRes.json()) as {
             preferredLanUrl?: string | null;
@@ -983,6 +1013,8 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
         const cfg = desk?.getConfig ? await desk.getConfig() : null;
         cid = String(cfg?.classId ?? '').trim();
         const apiBase = String(cfg?.apiBase ?? getApiBase()).replace(/\/$/, '');
+        const label = [cfg?.displayName, cfg?.className].filter(Boolean).join(' · ');
+        if (label) setClassroomLabel(label);
         // First-run wizard only on Electron (can write userData/config.json).
         firstRun = Boolean(desk?.setConfig) && needsLocalConfigSetup(apiBase, cid);
         setClassId(cid);
@@ -1013,6 +1045,53 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
     const _cdTimer = window.setInterval(() => void refreshMe(), 8000);
     return () => window.clearInterval(_cdTimer);
   }, [refreshMe]);
+
+  /** Teacher roster pull-join: logged-in students auto-attach without LAN scan. */
+  useEffect(() => {
+    if (!ready || needsFirstRun || !user?.id || healthOk === false) return;
+    let cancelled = false;
+    const poll = async () => {
+      const token = getToken();
+      const base = getApiBase().replace(/\/$/, '');
+      if (!token || !base) return;
+      try {
+        const res = await fetch(`${base}/api/v1/session/pull-join`, {
+          headers: { Authorization: `Bearer ${token}` },
+          cache: 'no-store',
+        });
+        if (!res.ok || cancelled) return;
+        const body = (await res.json()) as {
+          ok?: boolean;
+          apiBase?: string;
+          classId?: string;
+          className?: string;
+        };
+        if (!body.ok || !body.apiBase || !body.classId) return;
+        const nextBase = body.apiBase.replace(/\/$/, '');
+        if (nextBase === base && body.classId === classId) return;
+        const desk = window.classroomDesk;
+        if (desk?.setConfig) {
+          await desk.setConfig({
+            apiBase: nextBase,
+            classId: body.classId,
+            className: body.className ?? '',
+          });
+        }
+        await setApiBase(nextBase);
+        setClassId(body.classId);
+        if (body.className) setClassName(body.className);
+        showToast(t('教师已开启名单拉取连班，本机已同步课堂'));
+      } catch {
+        /* offline */
+      }
+    };
+    void poll();
+    const id = window.setInterval(() => void poll(), 30_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [ready, needsFirstRun, user?.id, healthOk, classId, showToast]);
 
   // Seat rebind SSE — avoid waiting for /auth/me poll after teacher seat change.
   useEffect(() => {
@@ -1363,6 +1442,8 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
           <FirstRunSetup
             onDone={async (next) => {
               setClassId(next.classId);
+              const label = [next.displayName, next.className].filter(Boolean).join(' · ');
+              setClassroomLabel(label || next.classId);
               setNeedsFirstRun(false);
               const ok = await probeHealth();
               if (ok) {
@@ -1392,26 +1473,45 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
         <main className="content" data-no-drag>
           <section className="panel">
             <h1>{t('连不上老师电脑')}</h1>
-            <p className="lead">{t('请找老师检查电脑和网络')}</p>
-            <button
-              type="button"
-              className="primary"
-              onClick={() =>
-                void probeHealth().then(async (ok) => {
-                  if (!ok) return;
-                  if (classId) {
-                    try {
-                      await loadRoster(classId);
-                    } catch (e) {
-                      setError(e instanceof Error ? e.message : '名单加载失败');
+            <p className="lead">{t('本班连不上 · 请确认同一 Wi‑Fi，或换教室 / 输房间码')}</p>
+            <p className="hint" data-testid="connected-status-fail">
+              {classroomLabel || classId
+                ? t('当前讲台：{v0}', { v0: classroomLabel || classId })
+                : t('尚未记住讲台')}
+            </p>
+            <div className="row">
+              <button
+                type="button"
+                className="primary"
+                onClick={() =>
+                  void probeHealth().then(async (ok) => {
+                    if (!ok) return;
+                    if (classId) {
+                      try {
+                        await loadRoster(classId);
+                      } catch (e) {
+                        setError(e instanceof Error ? e.message : '名单加载失败');
+                      }
                     }
-                  }
-                  await refreshMe();
-                })
-              }
-            >
-              重试
-            </button>
+                    await refreshMe();
+                  })
+                }
+              >
+                {t('重试连接')}
+              </button>
+              <button
+                type="button"
+                className="secondary"
+                data-testid="health-fail-switch-classroom"
+                onClick={() => {
+                  setNeedsFirstRun(true);
+                  setUser(null);
+                  setToken('');
+                }}
+              >
+                {t('换教室')}
+              </button>
+            </div>
             <details className="teacher-debug">
               <summary>{t('教师调试')}</summary>
               <p className="hint">{healthDetail}</p>
@@ -1540,6 +1640,26 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
               >
                 <span className="chip-name">{user.displayName}</span>
                 <span className="chip-action">{t('换人')}</span>
+              </button>
+            ) : null}
+            {(classroomLabel || classId) && typeof window.classroomDesk !== 'undefined' ? (
+              <button
+                type="button"
+                className="identity-chip"
+                data-no-drag
+                data-testid="switch-classroom-chip"
+                title={t('连错班可换教室')}
+                aria-label={t('当前讲台 {v0}，换教室', {
+                  v0: classroomLabel || classId,
+                })}
+                onClick={() => {
+                  setNeedsFirstRun(true);
+                  setUser(null);
+                  setToken('');
+                }}
+              >
+                <span className="chip-name">{classroomLabel || classId}</span>
+                <span className="chip-action">{t('换教室')}</span>
               </button>
             ) : null}
             {hasSeatBinding ? (
@@ -1881,7 +2001,12 @@ function parseClassroomQrPayload(raw: string): { apiBase: string; classId: strin
 function FirstRunSetup({
   onDone,
 }: {
-  onDone: (cfg: { apiBase: string; classId: string }) => Promise<void>;
+  onDone: (cfg: {
+    apiBase: string;
+    classId: string;
+    displayName?: string;
+    className?: string;
+  }) => Promise<void>;
 }) {
   const [serverUrl, setServerUrl] = useState('');
   const [seat, setSeat] = useState('');
@@ -1891,12 +2016,24 @@ function FirstRunSetup({
   const [pasteJson, setPasteJson] = useState('');
   const [showPaste, setShowPaste] = useState(false);
   const [cameraLocked, setCameraLocked] = useState(false);
+  const [roomCode, setRoomCode] = useState('');
+  const [joinPin, setJoinPin] = useState('');
+  const [joinAuthHint, setJoinAuthHint] = useState('');
+  const [roomIdInput, setRoomIdInput] = useState('');
+  const [scanProgress, setScanProgress] = useState<{ done: number; total: number } | null>(null);
+  const [lastClassroom, setLastClassroom] = useState<{
+    apiBase: string;
+    classId: string;
+    displayName?: string;
+    className?: string;
+  } | null>(null);
   type JoinCandidate = {
     apiBase: string;
     version?: string;
     classId?: string;
     className?: string;
     hostName?: string;
+    displayName?: string;
     lanIp?: string;
     label?: string;
     easyJoin?: boolean;
@@ -1910,6 +2047,28 @@ function FirstRunSetup({
   function joinKey(c: JoinCandidate): string {
     return `${c.apiBase}::${c.classId ?? ''}`;
   }
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const cfg = window.classroomDesk?.getConfig ? await window.classroomDesk.getConfig() : null;
+        const apiBase = String(cfg?.apiBase ?? '').replace(/\/$/, '');
+        const classId = String(cfg?.classId ?? '').trim();
+        if (apiBase && classId && !/127\.0\.0\.1|localhost/i.test(apiBase)) {
+          setLastClassroom({
+            apiBase,
+            classId,
+            displayName: cfg?.displayName,
+            className: cfg?.className,
+          });
+          setServerUrl(apiBase);
+          setSeat(classId);
+        }
+      } catch {
+        /* ignore */
+      }
+    })();
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -1993,11 +2152,18 @@ function FirstRunSetup({
           const image = ctx.getImageData(0, 0, canvas.width, canvas.height);
           const code = jsQR(image.data, image.width, image.height);
           if (!code?.data) return;
-          const parsed = parseClassroomQrPayload(code.data);
+          const text = code.data.trim();
+          if (looksLikeRoomCode(text)) {
+            setRoomCode(text.toUpperCase());
+            stopScan();
+            void joinByRoomCode();
+            return;
+          }
+          const parsed = parseClassroomQrPayload(text);
           if (!parsed) {
             setMsg('识别到二维码，但不是教师指派格式 — 可改用下方粘贴 JSON');
             setShowPaste(true);
-            setPasteJson(code.data);
+            setPasteJson(text);
             return;
           }
           applyPayload(parsed.apiBase, parsed.classId);
@@ -2086,26 +2252,225 @@ function FirstRunSetup({
     }
   }
 
+  async function connectToClassroom(hit: {
+    apiBase: string;
+    classId?: string;
+    className?: string;
+    displayName?: string;
+    hostName?: string;
+    label?: string;
+  }) {
+    const desk = window.classroomDesk;
+    if (!desk?.setConfig) {
+      setMsg(t('当前环境不支持一键连教室'));
+      return;
+    }
+    const apiBase = hit.apiBase.replace(/\/$/, '');
+    const resolved = await resolveClassroomJoin(apiBase, undefined, joinPin);
+    if (resolved.joinPinRequired && !joinPin.trim()) {
+      setJoinAuthHint(t('本教室需要连班 PIN，请在下方输入后重试'));
+    } else {
+      setJoinAuthHint('');
+    }
+    const classId = resolved.classId;
+    const effectiveBase = (resolved.apiBase || apiBase).replace(/\/$/, '');
+    const res = await fetch(`${effectiveBase}/health`, { cache: 'no-store' });
+    if (!res.ok) throw new Error(`health HTTP ${res.status}`);
+    await setApiBase(effectiveBase);
+    await desk.setConfig({
+      apiBase: effectiveBase,
+      classId,
+      displayName: hit.displayName ?? resolved.displayName ?? '',
+      className: hit.className ?? resolved.className ?? '',
+    });
+    setServerUrl(effectiveBase);
+    setSeat(classId);
+    setLastClassroom({
+      apiBase: effectiveBase,
+      classId,
+      displayName: hit.displayName,
+      className: hit.className,
+    });
+    setJoinCandidates([]);
+    setSelectedJoinKey('');
+    setMsg(
+      t('已连上{v0} · {v1}，本机配置完成', {
+        v0: hit.displayName
+          ? `「${hit.displayName}」`
+          : hit.className
+            ? `「${hit.className}」`
+            : hit.hostName
+              ? `「${hit.hostName}」`
+              : '',
+        v1: effectiveBase,
+      }),
+    );
+    await onDone({
+      apiBase: effectiveBase,
+      classId,
+      displayName: hit.displayName,
+      className: hit.className,
+    });
+  }
+
+  /** Prefer last classroom before full /24 scan. */
+  async function reconnectLastClassroom() {
+    setMsg('');
+    if (!lastClassroom?.apiBase || !lastClassroom.classId) {
+      setMsg(t('没有上次教室记录，请查找或输入房间码'));
+      return;
+    }
+    setBusy(true);
+    try {
+      const apiBase = lastClassroom.apiBase.replace(/\/$/, '');
+      const join = await fetchClassroomJoin(apiBase);
+      if (!join.ok || !join.enabled) throw new Error(t('教师机未开放本班'));
+      await connectToClassroom({
+        apiBase: String(join.apiBase ?? apiBase).replace(/\/$/, ''),
+        classId: String(join.classId ?? lastClassroom.classId).trim() || undefined,
+        className: join.className ?? lastClassroom.className,
+        displayName: join.displayName ?? lastClassroom.displayName,
+        hostName: join.hostName,
+        label: join.label,
+      });
+    } catch (e) {
+      setMsg(
+        `${e instanceof Error ? e.message : t('重连失败')} · ${t(
+          '将改用全网查找或房间码。请确认同一 Wi‑Fi、教师已开课。',
+        )}`,
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function joinByRoomId() {
+    setMsg('');
+    const rid = roomIdInput.trim();
+    if (!rid) {
+      setMsg(t('请输入教室号，如 302'));
+      return;
+    }
+    setBusy(true);
+    try {
+      const seeds = [
+        lastClassroom?.apiBase,
+        serverUrl.replace(/\/$/, ''),
+        getApiBase().replace(/\/$/, ''),
+      ].filter(Boolean) as string[];
+      let peers: Array<{
+        apiBase: string;
+        classId?: string | null;
+        className?: string | null;
+        displayName?: string;
+        hostName?: string;
+        roomId?: string;
+      }> = [];
+      for (const seed of seeds) {
+        try {
+          const r = await fetch(`${seed}/api/v1/federation/rooms/${encodeURIComponent(rid)}`, {
+            cache: 'no-store',
+          });
+          if (!r.ok) continue;
+          const body = (await r.json()) as { peers?: typeof peers };
+          if (body.peers?.length) {
+            peers = body.peers;
+            break;
+          }
+        } catch {
+          /* try next seed */
+        }
+      }
+      if (!peers.length) {
+        setMsg(t('未找到教室号 {v0}。可先「查找教室」或输房间码。', { v0: rid }));
+        return;
+      }
+      const p = peers[0]!;
+      if (!p.classId) {
+        setServerUrl(p.apiBase);
+        setMsg(t('已找到教室 {v0}，但未开放一键连班', { v0: rid }));
+        return;
+      }
+      await connectToClassroom({
+        apiBase: p.apiBase,
+        classId: String(p.classId),
+        className: p.className ?? undefined,
+        displayName: p.displayName,
+        hostName: p.hostName,
+      });
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : t('按教室号连接失败'));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function joinByRoomCode() {
+    setMsg('');
+    const code = roomCode.trim();
+    if (!looksLikeRoomCode(code) && !roomCodeToApiBase(code)) {
+      setMsg(t('房间码格式不对（应为 XXXX-XXXX）'));
+      return;
+    }
+    const base = roomCodeToApiBase(code);
+    if (!base) {
+      setMsg(t('房间码无效，请对照教师投影再输一次'));
+      return;
+    }
+    setBusy(true);
+    try {
+      const join = await fetchClassroomJoin(base);
+      if (!join.ok || !join.enabled) {
+        setServerUrl(base);
+        setMsg(t('已解析房间码，但教师未开放一键连班。请老师打开开关，或改填 classId。'));
+        return;
+      }
+      await connectToClassroom({
+        apiBase: String(join.apiBase ?? base).replace(/\/$/, ''),
+        classId: join.classId ? String(join.classId) : undefined,
+        className: join.className ?? undefined,
+        displayName: join.displayName ?? undefined,
+        hostName: join.hostName,
+        label: join.label,
+      });
+    } catch (e) {
+      setMsg(
+        `${e instanceof Error ? e.message : t('房间码连接失败')} · ${t(
+          '请确认与教师同一局域网，或改用扫码/U 盘。',
+        )}`,
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
   /** Phase 1: discover only — never auto-connect; student must confirm. */
   async function findClassrooms() {
     setMsg('');
     setJoinCandidates([]);
     setSelectedJoinKey('');
+    setScanProgress(null);
     setBusy(true);
+    const desk = window.classroomDesk;
+    const unsub = desk?.onDiscoverProgress?.((p) => {
+      setScanProgress({ done: p.done, total: p.total });
+    });
     try {
-      const desk = window.classroomDesk;
       if (!desk?.discoverLanClassroom) {
         setMsg(t('当前环境不支持一键连教室'));
         return;
       }
       const r = await desk.discoverLanClassroom();
       const list = (r.found ?? []).filter((f) => f.apiBase);
-      const joinable = list.filter((f) => f.easyJoin && f.classId);
+      const joinable = list.filter((f) => f.easyJoin);
       const show = joinable.length ? joinable : list;
       if (!show.length) {
+        const scanned = r.scannedHosts ?? 0;
+        const open = r.openPorts ?? 0;
         setMsg(
           t(
-            '未找到已开放「一键连班」的教师机。请老师在「指派学生机」打开开关，或改用 U 盘/扫码。',
+            '未找到教室。请确认：①与教师同一 Wi‑Fi/网段 ②教师已开课 ③已开一键连班。已扫 {v0} 个地址、开放 8787：{v1}。访客隔离时请输入房间码。',
+            { v0: String(scanned), v1: String(open) },
           ),
         );
         return;
@@ -2116,8 +2481,14 @@ function FirstRunSetup({
         t('找到 {v0} 台教师机，请选择后点「确认连接」', { v0: String(show.length) }),
       );
     } catch (e) {
-      setMsg(e instanceof Error ? e.message : t('一键连教室失败'));
+      setMsg(
+        `${e instanceof Error ? e.message : t('一键连教室失败')} · ${t(
+          '请确认同一 Wi‑Fi、教师机已开课，然后重试「查找教室」。',
+        )}`,
+      );
     } finally {
+      unsub?.();
+      setScanProgress(null);
       setBusy(false);
     }
   }
@@ -2130,7 +2501,7 @@ function FirstRunSetup({
       setMsg(t('请先选择要连接的教师机'));
       return;
     }
-    if (!hit.classId) {
+    if (!hit.easyJoin) {
       setServerUrl(hit.apiBase);
       setMsg(
         t('「{v0}」未开放一键连班。请填写 classId 或扫码。', {
@@ -2141,28 +2512,14 @@ function FirstRunSetup({
     }
     setBusy(true);
     try {
-      const desk = window.classroomDesk;
-      if (!desk?.setConfig) {
-        setMsg(t('当前环境不支持一键连教室'));
-        return;
-      }
-      const apiBase = hit.apiBase.replace(/\/$/, '');
-      const classId = hit.classId;
-      const res = await fetch(`${apiBase}/health`, { cache: 'no-store' });
-      if (!res.ok) throw new Error(`health HTTP ${res.status}`);
-      await setApiBase(apiBase);
-      await desk.setConfig({ apiBase, classId });
-      setServerUrl(apiBase);
-      setSeat(classId);
-      setJoinCandidates([]);
-      setSelectedJoinKey('');
-      setMsg(
-        t('已连上{v0} · {v1}，本机配置完成', {
-          v0: hit.className ? `「${hit.className}」` : hit.hostName ? `「${hit.hostName}」` : '',
-          v1: apiBase,
-        }),
-      );
-      await onDone({ apiBase, classId });
+      await connectToClassroom({
+        apiBase: hit.apiBase,
+        classId: hit.classId,
+        className: hit.className,
+        displayName: hit.displayName,
+        hostName: hit.hostName,
+        label: hit.label,
+      });
     } catch (e) {
       setMsg(e instanceof Error ? e.message : t('一键连教室失败'));
     } finally {
@@ -2202,8 +2559,27 @@ function FirstRunSetup({
     <section className="panel">
       <h1>{t('首次配置本机')}</h1>
       <p className="lead">
-        {t('先查找教室 → 认准班名/教师机 → 确认连接。也可用 U 盘 / 扫码。')}
+        {t('优先重连本班 / 查找教室 / 房间码 → 确认连接。也可用 U 盘 / 扫码。')}
       </p>
+      {lastClassroom ? (
+        <p className="hint" data-testid="first-run-last-classroom">
+          {t('上次教室：')}
+          <strong>
+            {[lastClassroom.displayName, lastClassroom.className, lastClassroom.apiBase]
+              .filter(Boolean)
+              .join(' · ')}
+          </strong>{' '}
+          <button
+            type="button"
+            className="primary"
+            disabled={busy}
+            data-testid="first-run-reconnect"
+            onClick={() => void reconnectLastClassroom()}
+          >
+            {busy ? t('重连中…') : t('重连本班')}
+          </button>
+        </p>
+      ) : null}
       <div className="row">
         <button
           type="button"
@@ -2212,7 +2588,14 @@ function FirstRunSetup({
           data-testid="first-run-one-tap-join"
           onClick={() => void findClassrooms()}
         >
-          {busy ? t('查找中…') : t('查找教室')}
+          {busy && scanProgress
+            ? t('查找中 {v0}/{v1}', {
+                v0: String(scanProgress.done),
+                v1: String(scanProgress.total),
+              })
+            : busy
+              ? t('查找中…')
+              : t('查找教室')}
         </button>
         <button
           type="button"
@@ -2279,6 +2662,80 @@ function FirstRunSetup({
           {cameraLocked ? '粘贴 JSON（必填）' : showPaste ? '收起粘贴' : '粘贴 JSON 兜底'}
         </button>
       </div>
+      {scanProgress && scanProgress.total > 0 ? (
+        <div className="field" data-testid="first-run-scan-progress">
+          <label>
+            {t('扫描进度 {v0}/{v1}', {
+              v0: String(scanProgress.done),
+              v1: String(scanProgress.total),
+            })}
+            <progress
+              max={scanProgress.total}
+              value={scanProgress.done}
+              style={{ width: '100%', height: 10 }}
+            />
+          </label>
+        </div>
+      ) : null}
+      {joinAuthHint ? (
+        <p className="hint" role="status" data-testid="first-run-join-auth-hint">
+          {joinAuthHint}
+        </p>
+      ) : null}
+      <div className="field" data-testid="first-run-join-pin">
+        <label>
+          {t('连班 PIN（教师开启鉴权时必填）')}
+          <input
+            value={joinPin}
+            onChange={(e) => setJoinPin(e.target.value)}
+            type="password"
+            autoComplete="off"
+            placeholder={t('向教师索取')}
+            maxLength={32}
+          />
+        </label>
+      </div>
+      <div className="field" data-testid="first-run-room-code">
+        <label>
+          {t('房间码（访客隔离时用，教师投影 XXXX-XXXX）')}
+          <input
+            value={roomCode}
+            onChange={(e) => setRoomCode(e.target.value.toUpperCase())}
+            placeholder="XXXX-XXXX"
+            maxLength={12}
+            autoCapitalize="characters"
+          />
+        </label>
+        <button
+          type="button"
+          className="secondary"
+          disabled={busy || !roomCode.trim()}
+          data-testid="first-run-room-code-join"
+          onClick={() => void joinByRoomCode()}
+        >
+          {t('用房间码连接')}
+        </button>
+      </div>
+      <div className="field" data-testid="first-run-room-id">
+        <label>
+          {t('教室号（房间模式）')}
+          <input
+            value={roomIdInput}
+            onChange={(e) => setRoomIdInput(e.target.value)}
+            placeholder="302"
+            maxLength={32}
+          />
+        </label>
+        <button
+          type="button"
+          className="secondary"
+          disabled={busy || !roomIdInput.trim()}
+          data-testid="first-run-room-id-join"
+          onClick={() => void joinByRoomId()}
+        >
+          {t('按教室号连接')}
+        </button>
+      </div>
       {joinCandidates.length ? (
         <fieldset className="field" data-testid="first-run-join-list">
           <legend>{t('选择教师机（确认后再连接）')}</legend>
@@ -2287,7 +2744,9 @@ function FirstRunSetup({
               const key = joinKey(c);
               const title =
                 c.label ||
-                [c.className, c.hostName, c.lanIp || c.apiBase].filter(Boolean).join(' · ');
+                [c.displayName, c.className, c.hostName, c.lanIp || c.apiBase]
+                  .filter(Boolean)
+                  .join(' · ');
               return (
                 <li key={key}>
                   <label className="row">
@@ -2301,6 +2760,7 @@ function FirstRunSetup({
                       <strong>{title}</strong>
                       <br />
                       <span className="hint">
+                        {c.displayName ? `${t('讲台')}：${c.displayName} · ` : ''}
                         {c.className ? `${t('班级')}：${c.className} · ` : ''}
                         {c.hostName ? `${t('教师机')}：${c.hostName} · ` : ''}
                         {c.lanIp || c.apiBase}

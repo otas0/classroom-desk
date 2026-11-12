@@ -3,8 +3,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { networkInterfaces } from 'node:os';
 import { getDataDir, getDbPath, openDb } from '../db/client.js';
+import { listDetectedLanIpv4s, resolveAdvertiseLanIp } from '../services/lanNetwork.js';
 import { getSetting } from '../db/migrate.js';
 import { readAuditWriteFailure } from '../services/auditFail.js';
 import { auditRetryHealth } from '../services/auditRetry.js';
@@ -16,6 +16,7 @@ import { clearShieldLastError, getShieldLastError } from '../services/shield/las
 import {
   parseLsofUdp53,
   preferDeskDnsProbeTool,
+  probeDeskDnsResolution,
 } from '../services/deskDnsProbe.js';
 import { requireAuth, requireRoles } from '../middleware/auth.js';
 import { STAFF_ROLES } from '../middleware/roles.js';
@@ -37,13 +38,7 @@ export function packageVersion(): string {
 
 function lanIpv4List(): string[] {
   try {
-    const out: string[] = [];
-    for (const list of Object.values(networkInterfaces())) {
-      for (const n of list ?? []) {
-        if (String(n.family) === 'IPv4' && !n.internal) out.push(n.address);
-      }
-    }
-    return out;
+    return listDetectedLanIpv4s();
   } catch {
     return [];
   }
@@ -120,9 +115,10 @@ function buildHealthPayload() {
     fromStored = '';
   }
   const lanIps = detected.length ? detected : fromStored && fromStored !== '127.0.0.1' ? [fromStored] : [];
+  const advertiseLanIp = resolveAdvertiseLanIp(db) || lanIps[0] || '';
   const suggestedApiBase =
     storedBase ||
-    (lanIps[0] ? `http://${lanIps[0]}:${config.port}` : `http://127.0.0.1:${config.port}`);
+    (advertiseLanIp ? `http://${advertiseLanIp}:${config.port}` : `http://127.0.0.1:${config.port}`);
   const teacherDistCandidates = [
     path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../teacher-web/dist'),
     path.resolve(getDataDir(), '../teacher-web/dist'),
@@ -147,6 +143,7 @@ function buildHealthPayload() {
     time: new Date().toISOString(),
     hostName: os.hostname(),
     lanIps,
+    advertiseLanIp: advertiseLanIp || null,
     suggestedApiBase,
     studentHealthUrl: `${suggestedApiBase}/health`,
     studentReadyUrl: `${suggestedApiBase}/ready`,
@@ -321,8 +318,30 @@ healthRouter.get('/api/v1/health/deskdns-check', async (_req, res) => {
   const ok =
     !deskDns.enabled ||
     (deskDns.running && (deskDns.port !== 53 || listening53 !== false));
-  res.status(ok ? 200 : 503).json({
-    ok,
+  const db = openDb();
+  const probeHost = String(getSetting(db, 'deskdns_probe_hostname') ?? '').trim();
+  const teacherIps = lanIpv4List();
+  let storedHost = '';
+  try {
+    const base = getSetting(db, 'classroom_api_base')?.replace(/\/$/, '') ?? '';
+    if (base) storedHost = new URL(base).hostname;
+  } catch {
+    storedHost = '';
+  }
+  const resolveHost = probeHost || (/^\d{1,3}(\.\d{1,3}){3}$/.test(storedHost) ? '' : storedHost);
+  const resolution = resolveHost
+    ? await probeDeskDnsResolution({ hostname: resolveHost, teacherIps })
+  : {
+      hostname: '',
+      resolved: [] as string[],
+      pointsAtTeacher: null as boolean | null,
+      teacherIps,
+    };
+  const resolveOk =
+    resolution.pointsAtTeacher === null ? true : resolution.pointsAtTeacher === true;
+  const overallOk = ok && resolveOk;
+  res.status(overallOk ? 200 : 503).json({
+    ok: overallOk,
     deskDns,
     listening53,
     probeTool,
@@ -333,7 +352,12 @@ healthRouter.get('/api/v1/health/deskdns-check', async (_req, res) => {
     hint:
       deskDns.port === 53 && listening53 === false
         ? 'CLASSROOM_DESK_DNS_PORT=53 but no udp/53 listener — see docs/DESKDNS_PORT53.md'
-        : null,
+        : !resolveOk && resolveHost
+          ? `Resolve ${resolveHost} did not point at teacher LAN (${teacherIps.join(', ') || 'none'})`
+          : null,
+    dnsResolution: resolution,
+    studentDnsLimitation:
+      'Student clients may report netDnsServers on heartbeat when available; teacher-side resolve probe is authoritative for DHCP DNS.',
   });
 });
 

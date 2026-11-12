@@ -1,5 +1,24 @@
 # Classroom Desk 更新日志
 
+## Unreleased
+
+- 学生端「查找教室」：同 /24 并发扫 :8787，按本班一键连班优先；失败提示同一 Wi‑Fi / 教师已开课；扫描进度条
+- 讲台显示名：`classroom_display_name` 写入 join 列表（如「高一3班讲台」）
+- 安装结束直接启动客户端进首次配置（不再默认开浏览器引导页）
+- Windows 包：`dist:win:arm64` / `dist:win:dual`；CI/Release 双架构 Artifact；产物 `*-x64.exe` / `*-arm64.exe`，并保留无后缀 x64 别名
+- 开课清单：未开一键连班、未加固机位占比过高时醒目告警
+- 下课自动关一键连班（可选；结束深锁 / 切班）；防幽灵讲台
+- 学生记住上次教室「重连本班」；顶部「讲台名 · 换教室」
+- 房间码（IPv4 短码）+ UDP beacon 兜底访客隔离；教师投影房间码
+- C2/AA 证据：[C2_OPERATOR_RUNBOOK.md](./docs/C2_OPERATOR_RUNBOOK.md) + 加固体检入口 + `/api/v1/c2-evidence/status`
+- mDNS `_classroomdesk._tcp` + 联邦讲台登记 / 教室号连班；投影大字房间码与一键连班 TTL/课表联动
+- 学生健康失败页简化「重试 / 换教室」；升级包按 arch 选择；USB `CD_WIN_ARCH`
+- 开课清单：`/ready`、版本漂移；DeskDNS 向导；出勤节次 UI；SIS CSV 同步；校长运营摘要
+- Exam Box 硬件脚手架 `deploy/exam-box/HARDWARE.md`；802.1X 设置提示落地
+- 连班鉴权（限速 / PIN / 设备批准）+ 名单拉入班；广播网卡选择；升级双包 UI；SIS dry-run；校长 ops CSV
+- 投影房间码 QR；座位 presence 缺席；`deploy/federation-hub`；DeskDNS 探测；节次深锁档；C2/UTM/多教室手测清单
+- 拆 PR 计划：`docs/SPLIT_PR_PLAN.md`
+
 ## v0.1.7 — 2026-11-07
 
 退出锁定运维 hardening，并合并助教授权/抢答鉴权/座位/PDF/恢复向导等课堂运维补强。

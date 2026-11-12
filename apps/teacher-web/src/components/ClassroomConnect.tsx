@@ -1,5 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import QRCode from 'qrcode';
+import { encodeRoomCode } from '@classroom-desk/shared';
+import { RoomJoinQr } from './RoomJoinQr';
 import { API_BASE, api } from '../api';
 import type { ClassItem } from '../types';
 import { t } from '@classroom-desk/i18n';
@@ -15,32 +17,101 @@ export function ClassroomConnect({
 }) {
   const [apiBase, setApiBase] = useState('');
   const [lanIps, setLanIps] = useState<string[]>([]);
+  const [advertiseLanIp, setAdvertiseLanIp] = useState('');
+  const [nicOptions, setNicOptions] = useState<Array<{ name: string; address: string; internal: boolean }>>(
+    [],
+  );
   const [healthHint, setHealthHint] = useState('');
   const [copyMsg, setCopyMsg] = useState('');
   const [qrDataUrl, setQrDataUrl] = useState('');
   const [easyJoin, setEasyJoin] = useState(false);
   const [easyJoinBusy, setEasyJoinBusy] = useState(false);
+  const [easyJoinAutoOff, setEasyJoinAutoOff] = useState(true);
+  const [ttlMinutes, setTtlMinutes] = useState(0);
+  const [followSchedule, setFollowSchedule] = useState(false);
+  const [roomId, setRoomId] = useState('');
+  const [openedAt, setOpenedAt] = useState('');
+  const [displayName, setDisplayName] = useState('');
+  const [joinPinDraft, setJoinPinDraft] = useState('');
+  const [joinPinConfigured, setJoinPinConfigured] = useState(false);
+  const [joinRequireApproval, setJoinRequireApproval] = useState(false);
+  const [pullJoin, setPullJoin] = useState(false);
+  const [pullJoinBusy, setPullJoinBusy] = useState(false);
+  const [pendingDevices, setPendingDevices] = useState<
+    Array<{ id: string; deviceId: string; hostname: string; clientIp?: string | null; createdAt: string }>
+  >([]);
   const klass = classes.find((c) => c.id === classId);
+
+  const roomCodeIp = useMemo(() => {
+    if (advertiseLanIp) return advertiseLanIp;
+    let ip = '';
+    try {
+      if (apiBase) ip = new URL(apiBase).hostname;
+    } catch {
+      ip = '';
+    }
+    if (!ip || /127\.0\.0\.1|localhost/i.test(ip)) ip = lanIps[0] ?? '';
+    return ip;
+  }, [apiBase, lanIps, advertiseLanIp]);
+
+  const roomCode = useMemo(() => (roomCodeIp ? encodeRoomCode(roomCodeIp) : null), [roomCodeIp]);
 
   useEffect(() => {
     void (async () => {
-      const [settings, health] = await Promise.all([
+      const [settings, pendingRes, health, nics] = await Promise.all([
         api<{
           classroomApiBase?: string;
+          advertiseLanIp?: string;
           studentEasyJoin?: boolean;
           studentEasyJoinClassId?: string;
+          studentEasyJoinAutoOff?: boolean;
+          studentEasyJoinTtlMinutes?: number;
+          studentEasyJoinFollowSchedule?: boolean;
+          studentEasyJoinOpenedAt?: string;
+          classroomDisplayName?: string;
+          classroomRoomId?: string;
+          studentJoinPinConfigured?: boolean;
+          studentJoinRequireApproval?: boolean;
+          classListPullEnabled?: boolean;
+          classListPullClassId?: string;
         }>('/api/v1/settings'),
+        api<{ items: typeof pendingDevices }>('/api/v1/classroom/join/pending-devices').catch(
+          () => ({ items: [] as typeof pendingDevices }),
+        ),
         fetch(`${API_BASE}/health`, { cache: 'no-store' }).then((r) => r.json()) as Promise<{
           lanIps?: string[];
+          advertiseLanIp?: string | null;
           suggestedApiBase?: string;
           studentHealthUrl?: string;
         }>,
+        api<{
+          interfaces?: Array<{ name: string; address: string; internal: boolean }>;
+          advertiseLanIp?: string | null;
+        }>('/api/v1/network/interfaces').catch(() => ({
+          interfaces: [] as Array<{ name: string; address: string; internal: boolean }>,
+          advertiseLanIp: null,
+        })),
       ]);
       setEasyJoin(
         settings.studentEasyJoin === true &&
           Boolean(settings.studentEasyJoinClassId) &&
           settings.studentEasyJoinClassId === classId,
       );
+      setEasyJoinAutoOff(settings.studentEasyJoinAutoOff !== false);
+      setTtlMinutes(Number(settings.studentEasyJoinTtlMinutes ?? 0) || 0);
+      setFollowSchedule(settings.studentEasyJoinFollowSchedule === true);
+      setOpenedAt(String(settings.studentEasyJoinOpenedAt ?? '').trim());
+      setDisplayName(String(settings.classroomDisplayName ?? '').trim());
+      setRoomId(String(settings.classroomRoomId ?? '').trim());
+      setJoinPinConfigured(settings.studentJoinPinConfigured === true);
+      setJoinPinDraft('');
+      setJoinRequireApproval(settings.studentJoinRequireApproval === true);
+      setPullJoin(
+        settings.classListPullEnabled === true &&
+          Boolean(settings.classListPullClassId) &&
+          settings.classListPullClassId === classId,
+      );
+      setPendingDevices(pendingRes.items ?? []);
       const stored = String(settings.classroomApiBase ?? '')
         .trim()
         .replace(/\/$/, '');
@@ -67,6 +138,16 @@ export function ClassroomConnect({
       }
       setApiBase(next);
       setLanIps(health.lanIps ?? []);
+      const adv =
+        String(settings.advertiseLanIp ?? nics.advertiseLanIp ?? health.advertiseLanIp ?? '').trim();
+      setAdvertiseLanIp(adv);
+      setNicOptions(
+        (nics.interfaces ?? []).filter((i) => !i.internal).map((i) => ({
+          name: i.name,
+          address: i.address,
+          internal: i.internal,
+        })),
+      );
       setHealthHint(health.studentHealthUrl ?? `${next}/health`);
     })().catch(() => {
       if (typeof window !== 'undefined') setApiBase(window.location.origin);
@@ -88,12 +169,129 @@ export function ClassroomConnect({
         }),
       });
       setEasyJoin(on);
-      setCopyMsg(on ? t('已开放本班一键连班：学生点「一键连教室」即可') : t('已关闭一键连班'));
+      setCopyMsg(
+        on ? t('已开放本班一键连班：学生「查找教室」后确认即可') : t('已关闭一键连班'),
+      );
       window.setTimeout(() => setCopyMsg(''), 3500);
     } catch (e) {
       window.alert(e instanceof Error ? e.message : t('保存失败'));
     } finally {
       setEasyJoinBusy(false);
+    }
+  }
+
+  async function refreshPendingDevices() {
+    try {
+      const r = await api<{ items: typeof pendingDevices }>('/api/v1/classroom/join/pending-devices');
+      setPendingDevices(r.items ?? []);
+    } catch {
+      setPendingDevices([]);
+    }
+  }
+
+  async function saveJoinPin() {
+    const pin = joinPinDraft.trim();
+    try {
+      await api('/api/v1/settings', {
+        method: 'PATCH',
+        body: JSON.stringify({ studentJoinPin: pin }),
+      });
+      setJoinPinConfigured(Boolean(pin));
+      setJoinPinDraft('');
+      setCopyMsg(
+        pin ? t('已保存连班 PIN（学生连接时须填写）') : t('已清除连班 PIN'),
+      );
+      window.setTimeout(() => setCopyMsg(''), 3500);
+    } catch (e) {
+      window.alert(e instanceof Error ? e.message : t('保存失败'));
+    }
+  }
+
+  async function setJoinApproval(on: boolean) {
+    try {
+      await api('/api/v1/settings', {
+        method: 'PATCH',
+        body: JSON.stringify({ studentJoinRequireApproval: on }),
+      });
+      setJoinRequireApproval(on);
+      setCopyMsg(on ? t('已开启：陌生设备须教师批准后才能连班') : t('已关闭设备批准'));
+      window.setTimeout(() => setCopyMsg(''), 3500);
+    } catch (e) {
+      window.alert(e instanceof Error ? e.message : t('保存失败'));
+    }
+  }
+
+  async function setPullJoinOn(on: boolean) {
+    if (!classId && on) {
+      window.alert(t('请先选班'));
+      return;
+    }
+    setPullJoinBusy(true);
+    try {
+      await api('/api/v1/settings', {
+        method: 'PATCH',
+        body: JSON.stringify({
+          classListPullEnabled: on,
+          classListPullClassId: on ? classId : '',
+        }),
+      });
+      setPullJoin(on);
+      setCopyMsg(
+        on
+          ? t('已开启名单拉取连班：本班已登录学生会自动同步课堂（无需扫网）')
+          : t('已关闭名单拉取连班'),
+      );
+      window.setTimeout(() => setCopyMsg(''), 3500);
+    } catch (e) {
+      window.alert(e instanceof Error ? e.message : t('保存失败'));
+    } finally {
+      setPullJoinBusy(false);
+    }
+  }
+
+  async function decideDevice(id: string, decision: 'approved' | 'denied') {
+    try {
+      await api(`/api/v1/classroom/join/devices/${encodeURIComponent(id)}/decision`, {
+        method: 'POST',
+        body: JSON.stringify({ decision }),
+      });
+      await refreshPendingDevices();
+      setCopyMsg(decision === 'approved' ? t('已批准设备连班') : t('已拒绝设备连班'));
+      window.setTimeout(() => setCopyMsg(''), 2500);
+    } catch (e) {
+      window.alert(e instanceof Error ? e.message : t('操作失败'));
+    }
+  }
+
+  async function setAutoOff(on: boolean) {
+    try {
+      await api('/api/v1/settings', {
+        method: 'PATCH',
+        body: JSON.stringify({ studentEasyJoinAutoOff: on }),
+      });
+      setEasyJoinAutoOff(on);
+      setCopyMsg(
+        on
+          ? t('已开启：下课结束深锁或切班时自动关一键连班')
+          : t('已关闭自动关一键连班（需手动关）'),
+      );
+      window.setTimeout(() => setCopyMsg(''), 3500);
+    } catch (e) {
+      window.alert(e instanceof Error ? e.message : t('保存失败'));
+    }
+  }
+
+  async function saveDisplayName() {
+    const name = displayName.trim().slice(0, 64);
+    try {
+      await api('/api/v1/settings', {
+        method: 'PATCH',
+        body: JSON.stringify({ classroomDisplayName: name }),
+      });
+      setCopyMsg(t('已保存讲台显示名'));
+      window.setTimeout(() => setCopyMsg(''), 2500);
+    } catch (e) {
+      window.alert(e instanceof Error ? e.message : t('保存失败'));
     }
   }
 
@@ -181,12 +379,197 @@ export function ClassroomConnect({
         />
         {t('开放本班「一键连班」（学生端一键连教室）')}
       </label>
+      <label className="row" data-testid="easy-join-auto-off">
+        <input
+          type="checkbox"
+          checked={easyJoinAutoOff}
+          onChange={(e) => void setAutoOff(e.target.checked)}
+        />
+        {t('下课自动关一键连班（结束深锁 / 切班时，防幽灵讲台）')}
+      </label>
+      <label className="row" data-testid="easy-join-follow-schedule">
+        <input
+          type="checkbox"
+          checked={followSchedule}
+          onChange={(e) => {
+            const on = e.target.checked;
+            setFollowSchedule(on);
+            void api('/api/v1/settings', {
+              method: 'PATCH',
+              body: JSON.stringify({ studentEasyJoinFollowSchedule: on }),
+            }).catch((err) => window.alert(String(err)));
+          }}
+        />
+        {t('按课表节次自动开/关一键连班')}
+      </label>
+      <label>
+        {t('一键连班倒计时（分钟，0=不限）')}
+        <input
+          type="number"
+          min={0}
+          max={480}
+          value={ttlMinutes}
+          data-testid="easy-join-ttl"
+          onChange={(e) => setTtlMinutes(Number(e.target.value) || 0)}
+          onBlur={() => {
+            void api('/api/v1/settings', {
+              method: 'PATCH',
+              body: JSON.stringify({ studentEasyJoinTtlMinutes: ttlMinutes }),
+            }).catch((err) => window.alert(String(err)));
+          }}
+        />
+      </label>
+      {easyJoin && ttlMinutes > 0 && openedAt ? (
+        <p className="hint" data-testid="easy-join-ttl-hint">
+          {t('已开于 {v0}，约 {v1} 分钟后自动关', {
+            v0: new Date(openedAt).toLocaleTimeString(),
+            v1: String(ttlMinutes),
+          })}
+        </p>
+      ) : null}
+      <label>
+        {t('教室号（房间模式，如 302）')}
+        <input
+          value={roomId}
+          onChange={(e) => setRoomId(e.target.value)}
+          maxLength={32}
+          placeholder="302"
+          data-testid="classroom-room-id"
+        />
+      </label>
+      <button
+        type="button"
+        className="secondary"
+        onClick={() => {
+          void api('/api/v1/settings', {
+            method: 'PATCH',
+            body: JSON.stringify({ classroomRoomId: roomId.trim() }),
+          })
+            .then(() => {
+              setCopyMsg(t('已保存教室号'));
+              window.setTimeout(() => setCopyMsg(''), 2500);
+            })
+            .catch((e) => window.alert(String(e)));
+        }}
+      >
+        {t('保存教室号')}
+      </button>
       {easyJoin ? (
         <p className="hint" role="status">
           {t(
-            '已开放：学生「查找教室」→ 认准班名/本机名 →「确认连接」后才写入。下课可关掉。',
+            '已开放：学生「查找教室」或输入房间码 → 认准显示名/班名 →「确认连接」。',
           )}
         </p>
+      ) : null}
+      <h3>{t('连班鉴权')}</h3>
+      <p className="hint">
+        {t('可选：连班 PIN + 陌生设备批准；连班失败过多会按 IP 限流（10 次/5 分钟）。')}
+      </p>
+      <label>
+        {t('连班 PIN（留空并保存可清除）')}
+        <input
+          type="password"
+          value={joinPinDraft}
+          onChange={(e) => setJoinPinDraft(e.target.value)}
+          placeholder={joinPinConfigured ? t('已设置（输入新值覆盖）') : t('未设置')}
+          maxLength={32}
+          autoComplete="new-password"
+          data-testid="join-pin-input"
+        />
+      </label>{' '}
+      <button type="button" className="secondary" onClick={() => void saveJoinPin()}>
+        {t('保存 PIN')}
+      </button>
+      <label className="row" data-testid="join-require-approval">
+        <input
+          type="checkbox"
+          checked={joinRequireApproval}
+          onChange={(e) => void setJoinApproval(e.target.checked)}
+        />
+        {t('陌生设备须批准后才能连班')}
+      </label>
+      {pendingDevices.length ? (
+        <fieldset className="field" data-testid="join-pending-devices">
+          <legend>{t('待批准设备')}</legend>
+          <ul>
+            {pendingDevices.map((d) => (
+              <li key={d.id}>
+                <code>{d.deviceId}</code> · {d.hostname || '—'} · {d.clientIp || '—'}{' '}
+                <button type="button" className="secondary" onClick={() => void decideDevice(d.id, 'approved')}>
+                  {t('批准')}
+                </button>{' '}
+                <button type="button" className="secondary" onClick={() => void decideDevice(d.id, 'denied')}>
+                  {t('拒绝')}
+                </button>
+              </li>
+            ))}
+          </ul>
+          <button type="button" className="linkish" onClick={() => void refreshPendingDevices()}>
+            {t('刷新列表')}
+          </button>
+        </fieldset>
+      ) : null}
+      <label className="row" data-testid="class-list-pull-join">
+        <input
+          type="checkbox"
+          checked={pullJoin}
+          disabled={!classId || pullJoinBusy}
+          onChange={(e) => void setPullJoinOn(e.target.checked)}
+        />
+        {t('名单拉取连班（本班已登录学生自动加入，无需扫网）')}
+      </label>
+      <label data-testid="advertise-lan-ip">
+        {t('广播用网卡（房间码 / mDNS / 信标）')}
+        <select
+          value={advertiseLanIp}
+          onChange={(e) => {
+            const ip = e.target.value;
+            setAdvertiseLanIp(ip);
+            void api('/api/v1/settings', {
+              method: 'PATCH',
+              body: JSON.stringify({ advertiseLanIp: ip }),
+            })
+              .then(() => {
+                setCopyMsg(ip ? t('已选择广播 IP {v0}', { v0: ip }) : t('已恢复自动选择网卡'));
+                window.setTimeout(() => setCopyMsg(''), 2500);
+              })
+              .catch((err) => window.alert(err instanceof Error ? err.message : t('保存失败')));
+          }}
+        >
+          <option value="">{t('自动（首选局域网 IP）')}</option>
+          {nicOptions.map((n) => (
+            <option key={`${n.name}:${n.address}`} value={n.address}>
+              {n.name} · {n.address}
+            </option>
+          ))}
+        </select>
+      </label>
+      {roomCode ? (
+        <p className="hint" data-testid="classroom-room-code">
+          {t('房间码（访客隔离 / 跨网段时给学生手输）：')}{' '}
+          <code style={{ fontSize: '1.25rem', letterSpacing: '0.06em' }}>{roomCode}</code>{' '}
+          {roomCodeIp ? (
+            <span className="hint">
+              {' '}
+              ({t('来自')} {roomCodeIp})
+            </span>
+          ) : null}{' '}
+          <button
+            type="button"
+            className="secondary"
+            onClick={() => void copyText(t('房间码'), roomCode)}
+          >
+            {t('复制房间码')}
+          </button>
+        </p>
+      ) : null}
+      {roomCode ? (
+        <RoomJoinQr
+          payload={roomCode}
+          width={200}
+          label={t('房间码二维码（学生端扫码填码）')}
+          testId="classroom-room-code-qr"
+        />
       ) : null}
       <p>
         classId：<code>{classId || t('（请先选班）')}</code>{' '}
@@ -230,8 +613,21 @@ export function ClassroomConnect({
         {t('教师机 apiBase（学生机用）')}
         <input value={apiBase} onChange={(e) => setApiBase(e.target.value)} placeholder="http://192.168.x.x:8787" />
       </label>
+      <label>
+        {t('讲台显示名（学生查找列表）')}
+        <input
+          value={displayName}
+          onChange={(e) => setDisplayName(e.target.value)}
+          placeholder={t('例如：高一3班讲台')}
+          maxLength={64}
+          data-testid="classroom-display-name"
+        />
+      </label>
       <button type="button" onClick={() => void saveApiBase().catch((e) => window.alert(String(e)))}>
         {t('保存为教室地址')}
+      </button>{' '}
+      <button type="button" className="secondary" onClick={() => void saveDisplayName()}>
+        {t('保存显示名')}
       </button>{' '}
       <button type="button" disabled={!classId || !apiBase} onClick={downloadConfig}>
         {t('下载 classroom-desk-config.json（U盘批量）')}
@@ -264,6 +660,102 @@ export function ClassroomConnect({
         </code>
       </p>
       <pre className="code-block">{`{\n  "apiBase": "${apiBase.replace(/\/$/, '')}",\n  "classId": "${classId}"\n}`}</pre>
+
+      <FederationHubWizard />
     </section>
+  );
+}
+
+function randomHubToken(): string {
+  const bytes = new Uint8Array(24);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+function FederationHubWizard() {
+  const [hubIngestUrl, setHubIngestUrl] = useState('');
+  const [hubToken, setHubToken] = useState('');
+  const [copyMsg, setCopyMsg] = useState('');
+
+  useEffect(() => {
+    setHubToken(randomHubToken());
+  }, []);
+
+  async function copyText(label: string, text: string) {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopyMsg(t('已复制{v0}', { v0: label }));
+      window.setTimeout(() => setCopyMsg(''), 2500);
+    } catch {
+      window.prompt(t('复制{v0}：', { v0: label }), text);
+    }
+  }
+
+  const hubEnv = hubIngestUrl.trim()
+    ? `CLASSROOM_DESK_FEDERATION_HUB='${hubIngestUrl.trim()}'`
+    : `CLASSROOM_DESK_FEDERATION_HUB='https://<hub-host>:8790/api/v1/federation/ingest'`;
+  const tokenEnv = `CLASSROOM_DESK_FEDERATION_HUB_TOKEN='${hubToken}'`;
+
+  return (
+    <fieldset className="field" data-testid="federation-hub-wizard">
+      <legend>{t('校区 Federation Hub（可选）')}</legend>
+      <p className="hint">
+        {t(
+          '多讲台汇聚发现：在教师 API 进程环境变量中配置 Hub URL + 令牌（非数据库设置）。部署说明见仓库 ',
+        )}
+        <code>deploy/federation-hub/README.md</code>。
+        {' '}
+        <a
+          href="https://github.com/otas0/classroom-desk/blob/main/deploy/federation-hub/README.md"
+          target="_blank"
+          rel="noreferrer"
+        >
+          {t('在线打开')}
+        </a>
+      </p>
+      {copyMsg ? <p className="toast-inline">{copyMsg}</p> : null}
+      <label>
+        {t('Hub ingest URL（HTTPS 推荐）')}
+        <input
+          value={hubIngestUrl}
+          onChange={(e) => setHubIngestUrl(e.target.value)}
+          placeholder="https://hub.school.edu:8790/api/v1/federation/ingest"
+          data-testid="federation-hub-url"
+        />
+      </label>{' '}
+      <button
+        type="button"
+        className="secondary"
+        onClick={() => setHubToken(randomHubToken())}
+        data-testid="federation-hub-regen-token"
+      >
+        {t('重新生成令牌')}
+      </button>
+      <p className="hint">
+        {t('Hub 端同步设置 ')}
+        <code>FEDERATION_HUB_TOKEN</code>
+        {t('（与下方教师端变量相同）。')}
+      </p>
+      <pre className="code-block" data-testid="federation-hub-env-block">
+        {`${hubEnv}\n${tokenEnv}`}
+      </pre>
+      <button
+        type="button"
+        className="secondary"
+        onClick={() => void copyText(t('环境变量'), `${hubEnv}\n${tokenEnv}`)}
+      >
+        {t('复制两行 export')}
+      </button>{' '}
+      <button type="button" className="secondary" onClick={() => void copyText('CLASSROOM_DESK_FEDERATION_HUB', hubEnv)}>
+        {t('复制 HUB 行')}
+      </button>{' '}
+      <button
+        type="button"
+        className="secondary"
+        onClick={() => void copyText('CLASSROOM_DESK_FEDERATION_HUB_TOKEN', tokenEnv)}
+      >
+        {t('复制 TOKEN 行')}
+      </button>
+    </fieldset>
   );
 }

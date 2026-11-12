@@ -6,11 +6,16 @@ export type AppConfig = {
   apiBase: string;
   /** Class assigned to this student machine by teacher before class. */
   classId: string;
+  /** Optional podium label remembered for reconnect / header chip. */
+  displayName?: string;
+  className?: string;
 };
 
 const DEFAULT: AppConfig = {
   apiBase: 'http://127.0.0.1:8787',
   classId: '',
+  displayName: '',
+  className: '',
 };
 
 function resourceConfigPath(): string {
@@ -39,6 +44,8 @@ export function loadConfig(): AppConfig {
   const merged: AppConfig = {
     apiBase: String(user?.apiBase ?? bundled?.apiBase ?? DEFAULT.apiBase).replace(/\/$/, ''),
     classId: String(user?.classId ?? bundled?.classId ?? DEFAULT.classId).trim(),
+    displayName: String(user?.displayName ?? bundled?.displayName ?? DEFAULT.displayName ?? '').trim(),
+    className: String(user?.className ?? bundled?.className ?? DEFAULT.className ?? '').trim(),
   };
 
   try {
@@ -58,6 +65,12 @@ export function saveConfig(patch: Partial<AppConfig>): AppConfig {
   const next: AppConfig = {
     apiBase: String(patch.apiBase ?? current.apiBase).replace(/\/$/, ''),
     classId: String(patch.classId ?? current.classId).trim(),
+    displayName: String(
+      patch.displayName !== undefined ? patch.displayName : (current.displayName ?? ''),
+    ).trim(),
+    className: String(
+      patch.className !== undefined ? patch.className : (current.className ?? ''),
+    ).trim(),
   };
   fs.mkdirSync(path.dirname(userConfigPath()), { recursive: true });
   fs.writeFileSync(userConfigPath(), JSON.stringify(next, null, 2), 'utf8');
