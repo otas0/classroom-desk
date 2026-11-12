@@ -99,12 +99,17 @@ jobs:
         env:
           CSC_LINK: ${{ secrets.CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
-        run: npm run dist:win --workspace=@classroom-desk/student-desktop
+        run: npm run dist:win:dual --workspace=@classroom-desk/student-desktop
       - name: Assert installer exists
         shell: pwsh
         run: |
           $exe = Get-ChildItem -Path 'apps/student-desktop/release' -Filter 'ClassroomDesk-Setup-*.exe' -ErrorAction SilentlyContinue
           if (-not $exe) { Write-Error 'No ClassroomDesk-Setup-*.exe under apps/student-desktop/release/'; exit 1 }
+          $names = @($exe | ForEach-Object { $_.Name })
+          if (-not ($names | Where-Object { $_ -match '-arm64\.exe$' })) {
+            Write-Error "Release pack missing arm64: $($names -join ', ')"
+            exit 1
+          }
           $exe | ForEach-Object {
             $hash = (Get-FileHash -Algorithm SHA256 $_.FullName).Hash.ToLower()
             Write-Host ("sha256 {0} {1}" -f $hash, $_.Name)

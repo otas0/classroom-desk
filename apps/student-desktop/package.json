@@ -10,13 +10,16 @@
     "dev:electron": "FORCE_ELECTRON=1 node scripts/maybe-dev.mjs",
     "build": "tsc -p tsconfig.node.json --noEmit && tsc -p tsconfig.json --noEmit && vite build",
     "preview": "vite preview",
-    "dist:win": "node scripts/dist-win.mjs"
+    "dist:win": "node scripts/dist-win.mjs",
+    "dist:win:arm64": "node scripts/dist-win.mjs arm64",
+    "dist:win:dual": "node scripts/dist-win.mjs dual"
   },
   "dependencies": {
     "@classroom-desk/i18n": "*",
     "@classroom-desk/shared": "*",
     "bcryptjs": "^3.0.3",
     "jsqr": "^1.4.0",
+    "multicast-dns": "^7.2.5",
     "pdfjs-dist": "^5.4.296",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
@@ -50,11 +53,12 @@
         {
           "target": "nsis",
           "arch": [
-            "x64"
+            "x64",
+            "arm64"
           ]
         }
       ],
-      "artifactName": "ClassroomDesk-Setup-${version}.${ext}",
+      "artifactName": "ClassroomDesk-Setup-${version}-${arch}.${ext}",
       "signExecutable": false,
       "signtoolOptions": {
         "signingHashAlgorithms": [

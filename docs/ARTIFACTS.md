@@ -4,7 +4,7 @@
 |---|---|---|
 | **GitHub Actions Artifact** | 上传名：`classroom-desk-windows-setup` | `windows-pack` job 产出；内含 `ClassroomDesk-Setup-*.exe` + `.sha256`；保留约 30 天；用 `gh run download <runId> -n classroom-desk-windows-setup` 下载 |
 | **本地目录 `artifacts/`** | `artifacts/ClassroomDesk-Setup-*.exe` | 开发机/手动从 Actions 或 Release 解压后的落盘目录；**已 gitignore**，勿提交 |
-| **学生端打包输出** | `apps/student-desktop/release/ClassroomDesk-Setup-<version>.exe` | `npm run dist:win` / CI 构建目录；CI 从此路径断言并上传 Artifact |
+| **学生端打包输出** | `apps/student-desktop/release/ClassroomDesk-Setup-<version>[-arch].exe` | `npm run dist:win`（x64 + 无后缀别名）、`dist:win:arm64`、`dist:win:dual`；CI 上传 Artifact |
 | **Release 附件** | GitHub Release `vX.Y.Z` | tag 发版 workflow；对外分发以 Release 为准 |
 
 ## Artifact / Release 版本 ↔ git tag
@@ -14,6 +14,12 @@
 | `ClassroomDesk-Setup-0.1.7.exe` | `v0.1.7` | 对外安装以 **Release 附件** 为准 |
 | `ClassroomDesk-Setup-0.1.6.exe` | `v0.1.6` | |
 | `ClassroomDesk-Setup-0.1.5.exe` | `v0.1.5` | 旧 CI Artifact 可能仍留此名；勿与 0.1.7 混用 |
+
+## 代码签名与 SmartScreen
+
+- 对外 Release 的 `ClassroomDesk-Setup-<version>.exe` 应由 **Authenticode 发布者证书** 签名（CI / 学校 IT 私钥）；学生端与教师引导话术以 **已签名 Setup 文件名** 为准，便于 U 盘清单与审计对齐。
+- SmartScreen 可能对**新证书**或**首次下载**提示额外步骤；按 [SMARTSCREEN.md](./SMARTSCREEN.md) 操作。**切勿** instruct 关闭 Defender / SmartScreen 全局。
+- U 盘落盘核对见 [LOCAL_USB_CHECKLIST.md](./LOCAL_USB_CHECKLIST.md)（SHA256 + 签名文件名）。
 
 规则：
 
