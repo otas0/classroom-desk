@@ -1,4 +1,5 @@
 import { app, BrowserWindow, globalShortcut, ipcMain, Menu, screen, session } from 'electron';
+import bcrypt from 'bcryptjs';
 import { execFile } from 'node:child_process';
 import os from 'node:os';
 import { promisify } from 'node:util';
@@ -658,7 +659,7 @@ ipcMain.handle(
           examShellWindow = null;
         });
         examShellWindow.webContents.on('will-navigate', (event, navUrl) => {
-          if (!hostAllowedForExam(navUrl)) event.preventDefault();
+          if (hostIsBlocked(navUrl) || !hostAllowedForExam(navUrl)) event.preventDefault();
         });
         examShellWindow.webContents.setWindowOpenHandler(({ url: openUrl }) =>
           hostAllowedForExam(openUrl) ? { action: 'allow' } : { action: 'deny' },
@@ -918,7 +919,26 @@ ipcMain.handle('device-control:open-app', async (_event, rawApp: unknown) => {
   }
 });
 
-/** Block openExternal when host is on teacher block list. */
+function hostIsBlocked(rawUrl: string): boolean {
+  try {
+    const host = new URL(rawUrl).hostname.toLowerCase();
+    return blockedHostsCache.some((h) => host === h || host.endsWith(`.${h}`));
+  } catch {
+    return false;
+  }
+}
+
+let blockFilterInstalled = false;
+function installRequestBlockFilter() {
+  if (blockFilterInstalled) return;
+  blockFilterInstalled = true;
+  session.defaultSession.webRequest.onBeforeRequest({ urls: ['*://*/*'] }, (details, callback) => {
+    if (hostIsBlocked(details.url)) callback({ cancel: true });
+    else callback({});
+  });
+}
+
+/** Block openExternal and in-app navigations when host is on the teacher block list. */
 ipcMain.handle('device-control:set-blocked-hosts', (_event, hosts: unknown) => {
   blockedHostsCache = Array.isArray(hosts)
     ? hosts
@@ -932,5 +952,17 @@ ipcMain.handle('device-control:set-blocked-hosts', (_event, hosts: unknown) => {
         .filter(Boolean)
         .slice(0, 64)
     : [];
+  installRequestBlockFilter();
   return { ok: true, count: blockedHostsCache.length };
+});
+
+ipcMain.handle('lock:verify-offline-code', async (_event, code: unknown, hash: unknown) => {
+  const plain = String(code ?? '');
+  const stored = String(hash ?? '');
+  if (plain.length < 6 || !stored.startsWith('$2')) return { ok: false };
+  try {
+    return { ok: await bcrypt.compare(plain, stored) };
+  } catch {
+    return { ok: false };
+  }
 });

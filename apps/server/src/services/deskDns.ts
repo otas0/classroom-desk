@@ -2,6 +2,7 @@ import dgram from 'node:dgram';
 import dns from 'node:dns/promises';
 import { openDb } from '../db/client.js';
 import { getDeepLockStore } from './deepLock.js';
+import { getDeviceControlPolicy } from './deviceControl.js';
 import { resolveDeepLockState, deepLockAggressive } from '@classroom-desk/shared';
 
 /**
@@ -9,6 +10,7 @@ import { resolveDeepLockState, deepLockAggressive } from '@classroom-desk/shared
  * When deep-lock netMode=deny → NXDOMAIN for most names (except portal host allow).
  * When allowlist → only listed hosts resolve via upstream.
  * When allow/idle → recurse upstream.
+ * Device-control blocked hosts resolve to 0.0.0.0.
  *
  * Enable: CLASSROOM_DESK_DNS=1  PORT default 5353 (use 53 with cap_net_bind).
  */
@@ -77,7 +79,18 @@ function buildResponse(req: Buffer, name: string, ips: string[] | null): Buffer 
   return Buffer.concat([id, flags, counts, question, ...answers]);
 }
 
+function deviceHostBlocked(name: string): boolean {
+  try {
+    const host = name.replace(/\.$/, '').toLowerCase();
+    const hosts = getDeviceControlPolicy(openDb()).blockedHosts.map((h) => h.toLowerCase());
+    return hosts.some((h) => h && (host === h || host.endsWith(`.${h}`)));
+  } catch {
+    return false;
+  }
+}
+
 async function resolvePolicy(name: string): Promise<string[] | null> {
+  if (deviceHostBlocked(name)) return ['0.0.0.0'];
   const db = openDb();
   const store = getDeepLockStore(db);
   const state = resolveDeepLockState(store, null);

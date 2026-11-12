@@ -4263,11 +4263,10 @@ export function SettingsPanel({
             {t('一键检测 /health')}
           </button>
           <p className="hint">
-            顶栏 /health 轮询：生产默认 30s，开发默认 8s。也可构建时设{' '}
-            <code>VITE_HEALTH_POLL_MS</code>。
+            {t('顶栏 /health 轮询：生产默认 30s，开发默认 8s。也可构建时设 VITE_HEALTH_POLL_MS。')}
           </p>
           <label>
-            /health 轮询间隔（毫秒，3000–120000）
+            {t('/health 轮询间隔（毫秒，3000–120000）')}
             <input
               type="number"
               min={3000}
@@ -4288,7 +4287,10 @@ export function SettingsPanel({
             />
           </label>
           <p className="hint" data-testid="health-poll-effective">
-            当前生效间隔：{healthPollEffectiveMs}ms（{healthPollSource}）
+            {t('当前生效间隔：{v0}ms（{v1}）', {
+              v0: healthPollEffectiveMs,
+              v1: healthPollSource,
+            })}
           </p>
           <div className="row">
             <button
@@ -4767,7 +4769,7 @@ export function SettingsPanel({
             </button>
           </div>
           <label>
-            备份加密口令（可留空）
+            {t('备份加密口令（可留空）')}
             <input
               type="password"
               value={restorePass}
@@ -4784,17 +4786,19 @@ export function SettingsPanel({
                 method: 'PATCH',
                 body: JSON.stringify({ backupEncryptPassphrase: restorePass }),
               })
-                .then(() => setSaveMsg(restorePass ? '已保存备份加密口令' : '已清空备份加密口令'))
+                .then(() =>
+                  setSaveMsg(restorePass ? t('已保存备份加密口令') : t('已清空备份加密口令')),
+                )
                 .catch((e) => setSaveMsg(e instanceof Error ? e.message : t('保存失败')));
             }}
           >
-            保存备份口令
+            {t('保存备份口令')}
           </button>
 
           <h3>{t('备份恢复向导')}</h3>
           <p className="hint">{t('先解密/校验哈希并查看停服清单；确认后再 commit 替换 live DB（会先写 .pre-restore-*）。')}</p>
           <label>
-            恢复确认码邮箱
+            {t('恢复确认码邮箱')}
             <input
               type="email"
               value={restoreConfirmEmail}
@@ -4814,14 +4818,14 @@ export function SettingsPanel({
                 .then(() =>
                   setBackupMsg(
                     restoreConfirmEmail.trim()
-                      ? '已保存恢复确认码邮箱（确认码不会显示在页面上）'
-                      : '已清空恢复确认码邮箱',
+                      ? t('已保存恢复确认码邮箱（确认码不会显示在页面上）')
+                      : t('已清空恢复确认码邮箱'),
                   ),
                 )
                 .catch((e) => setBackupMsg(e instanceof Error ? e.message : t('保存失败')));
             }}
           >
-            保存确认码邮箱
+            {t('保存确认码邮箱')}
           </button>
           <label>
             备份文件名（backups 目录下 .enc / .db）
@@ -5294,7 +5298,7 @@ export function SettingsPanel({
                   .catch((err) => setSaveMsg(te(err, '保存失败')))
               }
             />
-            允许学生留言（关闭后侧栏隐藏「留言」）
+            {t('允许学生留言（关闭后侧栏隐藏「留言」）')}
           </label>
 
           <h3>{t('答题确认')}</h3>
@@ -5318,12 +5322,12 @@ export function SettingsPanel({
                   .catch((err) => setSaveMsg(te(err, '保存失败')))
               }
             />
-            单选/判断二次确认提交（默认开启）
+            {t('单选/判断二次确认提交（默认开启）')}
           </label>
 
           <h3>{t('加分请求')}</h3>
           <label>
-            有效期（分钟）
+            {t('有效期（分钟）')}
             <input type="number" value={ttl} onChange={(e) => setTtl(Number(e.target.value))} />
           </label>
           <button
@@ -6631,8 +6635,7 @@ stateDiagram-v2
 
           {!isAssistant() ? (
           <p className="hint">
-            数据库：服务进程每天自动备份一次（保留约 14 份）；也可手动 `npm run backup:db`。确认 /health 无
-              backup/audit lastError。
+            {t('数据库：服务进程每天自动备份一次（保留约 14 份）；也可手动 npm run backup:db。确认 /health 无 backup/audit lastError。')}
               <a
                 href={permissionsDocHref()}
                 target="_blank"

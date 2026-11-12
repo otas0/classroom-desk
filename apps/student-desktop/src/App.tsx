@@ -690,6 +690,23 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
     showToast,
   ]);
 
+  useEffect(() => {
+    if (!user || !healthOk) return;
+    void api<{ hash?: string | null }>('/api/v1/auth/exit-unlock-verifier')
+      .then((r) => {
+        if (r.hash) localStorage.setItem('cd_exit_unlock_hash', r.hash);
+      })
+      .catch(() => undefined);
+  }, [user, healthOk]);
+
+  function releaseOfflineHardLock() {
+    setOfflineHardLocked(false);
+    setOfflineUnlockCode('');
+    void window.classroomDesk?.setDeepLockFrozen?.(false);
+    void window.classroomDesk?.snapBottomRight?.();
+    showToast(t('解除码有效，已解除掉线锁'));
+  }
+
   async function clearOfflineHardLockWithCode() {
     if (!offlinePolicy.unlockWithCode) {
       setOfflineUnlockMsg(t('教师未允许用解除码解除掉线锁'));
@@ -701,13 +718,21 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
         method: 'POST',
         body: JSON.stringify({ code: offlineUnlockCode }),
       });
-      setOfflineHardLocked(false);
-      setOfflineUnlockCode('');
-      void window.classroomDesk?.setDeepLockFrozen?.(false);
-      void window.classroomDesk?.snapBottomRight?.();
-      showToast(t('解除码有效，已解除掉线锁'));
+      releaseOfflineHardLock();
     } catch (e) {
-      setOfflineUnlockMsg(e instanceof Error ? e.message : t('解除失败'));
+      const hash = localStorage.getItem('cd_exit_unlock_hash') ?? '';
+      const local = await window.classroomDesk?.verifyOfflineCode?.(offlineUnlockCode, hash);
+      if (local?.ok) {
+        releaseOfflineHardLock();
+        return;
+      }
+      setOfflineUnlockMsg(
+        hash
+          ? e instanceof Error
+            ? e.message
+            : t('解除失败')
+          : t('尚未缓存解除码，连上教师机一次后再离线验证'),
+      );
     }
   }
 

@@ -25,6 +25,15 @@ const server = app.listen(config.port, config.host, () => {
   console.log(`[classroom-desk-server] health: http://127.0.0.1:${config.port}/health`);
   console.log(`[classroom-desk-server] portal: http://127.0.0.1:${config.port}/portal`);
 });
+server.on('error', (err: NodeJS.ErrnoException) => {
+  if (err.code === 'EADDRINUSE') {
+    console.error(
+      `[classroom-desk-server] port ${config.port} already in use — not starting a second process`,
+    );
+    process.exit(1);
+  }
+  throw err;
+});
 
 attachExitLockWebSocket(server);
 attachBuzzWebSocket(server);
@@ -32,8 +41,8 @@ attachPrincipalWebSocket(server);
 broadcastExitLockPayload(getClientExitLockState(db));
 
 function shutdown() {
-  stopCleanupScheduler();
   stopDeskDns();
+  stopCleanupScheduler();
   server.close(() => {
     closeDb();
     process.exit(0);
