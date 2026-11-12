@@ -3132,7 +3132,7 @@ export function SettingsPanel({
   const [driftLastAt, setDriftLastAt] = useState<string | null>(null);
   const [driftSnapBusy, setDriftSnapBusy] = useState(false);
   const [upgradesKeep, setUpgradesKeep] = useState(3);
-  const [studentAutoUpdate, setStudentAutoUpdate] = useState(false);
+  const [studentAutoUpdate, setStudentAutoUpdate] = useState(true);
   const [prunedFiles, setPrunedFiles] = useState<string[]>([]);
   const [purgeJumpHint, setPurgeJumpHint] = useState('');
 
@@ -3217,7 +3217,7 @@ export function SettingsPanel({
     if (s.upgradesKeepCount != null && Number.isFinite(Number(s.upgradesKeepCount))) {
       setUpgradesKeep(Number(s.upgradesKeepCount));
     }
-    setStudentAutoUpdate(s.studentAutoUpdate === true);
+    setStudentAutoUpdate(s.studentAutoUpdate ?? true);
     if (s.recycleUrgentDays != null && Number.isFinite(Number(s.recycleUrgentDays))) {
       setRecycleUrgentDays(Number(s.recycleUrgentDays));
     }
@@ -5151,10 +5151,12 @@ export function SettingsPanel({
                   });
               }}
             />
-            {t('学生机强制跟教师端同版本（教师可选，默认关；开启后学生不可取消）')}
+            {t('学生机强制跟教师端同版本（教师控制；默认开；学生不可取消）')}
           </label>
           <p className="hint">
-            {t('须先上传本版 Setup.exe。开启后版本不一致的学生机会下载局域网安装包并静默安装。')}
+            {t(
+              '教师权更高：上传新 Setup 会自动打开本开关。关闭后才允许版本不一致。学生端无法拒绝跟版。',
+            )}
           </p>
           <label className="secondary" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             {t('上传 Setup.exe')}
@@ -5180,10 +5182,13 @@ export function SettingsPanel({
                       name?: string;
                       sha256Name?: string | null;
                       error?: string;
+                      studentAutoUpdate?: boolean;
                     };
                     if (!res.ok) throw new Error(body.message || body.error || `HTTP ${res.status}`);
                     const uploaded = body.name ?? file.name;
                     if (/\.exe$/i.test(uploaded)) {
+                      // Upload auto-enables forced same-version (teacher > student).
+                      setStudentAutoUpdate(true);
                       try {
                         const v = await api<{ message?: string; match?: boolean | null }>(
                           '/api/v1/upgrades/verify-sha256',
@@ -5193,7 +5198,9 @@ export function SettingsPanel({
                           t('已上传并校验：{v0}{v1}', {
                             v0: uploaded,
                             v1: v.message ? ` · ${v.message}` : '',
-                          }),
+                          }) +
+                            ' · ' +
+                            t('已开启：学生机强制跟教师端同版本（学生不可取消）'),
                         );
                       } catch {
                         setUpgradeMsg(

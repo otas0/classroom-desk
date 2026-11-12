@@ -7,6 +7,8 @@ import { GITHUB_RELEASES_BASE } from '@classroom-desk/shared';
 import { getDataDir, openDb } from '../db/client.js';
 import { getSetting } from '../db/migrate.js';
 import { requireAuth, requireRoles, type AuthedRequest } from '../middleware/auth.js';
+import { upsertSetting } from '../services/exitLock.js';
+import { writeAudit } from '../services/audit.js';
 import { packageVersion } from './health.js';
 
 export const upgradesRouter = Router();
@@ -66,7 +68,7 @@ function listUpgradeFiles(req: AuthedRequest) {
   const setup = files.find((f) => /Setup.*\.exe$/i.test(f.name) || /ClassroomDesk.*\.exe$/i.test(f.name));
   const shaName = setup ? `${setup.name}.sha256` : null;
   const shaFile = shaName ? files.find((f) => f.name === shaName) : null;
-  const autoUpdate = (getSetting(openDb(), 'student_auto_update') ?? '0') === '1';
+  const autoUpdate = (getSetting(openDb(), 'student_auto_update') ?? '1') === '1';
   return {
     expectedVersion: expected,
     dir,
@@ -121,12 +123,24 @@ upgradesRouter.post(
     }
     let sha256Name: string | null = null;
     let pruned: string[] = [];
+    let forceSyncEnabled = false;
     if (/\.exe$/i.test(file.filename)) {
       const hash = createHash('sha256').update(fs.readFileSync(file.path)).digest('hex');
       sha256Name = `${file.filename}.sha256`;
       fs.writeFileSync(path.join(upgradesDir(), sha256Name), `${hash}  ${file.filename}\n`, 'utf8');
-      const keep = Number(getSetting(openDb(), 'upgrades_keep_count') ?? process.env.CLASSROOM_DESK_UPGRADES_KEEP ?? 3);
+      const db = openDb();
+      const keep = Number(getSetting(db, 'upgrades_keep_count') ?? process.env.CLASSROOM_DESK_UPGRADES_KEEP ?? 3);
       pruned = pruneOldSetupExes(Number.isFinite(keep) ? Math.max(1, Math.min(20, Math.trunc(keep))) : 3);
+      // Teacher uploaded a new Setup → turn on forced same-version (teacher > student).
+      upsertSetting(db, 'student_auto_update', '1');
+      forceSyncEnabled = true;
+      writeAudit({
+        actorUserId: req.user?.id,
+        actorRole: req.user?.role,
+        action: 'settings.student_auto_update',
+        detail: { studentAutoUpdate: true, reason: 'setup_upload' },
+        clientIp: req.ip,
+      });
     }
     res.status(201).json({
       ok: true,
@@ -138,6 +152,9 @@ upgradesRouter.post(
         ? `${publicBase(req)}/upgrades/${encodeURIComponent(sha256Name)}`
         : null,
       pruned,
+      studentAutoUpdate: forceSyncEnabled
+        ? true
+        : (getSetting(openDb(), 'student_auto_update') ?? '1') === '1',
     });
   },
 );

@@ -37,11 +37,12 @@ const DEFAULT_SETTINGS: Record<string, string> = {
   /** How many Setup*.exe to keep under /upgrades (1–20). */
   upgrades_keep_count: '3',
   /**
-   * Optional student LAN auto-update prompt (0=off, 1=on).
-   * When on + version drift + /upgrades has Setup.exe, student shows a visible confirm then opens the LAN installer URL.
-   * Never silent; never pulls public GitHub on lab PCs.
+   * Teacher-controlled force same-version (0=off, 1=on). Default on for new installs.
+   * When on + version drift: students cannot cancel; download LAN Setup and silent-install.
+   * Uploading a new Setup.exe also turns this on. Teacher may turn off (teacher authority > student).
+   * Never pulls public GitHub on lab PCs.
    */
-  student_auto_update: '0',
+  student_auto_update: '1',
   /**
    * BYOD / browser must use /portal; lab-agent (X-Cd-Client: lab-agent) still reads public roster.
    * Setup wizard recommends on; default seeded to 1.
@@ -171,8 +172,26 @@ export function migrate(database?: DatabaseSync): DatabaseSync {
   ensureAssistantRoleAllowed(conn);
   seedSettings(conn);
   backfillAssistantPasswordOk(conn);
+  enableForceStudentVersionDefaultOnce(conn);
   alignLegacyRecycleRetention30to7(conn);
   return conn;
+}
+
+/** One-shot: turn on forced same-version for existing classrooms (teacher may still disable). */
+function enableForceStudentVersionDefaultOnce(conn: DatabaseSync): void {
+  if (getSetting(conn, 'student_force_version_default_v1') === '1') return;
+  conn
+    .prepare(
+      `INSERT INTO settings (key, value) VALUES ('student_auto_update', '1')
+       ON CONFLICT(key) DO UPDATE SET value = '1'`,
+    )
+    .run();
+  conn
+    .prepare(
+      `INSERT INTO settings (key, value) VALUES ('student_force_version_default_v1', '1')
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+    )
+    .run();
 }
 
 /** Expand users.role CHECK to include assistant (SQLite requires table rebuild). */

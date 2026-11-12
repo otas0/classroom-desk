@@ -992,7 +992,7 @@
   "当前密码": "Current password",
   "新密码": "New password",
   "修改登录密码": "Change login password",
-"冻结 / 仅试卷 / 放行。不拦任务管理器；Alt+Tab 需 Assigned Access。": "Freeze / exam-only / allow. Task Manager not blocked; Alt+Tab needs Assigned Access.",
+  "冻结 / 仅试卷 / 放行。不拦任务管理器；Alt+Tab 需 Assigned Access。": "Freeze / exam-only / allow. Task Manager not blocked; Alt+Tab needs Assigned Access.",
   "网络配置档（高级）": "Network profiles (advanced)",
   "清零": "Reset",
   "学生机应用与网页": "Student apps & web",
@@ -1040,8 +1040,6 @@
   "打开/关闭学生机上的应用或网页；拉黑名单持续拦截（学生端请求 + 教师机 CLASSROOM_DESK_DNS=1 时 DNS 返回 0.0.0.0）。掉线时可强硬全屏锁。": "Open/close apps or pages; block lists stay on (in-app requests, and DNS → 0.0.0.0 when CLASSROOM_DESK_DNS=1). Offline can force a fullscreen lock.",
   "顶栏 /health 轮询：生产默认 30s，开发默认 8s。也可构建时设 VITE_HEALTH_POLL_MS。": "Top-bar /health poll: 30s prod, 8s dev. Or set VITE_HEALTH_POLL_MS at build.",
   "当前生效间隔：{v0}ms（{v1}）": "Effective interval: {v0}ms ({v1})",
-  "当前密码": "Current password",
-  "新密码": "New password",
   "备份加密口令（可留空）": "Backup passphrase (optional)",
   "已保存备份加密口令": "Backup passphrase saved",
   "已清空备份加密口令": "Backup passphrase cleared",
@@ -1063,5 +1061,7 @@
   "正在强制升级到教师端 v{v0}…": "Forcing upgrade to teacher v{v0}…",
   "强制升级失败：{v0}，将重试": "Forced upgrade failed: {v0}; will retry",
   "教师端要求保持同版本 · 本机 v{v0} → v{v1}": "Teacher requires same version · local v{v0} → v{v1}",
-  "不可取消；安装完成后自动重启学生端": "Cannot cancel; student app restarts after install"
+  "不可取消；安装完成后自动重启学生端": "Cannot cancel; student app restarts after install",
+  "学生机强制跟教师端同版本（教师控制；默认开；学生不可取消）": "Force students to match teacher version (teacher-controlled; default on; students cannot cancel)",
+  "教师权更高：上传新 Setup 会自动打开本开关。关闭后才允许版本不一致。学生端无法拒绝跟版。": "Teacher authority is higher: uploading a new Setup turns this on. Only turning it off allows version drift. Students cannot refuse."
 }

@@ -103,7 +103,7 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
   const [healthDetail, setHealthDetail] = useState('');
   const [expectedClientVersion, setExpectedClientVersion] = useState('');
   const [lanUpgradeUrl, setLanUpgradeUrl] = useState('');
-  const [studentAutoUpdate, setStudentAutoUpdate] = useState(false);
+  const [studentAutoUpdate, setStudentAutoUpdate] = useState(true);
   const forceUpgradeBusyRef = useRef(false);
   const [forceUpgradeMsg, setForceUpgradeMsg] = useState('');
   const [newQuizPulse, setNewQuizPulse] = useState(false);
@@ -956,7 +956,7 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
           };
           const lan = String(up.preferredLanUrl ?? '').trim();
           setLanUpgradeUrl(lan);
-          setStudentAutoUpdate(up.studentAutoUpdate === true);
+          setStudentAutoUpdate(up.studentAutoUpdate ?? true);
           const exp2 = String(up.expectedVersion ?? '').trim();
           if (exp2) setExpectedClientVersion(exp2);
         }
@@ -1180,19 +1180,24 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
     return '可退出';
   }, [exitAllowed, exitUnlockUntil, nowTick]);
 
-  async function onToggleCollapse() {
-    if (window.classroomDesk) {
-      const next = await window.classroomDesk.toggleCollapse();
-      setCollapsed(next);
-    } else setCollapsed((c) => !c);
-  }
-
   const visibleTabs = TABS.filter((t) => t.id !== 'messages' || messagesEnabled);
 
   const versionDrift =
     Boolean(expectedClientVersion) &&
     CLIENT_VERSION !== '0.0.0' &&
     expectedClientVersion !== CLIENT_VERSION;
+
+  async function onToggleCollapse() {
+    // Force same-version: teacher authority > student — cannot tuck away the overlay.
+    if (studentAutoUpdate && versionDrift) {
+      await expandCollapsed();
+      return;
+    }
+    if (window.classroomDesk) {
+      const next = await window.classroomDesk.toggleCollapse();
+      setCollapsed(next);
+    } else setCollapsed((c) => !c);
+  }
 
   const openUpgradeUrl = useCallback(async (url: string) => {
     const target = String(url ?? '').trim();
@@ -1204,9 +1209,10 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
     window.open(target, '_blank', 'noopener,noreferrer');
   }, []);
 
-  // Teacher-optional force sync: when on, students cannot cancel — must match teacher version.
+  // Teacher-controlled force sync: when on, students cannot cancel — teacher authority > student.
   useEffect(() => {
     if (!versionDrift || !studentAutoUpdate) return;
+    void expandCollapsed();
     let cancelled = false;
     const run = async () => {
       if (!lanUpgradeUrl) {
@@ -1258,7 +1264,8 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
     );
   }
 
-  if (collapsed) {
+  // Force same-version must not stay tucked in the corner chip.
+  if (collapsed && !(studentAutoUpdate && versionDrift)) {
     return (
       <div className={`shell collapsed${newQuizPulse ? ' quiz-flash' : ''}`}>
         <header className="titlebar" data-drag>

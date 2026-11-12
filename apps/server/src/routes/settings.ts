@@ -96,7 +96,7 @@ settingsRouter.get('/api/v1/settings/public', (req, res) => {
     inputLockAttendanceSessionId: store.attendanceSessionId ?? null,
     inputLockClearedReason: inputLockClearedReasonNow(),
     examModeSnapshot: hasExamModeSnapshot(db),
-    studentAutoUpdate: (getSetting(db, 'student_auto_update') ?? '0') === '1',
+    studentAutoUpdate: (getSetting(db, 'student_auto_update') ?? '1') === '1',
   });
 });
 
@@ -142,7 +142,7 @@ settingsRouter.get('/api/v1/settings', requireAuth, requireRoles('teacher', 'adm
           .get() as { createdAt?: string } | undefined
       )?.createdAt ?? null,
     upgradesKeepCount: Number(getSetting(db, 'upgrades_keep_count') ?? 3),
-    studentAutoUpdate: (getSetting(db, 'student_auto_update') ?? '0') === '1',
+    studentAutoUpdate: (getSetting(db, 'student_auto_update') ?? '1') === '1',
     restoreConfirmEmail: getSetting(db, 'restore_confirm_email') ?? '',
     hasBackupEncryptPassphrase: Boolean((getSetting(db, 'backup_encrypt_passphrase') ?? '').trim()),
     projectionHighContrast: (getSetting(db, 'projection_high_contrast') ?? '0') === '1',
