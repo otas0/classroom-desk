@@ -18,7 +18,7 @@
 | 教师机 | `git clone` → `npm install` → **`npm run start:classroom`** → 浏览器开 `/admin/`（字体/构建已含） |
 | 学生机 | 下载 `ClassroomDesk-Setup-*.exe` → 扫码指派（或手填 `apiBase` + `classId`） |
 
-未签名安装包：Windows SmartScreen →「更多信息」→「仍要运行」。说明见 [SMARTSCREEN.md](./SMARTSCREEN.md)。
+已签名 Release：优先使用 `ClassroomDesk-Setup-<version>.exe`（[ARTIFACTS.md](./ARTIFACTS.md)）。未签名应急包：SmartScreen →「更多信息」→「仍要运行」；**禁止**关闭 Defender（[SMARTSCREEN.md](./SMARTSCREEN.md)）。连班 PIN 仅教室 LAN：[CLASSROOM_JOIN_SECURITY.md](./CLASSROOM_JOIN_SECURITY.md)。
 
 ### 合规（强制勾选）
 

@@ -10,51 +10,93 @@ IP="${1:?Usage: $0 <teacher-ip> [path-to-Setup.exe]}"
 EXE_SRC="${2:-}"
 DEST="$ROOT/releases/$IP"
 VERSION="${CD_SETUP_VERSION:-0.1.7}"
-EXPECTED_SHA="${CD_SETUP_SHA256:-992ee805ff2a8e92f66dfaee6d26068b29ac598d08082af0ebc399408f898b57}"
+# CD_WIN_ARCH=x64|arm64|dual (default x64). dual copies both arch artifacts when present.
+ARCH_MODE="${CD_WIN_ARCH:-x64}"
+EXPECTED_SHA="${CD_SETUP_SHA256:-}"
 
 mkdir -p "$DEST"
 
-# Drop stale Setup builds so the stick only carries the pinned version.
+pick_exe() {
+  local arch="$1"
+  local name=""
+  if [[ "$arch" == "arm64" ]]; then
+    name="ClassroomDesk-Setup-${VERSION}-arm64.exe"
+  elif [[ "$arch" == "x64" ]]; then
+    name="ClassroomDesk-Setup-${VERSION}-x64.exe"
+  else
+    name="ClassroomDesk-Setup-${VERSION}.exe"
+  fi
+  for cand in \
+    "$EXE_SRC" \
+    "$ROOT/artifacts/windows-pack-check/$name" \
+    "$ROOT/apps/student-desktop/release/$name" \
+    "$ROOT/apps/student-desktop/release/ClassroomDesk-Setup-${VERSION}.exe"
+  do
+    if [[ -n "$cand" && -f "$cand" ]]; then
+      echo "$cand"
+      return 0
+    fi
+  done
+  return 1
+}
+
+copy_one() {
+  local arch="$1"
+  local src
+  src=$(pick_exe "$arch") || {
+    echo "Missing Setup for arch=$arch (CD_WIN_ARCH=$ARCH_MODE)" >&2
+    echo "  Place under apps/student-desktop/release/ or pass path as \$2" >&2
+    return 1
+  }
+  local dest_name
+  if [[ "$arch" == "arm64" ]]; then
+    dest_name="ClassroomDesk-Setup-${VERSION}-arm64.exe"
+  elif [[ "$arch" == "legacy" ]]; then
+    dest_name="ClassroomDesk-Setup-${VERSION}.exe"
+  else
+    dest_name="ClassroomDesk-Setup-${VERSION}-x64.exe"
+  fi
+  cp -f "$src" "$DEST/$dest_name"
+  if [[ -f "${src}.sha256" ]]; then
+    cp -f "${src}.sha256" "$DEST/${dest_name}.sha256"
+  else
+    if command -v shasum >/dev/null 2>&1; then
+      HASH=$(shasum -a 256 "$DEST/$dest_name" | awk '{print $1}')
+    else
+      HASH=$(sha256sum "$DEST/$dest_name" | awk '{print $1}')
+    fi
+    printf '%s  %s\n' "$HASH" "$dest_name" >"$DEST/${dest_name}.sha256"
+  fi
+  echo "packed $dest_name"
+  # Keep legacy unsuffixed alias for x64 USB scripts.
+  if [[ "$arch" == "x64" ]]; then
+    cp -f "$DEST/$dest_name" "$DEST/ClassroomDesk-Setup-${VERSION}.exe"
+    cp -f "$DEST/${dest_name}.sha256" "$DEST/ClassroomDesk-Setup-${VERSION}.exe.sha256"
+  fi
+}
+
+# Drop stale Setup builds so the stick only carries the pinned version(s).
 shopt -s nullglob
 for stale in "$DEST"/ClassroomDesk-Setup-*.exe "$DEST"/ClassroomDesk-Setup-*.exe.sha256; do
-  base=$(basename "$stale")
-  if [[ "$base" != "ClassroomDesk-Setup-${VERSION}.exe" && "$base" != "ClassroomDesk-Setup-${VERSION}.exe.sha256" ]]; then
-    rm -f "$stale"
-    echo "removed stale $base"
-  fi
+  rm -f "$stale"
 done
 shopt -u nullglob
 
-if [[ -z "$EXE_SRC" ]]; then
-  for cand in \
-    "$ROOT/artifacts/windows-pack-check/ClassroomDesk-Setup-${VERSION}.exe" \
-    "$ROOT/apps/student-desktop/release/ClassroomDesk-Setup-${VERSION}.exe"
-  do
-    if [[ -f "$cand" ]]; then EXE_SRC="$cand"; break; fi
-  done
-fi
+case "$ARCH_MODE" in
+  dual)
+    copy_one x64
+    copy_one arm64 || echo "WARN: arm64 Setup missing — USB has x64 only" >&2
+    ;;
+  arm64)
+    copy_one arm64
+    ;;
+  *)
+    copy_one x64 || copy_one legacy
+    ;;
+esac
 
-if [[ -z "$EXE_SRC" || ! -f "$EXE_SRC" ]]; then
-  echo "Missing Setup.exe. Pass path or place under artifacts/windows-pack-check/" >&2
-  echo "  gh release download v${VERSION} -p 'ClassroomDesk-Setup-${VERSION}.exe*' -D artifacts/windows-pack-check" >&2
-  exit 1
-fi
-
-cp -f "$EXE_SRC" "$DEST/ClassroomDesk-Setup-${VERSION}.exe"
-SIDE="${EXE_SRC}.sha256"
-if [[ -f "$SIDE" ]]; then
-  cp -f "$SIDE" "$DEST/ClassroomDesk-Setup-${VERSION}.exe.sha256"
-else
-  if command -v shasum >/dev/null 2>&1; then
-    HASH=$(shasum -a 256 "$DEST/ClassroomDesk-Setup-${VERSION}.exe" | awk '{print $1}')
-  else
-    HASH=$(sha256sum "$DEST/ClassroomDesk-Setup-${VERSION}.exe" | awk '{print $1}')
-  fi
-  printf '%s  ClassroomDesk-Setup-%s.exe\n' "$HASH" "$VERSION" >"$DEST/ClassroomDesk-Setup-${VERSION}.exe.sha256"
-fi
-
-ACTUAL=$(awk '{print $1}' "$DEST/ClassroomDesk-Setup-${VERSION}.exe.sha256")
-if [[ -n "$EXPECTED_SHA" && "$ACTUAL" != "$EXPECTED_SHA" ]]; then
+ACTUAL=$(awk '{print $1}' "$DEST/ClassroomDesk-Setup-${VERSION}.exe.sha256" 2>/dev/null || true)
+if [[ -n "$EXPECTED_SHA" && -n "$ACTUAL" && "$ACTUAL" != "$EXPECTED_SHA" ]]; then
   echo "WARN: sha256 $ACTUAL != expected $EXPECTED_SHA (override with CD_SETUP_SHA256=)" >&2
 fi
 

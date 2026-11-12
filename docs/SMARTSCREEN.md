@@ -1,14 +1,22 @@
 # 教室机旁 SmartScreen / 组策略放行（可打印）
 
-**适用：** 未签名或新发布的 `ClassroomDesk-Setup-*.exe`  
+**适用：** `ClassroomDesk-Setup-*.exe`（优先**已签名**发布包；未签名仅应急）  
 **对象：** 任课教师 / 机房管理员  
-**目标：** 任意机房本地部署均可安装，不依赖代码签名证书。
+
+## 首选路径（学校 IT）
+
+1. 用**发布者代码签名证书**签署 Setup（x64 / arm64 同证书）。  
+2. 分发 Release / USB 清单中的 exe + `.sha256`；USB 勾选见 [LOCAL_USB_CHECKLIST.md](./LOCAL_USB_CHECKLIST.md)。  
+3. SmartScreen 信誉随同一发布者安装量上升；**不要**教师生关闭 Microsoft Defender 或全局关闭 SmartScreen 当「功能」。  
+4. 域环境用 WDAC / AppLocker **按发布者或哈希允许**，而不是关防护。
+
+未签名或全新发布者时，才用下方「应急放行」。连班 HTTP/PIN 边界见 [CLASSROOM_JOIN_SECURITY.md](./CLASSROOM_JOIN_SECURITY.md)。
 
 ---
 
 ## 对学生怎么说（30 秒）
 
-「这是学校发的课堂客户端，不是网上下载的未知软件。如果 Windows 提示『未知发布者』，点 **更多信息 → 仍要运行**。装完后老师会帮你们填教室服务器地址。」
+「这是学校发的课堂客户端。若已是学校签名包，按正常安装即可。若提示未知发布者，等老师按学校流程处理——不要自己关杀毒软件。」
 
 ---
 
@@ -41,17 +49,15 @@
 ### B1. SmartScreen 对指定路径放宽（Win10/11 教育版常见）
 
 1. `gpedit.msc`（或域 GPO）→ **计算机配置 → 管理模板 → Windows 组件 → Windows Defender SmartScreen → Explorer**。
-2. **配置 Windows Defender SmartScreen** → 启用，选「警告」或按校策「关闭」（仅机房镜像建议关闭）。
-3. 或保留 SmartScreen，改用 **软件限制 / WDAC 白名单** 放行安装目录，例如：  
+2. **配置 Windows Defender SmartScreen** → 保持启用；用「警告」而非关闭。  
+3. 用 **WDAC / AppLocker 白名单**（发布者证书或 Setup SHA256）放行，例如安装目录：  
    `C:\Program Files\Classroom Desk\`  
    `C:\Users\*\AppData\Local\Programs\Classroom Desk\`（以实际安装路径为准）。
 
-### B2. Defender 排除（降低误杀未签名包）
+### B2. Defender（误杀时）
 
-**计算机配置 → 管理模板 → Windows 组件 → Microsoft Defender 防病毒 → 排除项**
-
-- 排除路径：安装目录 + 学生机 `config.json` 所在用户目录（若策略允许）。
-- 排除进程：`Classroom Desk.exe`（productName 以 electron-builder 为准）。
+优先：**允许**该次威胁历史中的 Setup（按哈希），而不是全局排除整个磁盘。  
+仅在学校 IT 书面批准下，才对安装目录做窄排除；**禁止**作为教室标准作业关闭 Defender。
 
 ### B3. AppLocker / WDAC（高安全机房）
 

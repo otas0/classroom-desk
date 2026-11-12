@@ -26,8 +26,17 @@ const upload = multer({
       fs.mkdirSync(dir, { recursive: true });
       cb(null, dir);
     },
-    filename: (_req, file, cb) => {
-      const safe = path.basename(file.originalname).replace(/[^\w.\-()+ ]+/g, '_');
+    filename: (req, file, cb) => {
+      let safe = path.basename(file.originalname).replace(/[^\w.\-()+ ]+/g, '_');
+      const archField = String((req as { body?: { arch?: string } }).body?.arch ?? '')
+        .trim()
+        .toLowerCase();
+      if (/\.exe$/i.test(safe) && (archField === 'x64' || archField === 'arm64')) {
+        const archTag = archField === 'arm64' ? '-arm64' : '-x64';
+        if (!new RegExp(`${archTag}\\.`, 'i').test(safe) && !/arm64|x64|amd64/i.test(safe)) {
+          safe = safe.replace(/\.exe$/i, `${archTag}.exe`);
+        }
+      }
       cb(null, safe || `upgrade-${Date.now()}.exe`);
     },
   }),
@@ -47,7 +56,15 @@ function publicBase(req: AuthedRequest): string {
   return `${proto}://${host}`;
 }
 
-function listUpgradeFiles(req: AuthedRequest) {
+function detectArch(name: string): 'arm64' | 'x64' | 'unknown' {
+  if (/-arm64\./i.test(name) || /arm64/i.test(name)) return 'arm64';
+  if (/-x64\./i.test(name) || /x64|amd64/i.test(name)) return 'x64';
+  // Legacy unsuffixed Setup → treat as x64 alias.
+  if (/ClassroomDesk-Setup-[\d.]+\.exe$/i.test(name)) return 'x64';
+  return 'unknown';
+}
+
+function listUpgradeFiles(req: AuthedRequest, preferArch?: string) {
   const dir = upgradesDir();
   fs.mkdirSync(dir, { recursive: true });
   const expected = packageVersion();
@@ -62,13 +79,26 @@ function listUpgradeFiles(req: AuthedRequest) {
         size: st.size,
         mtime: st.mtime.toISOString(),
         url: `${publicBase(req)}/upgrades/${encodeURIComponent(name)}`,
+        arch: detectArch(name),
       };
     })
     .sort((a, b) => b.mtime.localeCompare(a.mtime));
-  const setup = files.find((f) => /Setup.*\.exe$/i.test(f.name) || /ClassroomDesk.*\.exe$/i.test(f.name));
+  const setups = files.filter(
+    (f) => /Setup.*\.exe$/i.test(f.name) || /ClassroomDesk.*\.exe$/i.test(f.name),
+  );
+  const arch = preferArch === 'arm64' || preferArch === 'x64' ? preferArch : '';
+  const setup =
+    (arch ? setups.find((f) => f.arch === arch) : null) ||
+    setups.find((f) => f.arch === 'x64') ||
+    setups[0] ||
+    null;
   const shaName = setup ? `${setup.name}.sha256` : null;
   const shaFile = shaName ? files.find((f) => f.name === shaName) : null;
   const autoUpdate = (getSetting(openDb(), 'student_auto_update') ?? '1') === '1';
+  const byArch = {
+    x64: setups.find((f) => f.arch === 'x64') ?? null,
+    arm64: setups.find((f) => f.arch === 'arm64') ?? null,
+  };
   return {
     expectedVersion: expected,
     dir,
@@ -76,22 +106,27 @@ function listUpgradeFiles(req: AuthedRequest) {
     preferredLanUrl: setup?.url ?? null,
     preferredLanSha256Url: shaFile?.url ?? null,
     preferredLanName: setup?.name ?? null,
+    preferredArch: setup?.arch ?? null,
+    byArch,
     studentAutoUpdate: autoUpdate,
     githubReleaseUrl: `${GITHUB_RELEASES_BASE}/tag/v${expected}`,
     tipTemplate: setup
-      ? `请从教室局域网安装：${setup.url}（应对齐 v${expected}）`
+      ? `请从教室局域网安装：${setup.url}（应对齐 v${expected}${setup.arch !== 'unknown' ? ` · ${setup.arch}` : ''}）`
       : `请从 Release 安装 v${expected}：${GITHUB_RELEASES_BASE}/tag/v${expected}`,
   };
 }
 
 /** Public latest LAN package (no auth) — students use for drift banner / teacher-forced sync. */
 upgradesRouter.get('/api/v1/upgrades/latest', (req: AuthedRequest, res) => {
-  const info = listUpgradeFiles(req);
+  const arch = String(req.query.arch ?? '').trim().toLowerCase();
+  const info = listUpgradeFiles(req, arch);
   res.json({
     expectedVersion: info.expectedVersion,
     preferredLanUrl: info.preferredLanUrl,
     preferredLanSha256Url: info.preferredLanSha256Url,
     preferredLanName: info.preferredLanName,
+    preferredArch: info.preferredArch,
+    byArch: info.byArch,
     studentAutoUpdate: info.studentAutoUpdate,
     githubReleaseUrl: info.githubReleaseUrl,
     tipTemplate: info.tipTemplate,

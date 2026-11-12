@@ -11,7 +11,8 @@
 
 | 文件 | 校验 |
 |---|---|
-| `ClassroomDesk-Setup-0.1.7.exe` | SHA256 `992ee805ff2a8e92f66dfaee6d26068b29ac598d08082af0ebc399408f898b57` |
+| 已签名的 `ClassroomDesk-Setup-0.1.7.exe`（或 `*-x64.exe`） | SHA256 `992ee805ff2a8e92f66dfaee6d26068b29ac598d08082af0ebc399408f898b57` |
+| `ClassroomDesk-Setup-*-arm64.exe` | ARM / UTM Windows；旁路 `.sha256` 另核 |
 | `ClassroomDesk-Setup-0.1.7.exe.sha256` | 第一列须与上表一致 |
 
 ```powershell
@@ -51,7 +52,9 @@ CD_TOKEN="$TOKEN" CD_CLASS_ID="<classId>" \
 
 - `apiBase=http://<教师机局域网IP>:8787`（写入 settings + 学生 `config.json`）  
 - 名单/题目/留言：**禁止预填假名**；空库显示空状态；仅真实导入与真实发题  
-- 未签名包：SmartScreen 步骤见 [SMARTSCREEN.md](./SMARTSCREEN.md)
+- **优先使用学校发布者证书签名的 Setup**（与 Release / Artifact 同名 `.exe` + `.sha256`）；SmartScreen 信誉随发布者积累  
+- 未签名应急包：见 [SMARTSCREEN.md](./SMARTSCREEN.md)（**禁止**把「关闭 Defender / 关 SmartScreen」当作产品标准步骤）  
+- 连班口令仅教室网：见 [CLASSROOM_JOIN_SECURITY.md](./CLASSROOM_JOIN_SECURITY.md)
 
 ## 合规（强制）
 
