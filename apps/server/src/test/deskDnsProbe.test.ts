@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import {
   parseLsofUdp53,
   preferDeskDnsProbeTool,
+  probeDeskDnsResolution,
 } from '../services/deskDnsProbe.js';
 
 assert.equal(
@@ -36,6 +37,11 @@ if (process.platform === 'darwin') {
     preferDeskDnsProbeTool({ platform: process.platform, hasSs: false, hasLsof: true }),
     'lsof',
   );
+}
+
+{
+  const r = await probeDeskDnsResolution({ hostname: '', teacherIps: [] });
+  assert.equal(r.pointsAtTeacher, null);
 }
 
 console.log('deskDnsProbe.test.ts ok');

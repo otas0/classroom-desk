@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { API_BASE, api } from '../api';
 import { t } from '@classroom-desk/i18n';
+import { ProjectionRoomBanner } from './ProjectionRoomBanner';
 
 export function LiveBoard({
   classId,
@@ -430,6 +431,7 @@ export function LiveBoard({
       style={barStyle}
     >
       <h2>{t('大屏答题态势')}</h2>
+      {projection ? <ProjectionRoomBanner classId={classId} /> : null}
       {projection && inputLockSseFallback ? (
         <p className="hint" data-testid="projection-input-lock-sse-fallback" role="status">
           输入锁实时通道已切到 5 秒轮询

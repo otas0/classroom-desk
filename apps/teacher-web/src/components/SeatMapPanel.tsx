@@ -8,10 +8,13 @@ type Seat = {
   rowIndex: number;
   colIndex: number;
   label: string;
+  hostname: string;
   studentId: string | null;
   displayName: string | null;
   studentNo: string | null;
   online: boolean;
+  machineOnline?: boolean;
+  absent?: boolean;
 };
 
 type Roster = { id: string; displayName: string; studentNo: string | null };
@@ -63,6 +66,7 @@ export function SeatMapPanel({ classId }: { classId: string }) {
     seatLabels?: string[];
   } | null>(null);
   const [unlockLabelsExpanded, setUnlockLabelsExpanded] = useState(false);
+  const [csvBusy, setCsvBusy] = useState(false);
   const UNLOCK_LABEL_PREVIEW = 5;
 
   async function load() {
@@ -182,6 +186,25 @@ export function SeatMapPanel({ classId }: { classId: string }) {
       if (isSeatNetworkError(e)) setPendingSwap({ a, b });
       else setPendingSwap(null);
       await load();
+    }
+  }
+
+  async function importCsv(file: File | null) {
+    if (!file || !classId) return;
+    setCsvBusy(true);
+    setMsg('');
+    try {
+      const csv = await file.text();
+      const r = await api<{ imported: number }>(`/api/v1/classes/${classId}/seats/import-csv`, {
+        method: 'POST',
+        body: JSON.stringify({ csv }),
+      });
+      setMsg(t('CSV 导入 {v0} 行机位', { v0: r.imported }));
+      await load();
+    } catch (e) {
+      setMsg(te(e, 'CSV 导入失败'));
+    } finally {
+      setCsvBusy(false);
     }
   }
 
@@ -340,7 +363,23 @@ export function SeatMapPanel({ classId }: { classId: string }) {
         {offlineBound} 个。同班一人一座。
       </p>
       {!classId ? <p className="hint">{t('请先选择班级')}</p> : null}
+      {classId && !items.length ? (
+        <p className="hint" data-testid="seat-map-empty">
+          {t('尚未配置机位：生成网格或导入 CSV（hostname,seatLabel）。')}
+        </p>
+      ) : null}
       <div className="row">
+        <label className="secondary" style={{ cursor: 'pointer' }}>
+          <input
+            type="file"
+            accept=".csv,text/csv"
+            hidden
+            data-testid="seat-csv-import"
+            disabled={!classId || csvBusy}
+            onChange={(e) => void importCsv(e.target.files?.[0] ?? null)}
+          />
+          {csvBusy ? t('导入中…') : t('CSV 导入机位')}
+        </label>
         <label>
           行
           <input type="number" min={1} max={20} value={rows} onChange={(e) => setRows(Number(e.target.value) || 1)} />
@@ -473,9 +512,12 @@ export function SeatMapPanel({ classId }: { classId: string }) {
             title={`${s.label} · ${t('拖到其它座位换座')}`}
           >
             <span className="seat-label">{s.label}</span>
+            {s.hostname ? <span className="seat-host hint">{s.hostname}</span> : null}
             <span className="seat-name">
               {s.displayName ? s.displayName : t('空位')}
               {s.studentNo ? ` · ${s.studentNo}` : ''}
+              {s.absent ? ` · ${t('未到')}` : ''}
+              {s.machineOnline && !s.online ? ` · ${t('机在线')}` : ''}
             </span>
           </button>
         ))}
