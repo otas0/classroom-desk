@@ -60,7 +60,7 @@ async function main() {
 
   // 1. teacher login
   const login = await req('POST', '/api/v1/auth/login', {
-    body: { username: 'teacher', password: 'TeacherPass123' },
+    body: { username: 'teacher', password: 'CiTeacherPass9!' },
   });
   if (!login.res.ok) {
     // try admin

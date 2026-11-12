@@ -85,9 +85,11 @@ export async function ensureBootstrap(db: DatabaseSync): Promise<void> {
     db.prepare(`SELECT COUNT(*) AS c FROM users WHERE role IN ('teacher', 'admin')`).get() as { c: number }
   ).c;
 
+  const username = process.env.TEACHER_USERNAME?.trim() || 'teacher';
+  const envTeacherPassword = process.env.TEACHER_PASSWORD?.trim() || '';
+
   if (teacherCount === 0) {
-    const username = process.env.TEACHER_USERNAME?.trim() || 'teacher';
-    const password = process.env.TEACHER_PASSWORD?.trim() || randomTempPassword();
+    const password = envTeacherPassword || randomTempPassword();
     const hash = await hashPassword(password);
     const teacherId = newId();
     const classId = newId();
@@ -106,6 +108,15 @@ export async function ensureBootstrap(db: DatabaseSync): Promise<void> {
     console.warn(
       `[bootstrap] created teacher "${username}" and class code ${classCode}. Teacher password (env TEACHER_PASSWORD or generated): ${password}`,
     );
+  } else if (envTeacherPassword) {
+    // CI / lab: force-align named teacher password when TEACHER_PASSWORD is set
+    // (DB may already have a teacher from a prior seed with a different hash).
+    const existing = findUserByUsername(db, username);
+    if (existing?.id && (existing.role === 'teacher' || existing.role === 'admin')) {
+      const hash = await hashPassword(envTeacherPassword);
+      db.prepare(`UPDATE users SET password_hash = ? WHERE id = ?`).run(hash, existing.id);
+      console.log(`[bootstrap] teacher "${username}" password hash aligned from TEACHER_PASSWORD env`);
+    }
   }
 }
 
