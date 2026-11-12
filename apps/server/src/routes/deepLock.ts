@@ -97,6 +97,16 @@ deepLockRouter.post(
       );
       if (action === 'end' && classId) clearFocusViolations(db, classId);
       if (action === 'end' && !classId) clearFocusViolations(db, null);
+      let easyJoinCleared = false;
+      if (action === 'end') {
+        const { maybeAutoOffEasyJoin } = await import('../services/easyJoin.js');
+        easyJoinCleared = maybeAutoOffEasyJoin(db, {
+          actorUserId: req.user?.id,
+          actorRole: req.user?.role,
+          clientIp: req.ip,
+          reason: 'deep_lock_end',
+        });
+      }
       broadcastDeepLock(db);
       broadcastInputLock(db);
       broadcastExitLockPayload(getClientExitLockState(db));
@@ -105,6 +115,7 @@ deepLockRouter.post(
         action,
         state,
         store,
+        easyJoinCleared,
         violations: listFocusViolations(db).slice(0, 50),
         shield: {
           id: getShieldConnector().id,

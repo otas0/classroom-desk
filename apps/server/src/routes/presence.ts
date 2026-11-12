@@ -36,6 +36,10 @@ presenceRouter.post(
     const clientPlatform = String(req.body?.clientPlatform ?? req.body?.platform ?? '')
       .trim()
       .slice(0, 64);
+    const clientArch = String(req.body?.clientArch ?? req.body?.arch ?? '')
+      .trim()
+      .toLowerCase()
+      .slice(0, 16);
     const clientId = String(req.body?.clientId ?? req.body?.presenceClientId ?? '')
       .trim()
       .slice(0, 64);
@@ -55,6 +59,14 @@ presenceRouter.post(
     const netGateway = String(netHintRaw?.gateway ?? req.body?.netGateway ?? '')
       .trim()
       .slice(0, 64);
+    const dnsRaw = req.body?.dnsServers ?? netHintRaw?.dnsServers ?? req.body?.netDnsServers;
+    const dnsServers = Array.isArray(dnsRaw)
+      ? dnsRaw
+          .map((d) => String(d ?? '').trim())
+          .filter(Boolean)
+          .slice(0, 8)
+      : [];
+    const netDnsServers = dnsServers.join(',');
     const hint = { ssid: netSsid, ipv4: netIpv4, gateway: netGateway };
 
     const zoneResult = await enforceStudentZonePolicy(db, {
@@ -68,15 +80,19 @@ presenceRouter.post(
 
     db.prepare(
       `INSERT INTO presence_heartbeats (
-         student_id, class_id, last_seen_at, client_version, client_platform, client_id, hardened,
-         net_ssid, net_ipv4, net_gateway, net_zone_id, net_zone_unauthorized
+         student_id, class_id, last_seen_at, client_version, client_platform, client_arch, client_id, hardened,
+         net_ssid, net_ipv4, net_gateway, net_dns_servers, net_zone_id, net_zone_unauthorized
        )
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(student_id) DO UPDATE SET
          class_id = excluded.class_id,
          last_seen_at = excluded.last_seen_at,
          client_version = excluded.client_version,
          client_platform = excluded.client_platform,
+         client_arch = CASE
+           WHEN excluded.client_arch != '' THEN excluded.client_arch
+           ELSE presence_heartbeats.client_arch
+         END,
          client_id = CASE
            WHEN excluded.client_id != '' THEN excluded.client_id
            ELSE presence_heartbeats.client_id
@@ -85,6 +101,10 @@ presenceRouter.post(
          net_ssid = excluded.net_ssid,
          net_ipv4 = excluded.net_ipv4,
          net_gateway = excluded.net_gateway,
+         net_dns_servers = CASE
+           WHEN excluded.net_dns_servers != '' THEN excluded.net_dns_servers
+           ELSE presence_heartbeats.net_dns_servers
+         END,
          net_zone_id = excluded.net_zone_id,
          net_zone_unauthorized = excluded.net_zone_unauthorized`,
     ).run(
@@ -93,11 +113,13 @@ presenceRouter.post(
       now,
       clientVersion,
       clientPlatform,
+      clientArch,
       clientId,
       hardened,
       netSsid,
       netIpv4,
       netGateway,
+      netDnsServers,
       zoneId,
       zoneUnauthorized,
     );

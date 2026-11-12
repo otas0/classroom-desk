@@ -25,6 +25,7 @@ seatsRouter.get(
     const seats = db
       .prepare(
         `SELECT s.id, s.row_index AS rowIndex, s.col_index AS colIndex, s.label,
+                COALESCE(s.hostname, '') AS hostname,
                 s.student_id AS studentId,
                 u.display_name AS displayName, u.student_no AS studentNo
          FROM seat_map s
@@ -37,22 +38,34 @@ seatsRouter.get(
       rowIndex: number;
       colIndex: number;
       label: string;
+      hostname: string;
       studentId: string | null;
       displayName: string | null;
       studentNo: string | null;
     }>;
-    const online = new Set(listPresenceClients(classId, ONLINE_MS).map((c) => c.studentId));
-    const items = seats.map((s) => ({
-      ...s,
-      online: Boolean(s.studentId && online.has(s.studentId)),
-    }));
+    const presence = listPresenceClients(classId, ONLINE_MS);
+    const onlineStudents = new Set(presence.map((c) => c.studentId));
+    const onlineClients = new Set(
+      presence.map((c) => String(c.clientId ?? '').trim().toLowerCase()).filter(Boolean),
+    );
+    const items = seats.map((s) => {
+      const hostKey = String(s.hostname ?? '').trim().toLowerCase();
+      const machineOnline = hostKey ? onlineClients.has(hostKey) : false;
+      const studentOnline = Boolean(s.studentId && onlineStudents.has(s.studentId));
+      return {
+        ...s,
+        online: studentOnline,
+        machineOnline,
+        absent: Boolean(s.studentId && !studentOnline),
+      };
+    });
     const maxRow = items.reduce((m, s) => Math.max(m, s.rowIndex), -1);
     const maxCol = items.reduce((m, s) => Math.max(m, s.colIndex), -1);
     res.json({
       classId,
       rows: maxRow + 1,
       cols: maxCol + 1,
-      onlineCount: online.size,
+      onlineCount: onlineStudents.size,
       offlineBound: items.filter((s) => s.studentId && !s.online).length,
       items,
     });
@@ -77,12 +90,13 @@ seatsRouter.put(
         rowIndex: number;
         colIndex: number;
         label?: string;
+        hostname?: string;
         studentId?: string | null;
       }>;
       db.prepare(`DELETE FROM seat_map WHERE class_id = ?`).run(classId);
       const ins = db.prepare(
-        `INSERT INTO seat_map (id, class_id, row_index, col_index, label, student_id)
-         VALUES (?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO seat_map (id, class_id, row_index, col_index, label, hostname, student_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
       );
       for (const s of seats) {
         const r = Math.trunc(Number(s.rowIndex));
@@ -94,6 +108,7 @@ seatsRouter.put(
           r,
           c,
           String(s.label ?? `${r + 1}-${c + 1}`).slice(0, 32),
+          String(s.hostname ?? '').trim().slice(0, 64),
           s.studentId ? String(s.studentId) : null,
         );
       }
@@ -101,18 +116,36 @@ seatsRouter.put(
       const rows = Math.min(40, Math.max(1, Math.trunc(Number(req.body?.rows ?? 5))));
       const cols = Math.min(40, Math.max(1, Math.trunc(Number(req.body?.cols ?? 6))));
       const existing = db
-        .prepare(`SELECT row_index AS r, col_index AS c, student_id AS studentId, label FROM seat_map WHERE class_id = ?`)
-        .all(classId) as Array<{ r: number; c: number; studentId: string | null; label: string }>;
+        .prepare(
+          `SELECT row_index AS r, col_index AS c, student_id AS studentId, label,
+                  COALESCE(hostname, '') AS hostname
+           FROM seat_map WHERE class_id = ?`,
+        )
+        .all(classId) as Array<{
+        r: number;
+        c: number;
+        studentId: string | null;
+        label: string;
+        hostname: string;
+      }>;
       const keep = new Map(existing.map((e) => [`${e.r},${e.c}`, e]));
       db.prepare(`DELETE FROM seat_map WHERE class_id = ?`).run(classId);
       const ins = db.prepare(
-        `INSERT INTO seat_map (id, class_id, row_index, col_index, label, student_id)
-         VALUES (?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO seat_map (id, class_id, row_index, col_index, label, hostname, student_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
       );
       for (let r = 0; r < rows; r++) {
         for (let c = 0; c < cols; c++) {
           const prev = keep.get(`${r},${c}`);
-          ins.run(newId(), classId, r, c, prev?.label || `${r + 1}-${c + 1}`, prev?.studentId ?? null);
+          ins.run(
+            newId(),
+            classId,
+            r,
+            c,
+            prev?.label || `${r + 1}-${c + 1}`,
+            prev?.hostname ?? '',
+            prev?.studentId ?? null,
+          );
         }
       }
     }
@@ -221,6 +254,78 @@ seatsRouter.post(
   },
 );
 
+/** CSV body (text): header hostname,seatLabel — upserts seats by hostname; no student names. */
+seatsRouter.post(
+  '/api/v1/classes/:id/seats/import-csv',
+  requireAuth,
+  requireRoles('teacher', 'admin'),
+  (req: AuthedRequest, res) => {
+    const classId = String(req.params.id);
+    const db = openDb();
+    if (!db.prepare(`SELECT id FROM classes WHERE id = ?`).get(classId)) {
+      res.status(404).json({ error: 'class_not_found' });
+      return;
+    }
+    const raw = String(req.body?.csv ?? req.body?.text ?? (typeof req.body === 'string' ? req.body : '')).trim();
+    if (!raw) {
+      res.status(400).json({ error: 'csv_required' });
+      return;
+    }
+    const lines = raw.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+    if (!lines.length) {
+      res.status(400).json({ error: 'csv_empty' });
+      return;
+    }
+  const startIdx = /^hostname/i.test(lines[0] ?? '') ? 1 : 0;
+    const byHost = new Map(
+      (
+        db
+          .prepare(`SELECT id, hostname FROM seat_map WHERE class_id = ? AND hostname != ''`)
+          .all(classId) as Array<{ id: string; hostname: string }>
+      ).map((r) => [r.hostname.toLowerCase(), r.id]),
+    );
+    const maxRow = db
+      .prepare(`SELECT COALESCE(MAX(row_index), -1) AS m FROM seat_map WHERE class_id = ?`)
+      .get(classId) as { m: number };
+    let row = Math.max(0, Number(maxRow.m) + 1);
+    let col = 0;
+    let imported = 0;
+    const ins = db.prepare(
+      `INSERT INTO seat_map (id, class_id, row_index, col_index, label, hostname, student_id)
+       VALUES (?, ?, ?, ?, ?, ?, NULL)`,
+    );
+    const upd = db.prepare(`UPDATE seat_map SET label = ? WHERE id = ?`);
+    for (let i = startIdx; i < lines.length; i++) {
+      const parts = lines[i]!.split(/,/).map((p) => p.trim());
+      if (parts.length < 2) continue;
+      const hostname = parts[0]!.slice(0, 64);
+      const label = parts[1]!.slice(0, 32);
+      if (!hostname || !label) continue;
+      const key = hostname.toLowerCase();
+      const existingId = byHost.get(key);
+      if (existingId) {
+        upd.run(label, existingId);
+      } else {
+        const id = newId();
+        ins.run(id, classId, row, col, label, hostname);
+        byHost.set(key, id);
+        col += 1;
+        if (col > 15) {
+          col = 0;
+          row += 1;
+        }
+      }
+      imported += 1;
+    }
+    try {
+      broadcastSeatBind({ classId, changes: [], reloadAll: true });
+    } catch {
+      /* ignore */
+    }
+    res.json({ ok: true, imported });
+  },
+);
+
 seatsRouter.patch(
   '/api/v1/classes/:id/seats/:seatId',
   requireAuth,
@@ -238,6 +343,12 @@ seatsRouter.patch(
     }
     if (req.body?.label != null) {
       db.prepare(`UPDATE seat_map SET label = ? WHERE id = ?`).run(String(req.body.label).slice(0, 32), seatId);
+    }
+    if (req.body?.hostname !== undefined) {
+      db.prepare(`UPDATE seat_map SET hostname = ? WHERE id = ?`).run(
+        String(req.body.hostname ?? '').trim().slice(0, 64),
+        seatId,
+      );
     }
     if (req.body?.studentId !== undefined) {
       const sid = req.body.studentId ? String(req.body.studentId) : null;

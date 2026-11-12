@@ -404,7 +404,9 @@ attendanceRouter.get(
     const items = openDb()
       .prepare(
         `SELECT id, class_id AS classId, weekdays, start_time AS startTime, end_time AS endTime,
-                late_after_minutes AS lateAfterMinutes, enabled, created_at AS createdAt
+                late_after_minutes AS lateAfterMinutes, enabled,
+                COALESCE(deep_lock_profile, '') AS deepLockProfile,
+                created_at AS createdAt
          FROM attendance_schedules WHERE class_id = ? ORDER BY start_time`,
       )
       .all(classId)
@@ -432,6 +434,7 @@ attendanceRouter.post(
     const startTime = String(req.body?.startTime ?? '');
     const endTime = String(req.body?.endTime ?? '');
     const lateAfterMinutes = Number(req.body?.lateAfterMinutes ?? 5);
+    const deepLockProfile = String(req.body?.deepLockProfile ?? '').trim().slice(0, 32);
     if (!classId || weekdays.length === 0 || !/^\d{2}:\d{2}$/.test(startTime) || !/^\d{2}:\d{2}$/.test(endTime)) {
       res.status(400).json({ error: 'invalid_schedule' });
       return;
@@ -441,10 +444,20 @@ attendanceRouter.post(
     openDb()
       .prepare(
         `INSERT INTO attendance_schedules
-          (id, class_id, weekdays, start_time, end_time, late_after_minutes, enabled, created_by, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)`,
+          (id, class_id, weekdays, start_time, end_time, late_after_minutes, enabled, deep_lock_profile, created_by, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?)`,
       )
-      .run(id, classId, JSON.stringify(weekdays), startTime, endTime, lateAfterMinutes, req.user!.id, createdAt);
+      .run(
+        id,
+        classId,
+        JSON.stringify(weekdays),
+        startTime,
+        endTime,
+        lateAfterMinutes,
+        deepLockProfile,
+        req.user!.id,
+        createdAt,
+      );
     res.status(201).json({
       id,
       classId,
@@ -452,9 +465,32 @@ attendanceRouter.post(
       startTime,
       endTime,
       lateAfterMinutes,
+      deepLockProfile,
       enabled: 1,
       createdAt,
     });
+  },
+);
+
+attendanceRouter.patch(
+  '/api/v1/attendance/schedules/:id',
+  requireAuth,
+  requireRoles('teacher', 'admin'),
+  (req: AuthedRequest, res) => {
+    const id = paramId(req.params.id);
+    const db = openDb();
+    const row = db.prepare(`SELECT id FROM attendance_schedules WHERE id = ?`).get(id);
+    if (!row) {
+      res.status(404).json({ error: 'not_found' });
+      return;
+    }
+    if (req.body?.deepLockProfile !== undefined) {
+      db.prepare(`UPDATE attendance_schedules SET deep_lock_profile = ? WHERE id = ?`).run(
+        String(req.body.deepLockProfile ?? '').trim().slice(0, 32),
+        id,
+      );
+    }
+    res.json({ ok: true });
   },
 );
 
