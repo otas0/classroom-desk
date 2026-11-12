@@ -1084,10 +1084,20 @@
   "已发现 {v0}，但未开放一键连班。请填写 classId 或扫码。": "Found {v0}, but Easy Join is off. Enter classId or scan QR.",
   "已连上{v0} · {v1}，本机配置完成": "Joined{v0} · {v1}. This PC is configured.",
   "一键连教室失败": "One-tap join failed",
-  "傻瓜批量：打开「一键连班」后，全班学生机只点「一键连教室」。备选：U 盘 config / 扫码。禁止 127.0.0.1。": "Foolproof fleet: enable Easy Join, every student taps One-tap join. Fallback: USB config / QR. No 127.0.0.1.",
   "开放本班「一键连班」（学生端一键连教室）": "Enable Easy Join for this class (student One-tap join)",
   "已开放本班一键连班：学生点「一键连教室」即可": "Easy Join on: students tap One-tap join",
   "已关闭一键连班": "Easy Join off",
   "请先选班": "Select a class first",
-  "已开放：局域网内学生打开客户端 → 点「一键连教室」即可写入本班。下课可关掉。": "On: LAN students open the app → One-tap join writes this class. Turn off after class."
+  "先查找教室 → 认准班名/教师机 → 确认连接。也可用 U 盘 / 扫码。": "Find classrooms → pick by class/teacher PC → Confirm. USB / QR still work.",
+  "查找教室": "Find classrooms",
+  "查找中…": "Searching…",
+  "确认连接": "Confirm connect",
+  "找到 {v0} 台教师机，请选择后点「确认连接」": "Found {v0} teacher PC(s). Select one, then Confirm connect.",
+  "请先选择要连接的教师机": "Select a teacher PC first",
+  "「{v0}」未开放一键连班。请填写 classId 或扫码。": "“{v0}” has Easy Join off. Enter classId or scan QR.",
+  "选择教师机（确认后再连接）": "Pick a teacher PC (connect only after confirm)",
+  "教师机": "Teacher PC",
+  "已开放一键连班": "Easy Join on",
+  "已开放：学生「查找教室」→ 认准班名/本机名 →「确认连接」后才写入。下课可关掉。": "On: students Find classrooms → match class/PC name → Confirm connect. Turn off after class.",
+  "傻瓜批量：打开「一键连班」→ 学生「查找教室」并确认班名/教师机后再连。备选：U 盘 config / 扫码。禁止 127.0.0.1。": "Foolproof fleet: enable Easy Join → students Find classrooms and confirm class/PC before connect. Fallback: USB / QR. No 127.0.0.1."
 }

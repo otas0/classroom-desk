@@ -165,7 +165,7 @@ export function ClassroomConnect({
       {copyMsg ? <p className="toast-inline">{copyMsg}</p> : null}
       <div className="help-bubble">
         {t(
-          '傻瓜批量：打开「一键连班」后，全班学生机只点「一键连教室」。备选：U 盘 config / 扫码。禁止 127.0.0.1。',
+          '傻瓜批量：打开「一键连班」→ 学生「查找教室」并确认班名/教师机后再连。备选：U 盘 config / 扫码。禁止 127.0.0.1。',
         )}
       </div>
       <p>
@@ -183,7 +183,9 @@ export function ClassroomConnect({
       </label>
       {easyJoin ? (
         <p className="hint" role="status">
-          {t('已开放：局域网内学生打开客户端 → 点「一键连教室」即可写入本班。下课可关掉。')}
+          {t(
+            '已开放：学生「查找教室」→ 认准班名/本机名 →「确认连接」后才写入。下课可关掉。',
+          )}
         </p>
       ) : null}
       <p>

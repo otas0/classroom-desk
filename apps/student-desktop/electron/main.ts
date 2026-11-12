@@ -465,6 +465,9 @@ ipcMain.handle('config:discover-lan', async () => {
     version?: string;
     classId?: string;
     className?: string;
+    hostName?: string;
+    lanIp?: string;
+    label?: string;
     easyJoin?: boolean;
   }> = [];
 
@@ -498,6 +501,8 @@ ipcMain.handle('config:discover-lan', async () => {
       const health = (await getJson(`${base}/health`, 900)) as {
         ok?: boolean;
         version?: string;
+        hostName?: string;
+        lanIps?: string[];
       } | null;
       if (!health || !(health.ok === true || health.version)) return;
       const join = (await getJson(`${base}/api/v1/classroom/join`, 900)) as {
@@ -506,13 +511,30 @@ ipcMain.handle('config:discover-lan', async () => {
         apiBase?: string;
         classId?: string;
         className?: string;
+        hostName?: string;
+        lanIp?: string;
+        label?: string;
       } | null;
+      const hostName = String(join?.hostName ?? health.hostName ?? '').trim() || undefined;
+      const lanIp =
+        String(join?.lanIp ?? '').trim() ||
+        (Array.isArray(health.lanIps) && health.lanIps[0] ? String(health.lanIps[0]) : host);
+      const className = join?.className ? String(join.className) : undefined;
+      const classId = join?.classId ? String(join.classId) : undefined;
+      const easyJoin = Boolean(join?.ok && join?.enabled && classId);
+      const label =
+        String(join?.label ?? '').trim() ||
+        [className, hostName, lanIp].filter(Boolean).join(' · ') ||
+        base;
       found.push({
-        apiBase: base,
+        apiBase: join?.apiBase && !/127\.0\.0\.1|localhost/i.test(join.apiBase) ? String(join.apiBase).replace(/\/$/, '') : base,
         version: health.version,
-        easyJoin: Boolean(join?.ok && join?.enabled && join?.classId),
-        classId: join?.classId ? String(join.classId) : undefined,
-        className: join?.className ? String(join.className) : undefined,
+        easyJoin,
+        classId,
+        className,
+        hostName,
+        lanIp,
+        label,
       });
     }),
   );

@@ -525,6 +525,27 @@ textarea {
   animation: quizPulse 1.4s ease;
 }
 
+.join-candidate-list {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.join-candidate-list label {
+  align-items: flex-start;
+  gap: 10px;
+  border: 1px solid var(--line);
+  padding: 8px 10px;
+  cursor: pointer;
+}
+
+.join-candidate-list label:has(input:checked) {
+  background: var(--fill-soft);
+  border-width: 2px;
+}
+
 .row {
   display: flex;
   flex-wrap: wrap;

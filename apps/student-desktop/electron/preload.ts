@@ -34,6 +34,9 @@ export type StudentDesktopAPI = {
       version?: string;
       classId?: string;
       className?: string;
+      hostName?: string;
+      lanIp?: string;
+      label?: string;
       easyJoin?: boolean;
     }>;
     hint?: { ipv4: string; gateway: string };

@@ -18,7 +18,7 @@ npm run start:classroom
 
 1. 拷 `ClassroomDesk-Setup-*.exe`（Release / CI artifact / U 盘）
 2. 对照旁路 `.sha256` 后安装，装完可删临时包
-3. **傻瓜批量（推荐）**：教师「指派学生机」勾选「开放本班一键连班」→ 学生打开客户端点「一键连教室」。备选：U 盘 `classroom-desk-config.json` / 扫码。
+3. **傻瓜批量（推荐）**：教师「指派学生机」勾选「开放本班一键连班」→ 学生「查找教室」→ 认准班名/教师机 →「确认连接」。备选：U 盘 `classroom-desk-config.json` / 扫码。
 
 ## 3.（可选）以后升级
 

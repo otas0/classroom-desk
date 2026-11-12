@@ -8,6 +8,7 @@ import {
 } from '@classroom-desk/shared';
 import { DEFAULT_UI_LOCALE, isUiLocale, normalizeUiLocale } from '@classroom-desk/i18n';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { getDataDir, getDbPath, openDb } from '../db/client.js';
 import { getSetting } from '../db/migrate.js';
@@ -85,6 +86,13 @@ settingsRouter.get('/api/v1/classroom/join', (req, res) => {
   const requestBase =
     host && !/127\.0\.0\.1|localhost/i.test(host) ? `${proto}://${host}`.replace(/\/$/, '') : '';
   const apiBase = storedBase && !/127\.0\.0\.1|localhost/i.test(storedBase) ? storedBase : requestBase;
+  const hostName = os.hostname();
+  let lanIp = '';
+  try {
+    if (apiBase) lanIp = new URL(apiBase).hostname;
+  } catch {
+    lanIp = '';
+  }
   if (!enabled || !classId || !apiBase) {
     res.json({
       ok: false,
@@ -93,6 +101,8 @@ settingsRouter.get('/api/v1/classroom/join', (req, res) => {
       apiBase: null,
       classId: null,
       className: null,
+      hostName,
+      lanIp: lanIp || null,
     });
     return;
   }
@@ -102,6 +112,10 @@ settingsRouter.get('/api/v1/classroom/join', (req, res) => {
     apiBase,
     classId,
     className: className || null,
+    hostName,
+    lanIp: lanIp || null,
+    /** Human label so students can tell teachers apart before confirming. */
+    label: [className || null, hostName, lanIp || null].filter(Boolean).join(' · '),
   });
 });
 

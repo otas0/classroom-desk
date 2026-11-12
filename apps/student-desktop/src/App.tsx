@@ -1891,9 +1891,25 @@ function FirstRunSetup({
   const [pasteJson, setPasteJson] = useState('');
   const [showPaste, setShowPaste] = useState(false);
   const [cameraLocked, setCameraLocked] = useState(false);
+  type JoinCandidate = {
+    apiBase: string;
+    version?: string;
+    classId?: string;
+    className?: string;
+    hostName?: string;
+    lanIp?: string;
+    label?: string;
+    easyJoin?: boolean;
+  };
+  const [joinCandidates, setJoinCandidates] = useState<JoinCandidate[]>([]);
+  const [selectedJoinKey, setSelectedJoinKey] = useState('');
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const scanTimerRef = useRef<number | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+
+  function joinKey(c: JoinCandidate): string {
+    return `${c.apiBase}::${c.classId ?? ''}`;
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -2070,22 +2086,23 @@ function FirstRunSetup({
     }
   }
 
-  /** One-tap: discover teacher + pull easy-join classId + save + health. */
-  async function oneTapJoinClassroom() {
+  /** Phase 1: discover only — never auto-connect; student must confirm. */
+  async function findClassrooms() {
     setMsg('');
+    setJoinCandidates([]);
+    setSelectedJoinKey('');
     setBusy(true);
     try {
       const desk = window.classroomDesk;
-      if (!desk?.discoverLanClassroom || !desk.setConfig) {
+      if (!desk?.discoverLanClassroom) {
         setMsg(t('当前环境不支持一键连教室'));
         return;
       }
       const r = await desk.discoverLanClassroom();
-      const hit =
-        r.found?.find((f) => f.easyJoin && f.classId) ??
-        r.found?.find((f) => f.classId) ??
-        null;
-      if (!hit?.apiBase) {
+      const list = (r.found ?? []).filter((f) => f.apiBase);
+      const joinable = list.filter((f) => f.easyJoin && f.classId);
+      const show = joinable.length ? joinable : list;
+      if (!show.length) {
         setMsg(
           t(
             '未找到已开放「一键连班」的教师机。请老师在「指派学生机」打开开关，或改用 U 盘/扫码。',
@@ -2093,28 +2110,59 @@ function FirstRunSetup({
         );
         return;
       }
-      if (!hit.classId) {
-        setServerUrl(hit.apiBase);
-        setMsg(t('已发现 {v0}，但未开放一键连班。请填写 classId 或扫码。', { v0: hit.apiBase }));
+      setJoinCandidates(show);
+      setSelectedJoinKey(joinKey(show[0]));
+      setMsg(
+        t('找到 {v0} 台教师机，请选择后点「确认连接」', { v0: String(show.length) }),
+      );
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : t('一键连教室失败'));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /** Phase 2: connect only the student-confirmed teacher. */
+  async function confirmJoinSelected() {
+    setMsg('');
+    const hit = joinCandidates.find((c) => joinKey(c) === selectedJoinKey);
+    if (!hit?.apiBase) {
+      setMsg(t('请先选择要连接的教师机'));
+      return;
+    }
+    if (!hit.classId) {
+      setServerUrl(hit.apiBase);
+      setMsg(
+        t('「{v0}」未开放一键连班。请填写 classId 或扫码。', {
+          v0: hit.label || hit.hostName || hit.apiBase,
+        }),
+      );
+      return;
+    }
+    setBusy(true);
+    try {
+      const desk = window.classroomDesk;
+      if (!desk?.setConfig) {
+        setMsg(t('当前环境不支持一键连教室'));
         return;
       }
       const apiBase = hit.apiBase.replace(/\/$/, '');
       const classId = hit.classId;
       const res = await fetch(`${apiBase}/health`, { cache: 'no-store' });
       if (!res.ok) throw new Error(`health HTTP ${res.status}`);
-      const body = (await res.json()) as { version?: string };
       await setApiBase(apiBase);
       await desk.setConfig({ apiBase, classId });
       setServerUrl(apiBase);
       setSeat(classId);
+      setJoinCandidates([]);
+      setSelectedJoinKey('');
       setMsg(
         t('已连上{v0} · {v1}，本机配置完成', {
-          v0: hit.className ? `「${hit.className}」` : '',
+          v0: hit.className ? `「${hit.className}」` : hit.hostName ? `「${hit.hostName}」` : '',
           v1: apiBase,
         }),
       );
       await onDone({ apiBase, classId });
-      void body;
     } catch (e) {
       setMsg(e instanceof Error ? e.message : t('一键连教室失败'));
     } finally {
@@ -2150,40 +2198,11 @@ function FirstRunSetup({
     }
   }
 
-  async function discoverLan() {
-    setMsg('');
-    setBusy(true);
-    try {
-      const desk = window.classroomDesk;
-      if (!desk?.discoverLanClassroom) {
-        setMsg(t('当前环境不支持局域网发现'));
-        return;
-      }
-      const r = await desk.discoverLanClassroom();
-      const first = r.found?.[0];
-      if (!first) {
-        setMsg(t('未发现教室服务器（8787）。请确认教师机已 start:classroom 且同一网段。'));
-        return;
-      }
-      setServerUrl(first.apiBase);
-      setMsg(
-        t('已发现 {v0}{v1}。请填写/扫入 classId 后保存。', {
-          v0: first.apiBase,
-          v1: first.version ? ` · v${first.version}` : '',
-        }),
-      );
-    } catch (e) {
-      setMsg(e instanceof Error ? e.message : t('发现失败'));
-    } finally {
-      setBusy(false);
-    }
-  }
-
   return (
     <section className="panel">
       <h1>{t('首次配置本机')}</h1>
       <p className="lead">
-        {t('最简单：老师打开「一键连班」后，学生只点下面大按钮。也可用 U 盘 / 扫码。')}
+        {t('先查找教室 → 认准班名/教师机 → 确认连接。也可用 U 盘 / 扫码。')}
       </p>
       <div className="row">
         <button
@@ -2191,9 +2210,18 @@ function FirstRunSetup({
           className="primary"
           disabled={busy}
           data-testid="first-run-one-tap-join"
-          onClick={() => void oneTapJoinClassroom()}
+          onClick={() => void findClassrooms()}
         >
-          {busy ? t('连接中…') : t('一键连教室')}
+          {busy ? t('查找中…') : t('查找教室')}
+        </button>
+        <button
+          type="button"
+          className="primary"
+          disabled={busy || !selectedJoinKey || joinCandidates.length === 0}
+          data-testid="first-run-confirm-join"
+          onClick={() => void confirmJoinSelected()}
+        >
+          {t('确认连接')}
         </button>
         <button
           type="button"
@@ -2203,15 +2231,6 @@ function FirstRunSetup({
           onClick={() => void importFromRemovable()}
         >
           {t('从 U 盘/共享盘导入')}
-        </button>
-        <button
-          type="button"
-          className="secondary"
-          disabled={busy}
-          data-testid="first-run-discover-lan"
-          onClick={() => void discoverLan()}
-        >
-          {t('发现教室服务器')}
         </button>
         <button
           type="button"
@@ -2260,6 +2279,42 @@ function FirstRunSetup({
           {cameraLocked ? '粘贴 JSON（必填）' : showPaste ? '收起粘贴' : '粘贴 JSON 兜底'}
         </button>
       </div>
+      {joinCandidates.length ? (
+        <fieldset className="field" data-testid="first-run-join-list">
+          <legend>{t('选择教师机（确认后再连接）')}</legend>
+          <ul className="join-candidate-list">
+            {joinCandidates.map((c) => {
+              const key = joinKey(c);
+              const title =
+                c.label ||
+                [c.className, c.hostName, c.lanIp || c.apiBase].filter(Boolean).join(' · ');
+              return (
+                <li key={key}>
+                  <label className="row">
+                    <input
+                      type="radio"
+                      name="join-candidate"
+                      checked={selectedJoinKey === key}
+                      onChange={() => setSelectedJoinKey(key)}
+                    />
+                    <span>
+                      <strong>{title}</strong>
+                      <br />
+                      <span className="hint">
+                        {c.className ? `${t('班级')}：${c.className} · ` : ''}
+                        {c.hostName ? `${t('教师机')}：${c.hostName} · ` : ''}
+                        {c.lanIp || c.apiBase}
+                        {c.version ? ` · v${c.version}` : ''}
+                        {c.easyJoin ? ` · ${t('已开放一键连班')}` : ''}
+                      </span>
+                    </span>
+                  </label>
+                </li>
+              );
+            })}
+          </ul>
+        </fieldset>
+      ) : null}
       {cameraLocked ? (
         <p className="hint" data-testid="first-run-camera-locked" role="status">
           相机锁已开启：二维码扫码/选图已灰态，请使用粘贴区完成指派。
