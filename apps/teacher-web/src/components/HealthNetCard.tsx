@@ -4,6 +4,12 @@ import { API_BASE, api } from '../api';
 
 type HealthNet = {
   deskDns?: { enabled?: boolean; running?: boolean; port?: number | null; error?: string | null };
+  enterprise8021xRequired?: boolean;
+  capabilities?: {
+    examBox?: boolean;
+    examBoxHardware?: boolean;
+    enterprise8021x?: boolean;
+  };
   shield?: {
     active?: string;
     displayName?: string;
@@ -19,6 +25,14 @@ type DeskDnsCheck = {
   ssSample?: string[];
   hint?: string | null;
   deskDns?: HealthNet['deskDns'];
+  dnsResolution?: {
+    hostname?: string;
+    resolved?: string[];
+    pointsAtTeacher?: boolean | null;
+    teacherIps?: string[];
+    error?: string;
+  };
+  studentDnsLimitation?: string;
 };
 
 type SignHealth = {
@@ -38,6 +52,7 @@ export function HealthNetCard() {
   const [signHealth, setSignHealth] = useState<SignHealth | null>(null);
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [probeHost, setProbeHost] = useState('');
 
   async function refreshHealth() {
     const res = await fetch(`${API_BASE}/health`, { cache: 'no-store' });
@@ -50,6 +65,8 @@ export function HealthNetCard() {
     void (async () => {
       try {
         await refreshHealth();
+        const s = await api<{ deskdnsProbeHostname?: string }>('/api/v1/settings');
+        if (!cancelled) setProbeHost(String(s.deskdnsProbeHostname ?? ''));
       } catch (e) {
         if (!cancelled) setErr(e instanceof Error ? e.message : t('加载失败'));
       }
@@ -130,6 +147,37 @@ export function HealthNetCard() {
     <section className="health-net-card" data-testid="health-net-card">
       <h3>{t('网络适配状态')}</h3>
       {err ? <p className="error">{err}</p> : null}
+      <details className="deskdns-wizard" data-testid="deskdns-wizard" open={!dns?.running}>
+        <summary>{t('本教室只改 DNS（DeskDNS）')}</summary>
+        <ol className="hint">
+          <li>{t('教师机启动前设置 CLASSROOM_DESK_DNS=1（可选 CLASSROOM_DESK_DNS_PORT=53）')}</li>
+          <li>{t('机房 DHCP 把 DNS 指到本教师机 IP（勿指错网关）')}</li>
+          <li>{t('点下方「检测 DeskDNS」确认监听；详情见 docs/DESKDNS_PORT53.md')}</li>
+          <li>{t('可选：填写探针域名（学生机常解析的 hostname），检测会核对 A 记录是否落在本机 LAN IP')}</li>
+        </ol>
+        <label>
+          {t('DeskDNS 探针域名')}
+          <input
+            value={probeHost}
+            onChange={(e) => setProbeHost(e.target.value)}
+            placeholder="portal.school.edu"
+            data-testid="deskdns-probe-hostname"
+          />
+        </label>
+        <button
+          type="button"
+          className="secondary"
+          disabled={busy}
+          onClick={() =>
+            void api('/api/v1/settings', {
+              method: 'PATCH',
+              body: JSON.stringify({ deskdnsProbeHostname: probeHost.trim() }),
+            }).catch((e) => setErr(e instanceof Error ? e.message : t('保存失败')))
+          }
+        >
+          {t('保存探针域名')}
+        </button>
+      </details>
       <p className="hint" data-testid="health-desk-dns">
         DeskDNS：
         {!dns?.enabled
@@ -137,6 +185,28 @@ export function HealthNetCard() {
           : dns.running
             ? `${t('运行中')} udp/${dns.port ?? '—'}`
             : `${t('未绑定')}${dns.error ? `（${dns.error}）` : ''}`}
+      </p>
+      <p className="hint" data-testid="health-enterprise-8021x">
+        802.1X（IT 提示）：{h.enterprise8021xRequired ? t('已要求 802.1X') : t('未勾选要求')}{' '}
+        <a
+          href="https://github.com/otas0/classroom-desk/blob/main/docs/ENTERPRISE_8021X.md"
+          target="_blank"
+          rel="noreferrer"
+        >
+          docs/ENTERPRISE_8021X.md
+        </a>
+      </p>
+      <p className="hint" data-testid="health-exam-box">
+        Exam Box：
+        {h.capabilities?.examBox ? t('文档/compose 已交付') : t('未交付')}
+        {h.capabilities?.examBoxHardware ? '' : ` · ${t('量产硬件（examBoxHardware）未交付')}`}{' '}
+        <a
+          href="https://github.com/otas0/classroom-desk/blob/main/deploy/exam-box/HARDWARE.md"
+          target="_blank"
+          rel="noreferrer"
+        >
+          deploy/exam-box/HARDWARE.md
+        </a>
       </p>
       <p className="hint" data-testid="health-shield">
         Shield：{shield?.displayName ?? '—'}（{shield?.active ?? 'mock'}）
@@ -194,6 +264,18 @@ export function HealthNetCard() {
           {dnsCheck.listening53 === true ? ' · udp/53' : ''}
           {dnsCheck.listening53 === false ? ` · ${t('未监听 53')}` : ''}
           {dnsCheck.hint ? ` · ${dnsCheck.hint}` : ''}
+          {dnsCheck.dnsResolution?.hostname
+            ? ` · resolve ${dnsCheck.dnsResolution.hostname} → ${
+                dnsCheck.dnsResolution.resolved?.join(', ') || '—'
+              }`
+            : ''}
+          {dnsCheck.dnsResolution?.pointsAtTeacher === true ? ` · ${t('DNS 指向教师机')}` : ''}
+          {dnsCheck.dnsResolution?.pointsAtTeacher === false ? ` · ${t('DNS 未指向教师机')}` : ''}
+        </p>
+      ) : null}
+      {dnsCheck?.studentDnsLimitation ? (
+        <p className="hint" data-testid="deskdns-student-limitation">
+          {dnsCheck.studentDnsLimitation}
         </p>
       ) : null}
       {signHealth ? (

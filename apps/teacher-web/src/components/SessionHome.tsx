@@ -3,12 +3,14 @@ import { API_BASE, api, getToken } from '../api';
 import { POINT_REASON_CHIPS } from '../types';
 import { ClassroomLockBar } from './ClassroomLockBar';
 import { DeepLockBar } from './DeepLockBar';
+import { ScheduleDeepLockPanel } from './ScheduleDeepLockPanel';
 import { DeviceControlBar } from './DeviceControlBar';
 import { NetworkZonesPanel } from './NetworkZonesPanel';
 import { PrincipalDashboard } from './PrincipalDashboard';
 import { HealthNetCard } from './HealthNetCard';
 import { CapabilityGate } from './CapabilityGates';
 import { LiveBoard } from './LiveBoard';
+import { FleetDriftNudge } from './FleetDriftNudge';
 import { t, te } from '@classroom-desk/i18n';
 
 const OCR_DRAFT_KEY = 'cd_ocr_draft';
@@ -27,6 +29,7 @@ export function SessionHome({
   onSetupChanged,
   onOpenLockAdvanced,
   onOpenPresence,
+  onOpenUpgrades,
 }: {
   classId: string;
   onEnterProjection: () => void;
@@ -35,6 +38,7 @@ export function SessionHome({
   onSetupChanged?: () => void;
   onOpenLockAdvanced?: () => void;
   onOpenPresence?: (targetClassId: string) => void;
+  onOpenUpgrades?: () => void;
 }) {
   const [kind, setKind] = useState<'bool' | 'blank'>('bool');
   const [boolCorrect, setBoolCorrect] = useState<'A' | 'B'>('A');
@@ -52,6 +56,7 @@ export function SessionHome({
   const [awardReason, setAwardReason] = useState(t('表扬'));
   const [awardMsg, setAwardMsg] = useState('');
   const [sessionMsg, setSessionMsg] = useState('');
+  const [enterprise8021xRequired, setEnterprise8021xRequired] = useState<boolean | null>(null);
   const [buzzRound, setBuzzRound] = useState<{ id: string; reason: string; status: string } | null>(null);
   const [buzzHits, setBuzzHits] = useState<
     Array<{ studentId: string; displayName: string; studentNo: string | null; hitAt: string }>
@@ -63,6 +68,20 @@ export function SessionHome({
 
   const [requests, setRequests] = useState<Array<Record<string, unknown>>>([]);
   const [requestErr, setRequestErr] = useState('');
+
+  useEffect(() => {
+    let cancelled = false;
+    void api<{ enterprise8021xRequired?: boolean }>('/api/v1/settings')
+      .then((s) => {
+        if (!cancelled) setEnterprise8021xRequired(Boolean(s.enterprise8021xRequired));
+      })
+      .catch(() => {
+        if (!cancelled) setEnterprise8021xRequired(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (!classId) {
@@ -394,16 +413,60 @@ export function SessionHome({
         ) : null}
       </div>
       {sessionMsg ? <p className="hint">{sessionMsg}</p> : null}
+      <FleetDriftNudge
+        classId={classId}
+        onOpenUpgrades={onOpenUpgrades}
+        onOpenPresence={onOpenPresence ? () => onOpenPresence(classId) : undefined}
+      />
       <ClassroomLockBar classId={classId} onOpenAdvanced={onOpenLockAdvanced} />
       <DeepLockBar classId={classId} />
+      <ScheduleDeepLockPanel classId={classId} />
       <DeviceControlBar classId={classId} />
-      <details className="session-more-net">
-        <summary>{t('网络配置档（高级）')}</summary>
+      <details className="session-more-net" data-testid="campus-pack-panel">
+        <summary>{t('校园网包（Portal · Shield · Zones）')}</summary>
+        <p className="hint">
+          {t(
+            '推荐组合：零安装门户 + 网络档 + Shield（OPNsense/UniFi）。先配 Zones，再开 Portal，最后选 Shield 适配器。',
+          )}
+        </p>
         <NetworkZonesPanel />
       </details>
       <CapabilityGate flag="examBox" label={t('Exam Box')}>
         <p className="hint" data-testid="exam-box-hint">
-          {t('Exam Box 小盒说明见 docs/EXAM_BOX.md · compose 在 deploy/exam-box/')}
+          {t('Exam Box 文档/compose 已交付；不会在应用内假装考场小盒在线。')}{' '}
+          <a
+            href="https://github.com/otas0/classroom-desk/blob/main/docs/EXAM_BOX.md"
+            target="_blank"
+            rel="noreferrer"
+          >
+            docs/EXAM_BOX.md
+          </a>
+        </p>
+        <p className="hint" data-testid="exam-box-hardware-scaffold">
+          {t('量产硬件 SKU（examBoxHardware）仍为未交付 — 仅脚手架：')}{' '}
+          <a
+            href="https://github.com/otas0/classroom-desk/blob/main/deploy/exam-box/HARDWARE.md"
+            target="_blank"
+            rel="noreferrer"
+          >
+            deploy/exam-box/HARDWARE.md
+          </a>
+        </p>
+      </CapabilityGate>
+      <CapabilityGate flag="enterprise8021x" label={t('802.1X')}>
+        <p className="hint" data-testid="enterprise-8021x-hint">
+          {enterprise8021xRequired === null
+            ? t('802.1X：读取设置中…')
+            : enterprise8021xRequired
+              ? t('当前设置：已勾选「要求 802.1X」（仅 IT 提示，不做应用内 RADIUS）。')
+              : t('当前设置：未要求 802.1X。教工网建议仍由 IT 配置 802.1X/门户。')}{' '}
+          <a
+            href="https://github.com/otas0/classroom-desk/blob/main/docs/ENTERPRISE_8021X.md"
+            target="_blank"
+            rel="noreferrer"
+          >
+            docs/ENTERPRISE_8021X.md
+          </a>
         </p>
       </CapabilityGate>
       <CapabilityGate flag="netDns" label={t('DeskDNS')}>
