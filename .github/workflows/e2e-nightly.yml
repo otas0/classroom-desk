@@ -459,6 +459,18 @@ jobs:
             } catch { /* ignore */ }
             // Shared Issue title so canaries + full suite aggregate into one thread.
             const title = 'Nightly e2e failed';
+            let quarantineHint = '_none_';
+            try {
+              if (fs.existsSync('e2e/quarantine.txt')) {
+                const q = fs.readFileSync('e2e/quarantine.txt', 'utf8')
+                  .split('\n')
+                  .map((l) => l.trim())
+                  .filter((l) => l && !l.startsWith('#'));
+                quarantineHint = q.length
+                  ? q.map((l) => `- \`${l}\``).join('\n')
+                  : '_empty (target)_';
+              }
+            } catch { /* ignore */ }
             const body = [
               `### Full suite (${context.runId})`,
               '`canary:full`',
@@ -472,6 +484,19 @@ jobs:
               traceLinks.length
                 ? `- Local trace paths in artifact:\n${traceLinks.map((p) => `  - \`${p}\``).join('\n')}`
                 : '- Trace zip: open artifact → `test-results/**/trace.zip` → `npx playwright show-trace trace.zip`',
+              '',
+              '### Reproduce',
+              '```bash',
+              'npm ci',
+              'npx playwright install chromium',
+              'npm run dev:stack &',
+              'export CLASSROOM_DESK_E2E=1 CD_E2E_USE_QUARANTINE=1 PLAYWRIGHT_BROWSERS_PATH=$HOME/Library/Caches/ms-playwright',
+              'npx playwright test --reporter=line',
+              '```',
+              '',
+              '### Quarantine suggestions',
+              'Only add chronic flakes to `e2e/quarantine.txt` as last resort; keep labels `canary:*` + assignee.',
+              quarantineHint,
               '',
               '### portal-related log snippets',
               portalSnippet || '_none found in test-results_',

@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <title>Exam Box 开机自检</title>
+    <style>
+      body { font-family: system-ui, sans-serif; margin: 2rem; background: #0f1419; color: #e7ecf1; }
+      .ok { color: #3dd68c; }
+      .bad { color: #ff6b6b; }
+      li { margin: 0.5rem 0; }
+    </style>
+  </head>
+  <body>
+    <h1>Exam Box 自检</h1>
+    <p>失败任一项：红灯，不广播考场 SSID。</p>
+    <ul id="checks"></ul>
+    <script>
+      const params = new URLSearchParams(location.search);
+      const api = params.get('api') || '';
+      const digest = params.get('digest') || '(unset)';
+      const ssid = params.get('ssid') || '(unset)';
+      const cosign = params.get('cosign') || 'unknown';
+      const el = document.getElementById('checks');
+      function row(label, ok, detail) {
+        const li = document.createElement('li');
+        li.className = ok ? 'ok' : 'bad';
+        li.textContent = (ok ? '✓ ' : '✗ ') + label + (detail ? ' — ' + detail : '');
+        el.appendChild(li);
+        return ok;
+      }
+      (async () => {
+        let apiOk = false;
+        if (api) {
+          try {
+            const r = await fetch(api.replace(/\/$/, '') + '/health', { cache: 'no-store' });
+            apiOk = r.ok;
+          } catch { apiOk = false; }
+        }
+        const dOk = Boolean(digest && digest !== '(unset)');
+        const cOk = cosign === 'ok' || cosign === 'verified';
+        const sOk = Boolean(ssid && ssid !== '(unset)');
+        row('API 可达', apiOk, api || '缺 api=');
+        row('镜像 digest', dOk, digest);
+        row('cosign 验签', cOk, cosign);
+        row('SSID 名', sOk, ssid);
+        const all = apiOk && dOk && cOk && sOk;
+        document.body.style.outline = all ? '4px solid #3dd68c' : '4px solid #ff6b6b';
+        document.title = all ? 'Exam Box OK' : 'Exam Box FAIL — 不发 SSID';
+      })();
+    </script>
+  </body>
+</html>

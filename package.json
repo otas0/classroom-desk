@@ -47,6 +47,7 @@
     "check:nightly-flake": "node scripts/check-nightly-flake.mjs",
     "check:git-remote": "node scripts/check-git-remote-host.mjs",
     "check:i18n-keys": "node scripts/check-i18n-keys.mjs",
+    "check:quarantine-labels": "node scripts/check-quarantine-labels.mjs",
     "init:c2-evidence": "bash scripts/init-c2-evidence-dir.sh",
     "verify:c2-evidence": "node scripts/verify-c2-evidence.mjs",
     "ops:webhook-dry-run": "node scripts/ops-webhook-dry-run.mjs",

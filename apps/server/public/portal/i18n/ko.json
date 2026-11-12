@@ -9,5 +9,8 @@
   "otpSent": "코드 전송됨",
   "mailtoReady": "메일 준비됨",
   "offline": "오프라인",
-  "ssidRequired": "게이트웨이 리다이렉트로 열어주세요(서명 SSID 필요)"
+  "ssidRequired": "게이트웨이 리다이렉트로 열어주세요(서명 SSID 필요)",
+  "epochExpired": "이 반 포털 세션이 만료되었습니다. QR을 다시 스캔하거나 포털을 다시 여세요.",
+  "epochExpiredEn": "This class portal session expired. Scan the class QR or open the portal again.",
+  "rescanHint": "교사 화면의 반 QR을 다시 스캔하세요."
 }

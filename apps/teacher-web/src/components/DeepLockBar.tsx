@@ -206,13 +206,39 @@ export function DeepLockBar({ classId }: { classId: string }) {
         {readonly ? ` · ${t('助教只读')}` : ''}
       </p>
       {classViolations.length ? (
-        <p className="hint" data-testid="deep-lock-violations">
-          {t('失焦违规：')}
-          {classViolations
-            .slice(0, 8)
-            .map((v) => `${v.studentId.slice(0, 8)}×${v.count}`)
-            .join(' · ')}
-        </p>
+        <div className="deep-lock-violations" data-testid="deep-lock-violations">
+          <p className="error">
+            {t('失焦违规座位（高亮）')} · {classViolations.length}
+          </p>
+          <ul>
+            {classViolations.slice(0, 12).map((v) => (
+              <li key={v.studentId} className="row-danger">
+                {v.studentId.slice(0, 10)}… ×{v.count}
+              </li>
+            ))}
+          </ul>
+          <div className="row">
+            <button
+              type="button"
+              data-testid="deep-lock-kick-violators"
+              disabled={busy || readonly}
+              onClick={() =>
+                run('kick_class', t('对违规班执行踢网并冻结？'))
+              }
+            >
+              {t('一键踢网')}
+            </button>
+            <button
+              type="button"
+              className="secondary"
+              data-testid="deep-lock-end-from-violations"
+              disabled={busy || readonly}
+              onClick={() => run('end', t('结束深锁并恢复？'))}
+            >
+              {t('结束深锁')}
+            </button>
+          </div>
+        </div>
       ) : null}
       {msg ? (
         <p className="hint" data-testid="deep-lock-msg">

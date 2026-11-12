@@ -7,6 +7,11 @@ import { ScheduleDeepLockPanel } from './ScheduleDeepLockPanel';
 import { DeviceControlBar } from './DeviceControlBar';
 import { NetworkZonesPanel } from './NetworkZonesPanel';
 import { PrincipalDashboard } from './PrincipalDashboard';
+import { ClassPresenceMatrix } from './ClassPresenceMatrix';
+import { EndOfClassChecklist } from './EndOfClassChecklist';
+import { ShieldAllowlistLive } from './ShieldAllowlistLive';
+import { ShieldSetupWizard } from './ShieldSetupWizard';
+import { DeskDnsControls } from './DeskDnsControls';
 import { HealthNetCard } from './HealthNetCard';
 import { CapabilityGate } from './CapabilityGates';
 import { LiveBoard } from './LiveBoard';
@@ -418,6 +423,8 @@ export function SessionHome({
         onOpenUpgrades={onOpenUpgrades}
         onOpenPresence={onOpenPresence ? () => onOpenPresence(classId) : undefined}
       />
+      <ClassPresenceMatrix classId={classId} compact />
+      <EndOfClassChecklist classId={classId} />
       <ClassroomLockBar classId={classId} onOpenAdvanced={onOpenLockAdvanced} />
       <DeepLockBar classId={classId} />
       <ScheduleDeepLockPanel classId={classId} />
@@ -430,6 +437,8 @@ export function SessionHome({
           )}
         </p>
         <NetworkZonesPanel />
+        <ShieldAllowlistLive />
+        <ShieldSetupWizard />
       </details>
       <CapabilityGate flag="examBox" label={t('Exam Box')}>
         <p className="hint" data-testid="exam-box-hint">
@@ -451,6 +460,16 @@ export function SessionHome({
           >
             deploy/exam-box/HARDWARE.md
           </a>
+        </p>
+        <p className="hint" data-testid="exam-box-shield-mutex">
+          {t(
+            '与全校 Shield 互斥：已有 OPNsense/UniFi 时默认不推小盒，避免重复锁网。见 docs/PILOT_SKU.md。',
+          )}
+        </p>
+      </CapabilityGate>
+      <CapabilityGate flag="examBoxHardware" label={t('Exam Box 量产硬件')}>
+        <p className="hint" data-testid="exam-box-hardware-gray">
+          {t('灰显：量产硬件未发售（examBoxHardware=false），Pilot 合同不得含硬件到货条款。')}
         </p>
       </CapabilityGate>
       <CapabilityGate flag="enterprise8021x" label={t('802.1X')}>
@@ -481,6 +500,7 @@ export function SessionHome({
         <p className="hint" data-testid="desk-dns-hint">
           {t('DeskDNS：设置页可启用，或 CLASSROOM_DESK_DNS=1；DHCP 指本机（默认 5353，生产见 :53 文档）。')}
         </p>
+        <DeskDnsControls />
       </CapabilityGate>
       <HealthNetCard />
       <PrincipalDashboard onOpenPresence={onOpenPresence} />

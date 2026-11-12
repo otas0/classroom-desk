@@ -46,6 +46,9 @@ import {
 import { ClassroomLockBar } from './components/ClassroomLockBar';
 import { DeepLockBar } from './components/DeepLockBar';
 import { NetworkZonesPanel } from './components/NetworkZonesPanel';
+import { SettingsSkuFold } from './components/SettingsSkuFold';
+import { ShieldAllowlistLive } from './components/ShieldAllowlistLive';
+import { DeskDnsControls } from './components/DeskDnsControls';
 
 export function RosterPanel({
   classId,
@@ -6530,9 +6533,22 @@ export function SettingsPanel({
               docs/EXIT_LOCK_MDM.md
             </a>
           </p>
-          <ClassroomLockBar classId={currentTeacherClassId()} />
-          <DeepLockBar classId={currentTeacherClassId()} />
-          <NetworkZonesPanel />
+          <SettingsSkuFold pack="lab" title={t('机房包')} defaultOpen>
+            <ClassroomLockBar classId={currentTeacherClassId()} />
+            <DeepLockBar classId={currentTeacherClassId()} />
+          </SettingsSkuFold>
+          <SettingsSkuFold pack="campus" title={t('校园网包')}>
+            <NetworkZonesPanel />
+            <ShieldAllowlistLive />
+          </SettingsSkuFold>
+          <SettingsSkuFold pack="dns" title={t('单网校包 · DeskDNS')}>
+            <DeskDnsControls />
+          </SettingsSkuFold>
+          <SettingsSkuFold pack="exam" title={t('考场 compose 包')}>
+            <p className="hint" data-testid="settings-exam-hardware-mutex">
+              {t('examBoxHardware=false：量产硬件灰显；已有 Shield 时默认不推小盒。')}
+            </p>
+          </SettingsSkuFold>
           {isAssistant() ? (
             <div data-testid="input-lock-readonly">
               <p className="hint">

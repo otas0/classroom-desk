@@ -1309,6 +1309,14 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
           if (!r.ok) {
             setForceUpgradeMsg(t('强制升级失败：{v0}，将重试', { v0: r.error || '' }));
             forceUpgradeBusyRef.current = false;
+            void api('/api/v1/upgrades/force-failure', {
+              method: 'POST',
+              body: JSON.stringify({
+                errorCode: r.error || 'force_lan_setup_failed',
+                classId: classId || undefined,
+                detail: lanUpgradeUrl,
+              }),
+            }).catch(() => undefined);
           }
           return;
         }
@@ -1316,11 +1324,19 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
         forceUpgradeBusyRef.current = false;
       } catch (e) {
         if (!cancelled) {
+          const code = e instanceof Error ? e.message : 'force_upgrade_exception';
           setForceUpgradeMsg(
             t('强制升级失败：{v0}，将重试', {
-              v0: e instanceof Error ? e.message : '',
+              v0: code,
             }),
           );
+          void api('/api/v1/upgrades/force-failure', {
+            method: 'POST',
+            body: JSON.stringify({
+              errorCode: code.slice(0, 80),
+              classId: classId || undefined,
+            }),
+          }).catch(() => undefined);
         }
         forceUpgradeBusyRef.current = false;
       }
@@ -1333,7 +1349,7 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
       cancelled = true;
       window.clearInterval(id);
     };
-  }, [versionDrift, studentAutoUpdate, lanUpgradeUrl, expectedClientVersion, openUpgradeUrl]);
+  }, [versionDrift, studentAutoUpdate, lanUpgradeUrl, expectedClientVersion, openUpgradeUrl, classId]);
 
   if (!ready) {
     return (
