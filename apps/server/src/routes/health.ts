@@ -21,6 +21,7 @@ import {
 import { requireAuth, requireRoles } from '../middleware/auth.js';
 import { STAFF_ROLES } from '../middleware/roles.js';
 import { productCapabilities } from '../services/portalAuth.js';
+import { getReleaseStatusSummary } from '../services/githubRelease.js';
 
 export const healthRouter = Router();
 
@@ -136,10 +137,35 @@ function buildHealthPayload() {
   const shield = getShieldConnector();
   const enterprise8021xRequired = (getSetting(db, 'enterprise_8021x_required') ?? '0') === '1';
   const capabilities = productCapabilities();
+  const examBoxSerial = String(getSetting(db, 'exam_box_serial') ?? '').trim();
+  const examBoxImageTag = String(getSetting(db, 'exam_box_image_tag') ?? '').trim();
+  const examBoxHardwareAccepted = (getSetting(db, 'exam_box_hardware_accepted') ?? '0') === '1';
   return {
     ok: dbOk,
     degraded,
     enterprise8021xRequired,
+    enterprise8021x: {
+      required: enterprise8021xRequired,
+      idp: getSetting(db, 'enterprise_8021x_idp') ?? '',
+      staffSsid: getSetting(db, 'enterprise_8021x_staff_ssid') ?? '',
+      staffVlan: getSetting(db, 'enterprise_8021x_staff_vlan') ?? '',
+      studentSsid: getSetting(db, 'enterprise_8021x_student_ssid') ?? '',
+      studentVlan: getSetting(db, 'enterprise_8021x_student_vlan') ?? '',
+      templates: 'deploy/radius/',
+    },
+    examBox: {
+      serial: examBoxSerial || null,
+      imageTag: examBoxImageTag || null,
+      hardwareAccepted: examBoxHardwareAccepted,
+      acceptedAt: getSetting(db, 'exam_box_accepted_at') || null,
+      hardwareSku: Boolean(capabilities.examBoxHardware),
+    },
+    tls: {
+      mode: 'http_default',
+      hint: 'School HTTPS: terminate TLS at Caddy/nginx — docs/TLS_REVERSE_PROXY.md',
+      example: 'deploy/tls/Caddyfile.example',
+    },
+    release: getReleaseStatusSummary(db),
     capabilities,
     service: 'classroom-desk-server',
     version: packageVersion(),
@@ -227,7 +253,11 @@ function healthHtmlPage(payload: ReturnType<typeof buildHealthPayload>): string 
     <p>${ok ? '本机浏览器已连通教室服务器。请关闭本页，打开课堂客户端。' : '请告诉老师：检查教师机是否开机、防火墙、是否同一 Wi‑Fi，并关闭 AP/访客隔离。'}</p>
     <p class="meta">时间：${payload.time}</p>
     <p class="meta">数据库：${payload.db.ok ? '正常' : '异常'} · 备份：${payload.backup.latestAt ?? '无'}${err ? ` · 备份错误：${String(err.message)}` : ''}</p>
-    <p class="meta">DeskDNS：${payload.deskDns.enabled ? (payload.deskDns.running ? `运行中 udp/${payload.deskDns.port}` : `已启用未绑定${payload.deskDns.error ? `（${payload.deskDns.error}）` : ''}`) : '未启用'} · Shield：${payload.shield.displayName}（${payload.shield.active}）</p>
+    <p class="meta">DeskDNS：${payload.deskDns.enabled ? (payload.deskDns.running ? `运行中 udp/${payload.deskDns.port}` : `已启用未绑定${payload.deskDns.error ? `（${payload.deskDns.error}）` : ''}`) : '未启用'} · Shield：${
+      !payload.shield.active || payload.shield.active === 'off'
+        ? '未配置（需 OPNsense / UniFi / HTTP）'
+        : `${payload.shield.displayName}（${payload.shield.active}）`
+    }</p>
     <p class="meta">接口：<code>/health</code>（JSON 客户端仍返回 JSON）</p>
     <button type="button" onclick="location.reload()">重新检测</button>
   </main>

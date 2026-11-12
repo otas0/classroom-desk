@@ -9,6 +9,13 @@ CLASSROOM_DESK_DNS=1
 CLASSROOM_DESK_DNS_PORT=53
 ```
 
+## 教师设置（可不改环境变量）
+
+设置 → 勾选启用 DeskDNS，端口填 `5353`（开发）或 `53`（生产 DHCP）。  
+保存后服务会重新绑定。绑定 53 失败时 `/health.deskDns.error` 为真实 bind 错误（常见：无 `CAP_NET_BIND_SERVICE`）。
+
+环境变量 `CLASSROOM_DESK_DNS=1` 仍优先生效（systemd）。
+
 ## 推荐：systemd + AmbientCapabilities
 
 将服务以非 root 启动，仅授予 `CAP_NET_BIND_SERVICE`：
@@ -53,6 +60,14 @@ sudo setcap 'cap_net_bind_service=+ep' "$(readlink -f "$(which node)")"
 getcap "$(readlink -f "$(which node)")"
 ```
 
+## Windows 教师机绑定 53
+
+Windows 上 53 常被系统 DNS Client 占用。优先：
+
+1. DeskDNS 用 **5353**，若路由器支持非标 DNS 端口则 DHCP 指向 `教师IP`+5353；或  
+2. 机房 Linux 旁路（Exam Box / 迷你 PC）绑 53；或  
+3. IT 变更单评估停用冲突服务后再以管理员跑 API（少见）。
+
 ## 验证
 
 ```bash
@@ -62,6 +77,7 @@ curl -s http://127.0.0.1:8787/health | jq .deskDns
 sudo ss -ulnp | grep ':53'
 ```
 
-DHCP 将 DNS 设为教师机 LAN IP；深锁 deny/allowlist 时 DeskDNS 跟策略解析。
+教师端「检测 DeskDNS / :53」；DHCP DNS 设为教师机 LAN IP；深锁 deny/allowlist 时 DeskDNS 跟策略解析。
 
-参考单元：`deploy/desk-dns/classroom-desk.service.example`
+参考单元：`deploy/desk-dns/classroom-desk.service.example`  
+校内 HTTPS：`docs/TLS_REVERSE_PROXY.md`

@@ -3210,12 +3210,40 @@ export function SettingsPanel({
     x64: { name: string; url?: string; size?: number } | null;
     arm64: { name: string; url?: string; size?: number } | null;
   }>({ x64: null, arm64: null });
+  const [releaseInfo, setReleaseInfo] = useState<{
+    localVersion?: string;
+    latestTag?: string;
+    latestName?: string;
+    htmlUrl?: string;
+    publishedAt?: string | null;
+    checkedAt?: string;
+    updateAvailable?: boolean;
+    fromCache?: boolean;
+    setupAssets?: Array<{ name: string; size: number }>;
+  } | null>(null);
+  const [releaseBusy, setReleaseBusy] = useState(false);
   const [sisDiffPreview, setSisDiffPreview] = useState<{
     wouldAdd: Array<{ name: string; studentNo: string | null }>;
     wouldUpdate: Array<{ name: string; studentNo: string | null; prevName?: string }>;
     wouldRemove: Array<{ name: string; studentNo: string | null }>;
   } | null>(null);
   const [sisRosterLastApplyAvailable, setSisRosterLastApplyAvailable] = useState(false);
+  const [enterprise8021xRequired, setEnterprise8021xRequired] = useState(false);
+  const [enterprise8021xIdp, setEnterprise8021xIdp] = useState('');
+  const [enterprise8021xStaffSsid, setEnterprise8021xStaffSsid] = useState('');
+  const [enterprise8021xStaffVlan, setEnterprise8021xStaffVlan] = useState('');
+  const [enterprise8021xStudentSsid, setEnterprise8021xStudentSsid] = useState('');
+  const [enterprise8021xStudentVlan, setEnterprise8021xStudentVlan] = useState('');
+  const [examBoxSerial, setExamBoxSerial] = useState('');
+  const [examBoxImageTag, setExamBoxImageTag] = useState('');
+  const [examBoxHardwareAccepted, setExamBoxHardwareAccepted] = useState(false);
+  const [examBoxAcceptedAt, setExamBoxAcceptedAt] = useState('');
+  const [shieldAdapter, setShieldAdapter] = useState('');
+  const [shieldHttpUrl, setShieldHttpUrl] = useState('');
+  const [shieldHttpToken, setShieldHttpToken] = useState('');
+  const [hasShieldHttpToken, setHasShieldHttpToken] = useState(false);
+  const [deskDnsEnabled, setDeskDnsEnabled] = useState(false);
+  const [deskDnsPort, setDeskDnsPort] = useState(5353);
   const [grantEditId, setGrantEditId] = useState<string | null>(null);
   const [grantRows, setGrantRows] = useState<
     Array<{ classId: string; name: string; canExport: boolean; canAwardPoints: boolean }>
@@ -3263,6 +3291,21 @@ export function SettingsPanel({
       upgradesKeepCount?: number;
       studentAutoUpdate?: boolean;
       sisRosterLastApplyAvailable?: boolean;
+      enterprise8021xRequired?: boolean;
+      enterprise8021xIdp?: string;
+      enterprise8021xStaffSsid?: string;
+      enterprise8021xStaffVlan?: string;
+      enterprise8021xStudentSsid?: string;
+      enterprise8021xStudentVlan?: string;
+      examBoxSerial?: string;
+      examBoxImageTag?: string;
+      examBoxHardwareAccepted?: boolean;
+      examBoxAcceptedAt?: string;
+      shieldAdapter?: string;
+      shieldHttpUrl?: string;
+      hasShieldHttpToken?: boolean;
+      deskDnsEnabled?: boolean;
+      deskDnsPort?: number;
       restoreConfirmEmail?: string;
       clientExitAllowed?: boolean;
       clientExitUnlockUntil?: string | null;
@@ -3318,6 +3361,23 @@ export function SettingsPanel({
     }
     setStudentAutoUpdate(s.studentAutoUpdate ?? true);
     setSisRosterLastApplyAvailable(Boolean(s.sisRosterLastApplyAvailable));
+    setEnterprise8021xRequired(Boolean(s.enterprise8021xRequired));
+    setEnterprise8021xIdp(String(s.enterprise8021xIdp ?? ''));
+    setEnterprise8021xStaffSsid(String(s.enterprise8021xStaffSsid ?? ''));
+    setEnterprise8021xStaffVlan(String(s.enterprise8021xStaffVlan ?? ''));
+    setEnterprise8021xStudentSsid(String(s.enterprise8021xStudentSsid ?? ''));
+    setEnterprise8021xStudentVlan(String(s.enterprise8021xStudentVlan ?? ''));
+    setExamBoxSerial(String(s.examBoxSerial ?? ''));
+    setExamBoxImageTag(String(s.examBoxImageTag ?? ''));
+    setExamBoxHardwareAccepted(Boolean(s.examBoxHardwareAccepted));
+    setExamBoxAcceptedAt(String(s.examBoxAcceptedAt ?? ''));
+    setShieldAdapter(String(s.shieldAdapter ?? ''));
+    setShieldHttpUrl(String(s.shieldHttpUrl ?? ''));
+    setHasShieldHttpToken(Boolean(s.hasShieldHttpToken));
+    setDeskDnsEnabled(Boolean(s.deskDnsEnabled));
+    if (s.deskDnsPort != null && Number.isFinite(Number(s.deskDnsPort))) {
+      setDeskDnsPort(Number(s.deskDnsPort));
+    }
     if (s.recycleUrgentDays != null && Number.isFinite(Number(s.recycleUrgentDays))) {
       setRecycleUrgentDays(Number(s.recycleUrgentDays));
     }
@@ -3738,6 +3798,19 @@ export function SettingsPanel({
         setUpgradeFiles([]);
         setUpgradeByArch({ x64: null, arm64: null });
       });
+    void api<{
+      localVersion?: string;
+      latestTag?: string;
+      latestName?: string;
+      htmlUrl?: string;
+      publishedAt?: string | null;
+      checkedAt?: string;
+      updateAvailable?: boolean;
+      fromCache?: boolean;
+      setupAssets?: Array<{ name: string; size: number }>;
+    }>('/api/v1/upgrades/release-check')
+      .then((r) => setReleaseInfo(r))
+      .catch(() => setReleaseInfo(null));
 
     const token = getToken() || '';
     let cancelled = false;
@@ -5463,20 +5536,394 @@ export function SettingsPanel({
           <label className="row" data-testid="enterprise-8021x-required">
             <input
               type="checkbox"
+              checked={enterprise8021xRequired}
               onChange={(e) => {
+                const on = e.target.checked;
+                setEnterprise8021xRequired(on);
                 void api('/api/v1/settings', {
                   method: 'PATCH',
-                  body: JSON.stringify({ enterprise8021xRequired: e.target.checked }),
+                  body: JSON.stringify({ enterprise8021xRequired: on }),
                 }).catch((err) => setUpgradeMsg(te(err, '保存失败')));
               }}
             />
             {t('要求学生 SSID 使用 802.1X（IT 提示；见 docs/ENTERPRISE_8021X.md）')}
           </label>
+          <p className="hint">
+            {t('学校 RADIUS 模板：')}{' '}
+            <a
+              href="https://github.com/otas0/classroom-desk/blob/main/deploy/radius/README.md"
+              target="_blank"
+              rel="noreferrer"
+            >
+              deploy/radius/
+            </a>
+            {' — '}
+            {t('不内置 RADIUS；下列为 IT 登记字段。')}
+          </p>
+          <div className="row" data-testid="enterprise-8021x-registry" style={{ flexWrap: 'wrap', gap: 8 }}>
+            <label>
+              IdP
+              <input
+                value={enterprise8021xIdp}
+                onChange={(e) => setEnterprise8021xIdp(e.target.value)}
+                placeholder={t('如 NPS / FreeRADIUS / UniFi')}
+              />
+            </label>
+            <label>
+              {t('教工 SSID')}
+              <input
+                value={enterprise8021xStaffSsid}
+                onChange={(e) => setEnterprise8021xStaffSsid(e.target.value)}
+              />
+            </label>
+            <label>
+              {t('教工 VLAN')}
+              <input
+                value={enterprise8021xStaffVlan}
+                onChange={(e) => setEnterprise8021xStaffVlan(e.target.value)}
+                placeholder="VLAN ID"
+              />
+            </label>
+            <label>
+              {t('学生 SSID')}
+              <input
+                value={enterprise8021xStudentSsid}
+                onChange={(e) => setEnterprise8021xStudentSsid(e.target.value)}
+              />
+            </label>
+            <label>
+              {t('学生 VLAN')}
+              <input
+                value={enterprise8021xStudentVlan}
+                onChange={(e) => setEnterprise8021xStudentVlan(e.target.value)}
+                placeholder="VLAN ID"
+              />
+            </label>
+            <button
+              type="button"
+              className="secondary"
+              onClick={() => {
+                void api('/api/v1/settings', {
+                  method: 'PATCH',
+                  body: JSON.stringify({
+                    enterprise8021xIdp,
+                    enterprise8021xStaffSsid,
+                    enterprise8021xStaffVlan,
+                    enterprise8021xStudentSsid,
+                    enterprise8021xStudentVlan,
+                  }),
+                })
+                  .then(() => setUpgradeMsg(t('已保存 802.1X IT 登记')))
+                  .catch((err) => setUpgradeMsg(te(err, '保存失败')));
+              }}
+            >
+              {t('保存 802.1X 登记')}
+            </button>
+          </div>
+
+          <h3 data-testid="exam-box-hardware-settings">{t('Exam Box 量产验收')}</h3>
+          <p className="hint">
+            {t('按 deploy/exam-box/HARDWARE.md 装盒验收后填写。未填序列号+镜像 tag 不能勾选验收。')}{' '}
+            <a
+              href="https://github.com/otas0/classroom-desk/blob/main/deploy/exam-box/BOM.md"
+              target="_blank"
+              rel="noreferrer"
+            >
+              BOM
+            </a>
+          </p>
+          <div className="row" style={{ flexWrap: 'wrap', gap: 8 }}>
+            <label>
+              {t('序列号')}
+              <input
+                value={examBoxSerial}
+                onChange={(e) => setExamBoxSerial(e.target.value)}
+                data-testid="exam-box-serial"
+              />
+            </label>
+            <label>
+              {t('镜像 tag')}
+              <input
+                value={examBoxImageTag}
+                onChange={(e) => setExamBoxImageTag(e.target.value)}
+                placeholder="latest / sha-… / v0.1.7"
+                data-testid="exam-box-image-tag"
+              />
+            </label>
+            <label className="row">
+              <input
+                type="checkbox"
+                checked={examBoxHardwareAccepted}
+                data-testid="exam-box-hardware-accepted"
+                onChange={(e) => {
+                  const on = e.target.checked;
+                  void api('/api/v1/settings', {
+                    method: 'PATCH',
+                    body: JSON.stringify({
+                      examBoxSerial,
+                      examBoxImageTag,
+                      examBoxHardwareAccepted: on,
+                    }),
+                  })
+                    .then(async () => {
+                      setExamBoxHardwareAccepted(on);
+                      await refreshExitLock();
+                      setUpgradeMsg(
+                        on ? t('已登记 Exam Box 硬件验收（examBoxHardware 将开启）') : t('已取消硬件验收登记'),
+                      );
+                    })
+                    .catch((err) => setUpgradeMsg(te(err, '保存失败')));
+                }}
+              />
+              {t('首台硬件验收已通过')}
+            </label>
+            {examBoxAcceptedAt ? (
+              <span className="hint">
+                {t('验收时间')}：{examBoxAcceptedAt}
+              </span>
+            ) : null}
+          </div>
+
+          <h3 data-testid="shield-settings">{t('Shield 网关')}</h3>
+          <p className="hint">
+            {t('默认未配置（off）。选 OPNsense / UniFi / HTTP 后才会真断网；mock 仅联调。')}{' '}
+            <a
+              href="https://github.com/otas0/classroom-desk/blob/main/docs/NETWORK.md"
+              target="_blank"
+              rel="noreferrer"
+            >
+              docs/NETWORK.md
+            </a>
+          </p>
+          <div className="row" style={{ flexWrap: 'wrap', gap: 8 }}>
+            <label>
+              {t('适配器')}
+              <select
+                value={shieldAdapter}
+                data-testid="shield-adapter-select"
+                onChange={(e) => setShieldAdapter(e.target.value)}
+              >
+                <option value="">{t('（跟随环境变量 / 默认 off）')}</option>
+                <option value="off">off</option>
+                <option value="opnsense">opnsense</option>
+                <option value="unifi">unifi</option>
+                <option value="http">http</option>
+                <option value="mock">mock（{t('仅联调')}）</option>
+              </select>
+            </label>
+            <label>
+              HTTP URL
+              <input
+                value={shieldHttpUrl}
+                onChange={(e) => setShieldHttpUrl(e.target.value)}
+                placeholder="https://shield.school.local/api"
+                disabled={shieldAdapter !== 'http' && shieldAdapter !== ''}
+              />
+            </label>
+            <label>
+              Token
+              <input
+                type="password"
+                value={shieldHttpToken}
+                onChange={(e) => setShieldHttpToken(e.target.value)}
+                placeholder={hasShieldHttpToken ? t('已保存（留空不改）') : ''}
+                autoComplete="off"
+              />
+            </label>
+            <button
+              type="button"
+              className="secondary"
+              onClick={() => {
+                const body: Record<string, unknown> = {
+                  shieldAdapter,
+                  shieldHttpUrl,
+                };
+                if (shieldHttpToken.trim()) body.shieldHttpToken = shieldHttpToken.trim();
+                void api('/api/v1/settings', {
+                  method: 'PATCH',
+                  body: JSON.stringify(body),
+                })
+                  .then(async () => {
+                    setShieldHttpToken('');
+                    await refreshExitLock();
+                    setUpgradeMsg(t('已保存 Shield 适配器'));
+                  })
+                  .catch((err) => setUpgradeMsg(te(err, '保存失败')));
+              }}
+            >
+              {t('保存 Shield')}
+            </button>
+          </div>
+
+          <h3 data-testid="deskdns-settings">{t('DeskDNS')}</h3>
+          <p className="hint">
+            {t('启用后本机提供 DNS；生产绑 53 见 docs/DESKDNS_PORT53.md。HTTPS 见 docs/TLS_REVERSE_PROXY.md。')}
+          </p>
+          <div className="row" style={{ flexWrap: 'wrap', gap: 8 }}>
+            <label className="row">
+              <input
+                type="checkbox"
+                checked={deskDnsEnabled}
+                data-testid="desk-dns-enabled"
+                onChange={(e) => setDeskDnsEnabled(e.target.checked)}
+              />
+              {t('启用 DeskDNS')}
+            </label>
+            <label>
+              {t('端口')}
+              <input
+                type="number"
+                min={1}
+                max={65535}
+                value={deskDnsPort}
+                data-testid="desk-dns-port"
+                onChange={(e) => setDeskDnsPort(Number(e.target.value) || 5353)}
+              />
+            </label>
+            <button
+              type="button"
+              className="secondary"
+              onClick={() => {
+                void api('/api/v1/settings', {
+                  method: 'PATCH',
+                  body: JSON.stringify({ deskDnsEnabled, deskDnsPort }),
+                })
+                  .then(async () => {
+                    await refreshExitLock();
+                    setUpgradeMsg(t('已保存 DeskDNS（已尝试重新绑定）'));
+                  })
+                  .catch((err) => setUpgradeMsg(te(err, '保存失败')));
+              }}
+            >
+              {t('保存 DeskDNS')}
+            </button>
+          </div>
 
           <h3 id="teacher-upgrades-panel">{t('学生机升级包')}</h3>
           <p className="hint">
             {t('上传 Setup.exe（可含 -x64 / -arm64）→ 自动 sha256 → 旧包自动删。学生按本机 arch 拉包。')}
           </p>
+          <div className="release-sync-card" data-testid="release-sync-card">
+            <h4>{t('GitHub Release 一键同步')}</h4>
+            <p className="hint">
+              {t(
+                '后台定期自检最新 Release。一点击：①公网拉学生 Setup 到本机升级库（同哈希跳过＝增量）②教师机代码切到同 tag 并自动重启 API（保留 data/.env）。学生强制同版本会打开。',
+              )}
+            </p>
+            {releaseInfo ? (
+              <p className="hint" data-testid="release-sync-status">
+                {t('本机')} v{releaseInfo.localVersion ?? '—'} · {t('最新')}{' '}
+                {releaseInfo.latestTag ?? '—'}
+                {releaseInfo.updateAvailable ? ` · ${t('有更新')}` : ` · ${t('无更新')}`}
+                {releaseInfo.checkedAt
+                  ? ` · ${t('检查于')} ${releaseInfo.checkedAt}`
+                  : ''}
+                {releaseInfo.fromCache ? ` · ${t('缓存')}` : ''}
+              </p>
+            ) : (
+              <p className="hint">{t('尚未检查 Release（需教师机可访问 GitHub）')}</p>
+            )}
+            {releaseInfo?.setupAssets?.length ? (
+              <ul className="hint" data-testid="release-asset-list">
+                {releaseInfo.setupAssets.map((a) => (
+                  <li key={a.name}>
+                    <code>{a.name}</code>
+                    {a.size ? ` · ${Math.round(a.size / 1024 / 1024)} MB` : ''}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+            <div className="row" style={{ flexWrap: 'wrap', gap: 8 }}>
+              <button
+                type="button"
+                className="secondary"
+                disabled={releaseBusy}
+                data-testid="release-check-btn"
+                onClick={() => {
+                  setReleaseBusy(true);
+                  void api<NonNullable<typeof releaseInfo>>(
+                    '/api/v1/upgrades/release-check?refresh=1',
+                  )
+                    .then((r) => {
+                      setReleaseInfo(r);
+                      setUpgradeMsg(
+                        r.updateAvailable
+                          ? t('发现新版本 {v0}', { v0: r.latestTag ?? '' })
+                          : t('已是最新 Release'),
+                      );
+                    })
+                    .catch((err) => setUpgradeMsg(te(err, '检查 Release 失败')))
+                    .finally(() => setReleaseBusy(false));
+                }}
+              >
+                {releaseBusy ? t('处理中…') : t('检查最新 Release')}
+              </button>
+              <button
+                type="button"
+                disabled={releaseBusy}
+                data-testid="release-pull-btn"
+                onClick={() => {
+                  setReleaseBusy(true);
+                  setUpgradeMsg(t('正在从 GitHub 拉取…'));
+                  void api<{
+                    ok?: boolean;
+                    message?: string;
+                    tag?: string;
+                    downloaded?: string[];
+                    skipped?: unknown[];
+                    byArch?: typeof upgradeByArch;
+                    files?: string[];
+                    studentAutoUpdate?: boolean;
+                    restartScheduled?: boolean;
+                  }>('/api/v1/upgrades/pull-release', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                      arches: ['x64', 'arm64'],
+                      updateTeacherHost: true,
+                    }),
+                  })
+                    .then((r) => {
+                      setStudentAutoUpdate(r.studentAutoUpdate !== false);
+                      if (r.byArch) {
+                        setUpgradeByArch({
+                          x64: r.byArch.x64 ?? null,
+                          arm64: r.byArch.arm64 ?? null,
+                        });
+                      }
+                      if (r.files) setUpgradeFiles(r.files);
+                      setUpgradeMsg(
+                        r.restartScheduled
+                          ? t('{v0} — 教师机即将重启，请几秒后刷新本页', {
+                              v0: r.message || t('已同步 Release {v0}', { v0: r.tag ?? '' }),
+                            })
+                          : r.message || t('已同步 Release {v0}', { v0: r.tag ?? '' }),
+                      );
+                      if (r.restartScheduled) {
+                        window.setTimeout(() => {
+                          window.location.reload();
+                        }, 5000);
+                        return null;
+                      }
+                      return api<NonNullable<typeof releaseInfo>>(
+                        '/api/v1/upgrades/release-check?refresh=1',
+                      );
+                    })
+                    .then((r) => {
+                      if (r) setReleaseInfo(r);
+                    })
+                    .catch((err) => setUpgradeMsg(te(err, '拉取 Release 失败')))
+                    .finally(() => setReleaseBusy(false));
+                }}
+              >
+                {t('一键更新（教师机 + 学生机包）')}
+              </button>
+              {releaseInfo?.htmlUrl ? (
+                <a href={releaseInfo.htmlUrl} target="_blank" rel="noreferrer" className="secondary">
+                  {t('在浏览器打开 Release')}
+                </a>
+              ) : null}
+            </div>
+          </div>
           <label className="row" data-testid="student-auto-update-toggle">
             <input
               type="checkbox"

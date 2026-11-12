@@ -443,7 +443,7 @@ export function SessionHome({
           </a>
         </p>
         <p className="hint" data-testid="exam-box-hardware-scaffold">
-          {t('量产硬件 SKU（examBoxHardware）仍为未交付 — 仅脚手架：')}{' '}
+          {t('量产：BOM + install-appliance.sh + 设置里登记序列号/镜像 tag 验收。')}{' '}
           <a
             href="https://github.com/otas0/classroom-desk/blob/main/deploy/exam-box/HARDWARE.md"
             target="_blank"
@@ -467,11 +467,19 @@ export function SessionHome({
           >
             docs/ENTERPRISE_8021X.md
           </a>
+          {' · '}
+          <a
+            href="https://github.com/otas0/classroom-desk/blob/main/deploy/radius/README.md"
+            target="_blank"
+            rel="noreferrer"
+          >
+            deploy/radius/
+          </a>
         </p>
       </CapabilityGate>
       <CapabilityGate flag="netDns" label={t('DeskDNS')}>
         <p className="hint" data-testid="desk-dns-hint">
-          {t('DeskDNS：主机设置 CLASSROOM_DESK_DNS=1，DHCP 指向本机 DNS 端口（默认 5353）。')}
+          {t('DeskDNS：设置页可启用，或 CLASSROOM_DESK_DNS=1；DHCP 指本机（默认 5353，生产见 :53 文档）。')}
         </p>
       </CapabilityGate>
       <HealthNetCard />

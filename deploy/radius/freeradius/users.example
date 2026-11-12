@@ -1,0 +1,16 @@
+# Illustrative FreeRADIUS users / group VLAN tunnel attributes.
+# Replace with school IdP (LDAP/AD) in production — do not ship real accounts.
+
+# Staff → VLAN 20 (example IDs only)
+DEFAULT LDAP-Group == "wifi-staff"
+  Tunnel-Type = VLAN,
+  Tunnel-Medium-Type = IEEE-802,
+  Tunnel-Private-Group-Id = "20",
+  Fall-Through = No
+
+# Students → VLAN 30
+DEFAULT LDAP-Group == "wifi-students"
+  Tunnel-Type = VLAN,
+  Tunnel-Medium-Type = IEEE-802,
+  Tunnel-Private-Group-Id = "30",
+  Fall-Through = No

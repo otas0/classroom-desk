@@ -5,6 +5,21 @@ import { API_BASE, api } from '../api';
 type HealthNet = {
   deskDns?: { enabled?: boolean; running?: boolean; port?: number | null; error?: string | null };
   enterprise8021xRequired?: boolean;
+  enterprise8021x?: {
+    required?: boolean;
+    idp?: string;
+    staffSsid?: string;
+    staffVlan?: string;
+    studentSsid?: string;
+    studentVlan?: string;
+  };
+  examBox?: {
+    serial?: string | null;
+    imageTag?: string | null;
+    hardwareAccepted?: boolean;
+    acceptedAt?: string | null;
+    hardwareSku?: boolean;
+  };
   capabilities?: {
     examBox?: boolean;
     examBoxHardware?: boolean;
@@ -16,6 +31,7 @@ type HealthNet = {
     adapters?: string[];
     lastError?: { at?: string; message?: string } | null;
   };
+  tls?: { mode?: string; hint?: string; example?: string };
 };
 
 type DeskDnsCheck = {
@@ -184,22 +200,55 @@ export function HealthNetCard() {
           ? t('未启用')
           : dns.running
             ? `${t('运行中')} udp/${dns.port ?? '—'}`
-            : `${t('未绑定')}${dns.error ? `（${dns.error}）` : ''}`}
-      </p>
-      <p className="hint" data-testid="health-enterprise-8021x">
-        802.1X（IT 提示）：{h.enterprise8021xRequired ? t('已要求 802.1X') : t('未勾选要求')}{' '}
+            : `${t('未绑定')}${dns.error ? `（${dns.error}）` : ''}`}{' '}
         <a
-          href="https://github.com/otas0/classroom-desk/blob/main/docs/ENTERPRISE_8021X.md"
+          href="https://github.com/otas0/classroom-desk/blob/main/docs/DESKDNS_PORT53.md"
           target="_blank"
           rel="noreferrer"
         >
-          docs/ENTERPRISE_8021X.md
+          :53
+        </a>
+      </p>
+      <p className="hint" data-testid="health-tls">
+        TLS：{t('默认教室 HTTP')}
+        {h.tls?.example ? ` · ${h.tls.example}` : ''}{' '}
+        <a
+          href="https://github.com/otas0/classroom-desk/blob/main/docs/TLS_REVERSE_PROXY.md"
+          target="_blank"
+          rel="noreferrer"
+        >
+          docs/TLS_REVERSE_PROXY.md
+        </a>
+      </p>
+      <p className="hint" data-testid="health-enterprise-8021x">
+        802.1X（IT）：
+        {h.enterprise8021xRequired || h.enterprise8021x?.required
+          ? t('已要求 802.1X')
+          : t('未勾选要求')}
+        {h.enterprise8021x?.idp ? ` · IdP ${h.enterprise8021x.idp}` : ` · ${t('IdP 未登记')}`}
+        {h.enterprise8021x?.staffSsid
+          ? ` · ${t('教工')} ${h.enterprise8021x.staffSsid}/${h.enterprise8021x.staffVlan || '—'}`
+          : ''}
+        {h.enterprise8021x?.studentSsid
+          ? ` · ${t('学生')} ${h.enterprise8021x.studentSsid}/${h.enterprise8021x.studentVlan || '—'}`
+          : ''}{' '}
+        <a
+          href="https://github.com/otas0/classroom-desk/blob/main/deploy/radius/README.md"
+          target="_blank"
+          rel="noreferrer"
+        >
+          deploy/radius/
         </a>
       </p>
       <p className="hint" data-testid="health-exam-box">
         Exam Box：
-        {h.capabilities?.examBox ? t('文档/compose 已交付') : t('未交付')}
-        {h.capabilities?.examBoxHardware ? '' : ` · ${t('量产硬件（examBoxHardware）未交付')}`}{' '}
+        {h.capabilities?.examBoxHardware || h.examBox?.hardwareSku
+          ? `${t('量产已验收')}${h.examBox?.serial ? ` · ${h.examBox.serial}` : ''}${
+              h.examBox?.imageTag ? ` · ${h.examBox.imageTag}` : ''
+            }`
+          : h.capabilities?.examBox
+            ? `${t('文档/compose 已交付')} · ${t('量产硬件待验收')}`
+            : t('未交付')}{' '}
         <a
           href="https://github.com/otas0/classroom-desk/blob/main/deploy/exam-box/HARDWARE.md"
           target="_blank"
@@ -209,8 +258,14 @@ export function HealthNetCard() {
         </a>
       </p>
       <p className="hint" data-testid="health-shield">
-        Shield：{shield?.displayName ?? '—'}（{shield?.active ?? 'mock'}）
-        {shield?.adapters?.length ? ` · ${shield.adapters.join(' / ')}` : ''}
+        Shield：
+        {!shield?.active || shield.active === 'off'
+          ? t('未配置（需 OPNsense / UniFi / HTTP）')
+          : `${shield.displayName ?? '—'}（${shield.active}）`}
+        {shield?.active === 'mock' ? ` · ${t('仅联调，非生产')}` : ''}
+        {shield?.adapters?.length
+          ? ` · ${t('可选')}：${shield.adapters.filter((a) => a !== 'mock').join(' / ')}`
+          : ''}
         {shield?.lastError?.message
           ? ` · lastError：${shield.lastError.message}${
               shield.lastError.at ? ` @ ${shield.lastError.at}` : ''

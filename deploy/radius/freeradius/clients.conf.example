@@ -1,0 +1,15 @@
+# FreeRADIUS clients — copy into sites-enabled / clients.d and replace placeholders.
+# Do not commit real secrets.
+
+client exam-hall-ap-01 {
+  ipaddr = 192.168.X.Y
+  secret = REPLACE_WITH_SHARED_SECRET
+  shortname = exam-hall-ap-01
+  nas_type = other
+}
+
+client staff-core-switch {
+  ipaddr = 10.X.Y.0/24
+  secret = REPLACE_WITH_SHARED_SECRET
+  shortname = staff-core
+}

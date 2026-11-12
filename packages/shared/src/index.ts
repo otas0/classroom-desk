@@ -24,7 +24,9 @@ export function isWeakTeacherPassword(password: string, extra: readonly string[]
   return extra.includes(password);
 }
 
-export const GITHUB_RELEASES_BASE = 'https://github.com/otas0/classroom-desk/releases';
+export const GITHUB_REPO = 'otas0/classroom-desk';
+export const GITHUB_RELEASES_BASE = `https://github.com/${GITHUB_REPO}/releases`;
+export const GITHUB_API_RELEASES_LATEST = `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`;
 
 
 export const STUDENT_WINDOW = {

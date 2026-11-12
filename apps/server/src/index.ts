@@ -19,6 +19,10 @@ import {
   stopFederationAnnounce,
 } from './services/federationHub.js';
 import { reloadShieldConnectorFromEnv } from './services/shield/registry.js';
+import {
+  startReleaseCheckScheduler,
+  stopReleaseCheckScheduler,
+} from './services/githubRelease.js';
 
 const db = migrate();
 await ensureBootstrap(db);
@@ -30,6 +34,7 @@ startDeskDns();
 startClassroomBeacon();
 startClassroomMdns();
 startFederationAnnounce();
+startReleaseCheckScheduler();
 
 const server = app.listen(config.port, config.host, () => {
   console.log(`[classroom-desk-server] listening on http://${config.host}:${config.port}`);
@@ -53,6 +58,7 @@ attachPrincipalWebSocket(server);
 broadcastExitLockPayload(getClientExitLockState(db));
 
 function shutdown() {
+  stopReleaseCheckScheduler();
   stopFederationAnnounce();
   stopClassroomMdns();
   stopClassroomBeacon();

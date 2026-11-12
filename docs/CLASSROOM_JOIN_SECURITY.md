@@ -12,7 +12,7 @@ Classroom Desk 默认假设：**教师机 `:8787` 只在教室 / 机房局域网
 
 1. **不要**把 `:8787` 端口映射到公网或访客 Wi‑Fi 无隔离区。
 2. 访客 AP isolation 场景用手输 **房间码**（不依赖广播）；仍视为教室信任域。
-3. 学校若要求加密：在教师机前加 **本机/机房反向代理**（Caddy/nginx）终止 **自签或校内 CA TLS**，学生 `apiBase` 改为 `https://…`（证书需可被学生机信任，或由 IT 预置根证书）。
+3. 学校若要求加密：在教师机前加 **本机/机房反向代理**（Caddy/nginx）终止 **自签或校内 CA TLS**，学生 `apiBase` 改为 `https://…`（证书需可被学生机信任，或由 IT 预置根证书）。配方见 [TLS_REVERSE_PROXY.md](./TLS_REVERSE_PROXY.md)、[`deploy/tls/Caddyfile.example`](../deploy/tls/Caddyfile.example)。
 4. 产品路径 **不**教用户关闭 Defender / SmartScreen 来「解决」安全提示；签名包见 [SMARTSCREEN.md](./SMARTSCREEN.md)、[LOCAL_USB_CHECKLIST.md](./LOCAL_USB_CHECKLIST.md)。
 
 ## 可选加固（运维）

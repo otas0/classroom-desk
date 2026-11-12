@@ -1,6 +1,7 @@
 import dgram from 'node:dgram';
 import dns from 'node:dns/promises';
 import { openDb } from '../db/client.js';
+import { getSetting } from '../db/migrate.js';
 import { getDeepLockStore } from './deepLock.js';
 import { getDeviceControlPolicy } from './deviceControl.js';
 import { resolveDeepLockState, deepLockAggressive } from '@classroom-desk/shared';
@@ -138,9 +139,32 @@ async function resolvePolicy(name: string): Promise<string[] | null> {
 let boundPort: number | null = null;
 let bindError: string | null = null;
 
-export function startDeskDns(port = Number(process.env.CLASSROOM_DESK_DNS_PORT ?? 5353)) {
+function readDeskDnsConfig(): { enabled: boolean; port: number } {
+  const envOn =
+    process.env.CLASSROOM_DESK_DNS === '1' || process.env.CLASSROOM_DESK_DNS === 'true';
+  let settingsOn = false;
+  let settingsPort: number | null = null;
+  try {
+    const db = openDb();
+    settingsOn = (getSetting(db, 'desk_dns_enabled') ?? '0') === '1';
+    const p = Number(getSetting(db, 'desk_dns_port') ?? 5353);
+    if (Number.isFinite(p) && p > 0 && p < 65536) settingsPort = Math.trunc(p);
+  } catch {
+    /* db not ready */
+  }
+  const envPort = Number(process.env.CLASSROOM_DESK_DNS_PORT ?? NaN);
+  const port =
+    Number.isFinite(envPort) && envPort > 0
+      ? Math.trunc(envPort)
+      : (settingsPort ?? 5353);
+  return { enabled: envOn || settingsOn, port };
+}
+
+export function startDeskDns(port?: number) {
   if (server) return server;
-  if (process.env.CLASSROOM_DESK_DNS !== '1') return null;
+  const cfg = readDeskDnsConfig();
+  if (!cfg.enabled) return null;
+  const listenPort = port ?? cfg.port;
   server = dgram.createSocket('udp4');
   server.on('message', (msg, rinfo) => {
     void (async () => {
@@ -163,10 +187,10 @@ export function startDeskDns(port = Number(process.env.CLASSROOM_DESK_DNS_PORT ?
     bindError = err.message;
     console.error(`[desk-dns] bind error: ${err.message}`);
   });
-  server.bind(port, () => {
-    boundPort = port;
+  server.bind(listenPort, () => {
+    boundPort = listenPort;
     bindError = null;
-    console.log(`[desk-dns] listening udp/${port} (CLASSROOM_DESK_DNS=1)`);
+    console.log(`[desk-dns] listening udp/${listenPort}`);
   });
   return server;
 }
@@ -175,6 +199,13 @@ export function stopDeskDns() {
   server?.close();
   server = null;
   boundPort = null;
+  bindError = null;
+}
+
+/** Re-read settings/env and (re)bind. */
+export function reloadDeskDnsFromConfig() {
+  stopDeskDns();
+  return startDeskDns();
 }
 
 export function getDeskDnsStatus(): {
@@ -183,11 +214,11 @@ export function getDeskDnsStatus(): {
   port: number | null;
   error: string | null;
 } {
-  const enabled = process.env.CLASSROOM_DESK_DNS === '1';
+  const cfg = readDeskDnsConfig();
   return {
-    enabled,
+    enabled: cfg.enabled,
     running: Boolean(server && boundPort != null && !bindError),
-    port: boundPort ?? (enabled ? Number(process.env.CLASSROOM_DESK_DNS_PORT ?? 5353) : null),
+    port: boundPort ?? (cfg.enabled ? cfg.port : null),
     error: bindError,
   };
 }

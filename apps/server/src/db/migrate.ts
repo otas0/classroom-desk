@@ -95,6 +95,27 @@ const DEFAULT_SETTINGS: Record<string, string> = {
   sis_roster_interval_minutes: '0',
   /** Hint only: IT requires 802.1X on student SSID. */
   enterprise_8021x_required: '0',
+  /** School IdP name (NPS / FreeRADIUS / …) — registry only, not a live RADIUS probe. */
+  enterprise_8021x_idp: '',
+  enterprise_8021x_staff_ssid: '',
+  enterprise_8021x_staff_vlan: '',
+  enterprise_8021x_student_ssid: '',
+  enterprise_8021x_student_vlan: '',
+  /** Exam Box first-unit acceptance (empty = not shipped). */
+  exam_box_serial: '',
+  exam_box_image_tag: '',
+  exam_box_hardware_accepted: '0',
+  exam_box_accepted_at: '',
+  /**
+   * Shield adapter: empty = follow env / off.
+   * Values: off | http | opnsense | unifi | mock
+   */
+  shield_adapter: '',
+  shield_http_url: '',
+  shield_http_token: '',
+  /** DeskDNS: 1 = enable (or CLASSROOM_DESK_DNS=1). Port default 5353. */
+  desk_dns_enabled: '0',
+  desk_dns_port: '5353',
   /** Optional campus federation hub ingest URL (overrides env when set). */
   federation_hub_url: '',
   /** Bearer token for hub ingest (write-only in API GET). */

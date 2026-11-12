@@ -16,8 +16,8 @@
 | `neverStudentNetBlock` | 从未学生网 → 教工网拦截 | 区配置 `studentUnauthorized` |
 | `privateDevicePortalOnly` | 私人设备默认走门户 | 开通默认开；lab-agent 例外 |
 | `examBox` | Exam Box 文档 + compose 镜像 | 考场旁路小盒 |
-| `examBoxHardware` | 量产刷机镜像（未交付时灰显） | 采购硬件 SKU |
-| `enterprise8021x` | 802.1X 对接白皮书 | RADIUS / IdP |
+| `examBoxHardware` | 量产装盒（BOM + 镜像 + 验收登记后亮起） | 采购硬件 + HARDWARE.md 验收 |
+| `enterprise8021x` | 802.1X 白皮书 + `deploy/radius/` 模板 + IT 登记字段 | 学校 RADIUS / IdP |
 | `principalDashboard` | 校长只读能力/在线看板 | 教师或管理员账号 |
 | `deviceFingerprinting` | **始终 false**（不做隐蔽指纹） | — |
 
