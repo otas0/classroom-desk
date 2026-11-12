@@ -14,6 +14,11 @@ import {
   getReleaseStatusSummary,
   pullLatestReleaseToUpgrades,
 } from '../services/githubRelease.js';
+import {
+  applyTeacherHostCodeUpdate,
+  scheduleTeacherHostRestart,
+  teacherSelfUpdateEnabled,
+} from '../services/teacherHostUpdate.js';
 import { packageVersion } from './health.js';
 
 export const upgradesRouter = Router();
@@ -181,8 +186,9 @@ upgradesRouter.get(
 );
 
 /**
- * One-click: pull latest GitHub Release Setup (x64/arm64) into LAN upgrades dir.
- * Skips unchanged files (size + sha). Enables student force sync.
+ * One-click: pull latest GitHub Release Setup into LAN upgrades dir,
+ * optionally update teacher host checkout to the same tag and restart API.
+ * Skips unchanged student assets (size + sha). Enables student force sync.
  */
 upgradesRouter.post(
   '/api/v1/upgrades/pull-release',
@@ -196,7 +202,23 @@ upgradesRouter.post(
             .map((x: unknown) => String(x).toLowerCase())
             .filter((x: string): x is 'x64' | 'arm64' => x === 'x64' || x === 'arm64')
         : undefined;
+      const updateTeacher =
+        req.body?.updateTeacherHost !== false &&
+        req.body?.updateTeacherHost !== 0 &&
+        req.body?.updateTeacherHost !== '0' &&
+        teacherSelfUpdateEnabled();
+
       const pulled = await pullLatestReleaseToUpgrades({ arches });
+
+      let teacherHost: Awaited<ReturnType<typeof applyTeacherHostCodeUpdate>> | null = null;
+      let restart: ReturnType<typeof scheduleTeacherHostRestart> | null = null;
+      if (updateTeacher) {
+        teacherHost = await applyTeacherHostCodeUpdate(pulled.tag);
+        if (teacherHost.ok && !teacherHost.skipped) {
+          restart = scheduleTeacherHostRestart({ delayMs: 2500 });
+        }
+      }
+
       writeAudit({
         actorUserId: req.user?.id,
         actorRole: req.user?.role,
@@ -206,18 +228,40 @@ upgradesRouter.post(
           downloaded: pulled.downloaded,
           skipped: pulled.skipped,
           pruned: pulled.pruned,
+          teacherHost,
+          restartScheduled: Boolean(restart?.restartScheduled),
         },
         clientIp: req.ip,
       });
       const lan = listUpgradeFiles(req);
+      const teacherMsg =
+        teacherHost?.skipped
+          ? '；教师机自更新已关闭'
+          : teacherHost?.ok
+            ? `；教师机已切到 ${pulled.tag}，约 3 秒后自动重启 API`
+            : teacherHost
+              ? `；教师机更新失败：${teacherHost.reason || teacherHost.detail || 'error'}`
+              : '';
       res.json({
         ok: true,
         ...pulled,
         byArch: lan.byArch,
         files: lan.files.map((f) => f.name),
         tipTemplate: lan.tipTemplate,
-        message: `已同步 GitHub ${pulled.tag}：下载 ${pulled.downloaded.length}，跳过 ${pulled.skipped.length}（增量）`,
+        teacherHost,
+        restartScheduled: Boolean(restart?.restartScheduled),
+        message: `已同步 GitHub ${pulled.tag}：下载 ${pulled.downloaded.length}，跳过 ${pulled.skipped.length}（增量）${teacherMsg}`,
       });
+
+      if (restart?.restartScheduled) {
+        setTimeout(() => {
+          try {
+            process.exit(0);
+          } catch {
+            /* ignore */
+          }
+        }, 1200);
+      }
     } catch (e) {
       res.status(502).json({
         ok: false,

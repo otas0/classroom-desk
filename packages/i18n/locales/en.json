@@ -1166,5 +1166,8 @@
   "一键拉取并更新学生机包": "Pull & update student packages",
   "在浏览器打开 Release": "Open Release in browser",
   "GitHub 有新 Release {v0}（本机 v{v1}）— 设置里一键拉取到学生机升级库": "New GitHub Release {v0} (local v{v1}) — one-click pull in Settings",
-  "去一键同步 Release": "Go sync Release"
+  "去一键同步 Release": "Go sync Release",
+  "后台定期自检最新 Release。一点击：①公网拉学生 Setup 到本机升级库（同哈希跳过＝增量）②教师机代码切到同 tag 并自动重启 API（保留 data/.env）。学生强制同版本会打开。": "Background release checks. One click: (1) pull student Setup to LAN upgrades (skip unchanged) (2) checkout same tag on teacher host and restart API (keeps data/.env). Enables student force sync.",
+  "一键更新（教师机 + 学生机包）": "One-click update (teacher host + student packages)",
+  "{v0} — 教师机即将重启，请几秒后刷新本页": "{v0} — teacher host restarting; refresh in a few seconds"
 }

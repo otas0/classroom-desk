@@ -5807,7 +5807,7 @@ export function SettingsPanel({
             <h4>{t('GitHub Release 一键同步')}</h4>
             <p className="hint">
               {t(
-                '后台定期自检最新 Release。一点击从公网拉到本机升级库（已存在且哈希一致则跳过＝增量），并打开学生强制同版本。',
+                '后台定期自检最新 Release。一点击：①公网拉学生 Setup 到本机升级库（同哈希跳过＝增量）②教师机代码切到同 tag 并自动重启 API（保留 data/.env）。学生强制同版本会打开。',
               )}
             </p>
             {releaseInfo ? (
@@ -5874,9 +5874,13 @@ export function SettingsPanel({
                     byArch?: typeof upgradeByArch;
                     files?: string[];
                     studentAutoUpdate?: boolean;
+                    restartScheduled?: boolean;
                   }>('/api/v1/upgrades/pull-release', {
                     method: 'POST',
-                    body: JSON.stringify({ arches: ['x64', 'arm64'] }),
+                    body: JSON.stringify({
+                      arches: ['x64', 'arm64'],
+                      updateTeacherHost: true,
+                    }),
                   })
                     .then((r) => {
                       setStudentAutoUpdate(r.studentAutoUpdate !== false);
@@ -5887,17 +5891,31 @@ export function SettingsPanel({
                         });
                       }
                       if (r.files) setUpgradeFiles(r.files);
-                      setUpgradeMsg(r.message || t('已同步 Release {v0}', { v0: r.tag ?? '' }));
+                      setUpgradeMsg(
+                        r.restartScheduled
+                          ? t('{v0} — 教师机即将重启，请几秒后刷新本页', {
+                              v0: r.message || t('已同步 Release {v0}', { v0: r.tag ?? '' }),
+                            })
+                          : r.message || t('已同步 Release {v0}', { v0: r.tag ?? '' }),
+                      );
+                      if (r.restartScheduled) {
+                        window.setTimeout(() => {
+                          window.location.reload();
+                        }, 5000);
+                        return null;
+                      }
                       return api<NonNullable<typeof releaseInfo>>(
                         '/api/v1/upgrades/release-check?refresh=1',
                       );
                     })
-                    .then((r) => setReleaseInfo(r))
+                    .then((r) => {
+                      if (r) setReleaseInfo(r);
+                    })
                     .catch((err) => setUpgradeMsg(te(err, '拉取 Release 失败')))
                     .finally(() => setReleaseBusy(false));
                 }}
               >
-                {t('一键拉取并更新学生机包')}
+                {t('一键更新（教师机 + 学生机包）')}
               </button>
               {releaseInfo?.htmlUrl ? (
                 <a href={releaseInfo.htmlUrl} target="_blank" rel="noreferrer" className="secondary">
