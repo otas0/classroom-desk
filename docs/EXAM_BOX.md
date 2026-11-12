@@ -23,26 +23,27 @@ docker pull ghcr.io/otas0/classroom-desk-exam-box:latest
 
 CI 使用 Sigstore keyless cosign 签名镜像 digest。验证：
 
+已发布 digest（`workflow_dispatch` run [43201798754](https://github.com/otas0/classroom-desk/actions/runs/43201798754)，tag `:latest` / `:sha-e5e8c31ea0d9`）：
+
+`sha256:7264cd6014f8166b2486bfd2de0c35fa4b38c1681675ce5f3c2ab519ddf2e111`
+
 ```bash
 IMAGE=ghcr.io/otas0/classroom-desk-exam-box
-# 首次 main/exam-box-image 发布后：
-#   crane digest ghcr.io/otas0/classroom-desk-exam-box:latest
-# 把输出贴回本段（当前仓库尚未拉到公开 digest 时保留命令即可）
-DIGEST=$(crane digest ${IMAGE}:latest)
-echo "crane digest → $DIGEST"
+DIGEST=sha256:7264cd6014f8166b2486bfd2de0c35fa4b38c1681675ce5f3c2ab519ddf2e111
+# 或：DIGEST=$(crane digest ${IMAGE}:latest)
 cosign verify \
   --certificate-identity-regexp='https://github.com/otas0/classroom-desk/.*' \
   --certificate-oidc-issuer=https://token.actions.githubusercontent.com \
   ${IMAGE}@${DIGEST}
 ```
 
-本地未装 `crane` 时可用：
+本地未装 `crane` 时也可用短 sha tag：
 
 ```bash
 cosign verify \
   --certificate-identity-regexp='https://github.com/otas0/classroom-desk/.*' \
   --certificate-oidc-issuer=https://token.actions.githubusercontent.com \
-  ghcr.io/otas0/classroom-desk-exam-box:sha-<12字短 sha>
+  ghcr.io/otas0/classroom-desk-exam-box:sha-e5e8c31ea0d9
 ```
 
 ## 能力旗标

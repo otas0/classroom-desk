@@ -152,8 +152,13 @@ export function AuditDetail({
       {ids && ids.length ? (
         <>
           {' '}
-          <button type="button" className="linkish" onClick={() => setOpen((v) => !v)}>
-            {open ? t('收起 ids') : `展开 ids（${ids.length}）`}
+          <button
+            type="button"
+            className="linkish"
+            data-testid="audit-expand-ids"
+            onClick={() => setOpen((v) => !v)}
+          >
+            {open ? t('收起 ids') : t('展开 ids（{v0}）', { v0: ids.length })}
           </button>
           {target && onJumpIds ? (
             <>
