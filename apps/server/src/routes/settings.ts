@@ -315,6 +315,11 @@ settingsRouter.get('/api/v1/settings', requireAuth, requireRoles('teacher', 'adm
     examBoxImageTag: getSetting(db, 'exam_box_image_tag') ?? '',
     examBoxHardwareAccepted: (getSetting(db, 'exam_box_hardware_accepted') ?? '0') === '1',
     examBoxAcceptedAt: getSetting(db, 'exam_box_accepted_at') ?? '',
+    shieldAdapter: getSetting(db, 'shield_adapter') ?? '',
+    shieldHttpUrl: getSetting(db, 'shield_http_url') ?? '',
+    hasShieldHttpToken: Boolean((getSetting(db, 'shield_http_token') ?? '').trim()),
+    deskDnsEnabled: (getSetting(db, 'desk_dns_enabled') ?? '0') === '1',
+    deskDnsPort: Number(getSetting(db, 'desk_dns_port') ?? 5353),
     restoreConfirmEmail: getSetting(db, 'restore_confirm_email') ?? '',
     hasBackupEncryptPassphrase: Boolean((getSetting(db, 'backup_encrypt_passphrase') ?? '').trim()),
     projectionHighContrast: (getSetting(db, 'projection_high_contrast') ?? '0') === '1',
@@ -742,6 +747,62 @@ settingsRouter.patch('/api/v1/settings', requireAuth, requireRoles('teacher', 'a
     }
     upsertSettingKey('exam_box_hardware_accepted', on ? '1' : '0');
     upsertSettingKey('exam_box_accepted_at', on ? new Date().toISOString() : '');
+  }
+  if (req.body?.shieldAdapter !== undefined) {
+    const raw = String(req.body.shieldAdapter ?? '')
+      .trim()
+      .toLowerCase();
+    const allowed = new Set(['', 'off', 'http', 'opnsense', 'unifi', 'mock']);
+    if (!allowed.has(raw)) {
+      res.status(400).json({
+        error: 'invalid_shield_adapter',
+        message: 'shieldAdapter 须为 off|http|opnsense|unifi|mock 或空',
+      });
+      return;
+    }
+    upsertSettingKey('shield_adapter', raw);
+    const { reloadShieldConnectorFromEnv } = await import('../services/shield/registry.js');
+    reloadShieldConnectorFromEnv();
+  }
+  if (req.body?.shieldHttpUrl !== undefined) {
+    const url = String(req.body.shieldHttpUrl ?? '').trim().slice(0, 500);
+    if (url && !/^https?:\/\//i.test(url)) {
+      res.status(400).json({
+        error: 'invalid_shield_http_url',
+        message: 'Shield HTTP URL 须以 http:// 或 https:// 开头',
+      });
+      return;
+    }
+    upsertSettingKey('shield_http_url', url);
+    const { reloadShieldConnectorFromEnv } = await import('../services/shield/registry.js');
+    reloadShieldConnectorFromEnv();
+  }
+  if (req.body?.shieldHttpToken !== undefined) {
+    upsertSettingKey(
+      'shield_http_token',
+      String(req.body.shieldHttpToken ?? '').trim().slice(0, 256),
+    );
+    const { reloadShieldConnectorFromEnv } = await import('../services/shield/registry.js');
+    reloadShieldConnectorFromEnv();
+  }
+  if (req.body?.deskDnsEnabled != null || req.body?.deskDnsPort != null) {
+    if (req.body?.deskDnsEnabled != null) {
+      const on =
+        req.body.deskDnsEnabled === true ||
+        req.body.deskDnsEnabled === 1 ||
+        req.body.deskDnsEnabled === '1';
+      upsertSettingKey('desk_dns_enabled', on ? '1' : '0');
+    }
+    if (req.body?.deskDnsPort != null) {
+      const p = Number(req.body.deskDnsPort);
+      if (!Number.isFinite(p) || p < 1 || p > 65535) {
+        res.status(400).json({ error: 'invalid_desk_dns_port', message: 'DeskDNS 端口须为 1–65535' });
+        return;
+      }
+      upsertSettingKey('desk_dns_port', String(Math.trunc(p)));
+    }
+    const { reloadDeskDnsFromConfig } = await import('../services/deskDns.js');
+    reloadDeskDnsFromConfig();
   }
   if (req.body?.federationHubUrl !== undefined) {
     const url = String(req.body.federationHubUrl ?? '').trim().slice(0, 500);

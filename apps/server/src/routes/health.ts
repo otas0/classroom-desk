@@ -21,6 +21,7 @@ import {
 import { requireAuth, requireRoles } from '../middleware/auth.js';
 import { STAFF_ROLES } from '../middleware/roles.js';
 import { productCapabilities } from '../services/portalAuth.js';
+import { getReleaseStatusSummary } from '../services/githubRelease.js';
 
 export const healthRouter = Router();
 
@@ -159,6 +160,12 @@ function buildHealthPayload() {
       acceptedAt: getSetting(db, 'exam_box_accepted_at') || null,
       hardwareSku: Boolean(capabilities.examBoxHardware),
     },
+    tls: {
+      mode: 'http_default',
+      hint: 'School HTTPS: terminate TLS at Caddy/nginx — docs/TLS_REVERSE_PROXY.md',
+      example: 'deploy/tls/Caddyfile.example',
+    },
+    release: getReleaseStatusSummary(db),
     capabilities,
     service: 'classroom-desk-server',
     version: packageVersion(),

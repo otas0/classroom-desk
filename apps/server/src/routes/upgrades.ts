@@ -9,6 +9,11 @@ import { getSetting } from '../db/migrate.js';
 import { requireAuth, requireRoles, type AuthedRequest } from '../middleware/auth.js';
 import { upsertSetting } from '../services/exitLock.js';
 import { writeAudit } from '../services/audit.js';
+import {
+  checkLatestRelease,
+  getReleaseStatusSummary,
+  pullLatestReleaseToUpgrades,
+} from '../services/githubRelease.js';
 import { packageVersion } from './health.js';
 
 export const upgradesRouter = Router();
@@ -120,6 +125,7 @@ function listUpgradeFiles(req: AuthedRequest, preferArch?: string) {
 upgradesRouter.get('/api/v1/upgrades/latest', (req: AuthedRequest, res) => {
   const arch = String(req.query.arch ?? '').trim().toLowerCase();
   const info = listUpgradeFiles(req, arch);
+  const release = getReleaseStatusSummary();
   res.json({
     expectedVersion: info.expectedVersion,
     preferredLanUrl: info.preferredLanUrl,
@@ -130,8 +136,97 @@ upgradesRouter.get('/api/v1/upgrades/latest', (req: AuthedRequest, res) => {
     studentAutoUpdate: info.studentAutoUpdate,
     githubReleaseUrl: info.githubReleaseUrl,
     tipTemplate: info.tipTemplate,
+    releaseUpdateAvailable: release.updateAvailable,
+    releaseLatestTag: release.latest?.tag ?? null,
   });
 });
+
+/** Cached / live GitHub latest release (teacher). */
+upgradesRouter.get(
+  '/api/v1/upgrades/release-check',
+  requireAuth,
+  requireRoles('teacher', 'admin', 'assistant'),
+  async (req: AuthedRequest, res) => {
+    try {
+      const force = req.query.refresh === '1' || req.query.refresh === 'true';
+      const result = await checkLatestRelease({ force });
+      const lan = listUpgradeFiles(req);
+      res.json({
+        ok: true,
+        localVersion: result.localVersion,
+        latestTag: result.latest.tag,
+        latestName: result.latest.name,
+        htmlUrl: result.latest.htmlUrl,
+        publishedAt: result.latest.publishedAt,
+        checkedAt: result.latest.checkedAt,
+        updateAvailable: result.updateAvailable,
+        fromCache: result.fromCache,
+        setupAssets: result.latest.assets
+          .filter((a) => /\.exe$/i.test(a.name) && (/Setup/i.test(a.name) || /ClassroomDesk/i.test(a.name)))
+          .map((a) => ({ name: a.name, size: a.size })),
+        lanByArch: lan.byArch,
+        studentAutoUpdate: lan.studentAutoUpdate,
+      });
+    } catch (e) {
+      const summary = getReleaseStatusSummary();
+      res.status(502).json({
+        ok: false,
+        error: 'release_check_failed',
+        message: e instanceof Error ? e.message : String(e),
+        ...summary,
+        githubReleaseUrl: `${GITHUB_RELEASES_BASE}/latest`,
+      });
+    }
+  },
+);
+
+/**
+ * One-click: pull latest GitHub Release Setup (x64/arm64) into LAN upgrades dir.
+ * Skips unchanged files (size + sha). Enables student force sync.
+ */
+upgradesRouter.post(
+  '/api/v1/upgrades/pull-release',
+  requireAuth,
+  requireRoles('teacher', 'admin'),
+  async (req: AuthedRequest, res) => {
+    try {
+      const archesRaw = req.body?.arches;
+      const arches = Array.isArray(archesRaw)
+        ? archesRaw
+            .map((x: unknown) => String(x).toLowerCase())
+            .filter((x: string): x is 'x64' | 'arm64' => x === 'x64' || x === 'arm64')
+        : undefined;
+      const pulled = await pullLatestReleaseToUpgrades({ arches });
+      writeAudit({
+        actorUserId: req.user?.id,
+        actorRole: req.user?.role,
+        action: 'upgrades.pull_release',
+        detail: {
+          tag: pulled.tag,
+          downloaded: pulled.downloaded,
+          skipped: pulled.skipped,
+          pruned: pulled.pruned,
+        },
+        clientIp: req.ip,
+      });
+      const lan = listUpgradeFiles(req);
+      res.json({
+        ok: true,
+        ...pulled,
+        byArch: lan.byArch,
+        files: lan.files.map((f) => f.name),
+        tipTemplate: lan.tipTemplate,
+        message: `已同步 GitHub ${pulled.tag}：下载 ${pulled.downloaded.length}，跳过 ${pulled.skipped.length}（增量）`,
+      });
+    } catch (e) {
+      res.status(502).json({
+        ok: false,
+        error: 'pull_release_failed',
+        message: e instanceof Error ? e.message : String(e),
+      });
+    }
+  },
+);
 
 upgradesRouter.get('/api/v1/upgrades', requireAuth, requireRoles('teacher', 'admin', 'assistant'), (req: AuthedRequest, res) => {
   res.json(listUpgradeFiles(req));

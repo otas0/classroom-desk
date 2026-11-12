@@ -63,7 +63,10 @@ curl http://192.168.1.50:8787/health
 
 ## Shield（网关断网）
 
-默认 **未配置**（`off`）：深锁/踢网不会假装成功。要真断网时设置其一：
+默认 **未配置**（`off`）：深锁/踢网不会假装成功。要真断网：
+
+- **教师设置 → Shield**：选 `opnsense` / `unifi` / `http`（写入 DB，保存即 reload）；或  
+- 环境变量（优先于设置）：
 
 ```bash
 export CLASSROOM_DESK_SHIELD=opnsense   # 或 unifi / http

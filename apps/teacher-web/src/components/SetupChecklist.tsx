@@ -41,6 +41,9 @@ export function SetupChecklist({
   const [joinRateLimitLive, setJoinRateLimitLive] = useState(0);
   const [deskDnsOk, setDeskDnsOk] = useState<boolean | null>(null);
   const [deskDnsHint, setDeskDnsHint] = useState('');
+  const [c2Complete, setC2Complete] = useState<boolean | null>(null);
+  const [c2Problems, setC2Problems] = useState('');
+  const [shieldActive, setShieldActive] = useState<string | null>(null);
 
   useEffect(() => {
     if (!classId) {
@@ -78,6 +81,7 @@ export function SetupChecklist({
           studentDesktopVersion?: string;
           version?: string;
           suggestedApiBase?: string;
+          shield?: { active?: string };
         };
         if (cancelled) return;
         setServerOk(Boolean(res.ok && body.ok));
@@ -87,9 +91,24 @@ export function SetupChecklist({
         );
         expVer = String(body.studentDesktopVersion ?? body.version ?? '').trim();
         setExpectedVersion(expVer);
+        setShieldActive(String(body.shield?.active ?? 'off'));
       } catch {
         if (cancelled) return;
         setServerOk(false);
+        setShieldActive(null);
+      }
+
+      try {
+        const c2 = await api<{ complete?: boolean; problems?: string[] }>(
+          '/api/v1/c2-evidence/status',
+        );
+        if (cancelled) return;
+        setC2Complete(c2.complete === true);
+        setC2Problems((c2.problems ?? []).slice(0, 2).join('；'));
+      } catch {
+        if (cancelled) return;
+        setC2Complete(null);
+        setC2Problems('');
       }
 
       try {
@@ -197,13 +216,16 @@ export function SetupChecklist({
   const joinPendingAlert = joinPendingCount > 0;
   const joinRateAlert = joinRateLimitLive > 0;
   const deskDnsAlert = deskDnsOk === false;
+  const c2Alert = c2Complete === false;
+  const shieldOff = shieldActive === 'off' || shieldActive === '';
   const healthAlerts =
     easyJoinMissing ||
     unhardenedAlert ||
     driftAlert ||
     joinPendingAlert ||
     joinRateAlert ||
-    deskDnsAlert;
+    deskDnsAlert ||
+    c2Alert;
 
   type BlockerLight = { id: string; label: string; state: 'ok' | 'unknown' | 'bad' };
   const blockerLights: BlockerLight[] = [
@@ -237,6 +259,16 @@ export function SetupChecklist({
       label: t('机位加固'),
       state:
         onlineForHardening === 0 ? 'unknown' : unhardenedAlert ? 'bad' : 'ok',
+    },
+    {
+      id: 'c2-evidence',
+      label: t('C2 证据'),
+      state: c2Complete === null ? 'unknown' : c2Complete ? 'ok' : 'bad',
+    },
+    {
+      id: 'shield',
+      label: 'Shield',
+      state: shieldActive === null ? 'unknown' : shieldOff ? 'unknown' : 'ok',
     },
   ];
   if (coreDone && !healthAlerts) return null;
@@ -381,7 +413,37 @@ export function SetupChecklist({
           ) : null}
           {deskDnsAlert ? (
             <p className="setup-health-alert" data-testid="setup-deskdns-alert">
-              {deskDnsHint || t('DeskDNS 探测未通过：DHCP DNS 可能未指向本讲台。')}
+              {deskDnsHint || t('DeskDNS 探测未通过：DHCP DNS 可能未指向本讲台。')}{' '}
+              <a
+                href="https://github.com/otas0/classroom-desk/blob/main/docs/DESKDNS_PORT53.md"
+                target="_blank"
+                rel="noreferrer"
+              >
+                docs/DESKDNS_PORT53.md
+              </a>
+            </p>
+          ) : null}
+          {c2Alert ? (
+            <p className="setup-health-alert" data-testid="setup-c2-alert">
+              {t('C2/AA 证据未齐（考试机房 L3）：{v0}', {
+                v0: c2Problems || t('无证据目录'),
+              })}{' '}
+              <a
+                href="https://github.com/otas0/classroom-desk/blob/main/docs/C2_OPERATOR_RUNBOOK.md"
+                target="_blank"
+                rel="noreferrer"
+              >
+                C2 runbook
+              </a>
+              {' · '}
+              <button type="button" className="secondary setup-step-jump" onClick={() => onGo('prep')}>
+                {t('去加固体检')}
+              </button>
+            </p>
+          ) : null}
+          {shieldOff && shieldActive !== null ? (
+            <p className="hint" data-testid="setup-shield-hint">
+              {t('Shield 未配置：深锁不会假断网。设置 → Shield 选 OPNsense/UniFi/HTTP。')}
             </p>
           ) : null}
           {driftAlert ? (

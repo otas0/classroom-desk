@@ -1,3 +1,5 @@
+import { openDb } from '../../db/client.js';
+import { getSetting } from '../../db/migrate.js';
 import { HttpShieldConnector } from './httpConnector.js';
 import { MockShieldConnector } from './mockConnector.js';
 import { OffShieldConnector } from './offConnector.js';
@@ -5,26 +7,45 @@ import { OpnsenseShieldConnector } from './opnsenseConnector.js';
 import { UnifiShieldConnector } from './unifiConnector.js';
 import type { ShieldConnector } from './types.js';
 
-let active: ShieldConnector = createFromEnv();
+let active: ShieldConnector = new OffShieldConnector();
+
+function readSettingsShield(): { kind: string; url: string; token: string } {
+  try {
+    const db = openDb();
+    return {
+      kind: String(getSetting(db, 'shield_adapter') ?? '')
+        .trim()
+        .toLowerCase(),
+      url: String(getSetting(db, 'shield_http_url') ?? '').trim(),
+      token: String(getSetting(db, 'shield_http_token') ?? '').trim(),
+    };
+  } catch {
+    return { kind: '', url: '', token: '' };
+  }
+}
 
 function createFromEnv(): ShieldConnector {
-  const kind = String(process.env.CLASSROOM_DESK_SHIELD ?? '')
+  const envKind = String(process.env.CLASSROOM_DESK_SHIELD ?? '')
     .trim()
     .toLowerCase();
+  const settings = readSettingsShield();
+  // Env wins when set (ops / systemd); otherwise teacher settings.
+  const kind = envKind || settings.kind;
   if (kind === 'opnsense') return new OpnsenseShieldConnector();
   if (kind === 'unifi') return new UnifiShieldConnector();
   if (kind === 'http') {
-    return new HttpShieldConnector(
-      process.env.CLASSROOM_DESK_SHIELD_URL ?? '',
-      process.env.CLASSROOM_DESK_SHIELD_TOKEN ?? '',
-    );
+    const url = String(process.env.CLASSROOM_DESK_SHIELD_URL ?? settings.url).trim();
+    const token = String(process.env.CLASSROOM_DESK_SHIELD_TOKEN ?? settings.token);
+    return new HttpShieldConnector(url, token);
   }
-  // Explicit lab-only in-memory adapter (tests / wiring proof). Never the product default.
   if (kind === 'mock') return new MockShieldConnector();
-  // Legacy: SHIELD_URL alone implies HTTP adapter.
-  const url = String(process.env.CLASSROOM_DESK_SHIELD_URL ?? '').trim();
+  if (kind === 'off') return new OffShieldConnector();
+  const url = String(process.env.CLASSROOM_DESK_SHIELD_URL ?? settings.url).trim();
   if (url) {
-    return new HttpShieldConnector(url, process.env.CLASSROOM_DESK_SHIELD_TOKEN ?? '');
+    return new HttpShieldConnector(
+      url,
+      process.env.CLASSROOM_DESK_SHIELD_TOKEN ?? settings.token,
+    );
   }
   return new OffShieldConnector();
 }

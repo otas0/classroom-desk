@@ -479,7 +479,7 @@ export function SessionHome({
       </CapabilityGate>
       <CapabilityGate flag="netDns" label={t('DeskDNS')}>
         <p className="hint" data-testid="desk-dns-hint">
-          {t('DeskDNS：主机设置 CLASSROOM_DESK_DNS=1，DHCP 指向本机 DNS 端口（默认 5353）。')}
+          {t('DeskDNS：设置页可启用，或 CLASSROOM_DESK_DNS=1；DHCP 指本机（默认 5353，生产见 :53 文档）。')}
         </p>
       </CapabilityGate>
       <HealthNetCard />

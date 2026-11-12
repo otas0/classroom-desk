@@ -31,6 +31,7 @@ type HealthNet = {
     adapters?: string[];
     lastError?: { at?: string; message?: string } | null;
   };
+  tls?: { mode?: string; hint?: string; example?: string };
 };
 
 type DeskDnsCheck = {
@@ -199,7 +200,25 @@ export function HealthNetCard() {
           ? t('未启用')
           : dns.running
             ? `${t('运行中')} udp/${dns.port ?? '—'}`
-            : `${t('未绑定')}${dns.error ? `（${dns.error}）` : ''}`}
+            : `${t('未绑定')}${dns.error ? `（${dns.error}）` : ''}`}{' '}
+        <a
+          href="https://github.com/otas0/classroom-desk/blob/main/docs/DESKDNS_PORT53.md"
+          target="_blank"
+          rel="noreferrer"
+        >
+          :53
+        </a>
+      </p>
+      <p className="hint" data-testid="health-tls">
+        TLS：{t('默认教室 HTTP')}
+        {h.tls?.example ? ` · ${h.tls.example}` : ''}{' '}
+        <a
+          href="https://github.com/otas0/classroom-desk/blob/main/docs/TLS_REVERSE_PROXY.md"
+          target="_blank"
+          rel="noreferrer"
+        >
+          docs/TLS_REVERSE_PROXY.md
+        </a>
       </p>
       <p className="hint" data-testid="health-enterprise-8021x">
         802.1X（IT）：

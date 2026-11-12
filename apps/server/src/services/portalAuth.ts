@@ -14,6 +14,7 @@ import {
 } from './networkZones.js';
 import type { NetworkHint } from '@classroom-desk/shared';
 import { studentUnauthorizedOnZone } from '@classroom-desk/shared';
+import { getDeskDnsStatus } from './deskDns.js';
 import { getShieldConnector, listShieldAdapterIds } from './shield/registry.js';
 
 const encoder = new TextEncoder();
@@ -330,7 +331,7 @@ function examBoxHardwareAccepted(): boolean {
 
 /** Product capability flags for UI / open-api. */
 export function productCapabilities() {
-  const dnsOn = process.env.CLASSROOM_DESK_DNS === '1';
+  const deskDns = getDeskDnsStatus();
   const shieldId = getShieldConnector().id;
   return {
     labAgent: true,
@@ -338,7 +339,7 @@ export function productCapabilities() {
     networkZones: true,
     netPortal: true,
     netDns: true,
-    netDnsRunning: dnsOn,
+    netDnsRunning: deskDns.enabled && deskDns.running,
     netShield: true,
     netShieldAdapters: listShieldAdapterIds(),
     netShieldActive: shieldId,

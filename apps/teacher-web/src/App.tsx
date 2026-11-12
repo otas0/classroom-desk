@@ -270,6 +270,11 @@ export function App() {
           lanIps?: string[];
           backup?: { lastError?: { message?: string } | null };
           audit?: { lastError?: { message?: string } | null };
+          release?: {
+            updateAvailable?: boolean;
+            latest?: { tag?: string } | null;
+            localVersion?: string;
+          } | null;
         };
         if (cancelled) return;
         setHealthLanIps(body.lanIps ?? []);
@@ -329,6 +334,14 @@ export function App() {
             if (!cancelled) setApiRestartTip('');
           }, tipMs);
         }
+        const releaseTag = String(body.release?.latest?.tag ?? '').trim();
+        const releaseHint =
+          body.release?.updateAvailable && releaseTag
+            ? t('GitHub 有新 Release {v0}（本机 v{v1}）— 设置里一键拉取到学生机升级库', {
+                v0: releaseTag,
+                v1: body.release.localVersion ?? body.version ?? '—',
+              })
+            : '';
         setHealthAlert(
           down
             ? t('服务异常：/health 未就绪')
@@ -338,7 +351,7 @@ export function App() {
                 ? t('备份异常：{v0}（自动备份或 npm run backup:db）', {
                     v0: err.message ?? JSON.stringify(err),
                   })
-                : drift,
+                : drift || releaseHint,
         );
       } catch {
         if (!cancelled) {
@@ -616,25 +629,47 @@ export function App() {
           {healthAlert ? (
             <div className="banner-alert">
               <p>{healthAlert}</p>
-              {driftExpectedVersion ? (
+              {driftExpectedVersion || /Release|一键拉取|GitHub/i.test(healthAlert) ? (
                 <p className="hint light">
-                  <a
-                    href={`${GITHUB_RELEASES_BASE}/tag/v${driftExpectedVersion}`}
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    打开 Release v{driftExpectedVersion}
-                  </a>
-                  {' · '}
+                  {driftExpectedVersion ? (
+                    <>
+                      <a
+                        href={`${GITHUB_RELEASES_BASE}/tag/v${driftExpectedVersion}`}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        打开 Release v{driftExpectedVersion}
+                      </a>
+                      {' · '}
+                      <button
+                        type="button"
+                        className="linkish"
+                        onClick={() => {
+                          setPrepTab('presence');
+                          setTab('prep');
+                        }}
+                      >
+                        查看在线机位
+                      </button>
+                      {' · '}
+                    </>
+                  ) : null}
                   <button
                     type="button"
                     className="linkish"
+                    data-testid="banner-goto-release-sync"
                     onClick={() => {
-                      setPrepTab('presence');
+                      setPrepTab('settings');
                       setTab('prep');
+                      window.requestAnimationFrame(() => {
+                        document.getElementById('teacher-upgrades-panel')?.scrollIntoView({
+                          behavior: 'smooth',
+                          block: 'start',
+                        });
+                      });
                     }}
                   >
-                    查看在线机位
+                    {t('去一键同步 Release')}
                   </button>
                 </p>
               ) : null}
