@@ -26,6 +26,7 @@ import { settingsRouter } from './routes/settings.js';
 import { upgradesRouter } from './routes/upgrades.js';
 import { uploadsRouter } from './routes/uploads.js';
 import { deepLockRouter } from './routes/deepLock.js';
+import { deviceControlRouter } from './routes/deviceControl.js';
 import { networkZonesRouter } from './routes/networkZones.js';
 import { portalRouter } from './routes/portal.js';
 import { principalRouter } from './routes/principal.js';
@@ -59,6 +60,7 @@ export function createApp() {
   app.use(healthRouter);
   app.use(settingsRouter);
   app.use(deepLockRouter);
+  app.use(deviceControlRouter);
   app.use(networkZonesRouter);
   app.use(portalRouter);
   app.use(principalRouter);

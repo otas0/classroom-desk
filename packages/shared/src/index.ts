@@ -338,3 +338,105 @@ export function studentUnauthorizedOnZone(zone: NetworkZone | null): boolean {
   if (!zone.allowedRoles.length) return false;
   return !zone.allowedRoles.includes('student');
 }
+
+/** Teacher policy when student lab-agent loses the teacher host. */
+export type OfflineLockMode = 'hard_lock' | 'warn' | 'off';
+
+export type OfflineLockPolicy = {
+  mode: OfflineLockMode;
+  /** Milliseconds without a successful health/API touch before offline action. */
+  graceMs: number;
+  /** Allow exit-unlock code to clear the offline hard lock (needs reachability unless hash cached). */
+  unlockWithCode: boolean;
+  /** After teacher host returns: snap widget to bottom-right. */
+  collapseOnReconnect: boolean;
+  /** Keep fullscreen until unlock code succeeds even after reconnect. */
+  holdUntilUnlockCode: boolean;
+};
+
+export const DEFAULT_OFFLINE_LOCK_POLICY = (): OfflineLockPolicy => ({
+  mode: 'hard_lock',
+  graceMs: 8_000,
+  unlockWithCode: true,
+  collapseOnReconnect: true,
+  holdUntilUnlockCode: false,
+});
+
+export function normalizeOfflineLockPolicy(raw: unknown): OfflineLockPolicy {
+  const base = DEFAULT_OFFLINE_LOCK_POLICY();
+  if (!raw || typeof raw !== 'object') return base;
+  const o = raw as Partial<OfflineLockPolicy>;
+  const mode: OfflineLockMode =
+    o.mode === 'warn' || o.mode === 'off' || o.mode === 'hard_lock' ? o.mode : base.mode;
+  const grace = Number(o.graceMs);
+  return {
+    mode,
+    graceMs: Number.isFinite(grace) ? Math.min(120_000, Math.max(2_000, Math.round(grace))) : base.graceMs,
+    unlockWithCode: o.unlockWithCode !== false,
+    collapseOnReconnect: o.collapseOnReconnect !== false,
+    holdUntilUnlockCode: Boolean(o.holdUntilUnlockCode),
+  };
+}
+
+/** Always-on app/web blocks + one-shot open/close commands for lab-agent. */
+export type DeviceControlPolicy = {
+  blockedHosts: string[];
+  /** Process image names (Windows .exe) or macOS app names. */
+  blockedApps: string[];
+};
+
+export const EMPTY_DEVICE_CONTROL_POLICY = (): DeviceControlPolicy => ({
+  blockedHosts: [],
+  blockedApps: [],
+});
+
+export function normalizeDeviceControlPolicy(raw: unknown): DeviceControlPolicy {
+  if (!raw || typeof raw !== 'object') return EMPTY_DEVICE_CONTROL_POLICY();
+  const o = raw as Partial<DeviceControlPolicy>;
+  const hosts = Array.isArray(o.blockedHosts)
+    ? o.blockedHosts
+        .map((h) =>
+          String(h ?? '')
+            .trim()
+            .toLowerCase()
+            .replace(/^https?:\/\//, '')
+            .replace(/\/.*$/, ''),
+        )
+        .filter(Boolean)
+    : [];
+  const apps = Array.isArray(o.blockedApps)
+    ? o.blockedApps.map((a) => String(a ?? '').trim()).filter(Boolean)
+    : [];
+  return {
+    blockedHosts: [...new Set(hosts)].slice(0, 64),
+    blockedApps: [...new Set(apps)].slice(0, 64),
+  };
+}
+
+export type DeviceControlCommandKind = 'open_url' | 'open_app' | 'close_apps';
+
+export type DeviceControlCommand = {
+  id: string;
+  at: string;
+  classId: string;
+  kind: DeviceControlCommandKind;
+  url?: string;
+  app?: string;
+  apps?: string[];
+};
+
+export function normalizeDeviceControlCommand(raw: unknown): DeviceControlCommand | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const o = raw as Partial<DeviceControlCommand>;
+  const kind = o.kind;
+  if (kind !== 'open_url' && kind !== 'open_app' && kind !== 'close_apps') return null;
+  const id = String(o.id ?? '').trim() || `cmd_${Date.now()}`;
+  const classId = String(o.classId ?? '').trim();
+  const at = String(o.at ?? new Date().toISOString());
+  const url = o.url != null ? String(o.url).trim().slice(0, 2000) : undefined;
+  const app = o.app != null ? String(o.app).trim().slice(0, 120) : undefined;
+  const apps = Array.isArray(o.apps)
+    ? o.apps.map((a) => String(a).trim()).filter(Boolean).slice(0, 32)
+    : undefined;
+  return { id, at, classId, kind, url, app, apps };
+}

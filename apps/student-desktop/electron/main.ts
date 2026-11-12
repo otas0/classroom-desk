@@ -21,6 +21,8 @@ let collapsed = false;
 let deepLockAggressiveActive = false;
 let deepLockFrozenActive = false;
 let examAllowHosts: string[] = [];
+/** Teacher device-control blocked hosts for openExternal. */
+let blockedHostsCache: string[] = [];
 const registeredDeepLockShortcuts: string[] = [];
 
 /**
@@ -294,6 +296,18 @@ ipcMain.handle('shell:open-external', async (_event, rawUrl: unknown) => {
   const url = String(rawUrl ?? '').trim();
   if (!/^https?:\/\//i.test(url)) {
     return { ok: false, error: 'only_http_https' };
+  }
+  try {
+    const host = new URL(url).hostname.toLowerCase();
+    if (
+      blockedHostsCache.some(
+        (h) => host === h || host.endsWith(`.${h}`) || h.endsWith(`.${host}`),
+      )
+    ) {
+      return { ok: false, error: 'host_blocked' };
+    }
+  } catch {
+    return { ok: false, error: 'invalid_url' };
   }
   const { shell } = await import('electron');
   try {
@@ -848,3 +862,75 @@ ipcMain.handle(
     }
   },
 );
+
+function sanitizeProcessName(raw: string): string | null {
+  const name = String(raw ?? '').trim();
+  if (!name || name.length > 120) return null;
+  // Deny path traversal / shell metacharacters — process image or simple app name only.
+  if (/[\\/:*?"<>|\0]/.test(name)) return null;
+  if (!/^[A-Za-z0-9._+\- ]+$/.test(name)) return null;
+  return name;
+}
+
+/** Kill teacher-listed apps (blocked list or close_apps command). */
+ipcMain.handle('device-control:kill-apps', async (_event, apps: unknown) => {
+  const list = Array.isArray(apps)
+    ? apps.map((a) => sanitizeProcessName(String(a ?? ''))).filter((x): x is string => Boolean(x))
+    : [];
+  const killed: string[] = [];
+  for (const name of list.slice(0, 32)) {
+    try {
+      if (process.platform === 'win32') {
+        const im = /\.exe$/i.test(name) ? name : `${name}.exe`;
+        await execFileAsync('taskkill', ['/IM', im, '/F'], { windowsHide: true });
+        killed.push(im);
+      } else if (process.platform === 'darwin') {
+        await execFileAsync('killall', [name]);
+        killed.push(name);
+      } else {
+        await execFileAsync('pkill', ['-f', name]);
+        killed.push(name);
+      }
+    } catch {
+      /* not running */
+    }
+  }
+  return { ok: true, killed };
+});
+
+/** Open a allowlisted-looking app name (visible; no shell string concat). */
+ipcMain.handle('device-control:open-app', async (_event, rawApp: unknown) => {
+  const name = sanitizeProcessName(String(rawApp ?? ''));
+  if (!name) return { ok: false, error: 'invalid_app' };
+  try {
+    if (process.platform === 'win32') {
+      await execFileAsync('cmd.exe', ['/c', 'start', '', name], { windowsHide: true });
+      return { ok: true };
+    }
+    if (process.platform === 'darwin') {
+      await execFileAsync('open', ['-a', name]);
+      return { ok: true };
+    }
+    await execFileAsync(name, []);
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : 'open_failed' };
+  }
+});
+
+/** Block openExternal when host is on teacher block list. */
+ipcMain.handle('device-control:set-blocked-hosts', (_event, hosts: unknown) => {
+  blockedHostsCache = Array.isArray(hosts)
+    ? hosts
+        .map((h) =>
+          String(h ?? '')
+            .trim()
+            .toLowerCase()
+            .replace(/^https?:\/\//, '')
+            .replace(/\/.*$/, ''),
+        )
+        .filter(Boolean)
+        .slice(0, 64)
+    : [];
+  return { ok: true, count: blockedHostsCache.length };
+});

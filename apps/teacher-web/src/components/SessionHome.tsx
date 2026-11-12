@@ -3,6 +3,7 @@ import { API_BASE, api, getToken } from '../api';
 import { POINT_REASON_CHIPS } from '../types';
 import { ClassroomLockBar } from './ClassroomLockBar';
 import { DeepLockBar } from './DeepLockBar';
+import { DeviceControlBar } from './DeviceControlBar';
 import { NetworkZonesPanel } from './NetworkZonesPanel';
 import { PrincipalDashboard } from './PrincipalDashboard';
 import { HealthNetCard } from './HealthNetCard';
@@ -381,13 +382,6 @@ export function SessionHome({
           {t('刷新抢答')}
           {buzzLive ? t(' · 实时') : ''}
         </button>
-        <p className="hint help-bubble">
-          {t('投影：')}
-          <kbd>Esc</kbd> {t('退出，')}
-          <kbd>F</kbd> {t('全屏，')}
-          <kbd>H</kbd> {t('高对比。详见')}{' '}
-          <code>docs/TEACHER_PROJECTION.md</code>。
-        </p>
         {onGoPrep ? (
           <button type="button" className="secondary" onClick={onGoPrep}>
             {t('去备课')}
@@ -402,7 +396,11 @@ export function SessionHome({
       {sessionMsg ? <p className="hint">{sessionMsg}</p> : null}
       <ClassroomLockBar classId={classId} onOpenAdvanced={onOpenLockAdvanced} />
       <DeepLockBar classId={classId} />
-      <NetworkZonesPanel />
+      <DeviceControlBar classId={classId} />
+      <details className="session-more-net">
+        <summary>{t('网络配置档（高级）')}</summary>
+        <NetworkZonesPanel />
+      </details>
       <CapabilityGate flag="examBox" label={t('Exam Box')}>
         <p className="hint" data-testid="exam-box-hint">
           {t('Exam Box 小盒说明见 docs/EXAM_BOX.md · compose 在 deploy/exam-box/')}
@@ -438,14 +436,16 @@ export function SessionHome({
           </button>
         </section>
       ) : null}
-      <section>
-        <h2>{t('分组竞赛积分（本页记分）')}</h2>
+      <details className="session-more-groups">
+        <summary>
+          {t('分组竞赛积分（本页记分）')} · A {groupA} / B {groupB}
+        </summary>
         <div className="row">
           <button type="button" className="chip" onClick={() => setGroupA((n) => n + 1)}>
-            A 组 +1（{groupA}）
+            A +1
           </button>
           <button type="button" className="chip" onClick={() => setGroupB((n) => n + 1)}>
-            B 组 +1（{groupB}）
+            B +1
           </button>
           <button
             type="button"
@@ -455,10 +455,10 @@ export function SessionHome({
               setGroupB(0);
             }}
           >
-            清零
+            {t('清零')}
           </button>
         </div>
-      </section>
+      </details>
 
       <section id="session-quick-publish">
         <h2>{t('快速发题')}</h2>
