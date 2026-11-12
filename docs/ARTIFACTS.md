@@ -18,6 +18,7 @@
 ## 代码签名与 SmartScreen
 
 - 对外 Release 的 `ClassroomDesk-Setup-<version>.exe` 应由 **Authenticode 发布者证书** 签名（CI / 学校 IT 私钥）；学生端与教师引导话术以 **已签名 Setup 文件名** 为准，便于 U 盘清单与审计对齐。
+- **可选 CI 二次签名**（与 electron-builder 的 `CSC_LINK` 可并存）：在 GitHub repo secrets 配置 `WINDOWS_CERT_PFX_BASE64`（PFX 的 base64）与 `WINDOWS_CERT_PASSWORD`。`release.yml` / `ci.yml` 的 `windows-pack` 在产出 exe 后调用 `signtool`；**任一 secret 未设置则跳过并打 log，不失败 job**。详见 `.github/workflows/authenticode-sign.ps1`。
 - SmartScreen 可能对**新证书**或**首次下载**提示额外步骤；按 [SMARTSCREEN.md](./SMARTSCREEN.md) 操作。**切勿** instruct 关闭 Defender / SmartScreen 全局。
 - U 盘落盘核对见 [LOCAL_USB_CHECKLIST.md](./LOCAL_USB_CHECKLIST.md)（SHA256 + 签名文件名）。
 

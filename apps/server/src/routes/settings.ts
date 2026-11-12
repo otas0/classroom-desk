@@ -69,6 +69,8 @@ import {
   joinRequireDeviceApproval,
   listPendingJoinDevices,
   countRecentJoinRateLimits,
+  countLiveJoinRateLimitedIps,
+  listLiveJoinRateLimitedIps,
   resolvePullJoinForStudent,
   setJoinPin,
   setJoinRequireApproval,
@@ -290,6 +292,10 @@ settingsRouter.get('/api/v1/settings', requireAuth, requireRoles('teacher', 'adm
     studentJoinRequireApproval: joinRequireDeviceApproval(db),
     joinPendingDeviceCount: listPendingJoinDevices(db).length,
     joinRateLimitEventsLastHour: countRecentJoinRateLimits(db),
+    joinRateLimitedIpsLive: countLiveJoinRateLimitedIps(),
+    joinRateLimitedIpsLiveList: listLiveJoinRateLimitedIps(),
+    federationHubUrl: getSetting(db, 'federation_hub_url') ?? '',
+    hasFederationHubToken: Boolean((getSetting(db, 'federation_hub_token') ?? '').trim()),
     classListPullEnabled: (getSetting(db, 'class_list_pull_enabled') ?? '0') === '1',
     classListPullClassId: getSetting(db, 'class_list_pull_class_id') ?? '',
     classroomDisplayName: getSetting(db, 'classroom_display_name') ?? '',
@@ -673,6 +679,21 @@ settingsRouter.patch('/api/v1/settings', requireAuth, requireRoles('teacher', 'a
       req.body.enterprise8021xRequired === 1 ||
       req.body.enterprise8021xRequired === '1';
     upsertSettingKey('enterprise_8021x_required', on ? '1' : '0');
+  }
+  if (req.body?.federationHubUrl !== undefined) {
+    const url = String(req.body.federationHubUrl ?? '').trim().slice(0, 500);
+    if (url && !/^https?:\/\//i.test(url)) {
+      res.status(400).json({
+        error: 'invalid_federation_hub_url',
+        message: 'Federation Hub URL 须以 http:// 或 https:// 开头',
+      });
+      return;
+    }
+    upsertSettingKey('federation_hub_url', url);
+  }
+  if (req.body?.federationHubToken !== undefined) {
+    const token = String(req.body.federationHubToken ?? '').trim().slice(0, 256);
+    upsertSettingKey('federation_hub_token', token);
   }
   if (req.body?.sisRosterSyncNow === true || req.body?.sisRosterSyncNow === 1) {
     const dryRun =

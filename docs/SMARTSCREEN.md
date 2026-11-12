@@ -5,7 +5,7 @@
 
 ## 首选路径（学校 IT）
 
-1. 用**发布者代码签名证书**签署 Setup（x64 / arm64 同证书）。  
+1. 用**发布者代码签名证书**签署 Setup（x64 / arm64 同证书）。CI 可在仓库 secrets 配置 `WINDOWS_CERT_PFX_BASE64` + `WINDOWS_CERT_PASSWORD`（或 electron-builder 的 `CSC_LINK` / `CSC_KEY_PASSWORD`）；未配置时 workflow 跳过签名步骤。  
 2. 分发 Release / USB 清单中的 exe + `.sha256`；USB 勾选见 [LOCAL_USB_CHECKLIST.md](./LOCAL_USB_CHECKLIST.md)。  
 3. SmartScreen 信誉随同一发布者安装量上升；**不要**教师生关闭 Microsoft Defender 或全局关闭 SmartScreen 当「功能」。  
 4. 域环境用 WDAC / AppLocker **按发布者或哈希允许**，而不是关防护。

@@ -40,6 +40,26 @@ Classroom Desk C2 证据目录（勿 git commit；.gitignore 已忽略 证据/�
 说明: docs/C2_EVIDENCE_ARCHIVE.md · docs/EXIT_LOCK_MDM.md · docs/SAMPLE_MACHINE_OPS.md
 EOF
 printf '%s\n' "REPLACE_WITH_REAL_RECORDING" > "$DEST/C2-alttab-win.mp4.PLACEHOLDER"
+printf '%s\n' "REPLACE_WITH_REAL_RECORDING" > "$DEST/C2-taskmgr-deny.mp4.PLACEHOLDER"
+# Printable day checklist (operator fills; not committed with media)
+cat > "$DEST/CHECKLIST.md" <<'EOF'
+# C2 当日勾选（样机）
+
+复制自 docs/C2_EVIDENCE_ARCHIVE.md · docs/INTUNE_TRIAL_FILL.md · docs/UTM_ARM64_CHECKLIST.md · docs/HANDTEST_MULTI_CLASSROOM.md
+
+| # | 项 | □ | 日期 |
+|---|-----|---|------|
+| 1 | C2-narrator + titlebar | | |
+| 2 | C2-alttab-win.mp4（删 PLACEHOLDER） | | |
+| 3 | C2-taskmgr-deny.mp4（删 PLACEHOLDER） | | |
+| 4 | C2-intune-version.txt 22H2+24H2 填「是/否」 | | |
+| 5 | C2-intune-policy.png | | |
+| 6 | 回滚 XML 已验证并记入 txt | | |
+| 7 | （可选）UTM arm64 全流程 | | |
+| 8 | （可选）多教室房间码手测 | | |
+
+完成后在开发机：`npm run verify:c2-evidence`
+EOF
 echo "Created $DEST"
 echo "Next (Windows sample + Intune): fill version txt, record mp4s, then npm run verify:c2-evidence"
 ls -la "$DEST"

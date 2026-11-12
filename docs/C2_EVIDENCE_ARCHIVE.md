@@ -25,6 +25,12 @@ bash scripts/init-c2-evidence-dir.sh          # → 证据/C2-YYYYMMDD/
 
 样机本批建议：`ClassroomDesk-Setup-0.1.7.exe`（Release `v0.1.7`）。本地可把填好的 `C2-intune-version.txt` 放在 `artifacts/`（gitignore）或 `证据/C2-YYYYMMDD/`；录完 `C2-narrator.mp4` / `C2-taskmgr-deny.mp4` 后按上表归档。
 
+配套手测（真机，本仓无法代跑）：
+
+- Intune 填写说明：[INTUNE_TRIAL_FILL.md](./INTUNE_TRIAL_FILL.md)
+- UTM ARM64：[UTM_ARM64_CHECKLIST.md](./UTM_ARM64_CHECKLIST.md)
+- 多教室同网段：[HANDTEST_MULTI_CLASSROOM.md](./HANDTEST_MULTI_CLASSROOM.md)
+
 ## 真机勾选表（打印 / 填入 CHECKLIST.md）
 
 | # | 项 | 期望 | 证据文件 | 操作员 | 日期 | □ |

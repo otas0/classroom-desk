@@ -674,11 +674,24 @@ function randomHubToken(): string {
 
 function FederationHubWizard() {
   const [hubIngestUrl, setHubIngestUrl] = useState('');
-  const [hubToken, setHubToken] = useState('');
+  const [hubTokenDraft, setHubTokenDraft] = useState('');
+  const [hasSavedToken, setHasSavedToken] = useState(false);
   const [copyMsg, setCopyMsg] = useState('');
+  const [saveMsg, setSaveMsg] = useState('');
+  const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    setHubToken(randomHubToken());
+    let cancelled = false;
+    void api<{ federationHubUrl?: string; hasFederationHubToken?: boolean }>('/api/v1/settings')
+      .then((s) => {
+        if (cancelled) return;
+        setHubIngestUrl(String(s.federationHubUrl ?? '').trim());
+        setHasSavedToken(Boolean(s.hasFederationHubToken));
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   async function copyText(label: string, text: string) {
@@ -691,18 +704,40 @@ function FederationHubWizard() {
     }
   }
 
+  async function saveHubSettings() {
+    setBusy(true);
+    setSaveMsg('');
+    try {
+      const body: { federationHubUrl: string; federationHubToken?: string } = {
+        federationHubUrl: hubIngestUrl.trim(),
+      };
+      const tok = hubTokenDraft.trim();
+      if (tok) body.federationHubToken = tok;
+      await api('/api/v1/settings', { method: 'PATCH', body: JSON.stringify(body) });
+      if (tok) {
+        setHasSavedToken(true);
+        setHubTokenDraft('');
+      }
+      setSaveMsg(t('已保存 Hub 设置（优先于环境变量）'));
+    } catch (e) {
+      setSaveMsg(e instanceof Error ? e.message : t('保存失败'));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const tokenForEnv =
+    hubTokenDraft.trim() || (hasSavedToken ? '<已保存，未回显>' : '<token>');
   const hubEnv = hubIngestUrl.trim()
     ? `CLASSROOM_DESK_FEDERATION_HUB='${hubIngestUrl.trim()}'`
     : `CLASSROOM_DESK_FEDERATION_HUB='https://<hub-host>:8790/api/v1/federation/ingest'`;
-  const tokenEnv = `CLASSROOM_DESK_FEDERATION_HUB_TOKEN='${hubToken}'`;
+  const tokenEnv = `CLASSROOM_DESK_FEDERATION_HUB_TOKEN='${tokenForEnv}'`;
 
   return (
     <fieldset className="field" data-testid="federation-hub-wizard">
       <legend>{t('校区 Federation Hub（可选）')}</legend>
       <p className="hint">
-        {t(
-          '多讲台汇聚发现：在教师 API 进程环境变量中配置 Hub URL + 令牌（非数据库设置）。部署说明见仓库 ',
-        )}
+        {t('多讲台汇聚发现：默认写入本页设置（数据库）；未填时回退进程环境变量。部署说明见 ')}
         <code>deploy/federation-hub/README.md</code>。
         {' '}
         <a
@@ -714,6 +749,7 @@ function FederationHubWizard() {
         </a>
       </p>
       {copyMsg ? <p className="toast-inline">{copyMsg}</p> : null}
+      {saveMsg ? <p className="toast-inline">{saveMsg}</p> : null}
       <label>
         {t('Hub ingest URL（HTTPS 推荐）')}
         <input
@@ -722,40 +758,61 @@ function FederationHubWizard() {
           placeholder="https://hub.school.edu:8790/api/v1/federation/ingest"
           data-testid="federation-hub-url"
         />
+      </label>
+      <label>
+        {t('Hub 令牌（Bearer，留空不修改已保存值）')}
+        <input
+          type="password"
+          autoComplete="off"
+          value={hubTokenDraft}
+          onChange={(e) => setHubTokenDraft(e.target.value)}
+          placeholder={hasSavedToken ? t('已配置 · 输入新值以轮换') : t('未配置')}
+          data-testid="federation-hub-token"
+        />
       </label>{' '}
       <button
         type="button"
         className="secondary"
-        onClick={() => setHubToken(randomHubToken())}
+        onClick={() => setHubTokenDraft(randomHubToken())}
         data-testid="federation-hub-regen-token"
       >
-        {t('重新生成令牌')}
+        {t('生成新令牌草稿')}
+      </button>{' '}
+      <button type="button" disabled={busy} onClick={() => void saveHubSettings()}>
+        {t('保存 Hub 设置')}
       </button>
       <p className="hint">
         {t('Hub 端同步设置 ')}
         <code>FEDERATION_HUB_TOKEN</code>
-        {t('（与下方教师端变量相同）。')}
+        {t('（与教师端令牌相同）。')}
       </p>
-      <pre className="code-block" data-testid="federation-hub-env-block">
-        {`${hubEnv}\n${tokenEnv}`}
-      </pre>
-      <button
-        type="button"
-        className="secondary"
-        onClick={() => void copyText(t('环境变量'), `${hubEnv}\n${tokenEnv}`)}
-      >
-        {t('复制两行 export')}
-      </button>{' '}
-      <button type="button" className="secondary" onClick={() => void copyText('CLASSROOM_DESK_FEDERATION_HUB', hubEnv)}>
-        {t('复制 HUB 行')}
-      </button>{' '}
-      <button
-        type="button"
-        className="secondary"
-        onClick={() => void copyText('CLASSROOM_DESK_FEDERATION_HUB_TOKEN', tokenEnv)}
-      >
-        {t('复制 TOKEN 行')}
-      </button>
+      <details>
+        <summary>{t('可选：复制环境变量（与数据库二选一或作备份）')}</summary>
+        <pre className="code-block" data-testid="federation-hub-env-block">
+          {`${hubEnv}\n${tokenEnv}`}
+        </pre>
+        <button
+          type="button"
+          className="secondary"
+          onClick={() => void copyText(t('环境变量'), `${hubEnv}\n${tokenEnv}`)}
+        >
+          {t('复制两行 export')}
+        </button>{' '}
+        <button
+          type="button"
+          className="secondary"
+          onClick={() => void copyText('CLASSROOM_DESK_FEDERATION_HUB', hubEnv)}
+        >
+          {t('复制 HUB 行')}
+        </button>{' '}
+        <button
+          type="button"
+          className="secondary"
+          onClick={() => void copyText('CLASSROOM_DESK_FEDERATION_HUB_TOKEN', tokenEnv)}
+        >
+          {t('复制 TOKEN 行')}
+        </button>
+      </details>
     </fieldset>
   );
 }

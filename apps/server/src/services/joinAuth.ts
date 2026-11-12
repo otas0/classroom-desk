@@ -450,6 +450,19 @@ export function listPendingJoinDevices(db: DatabaseSync) {
     .all();
 }
 
+/** In-memory join fail buckets currently in lockout (lockedUntil > now). */
+export function listLiveJoinRateLimitedIps(now = Date.now()): string[] {
+  const ips: string[] = [];
+  for (const [ip, bucket] of joinFailBuckets) {
+    if (bucket.lockedUntil > now) ips.push(ip);
+  }
+  return ips.sort();
+}
+
+export function countLiveJoinRateLimitedIps(now = Date.now()): number {
+  return listLiveJoinRateLimitedIps(now).length;
+}
+
 /** Recent classroom_join_rate_limited rows for teacher ops / checklist. */
 export function countRecentJoinRateLimits(db: DatabaseSync, windowMs = 60 * 60_000): number {
   const since = new Date(Date.now() - windowMs).toISOString();

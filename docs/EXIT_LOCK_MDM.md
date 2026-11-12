@@ -86,6 +86,7 @@ Assigned Access 多应用 / 桌面应用路径（electron-builder `productName: 
 | 场景 | 路径 |
 |---|---|
 | 默认 x64（「为所有用户安装」） | `C:\Program Files\Classroom Desk\Classroom Desk.exe` |
+| ARM64（UTM / Snapdragon；`dist:win:arm64`） | 同路径；安装包名为 `ClassroomDesk-Setup-<ver>-arm64.exe` |
 | 仅当前用户 / 自定义目录 | 开始菜单「Classroom Desk」→ 右键「打开文件位置」→ 复制实际 `.exe` |
 
 JSON 片段（Intune「展台」或多应用 Assigned Access）：
@@ -105,6 +106,8 @@ JSON 片段（Intune「展台」或多应用 Assigned Access）：
 **负向手测（任务管理器结束）**：展台账户登录 → `Ctrl+Alt+Del` 若仍能开任务管理器 → 对「Classroom Desk」点结束任务 → 期望失败或进程被策略立即拉起；普通管理员账户不在本测范围。
 
 #### 试验机组部署 Intune XML
+
+填写与回滚总表见 [`INTUNE_TRIAL_FILL.md`](./INTUNE_TRIAL_FILL.md)（22H2/24H2 必填；`verify:c2-evidence` 校验模板空白）。
 
 1. Intune → 设备 → 配置 → 创建 → 「模板」/自定义 → 上传 [`intune-student-kiosk.example.xml`](./intune-student-kiosk.example.xml) 或按其中 OMA-URI 手工添加：
    - `HideTaskManager=1`

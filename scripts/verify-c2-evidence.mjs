@@ -43,9 +43,10 @@ if (!fs.existsSync(dest)) {
   process.exit(1);
 }
 
-const placeholder = path.join(dest, 'C2-alttab-win.mp4.PLACEHOLDER');
-if (fs.existsSync(placeholder)) {
-  problems.push('C2-alttab-win.mp4.PLACEHOLDER still present — replace with real recording');
+for (const ph of ['C2-alttab-win.mp4.PLACEHOLDER', 'C2-taskmgr-deny.mp4.PLACEHOLDER']) {
+  if (fs.existsSync(path.join(dest, ph))) {
+    problems.push(`${ph} still present — replace with real recording`);
+  }
 }
 
 for (const name of required) {
@@ -69,20 +70,23 @@ for (const name of required) {
 
 const presentOptional = optional.filter((n) => fs.existsSync(path.join(dest, n)));
 
+const ok = problems.length === 0;
 console.log(
   JSON.stringify(
     {
       dir: dest,
-      ok: problems.length === 0,
+      ok,
       problems,
       presentOptional,
-      note:
-        problems.length === 0
-          ? 'C2 evidence pack looks complete (operator-filled on Windows).'
-          : 'Incomplete — school Windows + Intune trial still required.',
+      note: ok
+        ? 'C2 evidence pack looks complete (operator-filled on Windows).'
+        : 'Incomplete — school Windows + Intune trial still required.',
+      next: ok
+        ? 'Archive under 证据/ and tick CLASSROOM_DEPLOY_ONEPAGE C2 row.'
+        : 'Follow docs/C2_OPERATOR_RUNBOOK.md on the AA sample machine, then re-run.',
     },
     null,
     2,
   ),
 );
-process.exit(problems.length === 0 ? 0 : 1);
+process.exit(ok ? 0 : 1);
