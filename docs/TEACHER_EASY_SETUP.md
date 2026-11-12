@@ -7,16 +7,14 @@ One admin step. No git. Portable Node is downloaded into the install folder.
 **Right-click Start → Windows PowerShell (Admin)**, paste:
 
 ```powershell
-irm https://raw.githubusercontent.com/otas0/classroom-desk/main/install-teacher.ps1 -OutFile $env:TEMP\install-teacher.ps1; powershell -ExecutionPolicy Bypass -File $env:TEMP\install-teacher.ps1
+irm https://raw.githubusercontent.com/otas0/classroom-desk/v0.1.9/install-teacher.ps1 -OutFile $env:TEMP\install-teacher.ps1; powershell -ExecutionPolicy Bypass -File $env:TEMP\install-teacher.ps1
 ```
 
-Until `main` has this file, use the release tag (example):
+Or pin `main` after merge:
 
 ```powershell
-irm https://raw.githubusercontent.com/otas0/classroom-desk/v0.1.8/install-teacher.ps1 -OutFile $env:TEMP\install-teacher.ps1; powershell -ExecutionPolicy Bypass -File $env:TEMP\install-teacher.ps1
+irm https://raw.githubusercontent.com/otas0/classroom-desk/main/install-teacher.ps1 -OutFile $env:TEMP\install-teacher.ps1; powershell -ExecutionPolicy Bypass -File $env:TEMP\install-teacher.ps1
 ```
-
-(If that 404s, this branch is not released yet — use the bat from a repo checkout below.)
 
 ## Or double-click
 

@@ -11,7 +11,8 @@
 
 | 产物文件名 | 对应 tag / package.json | 备注 |
 |---|---|---|
-| `ClassroomDesk-Setup-0.1.8.exe` / `*-x64.exe` / `*-arm64.exe` | `v0.1.8` | 一键热更须双架构齐；对外以 **Release 附件** 为准 |
+| `ClassroomDesk-Setup-0.1.9.exe` / `*-x64.exe` / `*-arm64.exe` | `v0.1.9` | 含教师一键安装脚本；热更须双架构齐；对外以 **Release 附件** 为准 |
+| `ClassroomDesk-Setup-0.1.8.exe` / `*-x64.exe` / `*-arm64.exe` | `v0.1.8` | |
 | `ClassroomDesk-Setup-0.1.7.exe` | `v0.1.7` | |
 | `ClassroomDesk-Setup-0.1.6.exe` | `v0.1.6` | |
 | `ClassroomDesk-Setup-0.1.5.exe` | `v0.1.5` | 旧 CI Artifact 可能仍留此名；勿与 0.1.8 混用 |

@@ -5,7 +5,7 @@
 **Admin PowerShell:**
 
 ```powershell
-irm https://raw.githubusercontent.com/otas0/classroom-desk/main/install-teacher.ps1 -OutFile $env:TEMP\install-teacher.ps1; powershell -ExecutionPolicy Bypass -File $env:TEMP\install-teacher.ps1
+irm https://raw.githubusercontent.com/otas0/classroom-desk/v0.1.9/install-teacher.ps1 -OutFile $env:TEMP\install-teacher.ps1; powershell -ExecutionPolicy Bypass -File $env:TEMP\install-teacher.ps1
 ```
 
 Or double-click **`Install-Teacher.bat`** in the repo.
