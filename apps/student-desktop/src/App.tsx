@@ -1801,7 +1801,11 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
 
       {hardeningTip ? (
         <div className="banner-alert" role="status" data-testid="hardening-tip">
-          <p>{t('本机未加固（未检测到 Assigned Access / 展台模式）。课堂锁定仍生效，但系统层防护较弱；请学校 IT 配置后更安全。')}</p>
+          <p>
+            {t(
+              '本机未加固（未检测到 Assigned Access / 展台模式）。学校机考试锁未完成：Alt+Tab / 任务管理器仍可能切走；请 IT 配置 AA + Intune。应用内不挂钩、无隐瞒采集。',
+            )}
+          </p>
           <button
             type="button"
             className="linkish"

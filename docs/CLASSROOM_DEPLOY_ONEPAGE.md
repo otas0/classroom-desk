@@ -31,7 +31,8 @@ npm run start:classroom
 - [ ] Freeze 录屏：全屏、副屏黑、失焦 ≤0.6s
 - [ ] 试卷壳非白名单 URL 拦截
 - [ ] Freeze 后 Chrome/Edge/微信/QQ ≤1s 消失
-- [ ] 无 AA：Alt+Tab + 任务管理器仍可切（负向边界，见 SECURITY）
+- [ ] **学校机 L3 必配**：Assigned Access + Intune 试验组 → Alt+Tab/Win 无效、任务管理器结束被拒；录 `C2-alttab-win.mp4` / `C2-taskmgr-deny.mp4`；试验结束用 rollback.xml。无 AA = 部署未完成（见 SECURITY）
+- [ ] `npm run init:c2-evidence` → 样机填表/录屏 → `npm run verify:c2-evidence` 通过
 - [ ] 干净机 `npm run start:classroom` 记耗时与 `/admin/`
 - [ ] 真机 Shield connector 后打 `shield/health`
 - [ ] U 盘 Setup + 黑白 `--ink` 截图

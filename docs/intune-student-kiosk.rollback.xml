@@ -18,8 +18,21 @@
         <Data>0</Data>
       </Item>
     </Replace>
+    <!-- Restore Settings page visibility (undo hide:taskmanager) -->
     <Replace>
       <CmdID>2</CmdID>
+      <Item>
+        <Target>
+          <LocURI>./Device/Vendor/MSFT/Policy/Config/Settings/PageVisibilityList</LocURI>
+        </Target>
+        <Meta>
+          <Format xmlns="syncml:metinf">chr</Format>
+        </Meta>
+        <Data>show:taskmanager</Data>
+      </Item>
+    </Replace>
+    <Replace>
+      <CmdID>3</CmdID>
       <Item>
         <Target>
           <LocURI>./Device/Vendor/MSFT/Policy/Config/Storage/RemovableDiskDenyWrite</LocURI>
@@ -31,7 +44,7 @@
       </Item>
     </Replace>
     <Replace>
-      <CmdID>3</CmdID>
+      <CmdID>4</CmdID>
       <Item>
         <Target>
           <LocURI>./Device/Vendor/MSFT/Policy/Config/Storage/RemovableDiskDenyExecute</LocURI>

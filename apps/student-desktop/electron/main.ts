@@ -34,7 +34,8 @@ const registeredDeepLockShortcuts: string[] = [];
  * Unlock via teacher batch (renderer polls) or local 解除码 (IPC grant).
  * Dev override: ALLOW_STUDENT_EXIT=1
  *
- * Note: OS Task Manager / kill -9 cannot be blocked by a normal app.
+ * Note: OS Task Manager / kill -9 / Alt+Tab need school Assigned Access + Intune (L3).
+ * This app does not hook Task Manager (see docs/SECURITY.md).
  */
 let exitAllowed = process.env.ALLOW_STUDENT_EXIT === '1';
 
@@ -453,7 +454,7 @@ function hostAllowedForExam(rawUrl: string): boolean {
   }
 }
 
-/** Register visible escape-key consumers (not Task Manager — SECURITY forbids blocking it). */
+/** Register visible escape-key consumers (Task Manager / Alt+Tab → school L3 AA/Intune, not app hooks). */
 function registerDeepLockShortcuts() {
   unregisterDeepLockShortcuts();
   const combos = [

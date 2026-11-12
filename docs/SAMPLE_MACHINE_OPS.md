@@ -37,14 +37,18 @@ npm run init:c2-evidence
 | `C2-taskmgr-deny.mp4` | Assigned Access 下任务管理器结束失败 |
 | `C2-titlebar.png` | 标题栏「已锁定」 |
 
-## 3. Intune 试验组
+## 3. Intune 试验组 + Assigned Access（学校机 L3 必配）
+
+无 AA/Intune 时 Alt+Tab / 任务管理器仍可切 = **部署未完成**（[SECURITY.md](./SECURITY.md)）。应用内不挂钩、不做隐瞒采集。
 
 1. **试验组**上传 [intune-student-kiosk.example.xml](./intune-student-kiosk.example.xml) → 设备同步（勿推全校）。  
-   **试验结束**必须下发 [intune-student-kiosk.rollback.xml](./intune-student-kiosk.rollback.xml) 撤回。  
-   Assigned Access：对照 [assigned-access-checklist.example.json](./assigned-access-checklist.example.json) 与教师「加固体检 → 导出 AA 清单」（字段已对齐）。USB 包已拷上述 XML/JSON + `LOCAL_USB_CHECKLIST.md`。
+   **试验结束**必须下发 [intune-student-kiosk.rollback.xml](./intune-student-kiosk.rollback.xml) 撤回（含 PageVisibilityList 恢复）。  
+   Assigned Access：对照 [assigned-access-checklist.example.json](./assigned-access-checklist.example.json) 与教师「加固体检 → 导出 AA 清单」。USB 包已拷上述 XML/JSON + `LOCAL_USB_CHECKLIST.md`。  
+   样机亦可：`powershell -ExecutionPolicy Bypass -File scripts\c2-windows-ops.ps1`
 2. 填满 `证据/C2-YYYYMMDD/C2-intune-version.txt`（模板 [C2_intune-version.example.txt](./C2_intune-version.example.txt)，含 **22H2 / 24H2** HideTaskManager + USB CSP 对照）。
 3. 截 `C2-intune-policy.png` 放入同一证据目录。
-4. 真机录屏 `C2-alttab-win.mp4`（替换 PLACEHOLDER）。本仓库 CI/macOS **无法代录**。
+4. 真机录屏 `C2-alttab-win.mp4` / `C2-taskmgr-deny.mp4`（替换 PLACEHOLDER）。本仓库 CI/macOS **无法代录**。
+5. 教师机：`npm run verify:c2-evidence`（PLACEHOLDER 仍在则失败）。
 
 ## 4. DevTools 关 WS → toast + SSE
 

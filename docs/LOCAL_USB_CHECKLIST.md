@@ -105,7 +105,8 @@ npm run prepare:live -- --apiBase http://192.168.x.x:8787 --className 高一(3)�
 联调登录（e2e / 样机，勿预填登录框）：教师 `teacher` + 本机 `.env` 的 `TEACHER_PASSWORD`；API `http://<教师机局域网IP>:8787`。
 
 - [ ] `npm run init:c2-evidence`；填满 `C2-intune-version.txt`（22H2 / 24H2）  
-- [ ] 真 `C2-alttab-win.mp4` 替换 PLACEHOLDER；另录 `C2-taskmgr-deny.mp4` / `C2-titlebar.png`  
+- [ ] 真 `C2-alttab-win.mp4` 替换 PLACEHOLDER；另录 `C2-taskmgr-deny.mp4` / `C2-titlebar.png` / `C2-intune-policy.png`  
+- [ ] 试验组 example.xml → 同步 → 手测；结束用 rollback.xml；`npm run verify:c2-evidence` 通过  
 - [ ] 标题栏「已锁定」+ 讲述人 10s（`C2-narrator.mp4`）；关窗 / Alt+F4 无效并 toast「向教师申请解除」  
 - [ ] 教师批量解除二次确认后，学生秒级「可退出 m:ss」并可关  
 - [ ] 重新锁定后无法关闭  

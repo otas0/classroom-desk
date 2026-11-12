@@ -118,7 +118,9 @@ export function DeepLockBar({ classId }: { classId: string }) {
       <div className="classroom-lock-bar-head">
         <h3>{t('深锁控制台')}</h3>
         <p className="hint">
-          {t('冻结 / 仅试卷 / 放行。不拦任务管理器；Alt+Tab 需 Assigned Access。')}
+          {t(
+            '冻结 / 仅试卷 / 放行。学校机考试锁须配 Assigned Access + Intune（禁 Alt+Tab / 任务管理器）；应用内不挂钩。',
+          )}
         </p>
       </div>
       <div className="row" style={{ flexWrap: 'wrap', gap: 8 }}>

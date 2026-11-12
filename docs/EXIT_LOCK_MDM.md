@@ -164,8 +164,8 @@ JSON 片段（Intune「展台」或多应用 Assigned Access）：
 - 座位图：按行 / 列 / 全部一键锁空座（键鼠）。  
 - 考试模式保存进考前快照，可一键「解除考试模式」恢复。  
 - 断线对账 `POST /api/v1/auth/exit-lock-reconcile` 的 `clientId`：**机位/机器 id**（`cd_presence_client_id`），不是 classId、不是学号。  
-- **不做** OS 级键鼠钩子、隐蔽监控或对抗杀软；系统热键/其它进程仍依赖 Assigned Access。  
-- 「管住整台学生机」= **L3 MDM（IT）+ L2 本应用锁**；不是在学生端植入全盘控制木马。路线图见 [STUDENT_LOCK_HARDENING_PLAN.md](./STUDENT_LOCK_HARDENING_PLAN.md)。  
+- **不做** OS 级键鼠钩子、隐蔽监控或对抗杀软；系统热键/任务管理器依赖 Assigned Access + Intune（学校机房 **L3 必配**，见 [SECURITY.md](./SECURITY.md)）。  
+- 「管住整台学生机」= **L3 MDM（IT）+ L2 本应用锁**；不是在学生端植入全盘控制木马或隐瞒采集。路线图见 [STUDENT_LOCK_HARDENING_PLAN.md](./STUDENT_LOCK_HARDENING_PLAN.md)。  
 - e2e：`e2e/input-lock.spec.ts`（含 seat_map 机位锁 / seat-miss 互斥 / clearAll ConfirmModal）。手测多显示器 / 触控笔见 C2 打印表。
 
 ### 验证打包安装态退出锁定（C2 · 须在 Windows 真机）
