@@ -2070,11 +2070,149 @@ function FirstRunSetup({
     }
   }
 
+  /** One-tap: discover teacher + pull easy-join classId + save + health. */
+  async function oneTapJoinClassroom() {
+    setMsg('');
+    setBusy(true);
+    try {
+      const desk = window.classroomDesk;
+      if (!desk?.discoverLanClassroom || !desk.setConfig) {
+        setMsg(t('当前环境不支持一键连教室'));
+        return;
+      }
+      const r = await desk.discoverLanClassroom();
+      const hit =
+        r.found?.find((f) => f.easyJoin && f.classId) ??
+        r.found?.find((f) => f.classId) ??
+        null;
+      if (!hit?.apiBase) {
+        setMsg(
+          t(
+            '未找到已开放「一键连班」的教师机。请老师在「指派学生机」打开开关，或改用 U 盘/扫码。',
+          ),
+        );
+        return;
+      }
+      if (!hit.classId) {
+        setServerUrl(hit.apiBase);
+        setMsg(t('已发现 {v0}，但未开放一键连班。请填写 classId 或扫码。', { v0: hit.apiBase }));
+        return;
+      }
+      const apiBase = hit.apiBase.replace(/\/$/, '');
+      const classId = hit.classId;
+      const res = await fetch(`${apiBase}/health`, { cache: 'no-store' });
+      if (!res.ok) throw new Error(`health HTTP ${res.status}`);
+      const body = (await res.json()) as { version?: string };
+      await setApiBase(apiBase);
+      await desk.setConfig({ apiBase, classId });
+      setServerUrl(apiBase);
+      setSeat(classId);
+      setMsg(
+        t('已连上{v0} · {v1}，本机配置完成', {
+          v0: hit.className ? `「${hit.className}」` : '',
+          v1: apiBase,
+        }),
+      );
+      await onDone({ apiBase, classId });
+      void body;
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : t('一键连教室失败'));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function importFromRemovable() {
+    setMsg('');
+    setBusy(true);
+    try {
+      const desk = window.classroomDesk;
+      if (!desk?.findRemovableConfig) {
+        setMsg(t('当前环境不支持 U 盘导入'));
+        return;
+      }
+      const r = await desk.findRemovableConfig();
+      const hit = r.hits?.[0];
+      if (!hit) {
+        setMsg(
+          t(
+            '未找到 classroom-desk-config.json。请把教师下载的 config 放到 U 盘/共享盘根目录并改名。',
+          ),
+        );
+        return;
+      }
+      applyPayload(hit.apiBase, hit.classId);
+      setMsg(t('已从 {v0} 读入，请点「保存并检测 /health」', { v0: hit.path }));
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : t('导入失败'));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function discoverLan() {
+    setMsg('');
+    setBusy(true);
+    try {
+      const desk = window.classroomDesk;
+      if (!desk?.discoverLanClassroom) {
+        setMsg(t('当前环境不支持局域网发现'));
+        return;
+      }
+      const r = await desk.discoverLanClassroom();
+      const first = r.found?.[0];
+      if (!first) {
+        setMsg(t('未发现教室服务器（8787）。请确认教师机已 start:classroom 且同一网段。'));
+        return;
+      }
+      setServerUrl(first.apiBase);
+      setMsg(
+        t('已发现 {v0}{v1}。请填写/扫入 classId 后保存。', {
+          v0: first.apiBase,
+          v1: first.version ? ` · v${first.version}` : '',
+        }),
+      );
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : t('发现失败'));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <section className="panel">
       <h1>{t('首次配置本机')}</h1>
-      <p className="lead">{t('扫教师「指派学生机」二维码，或手动填写后写入 config.json 并校验连通。')}</p>
+      <p className="lead">
+        {t('最简单：老师打开「一键连班」后，学生只点下面大按钮。也可用 U 盘 / 扫码。')}
+      </p>
       <div className="row">
+        <button
+          type="button"
+          className="primary"
+          disabled={busy}
+          data-testid="first-run-one-tap-join"
+          onClick={() => void oneTapJoinClassroom()}
+        >
+          {busy ? t('连接中…') : t('一键连教室')}
+        </button>
+        <button
+          type="button"
+          className="secondary"
+          disabled={busy}
+          data-testid="first-run-import-usb"
+          onClick={() => void importFromRemovable()}
+        >
+          {t('从 U 盘/共享盘导入')}
+        </button>
+        <button
+          type="button"
+          className="secondary"
+          disabled={busy}
+          data-testid="first-run-discover-lan"
+          onClick={() => void discoverLan()}
+        >
+          {t('发现教室服务器')}
+        </button>
         <button
           type="button"
           className="secondary"

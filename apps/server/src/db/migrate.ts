@@ -44,6 +44,13 @@ const DEFAULT_SETTINGS: Record<string, string> = {
    */
   student_auto_update: '1',
   /**
+   * Foolproof lab join: when 1, LAN students can GET /api/v1/classroom/join and
+   * receive apiBase + classId for the teacher-selected class (no QR/USB).
+   */
+  student_easy_join: '0',
+  /** classId published by easy join (empty = off even if student_easy_join=1). */
+  student_easy_join_class_id: '',
+  /**
    * BYOD / browser must use /portal; lab-agent (X-Cd-Client: lab-agent) still reads public roster.
    * Setup wizard recommends on; default seeded to 1.
    */

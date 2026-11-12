@@ -7,75 +7,97 @@
     <style>
       :root {
         color-scheme: light;
-        --ink: #1a2332;
-        --muted: #5a6575;
-        --accent: #0b6e4f;
-        --bg: #f4f7f5;
-        --card: #ffffff;
-        --line: #d5ddd8;
+        --ink: #000;
+        --muted: #555;
+        --bg: #fff;
+        --line: #000;
+        --fill: #f2f2f2;
+        --font: "Source Sans 3", "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
       }
       * { box-sizing: border-box; }
       body {
         margin: 0;
-        font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+        font-family: var(--font);
         color: var(--ink);
-        background:
-          radial-gradient(ellipse at 10% 0%, #d9efe6 0%, transparent 45%),
-          radial-gradient(ellipse at 90% 10%, #e8eef6 0%, transparent 40%),
-          var(--bg);
+        background: var(--bg);
         min-height: 100vh;
-        line-height: 1.55;
+        line-height: 1.5;
       }
-      main { max-width: 640px; margin: 0 auto; padding: 48px 24px 64px; }
-      h1 { font-size: 1.75rem; font-weight: 700; letter-spacing: -0.02em; margin: 0 0 8px; }
-      .lead { color: var(--muted); margin: 0 0 20px; font-size: 1.05rem; }
-      .cta-row { display: flex; flex-wrap: wrap; gap: 10px; margin: 0 0 28px; }
+      main { max-width: 420px; margin: 0 auto; padding: 40px 20px 56px; }
+      .brand {
+        font-size: 0.85rem;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        border-bottom: 2px solid var(--line);
+        padding-bottom: 10px;
+        margin: 0 0 20px;
+      }
+      h1 {
+        font-size: 1.65rem;
+        font-weight: 700;
+        letter-spacing: -0.03em;
+        margin: 0 0 8px;
+      }
+      .lead { color: var(--muted); margin: 0 0 22px; font-size: 1rem; }
+      .cta-row { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 28px; }
       .cta {
         display: inline-block;
-        background: var(--accent);
+        background: var(--ink);
         color: #fff;
         text-decoration: none;
-        padding: 10px 16px;
-        border-radius: 8px;
+        padding: 10px 14px;
+        border-radius: 0;
         font-weight: 600;
-        border: none;
+        border: 2px solid var(--ink);
         cursor: pointer;
         font-size: 0.95rem;
+        font-family: inherit;
       }
-      .cta.secondary { background: #fff; color: var(--accent); border: 1px solid var(--accent); }
+      .cta.secondary { background: #fff; color: var(--ink); }
       ol {
         margin: 0; padding: 0; list-style: none; counter-reset: step;
-        display: grid; gap: 14px;
+        display: grid; gap: 0;
+        border-top: 2px solid var(--line);
       }
       li {
         counter-increment: step;
-        background: var(--card);
-        border: 1px solid var(--line);
-        border-radius: 12px;
-        padding: 16px 18px 16px 56px;
+        border-bottom: 1px solid var(--line);
+        padding: 16px 0 16px 40px;
         position: relative;
       }
       li::before {
         content: counter(step);
-        position: absolute; left: 16px; top: 16px;
-        width: 28px; height: 28px; border-radius: 8px;
-        background: var(--accent); color: #fff;
+        position: absolute; left: 0; top: 16px;
+        width: 28px; height: 28px;
+        border: 2px solid var(--line);
+        background: var(--fill);
         font-weight: 700; font-size: 0.9rem;
         display: grid; place-items: center;
       }
       li strong { display: block; margin-bottom: 4px; }
       code {
         font-family: ui-monospace, Consolas, monospace;
-        font-size: 0.9em; background: #eef3f0; padding: 1px 6px; border-radius: 4px;
+        font-size: 0.88em;
+        background: var(--fill);
+        padding: 1px 5px;
+        border: 1px solid #ccc;
       }
-      .foot { margin-top: 28px; color: var(--muted); font-size: 0.92rem; }
-      a { color: var(--accent); }
+      .foot {
+        margin-top: 24px;
+        color: var(--muted);
+        font-size: 0.9rem;
+        border-top: 2px solid var(--line);
+        padding-top: 16px;
+      }
+      a { color: var(--ink); }
     </style>
   </head>
   <body>
     <main>
-      <h1>Classroom Desk 学生端</h1>
-      <p class="lead">安装完成。按下面步骤连上教室服务器即可上课。</p>
+      <p class="brand">Classroom Desk</p>
+      <h1>学生端已安装</h1>
+      <p class="lead">打开应用 → 点「一键连教室」→ 选自己的名字上课。</p>
       <div class="cta-row">
         <a class="cta" id="open-app" href="classroom-desk://launch">打开应用</a>
         <a
@@ -83,42 +105,34 @@
           href="https://github.com/otas0/classroom-desk/blob/main/docs/SMARTSCREEN.md"
           target="_blank"
           rel="noreferrer"
-          >SmartScreen / 未签名安装说明</a
+          >SmartScreen 说明</a
         >
       </div>
       <ol>
         <li>
           <strong>打开应用</strong>
-          点上方「打开应用」，或从开始菜单启动「Classroom Desk」。
+          点上方按钮，或从开始菜单启动「Classroom Desk」。窗口在右下角。
         </li>
         <li>
-          <strong>扫码或粘贴配置</strong>
-          教师在后台打开「指派学生机」，用本机摄像头扫 QR；扫码失败时可粘贴教师提供的 JSON。
+          <strong>一键连教室（推荐）</strong>
+          教师在「指派学生机」勾选「开放本班一键连班」。学生只点应用里的「一键连教室」，自动发现教师机并写入班级。
         </li>
         <li>
-          <strong>核对服务器地址</strong>
-          apiBase 须为教师机局域网地址（例如 <code>http://192.168.1.50:8787</code>），不要用 127.0.0.1。
+          <strong>备选：U 盘 / 扫码</strong>
+          U 盘根目录放 <code>classroom-desk-config.json</code>，或扫教师 QR / 粘贴 JSON。禁止 127.0.0.1。
         </li>
         <li>
-          <strong>选身份开课</strong>
-          在「名单」点自己的姓名完成身份确认，然后按老师指示签到、答题。
+          <strong>选身份</strong>
+          在名单点自己的姓名确认，然后按老师指示签到、答题。
         </li>
       </ol>
       <p class="foot">
-        若 Windows 提示「未知发布者」，见
+        未知发布者提示见
         <a href="https://github.com/otas0/classroom-desk/blob/main/docs/SMARTSCREEN.md" target="_blank" rel="noreferrer"
-          >docs/SMARTSCREEN.md</a
+          >SMARTSCREEN.md</a
         >
-        （更多信息 → 仍要运行）。版本请与教师机 /health 中的 studentDesktopVersion 对齐。
+        。版本须与教师机 /health 的 studentDesktopVersion 对齐。
       </p>
     </main>
-    <script>
-      document.getElementById('open-app')?.addEventListener('click', function (e) {
-        // Protocol handler registered by the installed app; fallback: Start Menu.
-        setTimeout(function () {
-          /* leave browser tab open as guide */
-        }, 300);
-      });
-    </script>
   </body>
 </html>

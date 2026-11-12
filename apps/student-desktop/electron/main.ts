@@ -47,6 +47,23 @@ function placeBottomRight(win: BrowserWindow, height: number) {
   win.setBounds({ x, y, width: WINDOW_WIDTH, height });
 }
 
+/** Keep the widget inside the nearest display work area (cannot drag off-screen). */
+function clampWindowToWorkArea(win: BrowserWindow): void {
+  if (!win || win.isDestroyed()) return;
+  const b = win.getBounds();
+  const display = screen.getDisplayMatching(b);
+  const { workArea } = display;
+  const w = Math.min(b.width, workArea.width);
+  const h = Math.min(b.height, workArea.height);
+  const maxX = workArea.x + workArea.width - w;
+  const maxY = workArea.y + workArea.height - h;
+  const x = Math.min(Math.max(b.x, workArea.x), Math.max(workArea.x, maxX));
+  const y = Math.min(Math.max(b.y, workArea.y), Math.max(workArea.y, maxY));
+  if (x !== b.x || y !== b.y || w !== b.width || h !== b.height) {
+    win.setBounds({ x, y, width: w, height: h });
+  }
+}
+
 function applyProductionCsp() {
   if (!app.isPackaged) return;
   const { apiBase } = loadConfig();
@@ -102,7 +119,45 @@ function createWindow() {
   }
 
   mainWindow.once('ready-to-show', () => {
-    mainWindow?.show();
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      clampWindowToWorkArea(mainWindow);
+      mainWindow.show();
+    }
+  });
+
+  // Frameless drag can leave the widget half off-screen; clamp on move / display change.
+  mainWindow.on('will-move', (event, newBounds) => {
+    if (!mainWindow || mainWindow.isDestroyed() || deepLockFrozenActive) return;
+    const display = screen.getDisplayMatching(newBounds);
+    const { workArea } = display;
+    const w = Math.min(newBounds.width, workArea.width);
+    const h = Math.min(newBounds.height, workArea.height);
+    const maxX = workArea.x + workArea.width - w;
+    const maxY = workArea.y + workArea.height - h;
+    const x = Math.min(Math.max(newBounds.x, workArea.x), Math.max(workArea.x, maxX));
+    const y = Math.min(Math.max(newBounds.y, workArea.y), Math.max(workArea.y, maxY));
+    if (x !== newBounds.x || y !== newBounds.y || w !== newBounds.width || h !== newBounds.height) {
+      // Windows: prevent then re-apply clamped bounds. Other platforms: mutate suggestion.
+      if (process.platform === 'win32') {
+        event.preventDefault();
+        mainWindow.setBounds({ x, y, width: w, height: h });
+      } else {
+        newBounds.x = x;
+        newBounds.y = y;
+        newBounds.width = w;
+        newBounds.height = h;
+      }
+    }
+  });
+  mainWindow.on('moved', () => {
+    if (mainWindow && !mainWindow.isDestroyed() && !deepLockFrozenActive) {
+      clampWindowToWorkArea(mainWindow);
+    }
+  });
+  screen.on('display-metrics-changed', () => {
+    if (mainWindow && !mainWindow.isDestroyed() && !deepLockFrozenActive) {
+      clampWindowToWorkArea(mainWindow);
+    }
   });
 
   // Block DevTools / reload escapes when packaged, or whenever deep-lock is armed.
@@ -324,6 +379,147 @@ ipcMain.handle('shell:open-external', async (_event, rawUrl: unknown) => {
 });
 
 ipcMain.handle('config:get', () => loadConfig());
+
+/**
+ * Batch lab setup: look for teacher-exported config on USB / shared drives.
+ * Accepts classroom-desk-config.json or config.json with apiBase + classId.
+ */
+ipcMain.handle('config:find-removable', () => {
+  const names = ['classroom-desk-config.json', 'config.json'];
+  const roots: string[] = [];
+  if (process.platform === 'win32') {
+    for (const letter of 'DEFGHIJKLMNOPQRSTUVWXYZ') {
+      roots.push(`${letter}:\\`);
+    }
+  } else {
+    roots.push('/Volumes', '/media', path.join(os.homedir(), 'Desktop'));
+  }
+  const hits: Array<{ path: string; apiBase: string; classId: string }> = [];
+  for (const root of roots) {
+    try {
+      if (!fs.existsSync(root)) continue;
+      for (const name of names) {
+        const p = path.join(root, name);
+        if (!fs.existsSync(p)) continue;
+        const raw = JSON.parse(fs.readFileSync(p, 'utf8')) as {
+          apiBase?: string;
+          serverUrl?: string;
+          classId?: string;
+        };
+        const apiBase = String(raw.apiBase ?? raw.serverUrl ?? '')
+          .trim()
+          .replace(/\/$/, '');
+        const classId = String(raw.classId ?? '').trim();
+        if (!apiBase || !classId) continue;
+        if (/127\.0\.0\.1|localhost/i.test(apiBase)) continue;
+        if (!/^https?:\/\//i.test(apiBase)) continue;
+        hits.push({ path: p, apiBase, classId });
+      }
+    } catch {
+      /* skip unreadable drives */
+    }
+  }
+  return { ok: true, hits };
+});
+
+/** Quick LAN probe: gateway + .1/.254 on same /24 for teacher /health. */
+ipcMain.handle('config:discover-lan', async () => {
+  const hint = await (async () => {
+    try {
+      // reuse net hint logic inline (gateway/ipv4)
+      const nets = os.networkInterfaces();
+      let ipv4 = '';
+      for (const list of Object.values(nets)) {
+        for (const n of list ?? []) {
+          if (n.family === 'IPv4' && !n.internal) {
+            ipv4 = n.address;
+            break;
+          }
+        }
+        if (ipv4) break;
+      }
+      const parts = ipv4.split('.').map(Number);
+      const gateway =
+        parts.length === 4 ? `${parts[0]}.${parts[1]}.${parts[2]}.1` : '';
+      return { ipv4, gateway };
+    } catch {
+      return { ipv4: '', gateway: '' };
+    }
+  })();
+
+  const candidates = new Set<string>();
+  if (hint.gateway) candidates.add(hint.gateway);
+  if (hint.ipv4) {
+    const p = hint.ipv4.split('.');
+    if (p.length === 4) {
+      candidates.add(`${p[0]}.${p[1]}.${p[2]}.1`);
+      candidates.add(`${p[0]}.${p[1]}.${p[2]}.254`);
+    }
+  }
+  // UTM / common lab gateways
+  candidates.add('192.168.64.1');
+  candidates.add('192.168.1.1');
+
+  const found: Array<{
+    apiBase: string;
+    version?: string;
+    classId?: string;
+    className?: string;
+    easyJoin?: boolean;
+  }> = [];
+
+  function getJson(url: string, timeoutMs: number): Promise<unknown | null> {
+    return new Promise((resolve) => {
+      const req = http.get(url, { timeout: timeoutMs }, (res) => {
+        let body = '';
+        res.on('data', (c) => {
+          body += c;
+          if (body.length > 8000) req.destroy();
+        });
+        res.on('end', () => {
+          try {
+            resolve(JSON.parse(body));
+          } catch {
+            resolve(null);
+          }
+        });
+      });
+      req.on('error', () => resolve(null));
+      req.on('timeout', () => {
+        req.destroy();
+        resolve(null);
+      });
+    });
+  }
+
+  await Promise.all(
+    [...candidates].map(async (host) => {
+      const base = `http://${host}:8787`;
+      const health = (await getJson(`${base}/health`, 900)) as {
+        ok?: boolean;
+        version?: string;
+      } | null;
+      if (!health || !(health.ok === true || health.version)) return;
+      const join = (await getJson(`${base}/api/v1/classroom/join`, 900)) as {
+        ok?: boolean;
+        enabled?: boolean;
+        apiBase?: string;
+        classId?: string;
+        className?: string;
+      } | null;
+      found.push({
+        apiBase: base,
+        version: health.version,
+        easyJoin: Boolean(join?.ok && join?.enabled && join?.classId),
+        classId: join?.classId ? String(join.classId) : undefined,
+        className: join?.className ? String(join.className) : undefined,
+      });
+    }),
+  );
+  // Prefer hosts with easy-join enabled.
+  found.sort((a, b) => Number(b.easyJoin) - Number(a.easyJoin));
+  return { ok: true, found, hint };
+});
 
 ipcMain.handle('config:set', (_event, patch: { apiBase?: string; classId?: string }) => {
   return saveConfig({

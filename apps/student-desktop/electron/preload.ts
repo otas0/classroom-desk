@@ -23,6 +23,21 @@ export type StudentDesktopAPI = {
   getConfig: () => Promise<AppConfig>;
   setConfig: (patch: Partial<AppConfig>) => Promise<AppConfig>;
   setApiBase: (apiBase: string) => Promise<AppConfig>;
+  findRemovableConfig: () => Promise<{
+    ok: boolean;
+    hits: Array<{ path: string; apiBase: string; classId: string }>;
+  }>;
+  discoverLanClassroom: () => Promise<{
+    ok: boolean;
+    found: Array<{
+      apiBase: string;
+      version?: string;
+      classId?: string;
+      className?: string;
+      easyJoin?: boolean;
+    }>;
+    hint?: { ipv4: string; gateway: string };
+  }>;
   getExitLockState: () => Promise<ExitLockState>;
   setExitAllowed: (allowed: boolean) => Promise<ExitLockState>;
   grantExitAndQuit: () => Promise<boolean>;
@@ -61,6 +76,8 @@ const api: StudentDesktopAPI = {
   getConfig: () => ipcRenderer.invoke('config:get'),
   setConfig: (patch) => ipcRenderer.invoke('config:set', patch),
   setApiBase: (apiBase) => ipcRenderer.invoke('config:set', { apiBase }),
+  findRemovableConfig: () => ipcRenderer.invoke('config:find-removable'),
+  discoverLanClassroom: () => ipcRenderer.invoke('config:discover-lan'),
   getExitLockState: () => ipcRenderer.invoke('lock:get-state'),
   setExitAllowed: (allowed) => ipcRenderer.invoke('lock:set-exit-allowed', allowed),
   grantExitAndQuit: () => ipcRenderer.invoke('lock:grant-exit-and-quit'),

@@ -60,6 +60,51 @@ import { nowIso } from '../utils/id.js';
 
 export const settingsRouter = Router();
 
+/**
+ * Foolproof batch join (no auth): students on the LAN discover the teacher PC
+ * and pull apiBase + classId in one click. Teacher must enable + pick a class.
+ */
+settingsRouter.get('/api/v1/classroom/join', (req, res) => {
+  const db = openDb();
+  const enabled = (getSetting(db, 'student_easy_join') ?? '0') === '1';
+  const classId = String(getSetting(db, 'student_easy_join_class_id') ?? '').trim();
+  let className = '';
+  if (classId) {
+    const row = db
+      .prepare(`SELECT name FROM classes WHERE id = ?`)
+      .get(classId) as { name?: string } | undefined;
+    className = String(row?.name ?? '').trim();
+  }
+  const storedBase = String(getSetting(db, 'classroom_api_base') ?? '')
+    .trim()
+    .replace(/\/$/, '');
+  const proto = String(req.headers['x-forwarded-proto'] ?? req.protocol ?? 'http').split(',')[0].trim();
+  const host = String(req.headers['x-forwarded-host'] ?? req.get('host') ?? '')
+    .split(',')[0]
+    .trim();
+  const requestBase =
+    host && !/127\.0\.0\.1|localhost/i.test(host) ? `${proto}://${host}`.replace(/\/$/, '') : '';
+  const apiBase = storedBase && !/127\.0\.0\.1|localhost/i.test(storedBase) ? storedBase : requestBase;
+  if (!enabled || !classId || !apiBase) {
+    res.json({
+      ok: false,
+      enabled: false,
+      reason: !enabled ? 'disabled' : !classId ? 'no_class' : 'no_api_base',
+      apiBase: null,
+      classId: null,
+      className: null,
+    });
+    return;
+  }
+  res.json({
+    ok: true,
+    enabled: true,
+    apiBase,
+    classId,
+    className: className || null,
+  });
+});
+
 settingsRouter.get('/api/v1/settings/public', (req, res) => {
   const db = openDb();
   const exit = getClientExitLockState(db);
@@ -143,6 +188,8 @@ settingsRouter.get('/api/v1/settings', requireAuth, requireRoles('teacher', 'adm
       )?.createdAt ?? null,
     upgradesKeepCount: Number(getSetting(db, 'upgrades_keep_count') ?? 3),
     studentAutoUpdate: (getSetting(db, 'student_auto_update') ?? '1') === '1',
+    studentEasyJoin: (getSetting(db, 'student_easy_join') ?? '0') === '1',
+    studentEasyJoinClassId: getSetting(db, 'student_easy_join_class_id') ?? '',
     restoreConfirmEmail: getSetting(db, 'restore_confirm_email') ?? '',
     hasBackupEncryptPassphrase: Boolean((getSetting(db, 'backup_encrypt_passphrase') ?? '').trim()),
     projectionHighContrast: (getSetting(db, 'projection_high_contrast') ?? '0') === '1',
@@ -329,6 +376,50 @@ settingsRouter.patch('/api/v1/settings', requireAuth, requireRoles('teacher', 'a
       actorRole: req.user?.role,
       action: 'settings.student_auto_update',
       detail: { studentAutoUpdate: on },
+      clientIp: req.ip,
+    });
+  }
+
+  if (req.body?.studentEasyJoin != null || req.body?.studentEasyJoinClassId != null) {
+    const on =
+      req.body.studentEasyJoin === undefined
+        ? (getSetting(db, 'student_easy_join') ?? '0') === '1'
+        : req.body.studentEasyJoin === true ||
+          req.body.studentEasyJoin === 1 ||
+          req.body.studentEasyJoin === '1';
+    const classId =
+      req.body.studentEasyJoinClassId !== undefined
+        ? String(req.body.studentEasyJoinClassId ?? '').trim()
+        : String(getSetting(db, 'student_easy_join_class_id') ?? '').trim();
+    if (on && !classId) {
+      res.status(400).json({
+        error: 'easy_join_class_required',
+        message: '开启一键连班须指定班级',
+      });
+      return;
+    }
+    if (classId) {
+      const row = db.prepare(`SELECT id FROM classes WHERE id = ?`).get(classId) as
+        | { id?: string }
+        | undefined;
+      if (!row?.id) {
+        res.status(400).json({ error: 'class_not_found', message: '班级不存在' });
+        return;
+      }
+    }
+    db.prepare(
+      `INSERT INTO settings (key, value) VALUES ('student_easy_join', ?)
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+    ).run(on ? '1' : '0');
+    db.prepare(
+      `INSERT INTO settings (key, value) VALUES ('student_easy_join_class_id', ?)
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+    ).run(on ? classId : '');
+    writeAudit({
+      actorUserId: req.user?.id,
+      actorRole: req.user?.role,
+      action: 'settings.student_easy_join',
+      detail: { studentEasyJoin: on, classId: on ? classId : null },
       clientIp: req.ip,
     });
   }
