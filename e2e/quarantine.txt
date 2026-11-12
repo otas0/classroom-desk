@@ -1,6 +1,7 @@
 # Paths relative to Playwright testDir (./e2e). One file per line.
 # Skipped only when CD_E2E_USE_QUARANTINE=1 (nightly). Smoke gates omit that env.
 #
-# Cleared after local green (a7b3747 follow-up): bulk-ui / shift-select / rotation-banner.
-# Re-add only if nightly regresses.
+# Nightly 42829497945: passed on retry, still fail the suite.
+audit-detail.spec.ts
+exit-lock-rotation-banner.spec.ts
 

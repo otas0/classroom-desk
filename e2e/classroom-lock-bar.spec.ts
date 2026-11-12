@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { LIVE_CLASS_NAV } from './helpers/navPrep';
 import { loginTeacherWeb } from './helpers/teacherWebLogin';
 import { resetUiLocaleZhCN } from './helpers/uiLocale';
 
@@ -6,7 +7,7 @@ test.describe('classroom lock quick bar', () => {
   test('session page shows lock shortcuts for current class', async ({ page, request }) => {
     await resetUiLocaleZhCN(request);
     await loginTeacherWeb(page, request);
-    await page.locator('aside').getByRole('button', { name: '上课' }).click();
+    await page.locator('aside').getByRole('button', { name: LIVE_CLASS_NAV }).click();
     const bar = page.getByTestId('classroom-lock-bar');
     await expect(bar).toBeVisible({ timeout: 15_000 });
     await expect(page.getByTestId('lock-quick-km')).toBeVisible();

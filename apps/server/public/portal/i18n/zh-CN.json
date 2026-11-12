@@ -1,0 +1,13 @@
+{
+  "title": "校园网认证",
+  "hint": "零安装门户。学号+验证码。教工网且从未学生网认证→拦截。无指纹。",
+  "studentNo": "学号",
+  "code": "验证码 / 共用码",
+  "getCode": "获取验证码",
+  "submit": "认证并检测网络",
+  "caps": "门户 · 网络档 · never_student_net · Shield（无指纹）",
+  "otpSent": "验证码已发送",
+  "mailtoReady": "可打开邮件客户端发送",
+  "offline": "无法连接服务器",
+  "ssidRequired": "请从网关跳转进入（需签名 SSID）"
+}

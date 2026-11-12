@@ -38,3 +38,15 @@ npm run check:nightly-flake -- --md
 4. 手工核对：`gh run list --workflow=e2e-nightly.yml --limit 20 --json conclusion,event,createdAt`（看 `event=schedule` 行）
 
 相关：`apps/teacher-web/src/auditJumpStorage.ts`（`scheduleClear`）、`.github/workflows/e2e-nightly.yml`（`audit-jump-smoke`）。
+
+## Nightly canary Issue 过滤
+
+失败会汇总到同一 Issue 标题 **`Nightly e2e failed`**。评论/标签用：
+
+| 标签 | 来源 |
+|---|---|
+| `canary:portal-epoch` | `portal-multi-class-epoch-smoke` |
+| `canary:staff-block` | `portal-staff-block-smoke` |
+| `canary:full` | 全量 nightly suite |
+
+GitHub 过滤示例：`label:canary:portal-epoch` 或 Issue 内搜 `` `canary:staff-block` ``。

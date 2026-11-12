@@ -170,7 +170,7 @@ async function main() {
   });
   summary.push(`replace import created=${imp.created} replaced=${imp.replaced} skipped=${imp.skipped}`);
 
-  const roster = await json(`${API}/api/v1/classes/${CLASS_ID}/roster`);
+  const roster = await json(`${API}/api/v1/classes/${CLASS_ID}/roster?client=lab-agent`);
   const students = roster.students || roster.items || [];
   const names = [];
   for (const s of students) {

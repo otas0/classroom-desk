@@ -1,4 +1,5 @@
 import type { APIRequestContext, Page } from '@playwright/test';
+import { LIVE_CLASS_NAV } from './navPrep.js';
 
 const API = process.env.API_BASE ?? 'http://127.0.0.1:8787';
 
@@ -44,7 +45,7 @@ export async function ensureTeacherPasswordReady(request: APIRequestContext): Pr
 export async function loginTeacherUi(page: Page, password: string): Promise<void> {
   await page.goto(`${API}/admin/`);
   const loginHeading = page.getByRole('heading', { name: /教师后台/ });
-  const sessionNav = page.getByRole('button', { name: '上课' });
+  const sessionNav = page.getByRole('button', { name: LIVE_CLASS_NAV });
   await loginHeading.or(sessionNav).waitFor({ state: 'visible', timeout: 15_000 });
 
   if (await loginHeading.isVisible()) {

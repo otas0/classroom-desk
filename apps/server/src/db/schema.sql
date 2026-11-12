@@ -14,11 +14,14 @@ CREATE TABLE IF NOT EXISTS users (
   username TEXT UNIQUE,
   password_hash TEXT,
   student_no TEXT,
+  contact_email TEXT,
+  contact_phone TEXT,
   class_id TEXT REFERENCES classes(id) ON DELETE SET NULL,
   total_points INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL,
   deleted_at TEXT,
-  disabled_at TEXT
+  disabled_at TEXT,
+  net_ever_student_zone INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE INDEX IF NOT EXISTS idx_users_class_id ON users(class_id);

@@ -127,7 +127,8 @@ async function main() {
 
   // 3b. student tabs surface (API each tab needs — same paths as student-desktop)
   {
-    const roster = await req('GET', `/api/v1/classes/${classId}/roster`);
+    // Lab Electron / agent hint — private_device_portal_only blocks bare browser roster.
+    const roster = await req('GET', `/api/v1/classes/${classId}/roster?client=lab-agent`);
     if (!roster.res.ok) fail('tab.points.roster', roster.text);
     else ok('tab.points.roster', `n=${(roster.json?.items ?? roster.json ?? []).length}`);
 

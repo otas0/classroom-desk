@@ -102,6 +102,10 @@ export function broadcastPresence(classId: string) {
       sseClients.delete(sub);
     }
   }
+  // Keep principal campus board in sync when seats come online.
+  void import('./principalHub.js')
+    .then((m) => m.broadcastPrincipalStats())
+    .catch(() => undefined);
 }
 
 /** SSE for teacher presence board. Auth via ?token= (EventSource cannot set headers). */

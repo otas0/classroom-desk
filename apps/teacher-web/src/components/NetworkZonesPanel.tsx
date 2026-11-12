@@ -12,6 +12,7 @@ type ZoneViolation = {
   ssid: string;
   ipv4: string;
   action: string;
+  reason?: string;
   count: number;
   lastAt: string;
 };
@@ -31,13 +32,13 @@ function blankZone(): NetworkZone {
   };
 }
 
-/**
- * School-custom network zones (any labels). Not hardcoded guest/teacher/student.
- * Mitigates leaked PSK: students on staff-only zones → flag / deny / kick via Shield.
- */
 export function NetworkZonesPanel() {
   const [zones, setZones] = useState<NetworkZone[]>([]);
   const [violations, setViolations] = useState<ZoneViolation[]>([]);
+  const [portalCode, setPortalCode] = useState('');
+  const [portalSet, setPortalSet] = useState(false);
+  const [privatePortalOnly, setPrivatePortalOnly] = useState(false);
+  const [caps, setCaps] = useState('');
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
   const readonly = isAssistant();
@@ -48,6 +49,32 @@ export function NetworkZonesPanel() {
     );
     setZones(Array.isArray(r.zones) ? r.zones : []);
     setViolations(Array.isArray(r.violations) ? r.violations : []);
+    try {
+      const p = await api<{
+        portalSharedCodeSet?: boolean;
+        capabilities?: Record<string, unknown>;
+      }>('/api/v1/portal/settings');
+      setPortalSet(Boolean(p.portalSharedCodeSet));
+      const c = p.capabilities ?? {};
+      setCaps(
+        [
+          c.netPortal ? t('门户') : '',
+          c.netDns ? t('DeskDNS') : '',
+          c.examBox ? t('ExamBox') : '',
+          c.netShield ? t('Shield') : '',
+          c.neverStudentNetBlock ? t('从未学生网拦截') : '',
+          c.deviceFingerprinting ? '' : t('无指纹'),
+        ]
+          .filter(Boolean)
+          .join(' · '),
+      );
+      const m = await api<{ privateDevicePortalOnly?: boolean }>(
+        '/api/v1/settings/private-device-mode',
+      );
+      setPrivatePortalOnly(Boolean(m.privateDevicePortalOnly));
+    } catch {
+      /* ignore */
+    }
   }, []);
 
   useEffect(() => {
@@ -77,10 +104,9 @@ export function NetworkZonesPanel() {
     const z = zones[i];
     if (!z) return;
     const has = z.allowedRoles.includes(role);
-    const allowedRoles = has
-      ? z.allowedRoles.filter((r) => r !== role)
-      : [...z.allowedRoles, role];
-    update(i, { allowedRoles });
+    update(i, {
+      allowedRoles: has ? z.allowedRoles.filter((r) => r !== role) : [...z.allowedRoles, role],
+    });
   }
 
   return (
@@ -88,9 +114,94 @@ export function NetworkZonesPanel() {
       <h3>{t('网络配置档')}</h3>
       <p className="hint">
         {t(
-          '按学校自己的 SSID / 网段自定义分区与权限，不要依赖写死的 guest/teacher/student 名称。学生若知道教工网密码连上去：只要该档不允许 student，即可标记违规，并可选 Shield 断网或踢下线。建议教工网开 802.1X/门户，单靠 Wi‑Fi 密码不够。',
+          '自定义 SSID/网段权限；教工档强制门户；从未学生网→block；私人设备可强制 /portal。见 docs/ENTERPRISE_8021X.md 与 docs/EXAM_BOX.md。',
         )}
       </p>
+      {caps ? (
+        <p className="hint" data-testid="product-capabilities-line">
+          {t('已启用：')}
+          {caps}
+        </p>
+      ) : null}
+      <label className="hint">
+        {t('门户共用码')}
+        <input
+          data-testid="portal-shared-code"
+          value={portalCode}
+          disabled={readonly}
+          onChange={(e) => setPortalCode(e.target.value)}
+          placeholder={portalSet ? t('已设置（输入新码可覆盖）') : t('设置后用于 /portal')}
+        />
+      </label>
+      <button
+        type="button"
+        className="secondary"
+        disabled={readonly || busy || !portalCode.trim()}
+        data-testid="portal-shared-code-save"
+        onClick={() => {
+          setBusy(true);
+          void api('/api/v1/portal/settings', {
+            method: 'PUT',
+            body: JSON.stringify({ portalSharedCode: portalCode.trim() }),
+          })
+            .then(async () => {
+              setMsg(t('门户共用码已保存'));
+              setPortalCode('');
+              await refresh();
+            })
+            .catch((e) => setMsg(te(e, '保存失败')))
+            .finally(() => setBusy(false));
+        }}
+      >
+        {t('保存门户共用码')}
+      </button>
+      <label className="hint" style={{ display: 'block', marginTop: 8 }}>
+        <input
+          type="checkbox"
+          checked={privatePortalOnly}
+          disabled={readonly || busy}
+          data-testid="private-device-portal-only"
+          onChange={(e) => {
+            const on = e.target.checked;
+            setPrivatePortalOnly(on);
+            setBusy(true);
+            void api('/api/v1/settings/private-device-mode', {
+              method: 'PUT',
+              body: JSON.stringify({ privateDevicePortalOnly: on }),
+            })
+              .then(() => setMsg(on ? t('私人设备已改走门户') : t('已恢复公开名单（机房）')))
+              .catch((err) => setMsg(te(err, '保存失败')))
+              .finally(() => setBusy(false));
+          }}
+        />{' '}
+        {t('私人设备强制门户（浏览器禁公开名单；lab-agent 仍可用）')}
+      </label>
+      <p className="hint">
+        {t('Captive Portal 重定向')} <code>/portal?ssid=…&ssid_ts=…&ssid_sig=…</code>
+        {t('（网关用 sign-ssid 注入）')}
+      </p>
+      <p className="hint">
+        {t('强制签名 SSID 开关见开通向导；环境变量 CLASSROOM_DESK_PORTAL_SSID_REQUIRE_SIG=1 可强制开启。')}
+      </p>
+      <button
+        type="button"
+        className="secondary"
+        disabled={readonly || busy}
+        data-testid="campus-preset-apply"
+        onClick={() => {
+          setBusy(true);
+          void api<{ ok?: boolean }>('/api/v1/settings/campus-preset', { method: 'PUT', body: '{}' })
+            .then(async () => {
+              setPrivatePortalOnly(true);
+              setMsg(t('已应用校园网预设：私人设备门户 + 强制签名 SSID'));
+              await refresh();
+            })
+            .catch((e) => setMsg(te(e, '保存失败')))
+            .finally(() => setBusy(false));
+        }}
+      >
+        {t('一键校园网预设（私人设备门户 + 强制签名）')}
+      </button>
       {zones.map((z, i) => (
         <div key={z.id} className="network-zone-card" data-testid={`network-zone-${z.id}`}>
           <label className="hint">
@@ -99,11 +210,10 @@ export function NetworkZonesPanel() {
               value={z.label}
               disabled={readonly}
               onChange={(e) => update(i, { label: e.target.value })}
-              placeholder={t('例如：教学网 / 教工 / 访客')}
             />
           </label>
           <label className="hint">
-            {t('SSID 包含（逗号分隔，可空）')}
+            {t('SSID 包含')}
             <input
               value={z.ssidIncludes.join(', ')}
               disabled={readonly}
@@ -118,7 +228,7 @@ export function NetworkZonesPanel() {
             />
           </label>
           <label className="hint">
-            {t('网段 CIDR（逗号分隔，可空）')}
+            {t('CIDR')}
             <input
               value={z.cidrs.join(', ')}
               disabled={readonly}
@@ -130,10 +240,9 @@ export function NetworkZonesPanel() {
                     .filter(Boolean),
                 })
               }
-              placeholder="10.20.0.0/16"
             />
           </label>
-          <div className="chip-row" role="group" aria-label={t('允许角色')}>
+          <div className="chip-row">
             {(['student', 'teacher', 'staff', 'guest'] as NetworkZoneRole[]).map((role) => (
               <button
                 key={role}
@@ -147,7 +256,7 @@ export function NetworkZonesPanel() {
             ))}
           </div>
           <label className="hint">
-            {t('学生误入时')}
+            {t('学生误入')}
             <select
               value={z.studentUnauthorized}
               disabled={readonly}
@@ -161,15 +270,6 @@ export function NetworkZonesPanel() {
               <option value="deny">{t('Shield 断网')}</option>
               <option value="kick">{t('Shield 踢下线')}</option>
             </select>
-          </label>
-          <label className="hint">
-            <input
-              type="checkbox"
-              checked={z.requirePortal}
-              disabled={readonly}
-              onChange={(e) => update(i, { requirePortal: e.target.checked })}
-            />{' '}
-            {t('建议门户/802.1X（泄露密码仍要认人）')}
           </label>
           <label className="hint">
             <input
@@ -200,12 +300,7 @@ export function NetworkZonesPanel() {
         >
           {t('添加网络档')}
         </button>
-        <button
-          type="button"
-          disabled={readonly || busy}
-          data-testid="network-zone-save"
-          onClick={() => save()}
-        >
+        <button type="button" disabled={readonly || busy} data-testid="network-zone-save" onClick={() => save()}>
           {busy ? t('保存中…') : t('保存网络档')}
         </button>
       </div>
@@ -215,8 +310,8 @@ export function NetworkZonesPanel() {
           {violations.slice(0, 10).map((v) => (
             <span key={`${v.studentId}-${v.zoneId}`}>
               {' '}
-              {v.zoneLabel || v.zoneId}
-              {v.ssid ? `@${v.ssid}` : ''}×{v.count}
+              {v.zoneLabel}
+              {v.reason === 'never_student_net' ? t('[从未上学生网]') : ''}×{v.count}
             </span>
           ))}
         </p>

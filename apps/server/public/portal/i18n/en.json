@@ -1,0 +1,13 @@
+{
+  "title": "Campus Wi‑Fi sign-in",
+  "hint": "Zero-install portal. Student ID + code. Staff net + never on student net → blocked. No fingerprinting.",
+  "studentNo": "Student ID",
+  "code": "OTP / shared code",
+  "getCode": "Get code",
+  "submit": "Sign in & check",
+  "caps": "Portal · zones · never_student_net · Shield",
+  "otpSent": "Code sent",
+  "mailtoReady": "mailto ready",
+  "offline": "offline",
+  "ssidRequired": "Open from gateway redirect (signed SSID required)"
+}

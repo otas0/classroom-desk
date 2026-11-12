@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { ensureTeacherPasswordReady, TEACHER_USER } from './helpers/teacherLogin';
 import { loginStaffWeb, loginTeacherWeb } from './helpers/teacherWebLogin';
-import { openInputLockAdvanced, openPrepTab, selectTeacherClass } from './helpers/navPrep';
+import { LIVE_CLASS_NAV, openInputLockAdvanced, openPrepTab, selectTeacherClass } from './helpers/navPrep';
 import { resetUiLocaleZhCN } from './helpers/uiLocale';
 
 const API = process.env.API_BASE ?? 'http://127.0.0.1:8787';
@@ -563,7 +563,7 @@ test.describe('physical input lock', () => {
 
     await page.reload({ waitUntil: 'domcontentloaded' });
     await selectTeacherClass(page, classId);
-    await page.locator('aside').getByRole('button', { name: '上课', exact: true }).click();
+    await page.locator('aside').getByRole('button', { name: LIVE_CLASS_NAV }).click();
 
     await expect(page.getByRole('button', { name: '投影全屏' })).toBeVisible({ timeout: 15_000 });
     await page.getByRole('button', { name: '投影全屏' }).click();

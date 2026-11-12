@@ -12,6 +12,9 @@ export class MockShieldConnector implements ShieldConnector {
   readonly displayName = 'Mock Shield (in-memory)';
   readonly clients = new Map<string, Entry>();
   readonly kicks: string[] = [];
+  /** When true, releaseClient throws (for failure-path tests). */
+  failRelease = false;
+  failReleaseDetail = 'mock_release_boom';
 
   async authorizeClient(opts: ShieldAuthorizeOpts) {
     const key = String(opts.clientKey ?? '').trim();
@@ -37,6 +40,13 @@ export class MockShieldConnector implements ShieldConnector {
     this.clients.delete(key);
     this.kicks.push(key);
     return { ok: true, detail: 'mock_kicked' };
+  }
+
+  async releaseClient(opts: ShieldClientRef) {
+    if (this.failRelease) {
+      throw new Error(this.failReleaseDetail);
+    }
+    return this.revokeClient(opts);
   }
 
   async health() {

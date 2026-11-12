@@ -7,7 +7,8 @@
     "dev": "tsx watch src/index.ts",
     "start": "tsx src/index.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "tsx src/test/schema.integration.test.ts && tsx src/test/points.cleanup.integration.test.ts && tsx src/test/recycleRetention.test.ts && tsx src/test/exportXlsxStream.test.ts && tsx src/test/auditRetry.test.ts && tsx src/test/qRecycleVirtual.test.ts && tsx src/test/purgeAllStress.test.ts && tsx src/test/recycleRetentionMigrate.test.ts && tsx src/test/notifyEmail.test.ts && tsx src/test/inputLockTtl.test.ts && tsx src/test/deepLock.test.ts && tsx src/test/networkZones.test.ts"
+    "test": "tsx src/test/schema.integration.test.ts && tsx src/test/points.cleanup.integration.test.ts && tsx src/test/recycleRetention.test.ts && tsx src/test/exportXlsxStream.test.ts && tsx src/test/auditRetry.test.ts && tsx src/test/qRecycleVirtual.test.ts && tsx src/test/purgeAllStress.test.ts && tsx src/test/recycleRetentionMigrate.test.ts && tsx src/test/notifyEmail.test.ts && tsx src/test/inputLockTtl.test.ts && tsx src/test/deepLock.test.ts && tsx src/test/networkZones.test.ts && tsx src/test/portalAuth.test.ts && tsx src/test/portalSsidSign.test.ts && tsx src/test/rosterParse.test.ts && tsx src/test/campusPreset.test.ts && tsx src/test/deskDnsProbe.test.ts && tsx src/test/shieldReleaseFail.test.ts",
+    "test:opnsense-acceptance": "tsx ../../scripts/opnsense-alias-acceptance.mjs"
   },
   "dependencies": {
     "@classroom-desk/i18n": "*",

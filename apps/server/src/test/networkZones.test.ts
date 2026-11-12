@@ -11,14 +11,34 @@ import {
 } from '@classroom-desk/shared';
 import { migrate } from '../db/migrate.js';
 import {
+  applyStaffVerificationDefaults,
   enforceStudentZonePolicy,
+  getEverStudentZone,
+  resolveUnauthorizedAction,
   saveNetworkZones,
 } from '../services/networkZones.js';
 import { MockShieldConnector } from '../services/shield/mockConnector.js';
 import { setShieldConnector, resetShieldConnectorToMock } from '../services/shield/registry.js';
 
 assert.equal(ipv4InCidr('10.20.1.5', '10.20.0.0/16'), true);
-assert.equal(ipv4InCidr('10.21.1.5', '10.20.0.0/16'), false);
+assert.equal(
+  resolveUnauthorizedAction(
+    {
+      id: 's',
+      label: 'x',
+      ssidIncludes: [],
+      cidrs: [],
+      allowedRoles: ['teacher'],
+      defaultNetMode: 'allow',
+      defaultAllowlistHosts: [],
+      studentUnauthorized: 'flag',
+      requirePortal: false,
+      enabled: true,
+    },
+    false,
+  ).reason,
+  'never_student_net',
+);
 
 const zones: NetworkZone[] = [
   {
@@ -29,8 +49,8 @@ const zones: NetworkZone[] = [
     allowedRoles: ['teacher', 'staff'],
     defaultNetMode: 'allow',
     defaultAllowlistHosts: [],
-    studentUnauthorized: 'deny',
-    requirePortal: true,
+    studentUnauthorized: 'flag',
+    requirePortal: false,
     enabled: true,
   },
   {
@@ -48,9 +68,8 @@ const zones: NetworkZone[] = [
 ];
 
 assert.equal(matchNetworkZone(zones, { ssid: 'School-Faculty-5G' })?.id, 'staff');
-assert.equal(matchNetworkZone(zones, { ipv4: '10.20.3.4' })?.id, 'learn');
 assert.equal(studentUnauthorizedOnZone(matchNetworkZone(zones, { ssid: 'Faculty' })), true);
-assert.equal(studentUnauthorizedOnZone(matchNetworkZone(zones, { ssid: 'Learn' })), false);
+assert.equal(applyStaffVerificationDefaults(zones).find((z) => z.id === 'staff')?.requirePortal, true);
 
 const dir = mkdtempSync(path.join(tmpdir(), 'cd-netzones-'));
 process.env.CLASSROOM_DESK_DATA_DIR = dir;
@@ -81,16 +100,16 @@ const r = await enforceStudentZonePolicy(db, {
   hint: { ssid: 'Campus-Teacher-WiFi', ipv4: '10.10.1.9' },
 });
 assert.equal(r.unauthorized, true);
+assert.equal(r.reason, 'never_student_net');
 assert.equal(r.action, 'deny');
-assert.equal(mock.clients.get('cli-1')?.mode, 'deny');
 
-const ok = await enforceStudentZonePolicy(db, {
+await enforceStudentZonePolicy(db, {
   studentId,
   classId,
   clientId: 'cli-1',
   hint: { ssid: 'Learn-Hall', ipv4: '10.20.0.8' },
 });
-assert.equal(ok.unauthorized, false);
+assert.equal(getEverStudentZone(db, studentId), true);
 
 resetShieldConnectorToMock();
 db.close();

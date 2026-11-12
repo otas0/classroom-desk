@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { createDedicatedClass } from './helpers/navPrep';
+import { createDedicatedClass, LIVE_CLASS_NAV } from './helpers/navPrep';
 import { ensureTeacherPasswordReady } from './helpers/teacherLogin';
 import { loginStaffWeb } from './helpers/teacherWebLogin';
 
@@ -32,7 +32,7 @@ test.describe('assistant RBAC', () => {
 
     await loginStaffWeb(page, user, pass);
     await expect(page.getByRole('heading', { name: '出勤报表' })).toBeVisible({ timeout: 15_000 });
-    await expect(page.getByRole('button', { name: '上课' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: LIVE_CLASS_NAV })).toHaveCount(0);
     await expect(page.getByRole('button', { name: '指派学生机' })).toHaveCount(0);
 
     await page.locator('.prep-subnav').getByRole('button', { name: '名单', exact: true }).click();

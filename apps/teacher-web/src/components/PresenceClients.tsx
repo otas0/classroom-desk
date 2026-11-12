@@ -10,6 +10,9 @@ type ClientRow = {
   lastSeenAt: string;
   clientVersion: string;
   clientPlatform: string;
+  netSsid?: string;
+  netZoneId?: string;
+  netZoneUnauthorized?: boolean;
 };
 
 export function PresenceClients({ classId }: { classId: string }) {
@@ -178,6 +181,7 @@ export function PresenceClients({ classId }: { classId: string }) {
             <tr>
               <th>{t('学号')}</th>
               <th>{t('姓名')}</th>
+              <th>{t('网络')}</th>
               <th>{t('版本')}</th>
               <th>{t('平台')}</th>
               <th>{t('最后心跳')}</th>
@@ -186,10 +190,25 @@ export function PresenceClients({ classId }: { classId: string }) {
           <tbody>
             {items.map((row) => {
               const drift = expected && row.clientVersion && row.clientVersion !== expected;
+              const badNet = Boolean(row.netZoneUnauthorized);
               return (
-                <tr key={row.studentId} className={drift ? 'row-warn' : undefined}>
+                <tr
+                  key={row.studentId}
+                  className={badNet ? 'row-danger' : drift ? 'row-warn' : undefined}
+                  data-testid={badNet ? 'presence-never-student-net' : undefined}
+                >
                   <td>{row.studentNo ?? '—'}</td>
                   <td>{row.displayName}</td>
+                  <td>
+                    {badNet ? (
+                      <span className="badge-danger" title={row.netSsid || ''}>
+                        {t('未授权网')}
+                        {row.netSsid ? ` · ${row.netSsid}` : ''}
+                      </span>
+                    ) : (
+                      row.netSsid || '—'
+                    )}
+                  </td>
                   <td>
                     {row.clientVersion ? `v${row.clientVersion}` : t('未上报')}
                     {drift ? t(' · 漂移') : ''}

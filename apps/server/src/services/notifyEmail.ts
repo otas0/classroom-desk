@@ -103,3 +103,76 @@ export async function notifyRestoreConfirm(opts: {
     mailtoUrl: `mailto:${to}?subject=${subject}&body=${body}`,
   };
 }
+
+/** Portal OTP delivery — webhook first, else mailto. Never required to echo code in UI. */
+export async function notifyPortalOtp(opts: {
+  to?: string | null;
+  code: string;
+  studentNo: string;
+  displayName?: string;
+}): Promise<RestoreConfirmDelivery> {
+  const to = String(opts.to ?? process.env.CLASSROOM_DESK_PORTAL_OTP_TO ?? '').trim();
+  const webhook = process.env.CLASSROOM_DESK_EMAIL_WEBHOOK?.trim();
+  const payload = {
+    type: 'portal_otp' as const,
+    to,
+    code: opts.code,
+    studentNo: opts.studentNo,
+    displayName: opts.displayName ?? '',
+  };
+  if (webhook) {
+    try {
+      const res = await fetch(webhook, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(8_000),
+      });
+      return {
+        emailDelivered: res.ok,
+        mailtoUrl: null,
+        webhookStatus: res.status,
+        webhookError: res.ok ? null : `http_${res.status}`,
+      };
+    } catch (e) {
+      return {
+        emailDelivered: false,
+        mailtoUrl: null,
+        webhookError: e instanceof Error ? e.message : 'fetch_failed',
+      };
+    }
+  }
+  if (!to) return { emailDelivered: false, mailtoUrl: null };
+  const subject = encodeURIComponent('校园网认证验证码');
+  const body = encodeURIComponent(
+    `学号 ${opts.studentNo} 的验证码：${opts.code}\n10 分钟内有效。`,
+  );
+  return { emailDelivered: false, mailtoUrl: `mailto:${to}?subject=${subject}&body=${body}` };
+}
+
+/** Optional SMS webhook (same envelope, channel=sms). */
+export async function notifyPortalOtpSms(opts: {
+  phone?: string | null;
+  code: string;
+  studentNo: string;
+}): Promise<{ delivered: boolean; detail?: string }> {
+  const webhook = process.env.CLASSROOM_DESK_SMS_WEBHOOK?.trim();
+  const phone = String(opts.phone ?? '').trim();
+  if (!webhook || !phone) return { delivered: false, detail: 'sms_unconfigured' };
+  try {
+    const res = await fetch(webhook, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        type: 'portal_otp_sms',
+        phone,
+        code: opts.code,
+        studentNo: opts.studentNo,
+      }),
+      signal: AbortSignal.timeout(8_000),
+    });
+    return { delivered: res.ok, detail: `http_${res.status}` };
+  } catch (e) {
+    return { delivered: false, detail: e instanceof Error ? e.message : 'fetch_failed' };
+  }
+}

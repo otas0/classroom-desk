@@ -1,0 +1,13 @@
+{
+  "title": "校園網認證",
+  "hint": "零安裝入口。學號+驗證碼。教工網且從未學生網認證→攔截。無指紋。",
+  "studentNo": "學號",
+  "code": "驗證碼 / 共用碼",
+  "getCode": "取得驗證碼",
+  "submit": "認證並檢測",
+  "caps": "入口 · 設定檔 · never_student_net · Shield",
+  "otpSent": "驗證碼已發送",
+  "mailtoReady": "可開啟郵件客戶端",
+  "offline": "無法連線",
+  "ssidRequired": "請從閘道跳轉進入（需簽名 SSID）"
+}

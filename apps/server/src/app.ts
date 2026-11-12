@@ -28,6 +28,8 @@ import { uploadsRouter } from './routes/uploads.js';
 import { deepLockRouter } from './routes/deepLock.js';
 import { deviceControlRouter } from './routes/deviceControl.js';
 import { networkZonesRouter } from './routes/networkZones.js';
+import { portalRouter } from './routes/portal.js';
+import { principalRouter } from './routes/principal.js';
 
 function resolveTeacherDist(): string | null {
   const here = path.dirname(fileURLToPath(import.meta.url));
@@ -52,12 +54,16 @@ export function createApp() {
     : path.join(getDataDir(), 'upgrades');
   fs.mkdirSync(upgradesPath, { recursive: true });
   app.use('/upgrades', express.static(upgradesPath));
+  const serverPublic = path.join(path.dirname(fileURLToPath(import.meta.url)), '../public');
+  app.use(express.static(serverPublic, { index: false }));
 
   app.use(healthRouter);
   app.use(settingsRouter);
   app.use(deepLockRouter);
   app.use(deviceControlRouter);
   app.use(networkZonesRouter);
+  app.use(portalRouter);
+  app.use(principalRouter);
   app.use(authRouter);
   app.use(assistantGrantsRouter);
   app.use(auditRouter);

@@ -9,3 +9,4 @@ export {
 export { createTranslator, interpolate, type Catalog, type Vars, type Translator } from './translate.js';
 export { CATALOGS } from './catalogs.js';
 export { t, te, setUiLocale, getUiLocale } from './runtime.js';
+export { PORTAL_CATALOGS, portalMessages } from './portal.js';

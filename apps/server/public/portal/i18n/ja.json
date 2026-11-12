@@ -1,0 +1,13 @@
+{
+  "title": "学内ネット認証",
+  "hint": "インストール不要。学籍番号+コード。教職員網で未認証は遮断。指紋なし。",
+  "studentNo": "学籍番号",
+  "code": "OTP / 共有コード",
+  "getCode": "コード取得",
+  "submit": "認証して確認",
+  "caps": "ポータル · ゾーン · never_student_net · Shield",
+  "otpSent": "コード送信済み",
+  "mailtoReady": "メール準備完了",
+  "offline": "オフライン",
+  "ssidRequired": "ゲートウェイ経由で開いてください（署名 SSID 必須）"
+}

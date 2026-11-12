@@ -1,0 +1,91 @@
+{
+  "version": 1,
+  "product": "classroom-desk",
+  "aliases": [
+    {
+      "name": "classroom_desk_allow",
+      "type": "host",
+      "description": "Admitted client IPs after portal admit / Shield allow"
+    },
+    {
+      "name": "classroom_desk_block",
+      "type": "host",
+      "description": "Denied / kicked clients"
+    },
+    {
+      "name": "classroom_desk_portal",
+      "type": "host",
+      "description": "Teacher host serving /portal + API"
+    }
+  ],
+  "rules": [
+    {
+      "id": "dns_portal",
+      "action": "pass",
+      "quick": true,
+      "interface": "lan",
+      "protocol": ["tcp", "udp"],
+      "source": "any",
+      "destination": "classroom_desk_portal",
+      "destinationPort": [53, 5353, 8787],
+      "description": "DeskDNS + API/portal host"
+    },
+    {
+      "id": "captive_portal_http",
+      "action": "pass",
+      "quick": true,
+      "interface": "lan",
+      "protocol": ["tcp"],
+      "source": "!classroom_desk_allow",
+      "destination": "classroom_desk_portal",
+      "destinationPort": [80, 443, 8787],
+      "description": "Unauthenticated may only reach portal/API"
+    },
+    {
+      "id": "dhcp_dns",
+      "action": "pass",
+      "quick": true,
+      "interface": "lan",
+      "protocol": ["udp"],
+      "source": "any",
+      "destination": "any",
+      "destinationPort": [53, 67],
+      "description": "DHCP + DNS"
+    },
+    {
+      "id": "block_alias",
+      "action": "block",
+      "quick": true,
+      "interface": "lan",
+      "protocol": ["any"],
+      "source": "classroom_desk_block",
+      "destination": "any",
+      "description": "Kick / never_student_net"
+    },
+    {
+      "id": "allow_admitted",
+      "action": "pass",
+      "quick": false,
+      "interface": "lan",
+      "protocol": ["any"],
+      "source": "classroom_desk_allow",
+      "destination": "any",
+      "description": "Admitted clients egress"
+    },
+    {
+      "id": "default_deny",
+      "action": "block",
+      "quick": false,
+      "interface": "lan",
+      "protocol": ["any"],
+      "source": "any",
+      "destination": "!(self|classroom_desk_portal)",
+      "description": "Default deny until portal admit"
+    }
+  ],
+  "notes": [
+    "Shield adapter writes IPs into allow/block aliases via alias_util + reconfigure.",
+    "Compare live export from GET /api/v1/gateway/walled-garden-template with this file.",
+    "Screenshot checklist: docs/OPNSENSE_ACCEPTANCE.md"
+  ]
+}
