@@ -95,6 +95,10 @@ const DEFAULT_SETTINGS: Record<string, string> = {
   sis_roster_interval_minutes: '0',
   /** Hint only: IT requires 802.1X on student SSID. */
   enterprise_8021x_required: '0',
+  /** Optional campus federation hub ingest URL (overrides env when set). */
+  federation_hub_url: '',
+  /** Bearer token for hub ingest (write-only in API GET). */
+  federation_hub_token: '',
   /** Bcrypt hash of optional classroom join PIN (empty = off). */
   student_join_pin_hash: '',
   /** When 1: unknown deviceId must be teacher-approved before join attach. */

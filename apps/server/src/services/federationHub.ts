@@ -113,17 +113,28 @@ export function buildLocalAnnouncePayload(): FederationPeer {
 
 let announceTimer: ReturnType<typeof setInterval> | null = null;
 
+/** Settings first, then CLASSROOM_DESK_FEDERATION_HUB / TOKEN env. */
+export function resolveFederationHubIngest(db = openDb()): { hub: string; token: string } {
+  const hubSetting = String(getSetting(db, 'federation_hub_url') ?? '').trim();
+  const hub = hubSetting || String(process.env.CLASSROOM_DESK_FEDERATION_HUB ?? '').trim();
+  const tokenSetting = String(getSetting(db, 'federation_hub_token') ?? '').trim();
+  const token =
+    tokenSetting ||
+    String(
+      process.env.CLASSROOM_DESK_FEDERATION_HUB_TOKEN ?? process.env.FEDERATION_HUB_TOKEN ?? '',
+    ).trim();
+  return { hub, token };
+}
+
 export function startFederationAnnounce(): void {
   if (announceTimer) return;
   const tick = () => {
     try {
       const self = buildLocalAnnouncePayload();
       upsertFederationPeer(self);
-      const hub = String(process.env.CLASSROOM_DESK_FEDERATION_HUB ?? '').trim();
+      const db = openDb();
+      const { hub, token } = resolveFederationHubIngest(db);
       if (hub && /^https?:\/\//i.test(hub)) {
-        const token = String(
-          process.env.CLASSROOM_DESK_FEDERATION_HUB_TOKEN ?? process.env.FEDERATION_HUB_TOKEN ?? '',
-        ).trim();
         const headers: Record<string, string> = { 'content-type': 'application/json' };
         if (token) headers.authorization = `Bearer ${token}`;
         void fetch(hub, {

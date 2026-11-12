@@ -38,7 +38,7 @@ export function SetupChecklist({
   const [versionDrift, setVersionDrift] = useState(0);
   const [expectedVersion, setExpectedVersion] = useState('');
   const [joinPendingCount, setJoinPendingCount] = useState(0);
-  const [joinRateLimitHour, setJoinRateLimitHour] = useState(0);
+  const [joinRateLimitLive, setJoinRateLimitLive] = useState(0);
   const [deskDnsOk, setDeskDnsOk] = useState<boolean | null>(null);
   const [deskDnsHint, setDeskDnsHint] = useState('');
 
@@ -98,7 +98,7 @@ export function SetupChecklist({
           studentEasyJoinClassId?: string;
           unhardenedAlertThreshold?: number;
           joinPendingDeviceCount?: number;
-          joinRateLimitEventsLastHour?: number;
+          joinRateLimitedIpsLive?: number;
         }>('/api/v1/settings');
         if (cancelled) return;
         const on =
@@ -107,7 +107,7 @@ export function SetupChecklist({
           settings.studentEasyJoinClassId === classId;
         setEasyJoinOn(Boolean(classId) && on);
         setJoinPendingCount(Number(settings.joinPendingDeviceCount ?? 0));
-        setJoinRateLimitHour(Number(settings.joinRateLimitEventsLastHour ?? 0));
+        setJoinRateLimitLive(Number(settings.joinRateLimitedIpsLive ?? 0));
         if (
           settings.unhardenedAlertThreshold != null &&
           Number.isFinite(Number(settings.unhardenedAlertThreshold))
@@ -118,7 +118,7 @@ export function SetupChecklist({
         if (cancelled) return;
         setEasyJoinOn(null);
         setJoinPendingCount(0);
-        setJoinRateLimitHour(0);
+        setJoinRateLimitLive(0);
       }
 
       try {
@@ -195,7 +195,7 @@ export function SetupChecklist({
   const easyJoinMissing = Boolean(classId) && easyJoinOn === false;
   const driftAlert = versionDrift > 0;
   const joinPendingAlert = joinPendingCount > 0;
-  const joinRateAlert = joinRateLimitHour > 0;
+  const joinRateAlert = joinRateLimitLive > 0;
   const deskDnsAlert = deskDnsOk === false;
   const healthAlerts =
     easyJoinMissing ||
@@ -220,7 +220,7 @@ export function SetupChecklist({
     {
       id: 'join-rate',
       label: t('连班限流'),
-      state: joinRateLimitHour > 0 ? 'bad' : 'ok',
+      state: joinRateLimitLive > 0 ? 'bad' : 'ok',
     },
     {
       id: 'version-drift',
@@ -360,8 +360,8 @@ export function SetupChecklist({
         <div className="setup-health-alerts" data-testid="setup-health-alerts" role="alert">
           {joinRateAlert ? (
             <p className="setup-health-alert" data-testid="setup-join-rate-alert">
-              {t('近 1 小时有 {v0} 次连班 IP 限流（错 PIN 过多）。学生需等待冷却后再试。', {
-                v0: String(joinRateLimitHour),
+              {t('当前有 {v0} 个 IP 处于连班冷却（错 PIN 过多）。学生需等待冷却后再试。', {
+                v0: String(joinRateLimitLive),
               })}
             </p>
           ) : null}

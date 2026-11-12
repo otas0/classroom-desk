@@ -1,5 +1,9 @@
 import assert from 'node:assert/strict';
-import { getJoinFailRateLimit, noteJoinFailure } from '../services/joinAuth.js';
+import {
+  countLiveJoinRateLimitedIps,
+  getJoinFailRateLimit,
+  noteJoinFailure,
+} from '../services/joinAuth.js';
 import { openDb } from '../db/client.js';
 
 const ip = '203.0.113.9';
@@ -16,5 +20,6 @@ assert.equal(last.limited, true);
 assert.ok(last.retryAfterSec > 0);
 const rl = getJoinFailRateLimit(ip);
 assert.equal(rl.limited, true);
+assert.equal(countLiveJoinRateLimitedIps(), 1);
 
 console.log('joinAuth.test.ts ok');

@@ -110,6 +110,16 @@ jobs:
             Write-Error "Release pack missing arm64: $($names -join ', ')"
             exit 1
           }
+      - name: Optional Authenticode sign (WINDOWS_CERT_*)
+        shell: pwsh
+        env:
+          WINDOWS_CERT_PFX_BASE64: ${{ secrets.WINDOWS_CERT_PFX_BASE64 }}
+          WINDOWS_CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
+        run: .github/workflows/authenticode-sign.ps1
+      - name: Write installer SHA256 sidecars
+        shell: pwsh
+        run: |
+          $exe = Get-ChildItem -Path 'apps/student-desktop/release' -Filter 'ClassroomDesk-Setup-*.exe' -ErrorAction SilentlyContinue
           $exe | ForEach-Object {
             $hash = (Get-FileHash -Algorithm SHA256 $_.FullName).Hash.ToLower()
             Write-Host ("sha256 {0} {1}" -f $hash, $_.Name)

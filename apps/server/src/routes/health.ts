@@ -20,6 +20,7 @@ import {
 } from '../services/deskDnsProbe.js';
 import { requireAuth, requireRoles } from '../middleware/auth.js';
 import { STAFF_ROLES } from '../middleware/roles.js';
+import { productCapabilities } from '../services/portalAuth.js';
 
 export const healthRouter = Router();
 
@@ -133,9 +134,13 @@ function buildHealthPayload() {
   const degraded = Boolean(auditLastError) || auditRetry.degraded || exportTmp.tmpLeaked > 0;
   const deskDns = getDeskDnsStatus();
   const shield = getShieldConnector();
+  const enterprise8021xRequired = (getSetting(db, 'enterprise_8021x_required') ?? '0') === '1';
+  const capabilities = productCapabilities();
   return {
     ok: dbOk,
     degraded,
+    enterprise8021xRequired,
+    capabilities,
     service: 'classroom-desk-server',
     version: packageVersion(),
     studentDesktopVersion: packageVersion(),

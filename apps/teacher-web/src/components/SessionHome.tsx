@@ -468,26 +468,6 @@ export function SessionHome({
             docs/ENTERPRISE_8021X.md
           </a>
         </p>
-        <p className="hint" data-testid="exam-box-hardware-scaffold">
-          {t(
-            '量产硬件镜像：见 deploy/exam-box/HARDWARE.md（刷机清单脚手架；examBoxHardware 旗标仍为未交付）。',
-          )}
-        </p>
-      </CapabilityGate>
-      <CapabilityGate flag="enterprise8021x" label={t('802.1X')}>
-        <p className="hint" data-testid="enterprise-8021x-hint">
-          {t('企业 802.1X：设置可勾「要求 802.1X」；对接步骤 docs/ENTERPRISE_8021X.md（RADIUS/IdP）。')}
-        </p>
-        <p className="hint" data-testid="exam-box-hardware-scaffold">
-          {t(
-            '量产硬件镜像：见 deploy/exam-box/HARDWARE.md（刷机清单脚手架；examBoxHardware 旗标仍为未交付）。',
-          )}
-        </p>
-      </CapabilityGate>
-      <CapabilityGate flag="enterprise8021x" label={t('802.1X')}>
-        <p className="hint" data-testid="enterprise-8021x-hint">
-          {t('企业 802.1X：设置可勾「要求 802.1X」；对接步骤 docs/ENTERPRISE_8021X.md（RADIUS/IdP）。')}
-        </p>
       </CapabilityGate>
       <CapabilityGate flag="netDns" label={t('DeskDNS')}>
         <p className="hint" data-testid="desk-dns-hint">
