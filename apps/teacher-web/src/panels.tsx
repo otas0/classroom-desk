@@ -2376,6 +2376,19 @@ export function AttendancePanel({ classId }: { classId: string }) {
     Array<{ id: string; startAt: string; status: string; mode: string }>
   >([]);
   const [exportMsg, setExportMsg] = useState('');
+  const [schedules, setSchedules] = useState<
+    Array<{
+      id: string;
+      weekdays: number[] | string;
+      startTime: string;
+      endTime: string;
+      lateAfterMinutes: number;
+      enabled: number;
+    }>
+  >([]);
+  const [schedStart, setSchedStart] = useState('08:00');
+  const [schedEnd, setSchedEnd] = useState('08:45');
+  const [schedMsg, setSchedMsg] = useState('');
   const [stats, setStats] = useState<{
     sessionCount: number;
     classAttendanceRate: number;
@@ -2398,6 +2411,50 @@ export function AttendancePanel({ classId }: { classId: string }) {
       `/api/v1/attendance/sessions?classId=${encodeURIComponent(classId)}`,
     );
     setSessions(r.items ?? []);
+  }
+
+  async function loadSchedules() {
+    if (!classId) {
+      setSchedules([]);
+      return;
+    }
+    const r = await api<{
+      items?: Array<{
+        id: string;
+        weekdays: string;
+        startTime: string;
+        endTime: string;
+        lateAfterMinutes: number;
+        enabled: number;
+      }>;
+    }>(`/api/v1/attendance/schedules?classId=${encodeURIComponent(classId)}`);
+    setSchedules(r.items ?? []);
+  }
+
+  async function addSchedule() {
+    setSchedMsg('');
+    try {
+      await api('/api/v1/attendance/schedules', {
+        method: 'POST',
+        body: JSON.stringify({
+          classId,
+          weekdays: [1, 2, 3, 4, 5],
+          startTime: schedStart,
+          endTime: schedEnd,
+          lateAfterMinutes: 5,
+          enabled: true,
+        }),
+      });
+      setSchedMsg(t('已添加节次；可与「按课表开一键连班」联动'));
+      await loadSchedules();
+    } catch (e) {
+      setSchedMsg(e instanceof Error ? e.message : t('保存失败'));
+    }
+  }
+
+  async function removeSchedule(id: string) {
+    await api(`/api/v1/attendance/schedules/${encodeURIComponent(id)}`, { method: 'DELETE' });
+    await loadSchedules();
   }
 
   async function download(kind: 'detail' | 'summary') {
@@ -2460,6 +2517,7 @@ export function AttendancePanel({ classId }: { classId: string }) {
 
   useEffect(() => {
     void loadSessions().catch(() => setSessions([]));
+    void loadSchedules().catch(() => setSchedules([]));
   }, [classId]);
 
   useEffect(() => {
@@ -2472,6 +2530,36 @@ export function AttendancePanel({ classId }: { classId: string }) {
       <p className="hint">
         按教师机本地时区自然月统计（非 UTC）。选课次后表格与导出一并按该场重算。
       </p>
+      <section data-testid="attendance-schedules">
+        <h3>{t('课表节次（自动开课）')}</h3>
+        <p className="hint">
+          {t('工作日节次；可与指派页「按课表开一键连班」联动。空表不造假节次。')}
+        </p>
+        <div className="row">
+          <label>
+            {t('开始')}
+            <input value={schedStart} onChange={(e) => setSchedStart(e.target.value)} placeholder="08:00" />
+          </label>
+          <label>
+            {t('结束')}
+            <input value={schedEnd} onChange={(e) => setSchedEnd(e.target.value)} placeholder="08:45" />
+          </label>
+          <button type="button" className="secondary" disabled={!classId} onClick={() => void addSchedule()}>
+            {t('添加工作日节次')}
+          </button>
+        </div>
+        {schedMsg ? <p className="hint">{schedMsg}</p> : null}
+        <ul className="hint">
+          {schedules.map((s) => (
+            <li key={s.id}>
+              {s.startTime}–{s.endTime}{' '}
+              <button type="button" className="linkish" onClick={() => void removeSchedule(s.id)}>
+                {t('删除')}
+              </button>
+            </li>
+          ))}
+        </ul>
+      </section>
       <div className="row">
         <label>
           月份
@@ -3118,6 +3206,16 @@ export function SettingsPanel({
   const [restoreEmailDelivered, setRestoreEmailDelivered] = useState(false);
   const [upgradeMsg, setUpgradeMsg] = useState('');
   const [upgradeFiles, setUpgradeFiles] = useState<string[]>([]);
+  const [upgradeByArch, setUpgradeByArch] = useState<{
+    x64: { name: string; url?: string; size?: number } | null;
+    arm64: { name: string; url?: string; size?: number } | null;
+  }>({ x64: null, arm64: null });
+  const [sisDiffPreview, setSisDiffPreview] = useState<{
+    wouldAdd: Array<{ name: string; studentNo: string | null }>;
+    wouldUpdate: Array<{ name: string; studentNo: string | null; prevName?: string }>;
+    wouldRemove: Array<{ name: string; studentNo: string | null }>;
+  } | null>(null);
+  const [sisRosterLastApplyAvailable, setSisRosterLastApplyAvailable] = useState(false);
   const [grantEditId, setGrantEditId] = useState<string | null>(null);
   const [grantRows, setGrantRows] = useState<
     Array<{ classId: string; name: string; canExport: boolean; canAwardPoints: boolean }>
@@ -3164,6 +3262,7 @@ export function SettingsPanel({
       fleetDriftSnapshotLastAt?: string | null;
       upgradesKeepCount?: number;
       studentAutoUpdate?: boolean;
+      sisRosterLastApplyAvailable?: boolean;
       restoreConfirmEmail?: string;
       clientExitAllowed?: boolean;
       clientExitUnlockUntil?: string | null;
@@ -3218,6 +3317,7 @@ export function SettingsPanel({
       setUpgradesKeep(Number(s.upgradesKeepCount));
     }
     setStudentAutoUpdate(s.studentAutoUpdate ?? true);
+    setSisRosterLastApplyAvailable(Boolean(s.sisRosterLastApplyAvailable));
     if (s.recycleUrgentDays != null && Number.isFinite(Number(s.recycleUrgentDays))) {
       setRecycleUrgentDays(Number(s.recycleUrgentDays));
     }
@@ -3618,13 +3718,26 @@ export function SettingsPanel({
     void api<{ weakPasswords?: string[] }>('/api/v1/auth/password-policy')
       .then((r) => setWeakPasswords(new Set(r.weakPasswords ?? [])))
       .catch(() => setWeakPasswords(new Set()));
-    void api<{ files?: Array<{ name: string } | string> }>('/api/v1/upgrades')
-      .then((r) =>
+    void api<{
+      files?: Array<{ name: string } | string>;
+      byArch?: {
+        x64?: { name: string; url?: string; size?: number } | null;
+        arm64?: { name: string; url?: string; size?: number } | null;
+      };
+    }>('/api/v1/upgrades')
+      .then((r) => {
+        setUpgradeByArch({
+          x64: r.byArch?.x64 ?? null,
+          arm64: r.byArch?.arm64 ?? null,
+        });
         setUpgradeFiles(
           (r.files ?? []).map((f) => (typeof f === 'string' ? f : f.name)).filter(Boolean),
-        ),
-      )
-      .catch(() => setUpgradeFiles([]));
+        );
+      })
+      .catch(() => {
+        setUpgradeFiles([]);
+        setUpgradeByArch({ x64: null, arm64: null });
+      });
 
     const token = getToken() || '';
     let cancelled = false;
@@ -5125,8 +5238,245 @@ export function SettingsPanel({
             </div>
           ) : null}
 
-          <h3>{t('学生机升级包')}</h3>
-          <p className="hint">{t('上传 Setup.exe → 自动 sha256 → 旧包自动删。')}</p>
+          <h3>{t('SIS 名单同步')}</h3>
+          <p className="hint">
+            {t('从 HTTPS CSV URL 拉取并 upsert 名单（无 URL 则跳过；不造假名）。班级 ID 用当前导航班级。')}
+          </p>
+          <label>
+            {t('名单 CSV URL')}
+            <input
+              data-testid="sis-roster-url"
+              defaultValue=""
+              id="sis-roster-url"
+              placeholder="https://…"
+            />
+          </label>
+          <label>
+            {t('同步间隔（分钟，0=仅手动）')}
+            <input type="number" min={0} max={1440} id="sis-roster-interval" defaultValue={0} />
+          </label>
+          <div className="row">
+            <button
+              type="button"
+              className="secondary"
+              data-testid="sis-roster-save"
+              onClick={() => {
+                const url = String(
+                  (document.getElementById('sis-roster-url') as HTMLInputElement | null)?.value ?? '',
+                ).trim();
+                const interval = Number(
+                  (document.getElementById('sis-roster-interval') as HTMLInputElement | null)?.value ??
+                    0,
+                );
+                const navClass =
+                  typeof localStorage !== 'undefined'
+                    ? String(localStorage.getItem('cd_teacher_class_id') ?? '').trim()
+                    : '';
+                void api('/api/v1/settings', {
+                  method: 'PATCH',
+                  body: JSON.stringify({
+                    sisRosterUrl: url,
+                    sisRosterClassId: navClass,
+                    sisRosterIntervalMinutes: interval,
+                  }),
+                })
+                  .then(() => setUpgradeMsg(t('已保存 SIS 同步设置')))
+                  .catch((e) => setUpgradeMsg(te(e, '保存失败')));
+              }}
+            >
+              {t('保存 SIS 设置')}
+            </button>
+            <button
+              type="button"
+              className="secondary"
+              data-testid="sis-roster-preview"
+              onClick={() => {
+                const navClass =
+                  typeof localStorage !== 'undefined'
+                    ? String(localStorage.getItem('cd_teacher_class_id') ?? '').trim()
+                    : '';
+                void api('/api/v1/settings', {
+                  method: 'PATCH',
+                  body: JSON.stringify({
+                    sisRosterClassId: navClass,
+                    sisRosterSyncNow: true,
+                    sisRosterDryRun: true,
+                  }),
+                })
+                  .then((r) => {
+                    const s = (r as {
+                      sisSync?: {
+                        ok?: boolean;
+                        error?: string;
+                        diff?: typeof sisDiffPreview;
+                      };
+                    }).sisSync;
+                    if (s?.ok && s.diff) {
+                      setSisDiffPreview(s.diff);
+                      setUpgradeMsg(
+                        t('预览：新增 {a} · 更新 {u} · 移出 {r}', {
+                          a: String(s.diff.wouldAdd?.length ?? 0),
+                          u: String(s.diff.wouldUpdate?.length ?? 0),
+                          r: String(s.diff.wouldRemove?.length ?? 0),
+                        }),
+                      );
+                    } else {
+                      setSisDiffPreview(null);
+                      setUpgradeMsg(t('SIS 预览失败：{v0}', { v0: s?.error || '—' }));
+                    }
+                  })
+                  .catch((e) => setUpgradeMsg(te(e, '预览失败')));
+              }}
+            >
+              {t('预览差异（不写库）')}
+            </button>
+            <button
+              type="button"
+              className="secondary"
+              data-testid="sis-roster-sync-now"
+              disabled={!sisDiffPreview}
+              title={sisDiffPreview ? '' : t('请先预览差异')}
+              onClick={() => {
+                if (!window.confirm(t('确认按预览结果写入名单？不在 CSV 中的在班学生会移入回收站。'))) return;
+                const navClass =
+                  typeof localStorage !== 'undefined'
+                    ? String(localStorage.getItem('cd_teacher_class_id') ?? '').trim()
+                    : '';
+                void api('/api/v1/settings', {
+                  method: 'PATCH',
+                  body: JSON.stringify({
+                    sisRosterClassId: navClass,
+                    sisRosterSyncNow: true,
+                  }),
+                })
+                  .then((r) => {
+                    const s = (r as {
+                      sisSync?: {
+                        ok?: boolean;
+                        upserted?: number;
+                        removed?: number;
+                        error?: string;
+                      };
+                    }).sisSync;
+                    setSisDiffPreview(null);
+                    if (s?.ok) setSisRosterLastApplyAvailable(true);
+                    setUpgradeMsg(
+                      s?.ok
+                        ? t('SIS 已同步 {v0} 人，移出 {v1}', {
+                            v0: String(s.upserted ?? 0),
+                            v1: String(s.removed ?? 0),
+                          })
+                        : t('SIS 同步失败：{v0}', { v0: s?.error || '—' }),
+                    );
+                  })
+                  .catch((e) => setUpgradeMsg(te(e, '同步失败')));
+              }}
+            >
+              {t('确认应用')}
+            </button>
+            <button
+              type="button"
+              className="secondary"
+              data-testid="sis-roster-undo-last"
+              disabled={!sisRosterLastApplyAvailable}
+              title={sisRosterLastApplyAvailable ? '' : t('无可恢复的同步快照')}
+              onClick={() => {
+                if (!window.confirm(t('恢复上次 SIS 同步？将撤销软删、回滚姓名/学号并移出上次新增的学生。'))) return;
+                void api('/api/v1/settings', {
+                  method: 'PATCH',
+                  body: JSON.stringify({ sisRosterUndoLast: true }),
+                })
+                  .then((r) => {
+                    const u = (r as {
+                      sisUndo?: {
+                        ok?: boolean;
+                        error?: string;
+                        restored?: number;
+                        revertedFields?: number;
+                        removedInserts?: number;
+                      };
+                    }).sisUndo;
+                    setSisDiffPreview(null);
+                    if (u?.ok) {
+                      setSisRosterLastApplyAvailable(false);
+                      setUpgradeMsg(
+                        t('已恢复上次同步 · 还原 {a} 人 · 回滚 {b} 条 · 移出新增 {c}', {
+                          a: String(u.restored ?? 0),
+                          b: String(u.revertedFields ?? 0),
+                          c: String(u.removedInserts ?? 0),
+                        }),
+                      );
+                    } else {
+                      setUpgradeMsg(t('恢复失败：{v0}', { v0: u?.error || '—' }));
+                    }
+                  })
+                  .catch((e) => setUpgradeMsg(te(e, '恢复失败')));
+              }}
+            >
+              {t('恢复上次同步')}
+            </button>
+          </div>
+          {sisDiffPreview ? (
+            <div className="hint" data-testid="sis-roster-diff">
+              <p>{t('待新增')}</p>
+              <ul>
+                {sisDiffPreview.wouldAdd.length ? (
+                  sisDiffPreview.wouldAdd.map((row) => (
+                    <li key={`add-${row.studentNo ?? row.name}`}>
+                      {row.name}
+                      {row.studentNo ? ` · ${row.studentNo}` : ''}
+                    </li>
+                  ))
+                ) : (
+                  <li>{t('（无）')}</li>
+                )}
+              </ul>
+              <p>{t('待更新')}</p>
+              <ul>
+                {sisDiffPreview.wouldUpdate.length ? (
+                  sisDiffPreview.wouldUpdate.map((row) => (
+                    <li key={`upd-${row.studentNo ?? row.name}`}>
+                      {row.prevName ? `${row.prevName} → ` : ''}
+                      {row.name}
+                      {row.studentNo ? ` · ${row.studentNo}` : ''}
+                    </li>
+                  ))
+                ) : (
+                  <li>{t('（无）')}</li>
+                )}
+              </ul>
+              <p>{t('待移出（回收站）')}</p>
+              <ul>
+                {sisDiffPreview.wouldRemove.length ? (
+                  sisDiffPreview.wouldRemove.map((row) => (
+                    <li key={`rm-${row.studentNo ?? row.name}`}>
+                      {row.name}
+                      {row.studentNo ? ` · ${row.studentNo}` : ''}
+                    </li>
+                  ))
+                ) : (
+                  <li>{t('（无）')}</li>
+                )}
+              </ul>
+            </div>
+          ) : null}
+          <label className="row" data-testid="enterprise-8021x-required">
+            <input
+              type="checkbox"
+              onChange={(e) => {
+                void api('/api/v1/settings', {
+                  method: 'PATCH',
+                  body: JSON.stringify({ enterprise8021xRequired: e.target.checked }),
+                }).catch((err) => setUpgradeMsg(te(err, '保存失败')));
+              }}
+            />
+            {t('要求学生 SSID 使用 802.1X（IT 提示；见 docs/ENTERPRISE_8021X.md）')}
+          </label>
+
+          <h3 id="teacher-upgrades-panel">{t('学生机升级包')}</h3>
+          <p className="hint">
+            {t('上传 Setup.exe（可含 -x64 / -arm64）→ 自动 sha256 → 旧包自动删。学生按本机 arch 拉包。')}
+          </p>
           <label className="row" data-testid="student-auto-update-toggle">
             <input
               type="checkbox"
@@ -5158,69 +5508,134 @@ export function SettingsPanel({
               '教师权更高：上传新 Setup 会自动打开本开关。关闭后才允许版本不一致。学生端无法拒绝跟版。',
             )}
           </p>
-          <label className="secondary" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-            {t('上传 Setup.exe')}
-            <input
-              type="file"
-              accept=".exe,.sha256,.json,application/octet-stream"
-              hidden
-              onChange={(e) => {
-                const file = e.target.files?.[0];
-                e.target.value = '';
-                if (!file) return;
-                const fd = new FormData();
-                fd.append('file', file);
-                const token = getToken();
-                void fetch(`${API_BASE}/api/v1/upgrades`, {
-                  method: 'POST',
-                  headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-                  body: fd,
-                })
-                  .then(async (res) => {
-                    const body = (await res.json().catch(() => ({}))) as {
-                      message?: string;
-                      name?: string;
-                      sha256Name?: string | null;
-                      error?: string;
-                      studentAutoUpdate?: boolean;
-                    };
-                    if (!res.ok) throw new Error(body.message || body.error || `HTTP ${res.status}`);
-                    const uploaded = body.name ?? file.name;
-                    if (/\.exe$/i.test(uploaded)) {
-                      // Upload auto-enables forced same-version (teacher > student).
-                      setStudentAutoUpdate(true);
-                      try {
-                        const v = await api<{ message?: string; match?: boolean | null }>(
-                          '/api/v1/upgrades/verify-sha256',
-                          { method: 'POST', body: JSON.stringify({ name: uploaded }) },
-                        );
-                        setUpgradeMsg(
-                          t('已上传并校验：{v0}{v1}', {
-                            v0: uploaded,
-                            v1: v.message ? ` · ${v.message}` : '',
-                          }) +
-                            ' · ' +
-                            t('已开启：学生机强制跟教师端同版本（学生不可取消）'),
-                        );
-                      } catch {
-                        setUpgradeMsg(
-                          t('已上传 {v0}（sha256 校验失败，请删包重传）', { v0: uploaded }),
-                        );
-                      }
-                    } else {
-                      setUpgradeMsg(t('已上传 {v0}', { v0: uploaded }));
-                    }
-                    return api<{ files?: Array<{ name: string } | string> }>('/api/v1/upgrades');
-                  })
-                  .then((r) =>
-                    setUpgradeFiles(
-                      (r.files ?? []).map((f) => (typeof f === 'string' ? f : f.name)).filter(Boolean),
-                    ),
-                  )
-                  .catch((err) => setUpgradeMsg(err instanceof Error ? err.message : t('上传失败')));
-              }}
-            />
-          </label>
+          <div
+            className="upgrade-arch-grid"
+            data-testid="upgrade-arch-slots"
+            style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}
+          >
+            {(['x64', 'arm64'] as const).map((arch) => {
+              const slot = upgradeByArch[arch];
+              return (
+                <div key={arch} className="upgrade-arch-slot" data-testid={`upgrade-slot-${arch}`}>
+                  <h4>{arch === 'x64' ? 'x64 (Intel/AMD)' : 'arm64'}</h4>
+                  <p className="hint">
+                    {slot?.name ? (
+                      <>
+                        <code>{slot.name}</code>
+                        {slot.size ? ` · ${Math.round(slot.size / 1024 / 1024)} MB` : ''}
+                      </>
+                    ) : (
+                      t('尚未上传此架构安装包')
+                    )}
+                  </p>
+                  <label className="secondary" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                    {t('上传 / 替换')}
+                    <input
+                      type="file"
+                      accept=".exe,.sha256,.json,application/octet-stream"
+                      hidden
+                      data-testid={`upgrade-upload-${arch}`}
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        e.target.value = '';
+                        if (!file) return;
+                        const fd = new FormData();
+                        fd.append('file', file);
+                        fd.append('arch', arch);
+                        const token = getToken();
+                        void fetch(`${API_BASE}/api/v1/upgrades`, {
+                          method: 'POST',
+                          headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+                          body: fd,
+                        })
+                          .then(async (res) => {
+                            const body = (await res.json().catch(() => ({}))) as {
+                              message?: string;
+                              name?: string;
+                              error?: string;
+                            };
+                            if (!res.ok) throw new Error(body.message || body.error || `HTTP ${res.status}`);
+                            const uploaded = body.name ?? file.name;
+                            if (/\.exe$/i.test(uploaded)) {
+                              setStudentAutoUpdate(true);
+                              try {
+                                const v = await api<{ message?: string }>(
+                                  '/api/v1/upgrades/verify-sha256',
+                                  { method: 'POST', body: JSON.stringify({ name: uploaded }) },
+                                );
+                                setUpgradeMsg(
+                                  `${arch}: ${t('已上传并校验：{v0}{v1}', {
+                                    v0: uploaded,
+                                    v1: v.message ? ` · ${v.message}` : '',
+                                  })}`,
+                                );
+                              } catch {
+                                setUpgradeMsg(t('已上传 {v0}（sha256 校验失败）', { v0: uploaded }));
+                              }
+                            } else {
+                              setUpgradeMsg(t('已上传 {v0}', { v0: uploaded }));
+                            }
+                            return api<{
+                              files?: Array<{ name: string } | string>;
+                              byArch?: typeof upgradeByArch;
+                            }>('/api/v1/upgrades');
+                          })
+                          .then((r) => {
+                            setUpgradeByArch({
+                              x64: r.byArch?.x64 ?? null,
+                              arm64: r.byArch?.arm64 ?? null,
+                            });
+                            setUpgradeFiles(
+                              (r.files ?? [])
+                                .map((f) => (typeof f === 'string' ? f : f.name))
+                                .filter(Boolean),
+                            );
+                          })
+                          .catch((err) =>
+                            setUpgradeMsg(err instanceof Error ? err.message : t('上传失败')),
+                          );
+                      }}
+                    />
+                  </label>
+                  {slot?.name && /\.exe$/i.test(slot.name) ? (
+                    <button
+                      type="button"
+                      className="secondary"
+                      onClick={() => {
+                        if (!window.confirm(t('删除 {v0}？', { v0: slot.name }))) return;
+                        void api(`/api/v1/upgrades/${encodeURIComponent(slot.name)}`, {
+                          method: 'DELETE',
+                        })
+                          .then(() =>
+                            api<{
+                              files?: Array<{ name: string } | string>;
+                              byArch?: typeof upgradeByArch;
+                            }>('/api/v1/upgrades'),
+                          )
+                          .then((r) => {
+                            setUpgradeByArch({
+                              x64: r.byArch?.x64 ?? null,
+                              arm64: r.byArch?.arm64 ?? null,
+                            });
+                            setUpgradeFiles(
+                              (r.files ?? [])
+                                .map((x) => (typeof x === 'string' ? x : x.name))
+                                .filter(Boolean),
+                            );
+                            setUpgradeMsg(t('已删除 {v0}', { v0: slot.name }));
+                          })
+                          .catch((err) =>
+                            setUpgradeMsg(err instanceof Error ? err.message : t('删除失败')),
+                          );
+                      }}
+                    >
+                      {t('删除')}
+                    </button>
+                  ) : null}
+                </div>
+              );
+            })}
+          </div>
           {upgradeMsg ? <p className="hint">{upgradeMsg}</p> : null}
           {upgradeFiles.length ? (
             <ul className="hint">
@@ -5237,9 +5652,16 @@ export function SettingsPanel({
                           method: 'DELETE',
                         })
                           .then(() =>
-                            api<{ files?: Array<{ name: string } | string> }>('/api/v1/upgrades'),
+                            api<{
+                              files?: Array<{ name: string } | string>;
+                              byArch?: typeof upgradeByArch;
+                            }>('/api/v1/upgrades'),
                           )
                           .then((r) => {
+                            setUpgradeByArch({
+                              x64: r.byArch?.x64 ?? null,
+                              arm64: r.byArch?.arm64 ?? null,
+                            });
                             setUpgradeFiles(
                               (r.files ?? [])
                                 .map((x) => (typeof x === 'string' ? x : x.name))

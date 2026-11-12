@@ -16,9 +16,9 @@ npm run start:classroom
 
 ## 2. 学生机装客户端
 
-1. 拷 `ClassroomDesk-Setup-*.exe`（Release / CI artifact / U 盘）
-2. 对照旁路 `.sha256` 后安装，装完可删临时包
-3. **傻瓜批量（推荐）**：教师「指派学生机」勾选「开放本班一键连班」→ 学生「查找教室」→ 认准班名/教师机 →「确认连接」。备选：U 盘 `classroom-desk-config.json` / 扫码。
+1. 拷 **已签名** `ClassroomDesk-Setup-<version>.exe`（Release / CI artifact / U 盘；ARM 用 `*-arm64.exe`）。命名规则见 [ARTIFACTS.md](./ARTIFACTS.md)。
+2. 对照旁路 `.sha256` 后安装；SmartScreen 见 [SMARTSCREEN.md](./SMARTSCREEN.md)（**禁止**关闭 Defender / SmartScreen）。装完会直接打开客户端做首次配置。
+3. **傻瓜批量（推荐）**：教师「指派学生机」勾选「开放本班一键连班」、可填讲台显示名（如「高一3班讲台」）→ 学生「查找教室」（同 /24 扫 :8787）→ 认准显示名/班名 →「确认连接」。备选：U 盘 `classroom-desk-config.json` / 扫码。
 
 ## 3.（可选）以后升级
 
@@ -32,7 +32,7 @@ npm run start:classroom
 - [ ] 试卷壳非白名单 URL 拦截
 - [ ] Freeze 后 Chrome/Edge/微信/QQ ≤1s 消失
 - [ ] **学校机 L3 必配**：Assigned Access + Intune 试验组 → Alt+Tab/Win 无效、任务管理器结束被拒；录 `C2-alttab-win.mp4` / `C2-taskmgr-deny.mp4`；试验结束用 rollback.xml。无 AA = 部署未完成（见 SECURITY）
-- [ ] `npm run init:c2-evidence` → 样机填表/录屏 → `npm run verify:c2-evidence` 通过
+- [ ] C2/AA 收口：[C2_OPERATOR_RUNBOOK.md](./C2_OPERATOR_RUNBOOK.md) → `npm run verify:c2-evidence` 通过
 - [ ] 干净机 `npm run start:classroom` 记耗时与 `/admin/`
 - [ ] 真机 Shield connector 后打 `shield/health`
 - [ ] U 盘 Setup + 黑白 `--ink` 截图
@@ -52,3 +52,4 @@ npm run start:classroom
 | U 盘 | [LOCAL_USB_CHECKLIST.md](./LOCAL_USB_CHECKLIST.md) |
 | 整机 AA / C2 | [EXIT_LOCK_MDM.md](./EXIT_LOCK_MDM.md) |
 | 安全边界 | [SECURITY.md](./SECURITY.md) |
+| 连班 PIN / LAN / TLS | [CLASSROOM_JOIN_SECURITY.md](./CLASSROOM_JOIN_SECURITY.md) |

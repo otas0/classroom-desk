@@ -72,7 +72,7 @@ export function DeepLockBar({ classId }: { classId: string }) {
       .split(/[,;\s]+/)
       .map((h) => h.trim())
       .filter(Boolean);
-    void api('/api/v1/deep-lock/action', {
+    void api<{ easyJoinCleared?: boolean }>('/api/v1/deep-lock/action', {
       method: 'POST',
       body: JSON.stringify({
         action,
@@ -81,7 +81,7 @@ export function DeepLockBar({ classId }: { classId: string }) {
         allowlistHosts,
       }),
     })
-      .then(async () => {
+      .then(async (r) => {
         setMsg(
           action === 'freeze'
             ? t('已冻结全班（断网+深锁）')
@@ -92,7 +92,9 @@ export function DeepLockBar({ classId }: { classId: string }) {
                 : action === 'kick_class'
                   ? t('已踢下线并冻结')
                   : action === 'end'
-                    ? t('已结束深锁并恢复')
+                    ? r.easyJoinCleared
+                      ? t('已结束深锁并恢复 · 已自动关一键连班')
+                      : t('已结束深锁并恢复')
                     : t('已更新'),
         );
         await refresh();

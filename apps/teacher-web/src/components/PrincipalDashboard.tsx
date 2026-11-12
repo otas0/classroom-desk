@@ -93,7 +93,8 @@ export function PrincipalDashboard({
     { key: 'netShield', label: t('Shield'), shipped: caps.netShield === true },
     { key: 'examBox', label: t('Exam Box 文档/镜像'), shipped: caps.examBox === true },
     { key: 'examBoxHardware', label: t('Exam Box 量产硬件'), shipped: caps.examBoxHardware === true },
-    { key: 'enterprise8021x', label: t('802.1X 白皮书'), shipped: caps.enterprise8021x === true },
+    { key: 'enterprise8021x', label: t('802.1X 对接'), shipped: caps.enterprise8021x === true },
+    { key: 'principalDashboard', label: t('校长看板'), shipped: caps.principalDashboard !== false },
     { key: 'neverStudentNetBlock', label: t('从未学生网拦截'), shipped: caps.neverStudentNetBlock === true },
     {
       key: 'deviceFingerprinting',
@@ -106,9 +107,15 @@ export function PrincipalDashboard({
     <section className="principal-dashboard" data-testid="principal-dashboard">
       <h3>{t('校长能力看板')}</h3>
       <p className="hint">
-        {t('只读：本校已纳入产品的能力。灰色项表示未交付或未启用。当前 Shield：')}
+        {t('运营视图：在线/加固相关能力旗标与实时在线。灰色=未交付或未启用。Shield：')}
         {String(stats.shield?.active ?? caps.netShieldActive ?? 'mock')}
         <span data-testid="principal-ws-live">{live ? ` · ${t('实时')}` : ` · ${t('轮询后备')}`}</span>
+      </p>
+      <p className="hint" data-testid="principal-ops-summary">
+        {t('机房包')}：{caps.labAgent ? t('开') : t('关')} · {t('校园网包')}：
+        {caps.netPortal || caps.networkZones ? t('开') : t('关')} · DeskDNS：
+        {caps.netDnsRunning ? t('运行中') : caps.netDns ? t('已编入未运行') : t('关')} · Exam Box：
+        {caps.examBoxHardware ? t('硬件') : caps.examBox ? t('文档/镜像') : t('关')}
       </p>
       {err ? <p className="error">{err}</p> : null}
       <div className="principal-live" data-testid="principal-live-counts">
@@ -160,6 +167,33 @@ export function PrincipalDashboard({
           ))}
         </ul>
       ) : null}
+      <p>
+        <button
+          type="button"
+          className="secondary"
+          data-testid="principal-ops-csv-download"
+          onClick={() => {
+            const token = getToken();
+            const url = `${API_BASE}/api/v1/principal/ops-export.csv`;
+            void fetch(url, {
+              headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+            })
+              .then(async (res) => {
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                const blob = await res.blob();
+                const stamp = new Date().toISOString().slice(0, 10);
+                const a = document.createElement('a');
+                a.href = URL.createObjectURL(blob);
+                a.download = `principal-ops-${stamp}.csv`;
+                a.click();
+                URL.revokeObjectURL(a.href);
+              })
+              .catch((e) => setErr(e instanceof Error ? e.message : t('下载失败')));
+          }}
+        >
+          {t('下载运营 CSV（版本漂移 / 未加固 / 连班失败）')}
+        </button>
+      </p>
       <ul className="capability-list">
         {rows.map((r) => (
           <li

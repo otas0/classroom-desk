@@ -37,6 +37,12 @@ export function HardeningHealthPanel({ classId }: { classId: string }) {
   const [lanTip, setLanTip] = useState('');
   const [copyMsg, setCopyMsg] = useState('');
   const [copyFallback, setCopyFallback] = useState('');
+  const [c2Status, setC2Status] = useState<{
+    complete?: boolean;
+    problems?: string[];
+    dir?: string | null;
+    verifyCmd?: string;
+  } | null>(null);
 
   const expected = String(health?.studentDesktopVersion ?? health?.version ?? '');
   const unhardenedRows = useMemo(
@@ -48,6 +54,14 @@ export function HardeningHealthPanel({ classId }: { classId: string }) {
     setBusy(true);
     setHealthErr('');
     setPresenceErr('');
+    void api<{
+      complete?: boolean;
+      problems?: string[];
+      dir?: string | null;
+      verifyCmd?: string;
+    }>('/api/v1/c2-evidence/status')
+      .then((r) => setC2Status(r))
+      .catch(() => setC2Status(null));
     try {
       const h = (await fetch('/health', { cache: 'no-store' }).then(async (r) => {
         if (!r.ok) throw new Error(`health HTTP ${r.status}`);
@@ -243,7 +257,46 @@ export function HardeningHealthPanel({ classId }: { classId: string }) {
         >
           {t('导出 Assigned Access 清单')}
         </button>
+        <a
+          className="secondary"
+          data-testid="c2-evidence-runbook"
+          href="https://github.com/otas0/classroom-desk/blob/main/docs/C2_OPERATOR_RUNBOOK.md"
+          target="_blank"
+          rel="noreferrer"
+        >
+          {t('C2/AA 证据收口步骤')}
+        </a>
+        <button
+          type="button"
+          className="secondary"
+          data-testid="c2-evidence-copy-verify"
+          onClick={() => {
+            const cmd = c2Status?.verifyCmd || 'npm run verify:c2-evidence';
+            void navigator.clipboard.writeText(cmd).then(
+              () => {
+                setCopyMsg(t('已复制校验命令'));
+                window.setTimeout(() => setCopyMsg(''), 2500);
+              },
+              () => setCopyFallback(cmd),
+            );
+          }}
+        >
+          {t('复制 verify:c2-evidence')}
+        </button>
       </div>
+      {c2Status ? (
+        <p
+          className={c2Status.complete ? 'hint' : 'error'}
+          data-testid="c2-evidence-status"
+          role="status"
+        >
+          {c2Status.complete
+            ? t('C2 证据夹已齐：{v0}', { v0: c2Status.dir || '—' })
+            : t('C2 证据未齐：{v0}', {
+                v0: (c2Status.problems ?? []).slice(0, 3).join('；') || t('无证据目录'),
+              })}
+        </p>
+      ) : null}
       {copyMsg ? (
         <p className="hint" data-testid="hardening-copy-msg">
           {copyMsg}
