@@ -87,36 +87,32 @@ export async function ensureBootstrap(db: DatabaseSync): Promise<void> {
 
   const username = process.env.TEACHER_USERNAME?.trim() || 'teacher';
   const envTeacherPassword = process.env.TEACHER_PASSWORD?.trim() || '';
+  const existingNamed = findUserByUsername(db, username);
 
-  if (teacherCount === 0) {
+  if (!existingNamed) {
     const password = envTeacherPassword || randomTempPassword();
     const hash = await hashPassword(password);
     const teacherId = newId();
-    const classId = newId();
-    const classCode = process.env.DEFAULT_CLASS_CODE?.trim().toUpperCase() || newClassCode();
     const createdAt = nowIso();
-
-    db.prepare(
-      `INSERT INTO classes (id, name, class_code, created_at) VALUES (?, ?, ?, ?)`,
-    ).run(classId, '本教室', classCode, createdAt);
-
+    if (teacherCount === 0) {
+      const classId = newId();
+      const classCode = process.env.DEFAULT_CLASS_CODE?.trim().toUpperCase() || newClassCode();
+      db.prepare(
+        `INSERT INTO classes (id, name, class_code, created_at) VALUES (?, ?, ?, ?)`,
+      ).run(classId, '本教室', classCode, createdAt);
+    }
     db.prepare(
       `INSERT INTO users (id, role, display_name, username, password_hash, class_id, total_points, created_at)
        VALUES (?, 'teacher', ?, ?, ?, NULL, 0, ?)`,
     ).run(teacherId, '默认教师', username, hash, createdAt);
-
     console.warn(
-      `[bootstrap] created teacher "${username}" and class code ${classCode}. Teacher password (env TEACHER_PASSWORD or generated): ${password}`,
+      `[bootstrap] created teacher "${username}". Teacher password (env TEACHER_PASSWORD or generated): ${password}`,
     );
   } else if (envTeacherPassword) {
-    // CI / lab: force-align named teacher password when TEACHER_PASSWORD is set
-    // (DB may already have a teacher from a prior seed with a different hash).
-    const existing = findUserByUsername(db, username);
-    if (existing?.id && (existing.role === 'teacher' || existing.role === 'admin')) {
-      const hash = await hashPassword(envTeacherPassword);
-      db.prepare(`UPDATE users SET password_hash = ? WHERE id = ?`).run(hash, existing.id);
-      console.log(`[bootstrap] teacher "${username}" password hash aligned from TEACHER_PASSWORD env`);
-    }
+    // CI / lab: force-align named teacher password when TEACHER_PASSWORD is set.
+    const hash = await hashPassword(envTeacherPassword);
+    db.prepare(`UPDATE users SET password_hash = ? WHERE id = ?`).run(hash, existingNamed.id);
+    console.log(`[bootstrap] teacher "${username}" password hash aligned from TEACHER_PASSWORD env`);
   }
 }
 
