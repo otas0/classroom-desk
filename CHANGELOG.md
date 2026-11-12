@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+## v0.1.8 — 2026-11-12
+
+机房最初试点版：GitHub Release **同一按钮**热更教师机 + 学生机双架构包（x64 / arm64）。
+
+### 一键热更（教师机 + 学生机）
+
+- 教师设置「一键更新（教师机 + 学生机包）」：拉最新 Release 的 **x64 + arm64** Setup（同哈希跳过）→ 打开学生强制同版本 → 教师机 `git checkout`/zip 覆盖同 tag → `npm ci` → `build:teacher` → 自动重启 API（保留 `data/` / `.env`）
+- 后台约每 6h 自检最新 Release；顶栏提示
+- 文档：[docs/RELEASE_SYNC.md](./docs/RELEASE_SYNC.md)；关闭教师自更新：`CLASSROOM_DESK_TEACHER_SELF_UPDATE=0`
+- Release 附件须含 `ClassroomDesk-Setup-*-x64.exe`（或无后缀 x64 别名）与 `*-arm64.exe` 及 `.sha256`（workflow 已强制双架构）
+
+### Exam Box / 802.1X / 运维诚实空态
+
+- Exam Box 装盒清单与 compose；`examBoxHardware` 仅验收登记或 env 后亮起
+- 学校 802.1X 交接：`deploy/radius/` + IT 验收表；不做内置 RADIUS
+- Shield 默认 `off`（无假在线）；DeskDNS / TLS 反向代理文档与示例
+
+### 此前 Unreleased 并入本版
+
 - 学生端「查找教室」：同 /24 并发扫 :8787，按本班一键连班优先；失败提示同一 Wi‑Fi / 教师已开课；扫描进度条
 - 讲台显示名：`classroom_display_name` 写入 join 列表（如「高一3班讲台」）
 - 安装结束直接启动客户端进首次配置（不再默认开浏览器引导页）
