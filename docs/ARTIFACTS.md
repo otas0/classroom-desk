@@ -148,3 +148,14 @@ npm run ops:webhook-dry-run
 
 badge / 样机核对：优先 **tag**；内容对齐用 **tree SHA**（见上文「Commit SHA vs tree SHA」）。
 
+<!-- release-record:v0.1.9 -->
+### 发版记录 v0.1.9（2026-11-12）
+
+| 字段 | 值 |
+|---|---|
+| **tag** | `v0.1.9` |
+| **tree SHA** | `0eca14ab65b552cb2dc9cab163197b4bfde95e52` |
+| **commit SHA**（可能与远程 tip 字面不同） | `2b881f7aa174e2c5bc13a8ffaeb43d071fe975dd` |
+
+badge / 样机核对：优先 **tag**；内容对齐用 **tree SHA**（见上文「Commit SHA vs tree SHA」）。
+
