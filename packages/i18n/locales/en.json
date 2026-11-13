@@ -1233,5 +1233,10 @@
   "已下载本班专用 U 盘包": "Downloaded class USB pack",
   "打包失败": "Pack failed",
   "导出 C2 验收 PDF": "Export C2 acceptance PDF",
-  "已导出 C2 验收 PDF": "Exported C2 acceptance PDF"
+  "已导出 C2 验收 PDF": "Exported C2 acceptance PDF",
+  "量产硬件已验收亮起（序列号 + 镜像 tag）。合同可含对应硬件条款。": "Hardware SKU unlocked (serial + image tag). Contracts may include that hardware.",
+  "灰显默认：examBoxHardware=false，直至 BOM/镜像验收登记。Pilot 合同不得含未登记硬件到货条款。": "Gray by default: examBoxHardware=false until BOM/image acceptance. Pilot contracts must not promise unregistered hardware delivery.",
+  "考场包：compose + 量产硬件已验收亮起。": "Exam pack: compose + hardware SKU unlocked after acceptance.",
+  "考场 compose 包：量产硬件灰显（examBoxHardware=false），须 BOM/镜像验收登记后亮起。": "Exam compose pack: hardware grayed (examBoxHardware=false) until BOM/image acceptance.",
+  "对外仍是 Pilot（gaReady=false），不是 1.0 GA。见 docs/PILOT_SKU.md。": "Still Pilot externally (gaReady=false), not 1.0 GA. See docs/PILOT_SKU.md."
 }

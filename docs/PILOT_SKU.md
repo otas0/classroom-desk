@@ -18,7 +18,7 @@
 
 | 项 | 旗标 | 状态 |
 |---|---|---|
-| Exam Box **量产硬件** | `examBoxHardware` | **永久 false 直到**量产镜像签名 + 硬件 BOM/报价单发布 |
+| Exam Box **量产硬件** | `examBoxHardware` | **默认 false（灰显）**；仅 BOM + 镜像 tag + 教师端验收登记（或 `CLASSROOM_DESK_EXAM_BOX_HARDWARE=1`）后亮起。未登记前合同不得含硬件到货条款 |
 | 隐蔽设备指纹 | `deviceFingerprinting` | **始终 false**（产品承诺不做） |
 | 无学校凭据的「网关真机验收已完成」 | — | live-shield / openNDS 截图须学校侧补齐后才可写入验收 PDF |
 | Easy Join 超时 / 下课关 | 主线已有 `student_easy_join_auto_off` + 可选 TTL（`syncEasyJoinTtl`） | Pilot 包不另改 TTL 逻辑；教师端「下课自动关」+「倒计时（分钟）」即可 |

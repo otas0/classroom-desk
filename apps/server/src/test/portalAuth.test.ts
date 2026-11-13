@@ -19,6 +19,9 @@ import { MockShieldConnector } from '../services/shield/mockConnector.js';
 import { resetShieldConnectorToMock, setShieldConnector } from '../services/shield/registry.js';
 
 const caps = productCapabilities();
+assert.equal(caps.salesPhase, 'pilot');
+assert.equal(caps.gaReady, false);
+assert.equal(caps.examBoxHardware, false);
 assert.equal(caps.netPortal, true);
 assert.equal(caps.deviceFingerprinting, false);
 assert.equal(caps.neverStudentNetBlock, true);

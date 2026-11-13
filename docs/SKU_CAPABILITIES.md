@@ -8,6 +8,7 @@
 
 | 能力旗标 (`productCapabilities`) | SKU / 交付物 | 学校侧前置 |
 |---|---|---|
+| `salesPhase` = `pilot` · `gaReady` = **false** | 对外 Pilot 可售，**不是** 1.0 GA | 切 GA 见 [`PILOT_SKU.md`](./PILOT_SKU.md) 门槛；禁止合同写「全线发售」 |
 | `labAgent` | 机房桌面端（Electron） | Windows 机房；可选 Assigned Access |
 | `deepLock` | 深锁控制台（冻结 / 仅试卷 / 下课） | 教师 Web |
 | `networkZones` | 自定义网络配置档（SSID/CIDR） | 多 SSID 或分网段 |

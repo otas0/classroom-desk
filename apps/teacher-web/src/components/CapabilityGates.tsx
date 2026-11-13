@@ -17,10 +17,13 @@ export function CapabilityGate({
   flag,
   children,
   label,
+  offHint,
 }: {
   flag: string;
   children: ReactNode;
   label?: string;
+  /** Shown instead of greyed children when the flag is off (e.g. Pilot hardware lock). */
+  offHint?: ReactNode;
 }) {
   const caps = useProductCapabilities();
   const on = caps[flag] === true;
@@ -31,7 +34,11 @@ export function CapabilityGate({
         {label || flag}
         {t(' · 能力未启用（见校长看板 / 环境变量）')}
       </p>
-      <div style={{ opacity: 0.45, pointerEvents: 'none' }}>{children}</div>
+      {offHint != null ? (
+        <div data-testid={`gate-off-hint-${flag}`}>{offHint}</div>
+      ) : (
+        <div style={{ opacity: 0.45, pointerEvents: 'none' }}>{children}</div>
+      )}
     </div>
   );
 }
