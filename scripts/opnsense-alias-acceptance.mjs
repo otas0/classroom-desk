@@ -1,40 +1,19 @@
 #!/usr/bin/env node
 /**
  * OPNsense alias allow/block acceptance.
- * Default: local mock HTTP server verifying connector call order.
- * Live: OPNSENSE_LIVE=1 + OPNSENSE_* env against real controller.
+ * Default: deploy/lab-opnsense-api (runnable program).
+ * Live: OPNSENSE_LIVE=1 + OPNSENSE_* against school controller.
  *
- * Run: npx tsx scripts/opnsense-alias-acceptance.mjs
+ *   npm run lab:opnsense   # or auto-start below
+ *   npx tsx scripts/opnsense-alias-acceptance.mjs
  */
-import http from 'node:http';
-import { createRequire } from 'node:module';
+import { spawn } from 'node:child_process';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { OpnsenseShieldConnector } from '../apps/server/src/services/shield/opnsenseConnector.ts';
 
-// Prefer compiled/tsx-resolved TS connector from source via dynamic import of built path.
-const { OpnsenseShieldConnector } = await import(
-  '../apps/server/src/services/shield/opnsenseConnector.ts'
-);
-
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const LIVE = process.env.OPNSENSE_LIVE === '1';
-const calls = [];
-
-async function withMock(fn) {
-  const server = http.createServer((req, res) => {
-    const chunks = [];
-    req.on('data', (c) => chunks.push(c));
-    req.on('end', () => {
-      calls.push({ method: req.method, url: req.url, body: Buffer.concat(chunks).toString('utf8') });
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ result: 'ok' }));
-    });
-  });
-  await new Promise((r) => server.listen(0, '127.0.0.1', r));
-  const { port } = server.address();
-  try {
-    await fn(`http://127.0.0.1:${port}`);
-  } finally {
-    await new Promise((r) => server.close(r));
-  }
-}
 
 function assert(cond, msg) {
   if (!cond) {
@@ -43,13 +22,53 @@ function assert(cond, msg) {
   }
 }
 
-async function runMock() {
-  calls.length = 0;
-  await withMock(async (base) => {
+async function waitHealth(url, tries = 40) {
+  for (let i = 0; i < tries; i++) {
+    try {
+      const r = await fetch(`${url}/health`);
+      if (r.ok) return true;
+    } catch {
+      /* retry */
+    }
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  return false;
+}
+
+async function withLab(fn) {
+  const existing = String(process.env.OPNSENSE_URL || '').replace(/\/$/, '');
+  if (existing && process.env.OPNSENSE_API_KEY) {
+    await fn(existing);
+    return;
+  }
+  const port = 18792 + Math.floor(Math.random() * 200);
+  const base = `http://127.0.0.1:${port}`;
+  const child = spawn(process.execPath, [path.join(root, 'deploy/lab-opnsense-api/server.mjs')], {
+    cwd: root,
+    env: {
+      ...process.env,
+      LAB_OPNSENSE_PORT: String(port),
+      LAB_OPNSENSE_STATE: path.join(root, 'tmp', `lab-opnsense-${port}.json`),
+    },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  assert(await waitHealth(base), 'lab-opnsense-api health');
+  try {
+    process.env.OPNSENSE_URL = base;
+    process.env.OPNSENSE_API_KEY = process.env.OPNSENSE_API_KEY || 'lab';
+    process.env.OPNSENSE_API_SECRET = process.env.OPNSENSE_API_SECRET || 'lab';
+    await fn(base);
+  } finally {
+    child.kill();
+  }
+}
+
+async function runLab() {
+  await withLab(async (base) => {
     const op = new OpnsenseShieldConnector({
       baseUrl: base,
-      apiKey: 'k',
-      apiSecret: 's',
+      apiKey: 'lab',
+      apiSecret: 'lab',
       alias: 'classroom_desk_block',
       allowAlias: 'classroom_desk_allow',
     });
@@ -60,27 +79,28 @@ async function runMock() {
     assert(allow.ok, 'allowlist ok');
     assert(op.isAllowed('10.9.9.9'), 'local allow set');
     assert(!op.isBlocked('10.9.9.9'), 'cleared block');
-  });
 
-  const urls = calls.map((c) => c.url);
-  assert(
-    urls.some((u) => u.includes('/api/firewall/alias_util/add/classroom_desk_block')),
-    'deny adds block alias',
-  );
-  assert(
-    urls.some((u) => u.includes('/api/firewall/alias_util/delete/classroom_desk_allow')),
-    'deny removes allow alias',
-  );
-  assert(
-    urls.some((u) => u.includes('/api/firewall/alias_util/add/classroom_desk_allow')),
-    'allowlist adds allow alias',
-  );
-  assert(
-    urls.some((u) => u.includes('/api/firewall/alias_util/delete/classroom_desk_block')),
-    'allowlist removes block alias',
-  );
-  assert(urls.filter((u) => u.includes('/api/firewall/alias/reconfigure')).length >= 2, 'reconfigure');
-  console.log('opnsense-alias-acceptance mock OK', { calls: calls.length });
+    const snap = await (await fetch(`${base}/snapshot`)).json();
+    const urls = (snap.calls || []).map((c) => c.url);
+    assert(
+      urls.some((u) => u.includes('/api/firewall/alias_util/add/classroom_desk_block')),
+      'deny adds block alias',
+    );
+    assert(
+      urls.some((u) => u.includes('/api/firewall/alias_util/delete/classroom_desk_allow')),
+      'deny removes allow alias',
+    );
+    assert(
+      urls.some((u) => u.includes('/api/firewall/alias_util/add/classroom_desk_allow')),
+      'allowlist adds allow alias',
+    );
+    assert(
+      urls.some((u) => u.includes('/api/firewall/alias_util/delete/classroom_desk_block')),
+      'allowlist removes block alias',
+    );
+    assert(urls.filter((u) => u.includes('/api/firewall/alias/reconfigure')).length >= 2, 'reconfigure');
+    console.log('opnsense-alias-acceptance lab OK', { calls: urls.length, base });
+  });
 }
 
 async function runLive() {
@@ -96,6 +116,4 @@ async function runLive() {
   console.log('opnsense-alias-acceptance live OK', { lastApiCalls: op.lastApiCalls });
 }
 
-void (LIVE ? runLive() : runMock());
-
-void createRequire;
+void (LIVE ? runLive() : runLab());

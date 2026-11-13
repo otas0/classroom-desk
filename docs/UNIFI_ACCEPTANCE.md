@@ -3,7 +3,8 @@
 ## 自动化
 
 ```bash
-# 联调 mock（仅 CI / 本地；生产请用 unifi）
+# 本地可部署 lab（deploy/lab-unifi-api；CI 默认自动拉起）
+npm run lab:unifi          # 可选：常驻 :8793
 npm run test:unifi-acceptance
 
 # 真机

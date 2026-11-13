@@ -9,7 +9,7 @@ export type PrincipalWsLike = {
 };
 
 /**
- * Principal WS reconnect loop (testable). Inject wsFactory + schedule for mocks.
+ * Principal WS reconnect loop (testable). Inject wsFactory + schedule in unit tests.
  */
 export function attachPrincipalWsReconnect(opts: {
   buildUrl: () => string | null;

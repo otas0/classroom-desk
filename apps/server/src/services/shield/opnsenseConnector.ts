@@ -22,7 +22,7 @@ export class OpnsenseShieldConnector implements ShieldConnector {
   private readonly secret: string;
   private readonly blockAlias: string;
   private readonly allowAlias: string;
-  /** Local mirror when API unreachable (still returns ok for control-plane tests). */
+  /** Local mirror of last successful intent (API ok still required). */
   private readonly blocked = new Set<string>();
   private readonly allowed = new Set<string>();
   /** Last API paths hit (acceptance / diagnostics). */
@@ -55,7 +55,7 @@ export class OpnsenseShieldConnector implements ShieldConnector {
     this.lastApiCalls.push(path);
     if (this.lastApiCalls.length > 40) this.lastApiCalls.shift();
     if (!this.baseUrl || !this.key) {
-      return { ok: true, detail: 'opnsense_unconfigured_local_only' };
+      return { ok: false, detail: 'opnsense_unconfigured' };
     }
     try {
       const res = await fetch(`${this.baseUrl}${path}`, {
@@ -95,8 +95,9 @@ export class OpnsenseShieldConnector implements ShieldConnector {
       const add = await this.aliasAdd(this.blockAlias, ip);
       const del = await this.aliasDelete(this.allowAlias, ip);
       const apply = await this.reconfigure();
+      const ok = add.ok && del.ok && apply.ok;
       return {
-        ok: true,
+        ok,
         detail: `deny:block=${add.detail};allow_rm=${del.detail};apply=${apply.detail}`,
       };
     }
@@ -106,8 +107,9 @@ export class OpnsenseShieldConnector implements ShieldConnector {
     const add = await this.aliasAdd(this.allowAlias, ip);
     const del = await this.aliasDelete(this.blockAlias, ip);
     const apply = await this.reconfigure();
+    const ok = add.ok && del.ok && apply.ok;
     return {
-      ok: true,
+      ok,
       detail: `${opts.mode}:allow=${add.detail};block_rm=${del.detail};apply=${apply.detail}`,
     };
   }
@@ -129,17 +131,18 @@ export class OpnsenseShieldConnector implements ShieldConnector {
     const rmAllow = await this.aliasDelete(this.allowAlias, ip);
     const rmBlock = await this.aliasDelete(this.blockAlias, ip);
     const apply = await this.reconfigure();
+    const ok = rmAllow.ok && rmBlock.ok && apply.ok;
     return {
-      ok: true,
+      ok,
       detail: `release:allow_rm=${rmAllow.detail};block_rm=${rmBlock.detail};apply=${apply.detail}`,
     };
   }
 
   async health() {
-    if (!this.baseUrl) return { ok: true, detail: 'opnsense_local_mirror' };
+    if (!this.baseUrl || !this.key) return { ok: false, detail: 'opnsense_unconfigured' };
     const r = await this.api('/api/core/firmware/status');
     return {
-      ok: r.ok || r.detail.includes('unconfigured'),
+      ok: r.ok,
       detail: `${r.detail};block=${this.blockAlias};allow=${this.allowAlias}`,
     };
   }

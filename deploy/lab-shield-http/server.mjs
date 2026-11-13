@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Runnable lab HTTP Shield + captive evidence pages (replaces in-process mock).
+ * Runnable lab HTTP Shield + captive evidence pages (deployable local gateway).
  *
  *   node deploy/lab-shield-http/server.mjs
  *   CLASSROOM_DESK_SHIELD=http CLASSROOM_DESK_SHIELD_URL=http://127.0.0.1:8791

@@ -1,6 +1,6 @@
 /**
  * Shared allowlist state for the lab HTTP Shield gateway.
- * Real in-memory/file-backed state — not a pretend always-ok mock.
+ * File-backed allowlist state for the lab HTTP Shield gateway.
  */
 import fs from 'node:fs';
 import path from 'node:path';
