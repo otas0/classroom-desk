@@ -119,8 +119,8 @@ export function ProjectionRoomBanner({ classId }: { classId: string }) {
   }, [roomCode]);
 
   const shieldOff = !shieldActive || shieldActive === 'off';
-  // Always show strip when we have net truth, even without room code yet.
-  if (!roomCode && !displayName && !roomId && shieldOff && pendingCount === 0) return null;
+  // Always render when Shield is off or pending join exists (projection net truth).
+  if (!roomCode && !displayName && !roomId && !shieldOff && pendingCount === 0) return null;
 
   const mm = remainSec != null ? Math.floor(remainSec / 60) : 0;
   const ss = remainSec != null ? remainSec % 60 : 0;
