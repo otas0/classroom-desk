@@ -2,8 +2,9 @@ import assert from 'node:assert/strict';
 import { OffShieldConnector } from '../services/shield/offConnector.js';
 import {
   getShieldConnector,
+  LAB_SHIELD_DEFAULT_URL,
   reloadShieldConnectorFromEnv,
-  resetShieldConnectorToMock,
+  resetShieldConnectorToOff,
   setShieldConnector,
 } from '../services/shield/registry.js';
 import { productCapabilities } from '../services/portalAuth.js';
@@ -25,15 +26,20 @@ const caps = productCapabilities();
 assert.equal(caps.netShieldActive, 'off');
 assert.ok(caps.netShieldAdapters.includes('off'));
 assert.ok(caps.netShieldAdapters.includes('opnsense'));
+assert.ok(!caps.netShieldAdapters.includes('mock'));
 
+// Legacy mock env → real lab HTTP connector (npm run lab:shield)
 process.env.CLASSROOM_DESK_SHIELD = 'mock';
+delete process.env.CLASSROOM_DESK_SHIELD_URL;
 reloadShieldConnectorFromEnv();
-assert.equal(getShieldConnector().id, 'mock');
+assert.equal(getShieldConnector().id, 'http');
+assert.match(getShieldConnector().displayName, /127\.0\.0\.1:8791|lab|HTTP/i);
+assert.equal(process.env.CLASSROOM_DESK_SHIELD_URL, LAB_SHIELD_DEFAULT_URL);
 
 setShieldConnector(new OffShieldConnector());
 assert.equal(getShieldConnector().id, 'off');
-resetShieldConnectorToMock();
-assert.equal(getShieldConnector().id, 'mock');
+resetShieldConnectorToOff();
+assert.equal(getShieldConnector().id, 'off');
 
 if (prev === undefined) delete process.env.CLASSROOM_DESK_SHIELD;
 else process.env.CLASSROOM_DESK_SHIELD = prev;

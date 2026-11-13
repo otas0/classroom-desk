@@ -73,6 +73,14 @@ export class HttpShieldConnector implements ShieldConnector {
     });
   }
 
+  async releaseClient(opts: ShieldClientRef) {
+    return this.post('/release', {
+      clientKey: opts.clientKey,
+      classId: opts.classId,
+      studentId: opts.studentId,
+    });
+  }
+
   async health() {
     if (!this.base) return { ok: false, detail: 'shield_url_unset' };
     try {

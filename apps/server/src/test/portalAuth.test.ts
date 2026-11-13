@@ -15,8 +15,8 @@ import {
   verifyPortalSession,
 } from '../services/portalAuth.js';
 import { saveNetworkZones } from '../services/networkZones.js';
-import { MockShieldConnector } from '../services/shield/mockConnector.js';
-import { resetShieldConnectorToMock, setShieldConnector } from '../services/shield/registry.js';
+import { OffShieldConnector } from '../services/shield/offConnector.js';
+import { resetShieldConnectorToOff, setShieldConnector } from '../services/shield/registry.js';
 
 const caps = productCapabilities();
 assert.equal(caps.salesPhase, 'pilot');
@@ -91,8 +91,7 @@ saveNetworkZones(db, [
   },
 ]);
 
-const mock = new MockShieldConnector();
-setShieldConnector(mock);
+setShieldConnector(new OffShieldConnector());
 
 const blocked = await admitPortalClient(db, {
   session: sess!,
@@ -110,7 +109,7 @@ const allowed = await admitPortalClient(db, {
 assert.equal(allowed.decision, 'allow');
 assert.equal(allowed.everStudentZone, true);
 
-resetShieldConnectorToMock();
+resetShieldConnectorToOff();
 db.close();
 rmSync(dir, { recursive: true, force: true });
 console.log('portalAuth.test.ts ok');
