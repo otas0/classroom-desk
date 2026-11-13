@@ -49,6 +49,7 @@ test.describe('questions Shift multi-select', () => {
     await b.click({ modifiers: ['Shift'] });
 
     await expect(page.getByTestId('questions-selection-sticky')).toBeVisible();
-    await expect(page.getByTestId('questions-selection-sticky')).toContainText('已选 2 题');
+    // Locale-agnostic: zh「已选 2 题」 / en「Selected 2」 etc.
+    await expect(page.getByTestId('questions-selection-sticky')).toContainText(/已选\s*2|Selected\s*2|已選\s*2|選択\s*2|선택\s*2/);
   });
 });
