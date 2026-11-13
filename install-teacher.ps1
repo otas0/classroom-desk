@@ -4,24 +4,12 @@
   One-click Classroom Desk teacher-host install (Windows).
 
 .DESCRIPTION
-  Double-click Install-Teacher.bat, or run this script as Administrator.
-  - Downloads portable Node 22 into the install folder (no separate Node setup in most cases)
-  - Downloads latest GitHub Release source zip to C:\ClassroomDesk (no git required)
-  - Writes .env + Desktop\ClassroomDesk-Desk-Login.txt
-  - npm install, fonts, build teacher UI
-  - Opens firewall TCP 8787, logon autostart, starts API, opens /admin/
-
-.PARAMETER InstallRoot
-  Default: C:\ClassroomDesk
-
-.PARAMETER Tag
-  Release tag (e.g. v0.1.8). Default: latest GitHub release.
-
-.PARAMETER Repo
-  owner/name on GitHub. Default: otas0/classroom-desk
-
-.PARAMETER NodeVersion
-  Portable Node version. Default: 22.14.0
+  Double-click Install-Teacher.bat (Run as administrator), or run this script elevated.
+  - If you already unzipped the GitHub source: installs in that folder (no git, no re-download of source)
+  - Portable Node 22 (nodejs.org, then China mirror fallback)
+  - npm uses npmmirror registry by default (school networks often block registry.npmjs.org)
+  - Writes Desktop\ClassroomDesk-Desk-Login.txt + install log
+  - Firewall 8787, logon autostart, start API, open /admin/
 #>
 param(
   [string]$InstallRoot = 'C:\ClassroomDesk',
@@ -29,7 +17,8 @@ param(
   [string]$Repo = 'otas0/classroom-desk',
   [string]$NodeVersion = '22.14.0',
   [switch]$SkipStart,
-  [switch]$NoAutostart
+  [switch]$NoAutostart,
+  [switch]$SkipSourceDownload
 )
 
 $ErrorActionPreference = 'Stop'
@@ -38,13 +27,20 @@ $ProgressPreference = 'SilentlyContinue'
 
 $script:NodeHome = $null
 $script:NpmCmd = $null
+$script:LogPath = Join-Path ([Environment]::GetFolderPath('Desktop')) 'ClassroomDesk-Install-Log.txt'
+
+function Write-Log([string]$Message, [string]$Color = 'White') {
+  $line = "[{0}] {1}" -f (Get-Date -Format 'HH:mm:ss'), $Message
+  try { Add-Content -Path $script:LogPath -Value $line -Encoding UTF8 } catch {}
+  Write-Host $Message -ForegroundColor $Color
+}
 
 function Assert-Admin {
   $id = [Security.Principal.WindowsIdentity]::GetCurrent()
   $principal = New-Object Security.Principal.WindowsPrincipal($id)
   if ($principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { return }
 
-  Write-Host 'Admin required. Re-launching elevated…' -ForegroundColor Yellow
+  Write-Log 'Admin required. Re-launching elevated…' 'Yellow'
   $arg = "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`""
   if ($PSBoundParameters.ContainsKey('InstallRoot')) { $arg += " -InstallRoot `"$InstallRoot`"" }
   if ($Tag) { $arg += " -Tag `"$Tag`"" }
@@ -52,6 +48,7 @@ function Assert-Admin {
   if ($NodeVersion) { $arg += " -NodeVersion `"$NodeVersion`"" }
   if ($SkipStart) { $arg += ' -SkipStart' }
   if ($NoAutostart) { $arg += ' -NoAutostart' }
+  if ($SkipSourceDownload) { $arg += ' -SkipSourceDownload' }
   Start-Process -FilePath 'powershell.exe' -Verb RunAs -ArgumentList $arg | Out-Null
   exit 0
 }
@@ -70,26 +67,28 @@ function New-Password {
   -join ($buf | ForEach-Object { $alphabet[$_ % $alphabet.Length] })
 }
 
-function Get-GhHeaders {
-  $h = @{
-    'User-Agent' = 'ClassroomDesk-InstallTeacher'
-    'Accept'     = 'application/vnd.github+json'
-  }
-  if ($env:GITHUB_TOKEN) { $h['Authorization'] = "Bearer $($env:GITHUB_TOKEN)" }
-  return $h
-}
-
-function Get-LatestTag([string]$Repository) {
-  $uri = "https://api.github.com/repos/$Repository/releases/latest"
-  $rel = Invoke-RestMethod -Uri $uri -Headers (Get-GhHeaders) -TimeoutSec 60
-  if (-not $rel.tag_name) { throw "Cannot read latest release: $uri" }
-  return [string]$rel.tag_name
-}
-
 function Get-NodeArch {
-  $arch = $env:PROCESSOR_ARCHITECTURE
-  if ($arch -eq 'ARM64') { return 'win-arm64' }
+  if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { return 'win-arm64' }
   return 'win-x64'
+}
+
+function Save-Url([string]$Url, [string]$OutFile) {
+  Write-Log "GET $Url"
+  Invoke-WebRequest -Uri $Url -OutFile $OutFile -UseBasicParsing -TimeoutSec 600
+}
+
+function Save-UrlFirstOk([string[]]$Urls, [string]$OutFile) {
+  $errs = @()
+  foreach ($url in $Urls) {
+    try {
+      Save-Url -Url $url -OutFile $OutFile
+      if ((Test-Path $OutFile) -and ((Get-Item $OutFile).Length -gt 1000)) { return $url }
+    } catch {
+      $errs += ("{0} => {1}" -f $url, $_.Exception.Message)
+      Write-Log ("failed: {0}" -f $_.Exception.Message) 'Yellow'
+    }
+  }
+  throw ("Download failed. Tried:`n  {0}" -f ($errs -join "`n  "))
 }
 
 function Ensure-PortableNode([string]$Root, [string]$Version) {
@@ -102,32 +101,61 @@ function Ensure-PortableNode([string]$Root, [string]$Version) {
   if ((Test-Path $nodeExe) -and (Test-Path $npmCmd)) {
     $script:NodeHome = $nodeRoot
     $script:NpmCmd = $npmCmd
-    Write-Host "Portable Node ready: $(& $nodeExe -v)" -ForegroundColor Green
+    Write-Log ("Portable Node ready: {0}" -f (& $nodeExe -v)) 'Green'
     return
   }
 
-  $zipUrl = "https://nodejs.org/dist/v$Version/$dirName.zip"
   $zipPath = Join-Path $env:TEMP "$dirName.zip"
   $extractTo = Join-Path $Root 'runtime'
   New-Item -ItemType Directory -Path $extractTo -Force | Out-Null
 
-  Write-Host "Downloading portable Node $Version ($arch)…" -ForegroundColor Cyan
-  Write-Host "  $zipUrl"
-  Invoke-WebRequest -Uri $zipUrl -OutFile $zipPath -UseBasicParsing -TimeoutSec 600
+  $urls = @(
+    "https://nodejs.org/dist/v$Version/$dirName.zip",
+    "https://npmmirror.com/mirrors/node/v$Version/$dirName.zip",
+    "https://cdn.npmmirror.com/binaries/node/v$Version/$dirName.zip"
+  )
+  Write-Log "Downloading portable Node $Version ($arch)…" 'Cyan'
+  Save-UrlFirstOk -Urls $urls -OutFile $zipPath | Out-Null
   Expand-Archive -Path $zipPath -DestinationPath $extractTo -Force
   Remove-Item $zipPath -Force -ErrorAction SilentlyContinue
 
   if (-not (Test-Path $nodeExe)) { throw "Portable Node missing after extract: $nodeExe" }
   $script:NodeHome = $nodeRoot
   $script:NpmCmd = $npmCmd
-  Write-Host "Portable Node installed: $(& $nodeExe -v)" -ForegroundColor Green
+  Write-Log ("Portable Node installed: {0}" -f (& $nodeExe -v)) 'Green'
+}
+
+function Get-LocalTag([string]$Root) {
+  $pkgPath = Join-Path $Root 'package.json'
+  if (-not (Test-Path $pkgPath)) { return '' }
+  try {
+    $pkg = Get-Content $pkgPath -Raw -Encoding UTF8 | ConvertFrom-Json
+    if ($pkg.version) { return ('v{0}' -f $pkg.version) }
+  } catch {}
+  return ''
+}
+
+function Get-LatestTag([string]$Repository) {
+  $headers = @{
+    'User-Agent' = 'ClassroomDesk-InstallTeacher'
+    'Accept'     = 'application/vnd.github+json'
+  }
+  if ($env:GITHUB_TOKEN) { $headers['Authorization'] = "Bearer $($env:GITHUB_TOKEN)" }
+  $uri = "https://api.github.com/repos/$Repository/releases/latest"
+  $rel = Invoke-RestMethod -Uri $uri -Headers $headers -TimeoutSec 60
+  if (-not $rel.tag_name) { throw "Cannot read latest release: $uri" }
+  return [string]$rel.tag_name
 }
 
 function Install-FromZip([string]$Repository, [string]$ReleaseTag, [string]$Root) {
-  $zipUrl = "https://github.com/$Repository/archive/refs/tags/$ReleaseTag.zip"
+  $urls = @(
+    "https://github.com/$Repository/archive/refs/tags/$ReleaseTag.zip",
+    "https://codeload.github.com/$Repository/zip/refs/tags/$ReleaseTag",
+    "https://mirror.ghproxy.com/https://github.com/$Repository/archive/refs/tags/$ReleaseTag.zip"
+  )
   $tmp = Join-Path $env:TEMP ("classroom-desk-$ReleaseTag.zip")
-  Write-Host "Downloading $ReleaseTag source…" -ForegroundColor Cyan
-  Invoke-WebRequest -Uri $zipUrl -OutFile $tmp -UseBasicParsing -TimeoutSec 600
+  Write-Log "Downloading $ReleaseTag source…" 'Cyan'
+  Save-UrlFirstOk -Urls $urls -OutFile $tmp | Out-Null
 
   $extractParent = Join-Path $env:TEMP ("cd-src-" + [guid]::NewGuid().ToString('n'))
   New-Item -ItemType Directory -Path $extractParent -Force | Out-Null
@@ -148,7 +176,6 @@ function Install-FromZip([string]$Repository, [string]$ReleaseTag, [string]$Root
         Copy-Item -Path $src -Destination $dest -Recurse -Force
       }
     }
-    # Keep runtime outside wipe if possible — remove only non-runtime then overlay
     Get-ChildItem -Path $Root -Force | Where-Object { $_.Name -ne 'runtime' } | Remove-Item -Recurse -Force
   } else {
     New-Item -ItemType Directory -Path $Root -Force | Out-Null
@@ -170,14 +197,14 @@ function Install-FromZip([string]$Repository, [string]$ReleaseTag, [string]$Root
   Remove-Item $tmp -Force -ErrorAction SilentlyContinue
   Remove-Item $extractParent -Recurse -Force -ErrorAction SilentlyContinue
   if ($backup) { Remove-Item $backup -Recurse -Force -ErrorAction SilentlyContinue }
-  Write-Host "Installed to $Root" -ForegroundColor Green
+  Write-Log "Installed to $Root" 'Green'
 }
 
 function Ensure-EnvFile([string]$Root) {
   $envPath = Join-Path $Root '.env'
   $deskCard = Join-Path ([Environment]::GetFolderPath('Desktop')) 'ClassroomDesk-Desk-Login.txt'
   if (Test-Path $envPath) {
-    Write-Host '.env exists — keeping passwords. See Desktop ClassroomDesk-Desk-Login.txt if you still have it.' -ForegroundColor Yellow
+    Write-Log '.env exists — keeping passwords.' 'Yellow'
     return $false
   }
 
@@ -219,8 +246,9 @@ PORT=8787
   }
   $lines += ''
   $lines += 'Later updates: Settings → One-click update (teacher host + student packages)'
+  $lines += "Install log: $script:LogPath"
   $lines -join "`r`n" | Set-Content -Path $deskCard -Encoding UTF8
-  Write-Host "Wrote Desktop\ClassroomDesk-Desk-Login.txt" -ForegroundColor Green
+  Write-Log 'Wrote Desktop\ClassroomDesk-Desk-Login.txt' 'Green'
   return $true
 }
 
@@ -233,7 +261,7 @@ function Open-Firewall([int]$Port = 8787) {
   } else {
     Enable-NetFirewallRule -DisplayName $ruleName | Out-Null
   }
-  Write-Host "Firewall TCP $Port allowed"
+  Write-Log "Firewall TCP $Port allowed"
 }
 
 function Register-Autostart([string]$Root) {
@@ -245,7 +273,7 @@ function Register-Autostart([string]$Root) {
   $trigger = New-ScheduledTaskTrigger -AtLogOn
   $principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel Highest
   Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Principal $principal -Force | Out-Null
-  Write-Host "Autostart task: $taskName"
+  Write-Log "Autostart task: $taskName"
 }
 
 function Invoke-Npm([string]$Root, [string[]]$NpmArgs) {
@@ -254,129 +282,149 @@ function Invoke-Npm([string]$Root, [string[]]$NpmArgs) {
   Push-Location $Root
   try {
     & $script:NpmCmd @NpmArgs
-    if ($LASTEXITCODE -ne 0) { throw "npm $($NpmArgs -join ' ') failed ($LASTEXITCODE)" }
+    if ($LASTEXITCODE -ne 0) { throw "npm $($NpmArgs -join ' ') failed (exit $LASTEXITCODE)" }
   } finally {
     Pop-Location
   }
 }
 
 function Assert-ProductLayout([string]$Root) {
-  $required = @(
-    'package.json',
-    'apps\server',
-    'apps\teacher-web',
-    'scripts\start-classroom.mjs'
-  )
-  foreach ($rel in $required) {
-    $p = Join-Path $Root $rel
-    if (-not (Test-Path $p)) { throw "Install incomplete — missing $rel under $Root" }
+  foreach ($rel in @('package.json', 'apps\server', 'apps\teacher-web', 'scripts\start-classroom.mjs')) {
+    if (-not (Test-Path (Join-Path $Root $rel))) {
+      throw "Install incomplete — missing $rel under $Root"
+    }
   }
-  $pkg = Get-Content (Join-Path $Root 'package.json') -Raw | ConvertFrom-Json
+  $pkg = Get-Content (Join-Path $Root 'package.json') -Raw -Encoding UTF8 | ConvertFrom-Json
   foreach ($s in @('start:classroom', 'start:server', 'build:teacher', 'fonts:cjk')) {
-    if (-not $pkg.scripts.$s) { throw "package.json missing script '$s' — refusing to continue" }
+    if (-not $pkg.scripts.$s) { throw "package.json missing script '$s'" }
   }
-  Write-Host 'Product layout OK (server + teacher + start:classroom)' -ForegroundColor Green
+  Write-Log 'Product layout OK' 'Green'
 }
 
-function Wait-Health([int]$Port = 8787, [int]$Attempts = 30) {
+function Wait-Health([int]$Port = 8787, [int]$Attempts = 36) {
   $uri = "http://127.0.0.1:$Port/health"
   for ($i = 1; $i -le $Attempts; $i++) {
     try {
       $r = Invoke-WebRequest -Uri $uri -UseBasicParsing -TimeoutSec 3
       if ($r.StatusCode -ge 200 -and $r.StatusCode -lt 300) {
-        Write-Host "health OK (attempt $i): HTTP $($r.StatusCode)" -ForegroundColor Green
+        Write-Log ("health OK (attempt {0})" -f $i) 'Green'
         return $true
       }
-    } catch {
-      Start-Sleep -Seconds 2
-    }
+    } catch { Start-Sleep -Seconds 2 }
   }
-  Write-Host "health not ready after $Attempts attempts — open $uri manually" -ForegroundColor Yellow
+  Write-Log "health not ready — open $uri manually" 'Yellow'
   return $false
 }
 
 # --- main ---
-Assert-Admin
+try {
+  try { '' | Set-Content -Path $script:LogPath -Encoding UTF8 } catch {}
+  Assert-Admin
 
-if (-not $PSBoundParameters.ContainsKey('InstallRoot')) {
-  $here = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $PSCommandPath }
-  # Running from a full repo checkout → install in-place
-  if (
-    (Test-Path (Join-Path $here 'package.json')) -and
-    (Test-Path (Join-Path $here 'apps\server')) -and
-    (Test-Path (Join-Path $here 'Install-Teacher.bat') -or (Test-Path (Join-Path $here 'install-teacher.ps1')))
-  ) {
-    $InstallRoot = $here
+  if (-not $PSBoundParameters.ContainsKey('InstallRoot')) {
+    $here = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $PSCommandPath }
+    if (
+      (Test-Path (Join-Path $here 'package.json')) -and
+      (Test-Path (Join-Path $here 'apps\server')) -and
+      ((Test-Path (Join-Path $here 'Install-Teacher.bat')) -or (Test-Path (Join-Path $here 'install-teacher.ps1')))
+    ) {
+      $InstallRoot = $here
+      $SkipSourceDownload = $true
+    }
   }
-}
 
-Write-Host '=== Classroom Desk · Install Teacher Host ===' -ForegroundColor Cyan
-Write-Host "Folder: $InstallRoot"
+  Write-Log '=== Classroom Desk · Install Teacher Host ===' 'Cyan'
+  Write-Log "Folder: $InstallRoot"
+  Write-Log "Log:    $script:LogPath"
 
-New-Item -ItemType Directory -Path $InstallRoot -Force | Out-Null
-Ensure-PortableNode -Root $InstallRoot -Version $NodeVersion
-
-if (-not $Tag) {
-  Write-Host 'Checking latest GitHub Release…'
-  $Tag = Get-LatestTag -Repository $Repo
-}
-Write-Host "Version: $Tag"
-
-$pkg = Join-Path $InstallRoot 'package.json'
-$marker = Join-Path $InstallRoot '.classroom-desk-installed-tag'
-$installedTag = if (Test-Path $marker) { (Get-Content $marker -Raw).Trim() } else { '' }
-
-if (-not (Test-Path $pkg)) {
-  Install-FromZip -Repository $Repo -ReleaseTag $Tag -Root $InstallRoot
-  Set-Content -Path $marker -Value $Tag -Encoding UTF8
+  New-Item -ItemType Directory -Path $InstallRoot -Force | Out-Null
   Ensure-PortableNode -Root $InstallRoot -Version $NodeVersion
-} elseif ($installedTag -and $installedTag -ne $Tag -and -not (Test-Path (Join-Path $InstallRoot '.git'))) {
-  Write-Host "Updating source $installedTag → $Tag (keeps data/.env/runtime)…" -ForegroundColor Cyan
-  Install-FromZip -Repository $Repo -ReleaseTag $Tag -Root $InstallRoot
-  Set-Content -Path $marker -Value $Tag -Encoding UTF8
-  Ensure-PortableNode -Root $InstallRoot -Version $NodeVersion
-} else {
-  Write-Host 'Existing install kept. Day-to-day upgrades: admin UI one-click update.' -ForegroundColor Yellow
-}
 
-Assert-ProductLayout -Root $InstallRoot
-$wroteLogin = Ensure-EnvFile -Root $InstallRoot
-
-Write-Host 'npm install (first run may take several minutes)…' -ForegroundColor Cyan
-Invoke-Npm $InstallRoot @('install')
-Write-Host 'fonts:cjk…'
-Invoke-Npm $InstallRoot @('run', 'fonts:cjk')
-Write-Host 'build:teacher…'
-Invoke-Npm $InstallRoot @('run', 'build:teacher')
-
-# Re-check after build so a broken tree cannot be marked “done”
-Assert-ProductLayout -Root $InstallRoot
-$teacherDist = Join-Path $InstallRoot 'apps\teacher-web\dist\index.html'
-if (-not (Test-Path $teacherDist)) {
-  throw "Teacher UI build missing: $teacherDist"
-}
-Write-Host 'Teacher UI build present' -ForegroundColor Green
-
-Open-Firewall -Port 8787
-if (-not $NoAutostart) { Register-Autostart -Root $InstallRoot }
-
-if (-not $SkipStart) {
-  Write-Host 'Starting…' -ForegroundColor Cyan
-  $startArg = "/c cd /d `"$InstallRoot`" && `"$($script:NpmCmd)`" run start:classroom"
-  Start-Process -FilePath 'cmd.exe' -ArgumentList $startArg -WindowStyle Minimized
-  $healthy = Wait-Health -Port 8787 -Attempts 36
-  try { Start-Process 'http://127.0.0.1:8787/admin/' } catch {}
-  if (-not $healthy) {
-    Write-Host 'Setup finished files, but /health did not respond yet. Reboot or re-run Install-Teacher.bat if admin UI stays blank.' -ForegroundColor Yellow
+  # Prefer local unzip; do not require GitHub API when source is already present
+  $pkg = Join-Path $InstallRoot 'package.json'
+  $localTag = Get-LocalTag -Root $InstallRoot
+  if (-not $Tag) {
+    if ($localTag) {
+      $Tag = $localTag
+      Write-Log "Using local package.json version: $Tag (no GitHub API)"
+    } else {
+      try {
+        Write-Log 'Checking latest GitHub Release…'
+        $Tag = Get-LatestTag -Repository $Repo
+      } catch {
+        throw "Cannot reach GitHub API and no local source. Unzip v0.1.9 source zip first, or fix network. Detail: $($_.Exception.Message)"
+      }
+    }
   }
-}
+  Write-Log "Version: $Tag"
 
-Write-Host ''
-Write-Host '=== Done ===' -ForegroundColor Green
-Write-Host "Folder:  $InstallRoot"
-Write-Host 'Admin:   http://127.0.0.1:8787/admin/'
-if ($wroteLogin) {
-  Write-Host 'Login:   Desktop\ClassroomDesk-Desk-Login.txt' -ForegroundColor Yellow
+  $marker = Join-Path $InstallRoot '.classroom-desk-installed-tag'
+  $installedTag = if (Test-Path $marker) { (Get-Content $marker -Raw).Trim() } else { '' }
+
+  if ($SkipSourceDownload -and (Test-Path $pkg)) {
+    Write-Log 'Local source detected — skip GitHub source download.' 'Green'
+    Set-Content -Path $marker -Value $Tag -Encoding UTF8
+  } elseif (-not (Test-Path $pkg)) {
+    Install-FromZip -Repository $Repo -ReleaseTag $Tag -Root $InstallRoot
+    Set-Content -Path $marker -Value $Tag -Encoding UTF8
+    Ensure-PortableNode -Root $InstallRoot -Version $NodeVersion
+  } elseif ($installedTag -and $installedTag -ne $Tag -and -not (Test-Path (Join-Path $InstallRoot '.git'))) {
+    Write-Log "Updating source $installedTag → $Tag…" 'Cyan'
+    Install-FromZip -Repository $Repo -ReleaseTag $Tag -Root $InstallRoot
+    Set-Content -Path $marker -Value $Tag -Encoding UTF8
+    Ensure-PortableNode -Root $InstallRoot -Version $NodeVersion
+  } else {
+    Write-Log 'Existing install kept.' 'Yellow'
+  }
+
+  Assert-ProductLayout -Root $InstallRoot
+  $wroteLogin = Ensure-EnvFile -Root $InstallRoot
+
+  Write-Log 'Configure npm registry (npmmirror, school-friendly)…'
+  Invoke-Npm $InstallRoot @('config', 'set', 'registry', 'https://registry.npmmirror.com')
+
+  Write-Log 'npm install (first run may take several minutes)…' 'Cyan'
+  Invoke-Npm $InstallRoot @('install')
+
+  Write-Log 'fonts:cjk…'
+  try {
+    Invoke-Npm $InstallRoot @('run', 'fonts:cjk')
+  } catch {
+    Write-Log ("fonts:cjk skipped (optional for first class): {0}" -f $_.Exception.Message) 'Yellow'
+  }
+
+  Write-Log 'build:teacher…' 'Cyan'
+  Invoke-Npm $InstallRoot @('run', 'build:teacher')
+
+  Assert-ProductLayout -Root $InstallRoot
+  $teacherDist = Join-Path $InstallRoot 'apps\teacher-web\dist\index.html'
+  if (-not (Test-Path $teacherDist)) { throw "Teacher UI build missing: $teacherDist" }
+  Write-Log 'Teacher UI build present' 'Green'
+
+  Open-Firewall -Port 8787
+  if (-not $NoAutostart) { Register-Autostart -Root $InstallRoot }
+
+  if (-not $SkipStart) {
+    Write-Log 'Starting…' 'Cyan'
+    $startArg = "/c cd /d `"$InstallRoot`" && `"$($script:NpmCmd)`" run start:classroom"
+    Start-Process -FilePath 'cmd.exe' -ArgumentList $startArg -WindowStyle Minimized
+    $healthy = Wait-Health -Port 8787 -Attempts 36
+    try { Start-Process 'http://127.0.0.1:8787/admin/' } catch {}
+    if (-not $healthy) {
+      Write-Log 'Files installed, but /health not ready yet. Re-run bat or open admin URL later.' 'Yellow'
+    }
+  }
+
+  Write-Log '=== Done ===' 'Green'
+  Write-Log "Folder:  $InstallRoot"
+  Write-Log 'Admin:   http://127.0.0.1:8787/admin/'
+  if ($wroteLogin) { Write-Log 'Login:   Desktop\ClassroomDesk-Desk-Login.txt' 'Yellow' }
+  Write-Log "Log:     $script:LogPath"
+  exit 0
+} catch {
+  Write-Log ('INSTALL FAILED: ' + $_.Exception.Message) 'Red'
+  Write-Log "See full log: $script:LogPath" 'Yellow'
+  Write-Host ''
+  Write-Host $_.ScriptStackTrace
+  exit 1
 }
-Write-Host 'Students: install ClassroomDesk-Setup-*.exe from GitHub Releases → Find classroom'
-Write-Host 'Updates:  Settings → One-click update (teacher host + student packages)'

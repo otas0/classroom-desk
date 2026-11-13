@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+## v0.1.10 — 2026-11-13
+
+Teacher install hotfix for school networks / local zip (no git).
+
+- Local unzip + `Install-Teacher.bat`: **skip GitHub API / source re-download**
+- Portable Node: nodejs.org → **npmmirror** fallbacks
+- `npm install` uses **registry.npmmirror.com**
+- `fonts:cjk` failure is non-fatal for first class
+- Desktop **`ClassroomDesk-Install-Log.txt`** with real error lines; bat prints last 30 lines on failure
+
 ## v0.1.9 — 2026-11-12
 
 教师机最大简化首装（英文入口）+ 校验；产品课堂路径与 v0.1.8 一键热更保持不变。
