@@ -1,6 +1,6 @@
 /**
  * Start deploy/lab-shield-http as a real HTTP process for unit tests.
- * Replaces in-process MockShieldConnector.
+ * Starts deploy/lab-shield-http for unit tests.
  */
 import { spawn, type ChildProcess } from 'node:child_process';
 import path from 'node:path';

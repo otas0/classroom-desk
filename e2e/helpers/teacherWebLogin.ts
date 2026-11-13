@@ -58,9 +58,9 @@ export async function loginStaffWeb(
   password: string,
 ): Promise<string> {
   await page.goto(TEACHER_WEB);
-  await page.getByLabel('用户名').fill(username);
-  await page.getByLabel('密码').fill(password);
-  await page.getByRole('button', { name: '登录', exact: true }).click();
+  await page.getByLabel(/用户名|Username|使用者名稱|ユーザー名|사용자/).fill(username);
+  await page.getByLabel(/密码|Password|密碼|パスワード|비밀번호/).fill(password);
+  await page.getByRole('button', { name: /登录|Sign in|登入|ログイン|로그인/ }).click();
 
   const forceGate = page.getByText(
     /必须先改成个人密码才能使用其它功能|change it to a personal password before using other features|必須先改成個人密碼才能使用其它功能|個人パスワードへ変更する必要があります|먼저 개인 비밀번호로 바꿔야 합니다/,

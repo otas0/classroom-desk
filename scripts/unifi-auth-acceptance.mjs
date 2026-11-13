@@ -1,14 +1,18 @@
 #!/usr/bin/env node
 /**
  * UniFi login + block-sta acceptance.
- * Default: mock UniFi OS /api/auth/login + stamgr.
+ * Default: deploy/lab-unifi-api (runnable program).
  * Live: UNIFI_LIVE=1 + UNIFI_URL/USER/PASS (+ optional UNIFI_TEST_MAC).
  *
- * Run: npx tsx scripts/unifi-auth-acceptance.mjs
+ *   npm run lab:unifi
+ *   npx tsx scripts/unifi-auth-acceptance.mjs
  */
-import http from 'node:http';
+import { spawn } from 'node:child_process';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { UnifiShieldConnector } from '../apps/server/src/services/shield/unifiConnector.ts';
 
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const LIVE = process.env.UNIFI_LIVE === '1';
 
 function assert(cond, msg) {
@@ -18,54 +22,74 @@ function assert(cond, msg) {
   }
 }
 
-async function runMock() {
-  const hits = [];
-  const server = http.createServer((req, res) => {
-    hits.push(`${req.method} ${req.url}`);
-    if (req.url === '/api/auth/login') {
-      res.setHeader('Set-Cookie', ['TOKEN=csrf-live; Path=/', 'unifises=abc; Path=/']);
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end('{"meta":{"rc":"ok"}}');
-      return;
+async function waitHealth(url, tries = 40) {
+  for (let i = 0; i < tries; i++) {
+    try {
+      const r = await fetch(`${url}/health`);
+      if (r.ok) return true;
+    } catch {
+      /* retry */
     }
-    if (req.url === '/api/login') {
-      res.writeHead(404);
-      res.end('legacy');
-      return;
-    }
-    if (String(req.url).includes('/cmd/stamgr')) {
-      let body = '';
-      req.on('data', (c) => (body += c));
-      req.on('end', () => {
-        hits.push(`body:${body}`);
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end('{"meta":{"rc":"ok"}}');
-      });
-      return;
-    }
-    res.writeHead(404);
-    res.end('no');
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  return false;
+}
+
+async function withLab(fn) {
+  const existing = String(process.env.UNIFI_URL || '').replace(/\/$/, '');
+  if (existing && process.env.UNIFI_USER) {
+    await fn(existing);
+    return;
+  }
+  const port = 18793 + Math.floor(Math.random() * 200);
+  const base = `http://127.0.0.1:${port}`;
+  const child = spawn(process.execPath, [path.join(root, 'deploy/lab-unifi-api/server.mjs')], {
+    cwd: root,
+    env: {
+      ...process.env,
+      LAB_UNIFI_PORT: String(port),
+      LAB_UNIFI_USER: 'lab',
+      LAB_UNIFI_PASS: 'lab',
+      LAB_UNIFI_STATE: path.join(root, 'tmp', `lab-unifi-${port}.json`),
+    },
+    stdio: ['ignore', 'pipe', 'pipe'],
   });
-  await new Promise((r) => server.listen(0, '127.0.0.1', r));
-  const { port } = server.address();
-  const uni = new UnifiShieldConnector({
-    baseUrl: `http://127.0.0.1:${port}`,
-    user: 'admin',
-    pass: 'pass',
-    site: 'default',
+  assert(await waitHealth(base), 'lab-unifi-api health');
+  try {
+    process.env.UNIFI_URL = base;
+    process.env.UNIFI_USER = 'lab';
+    process.env.UNIFI_PASS = 'lab';
+    await fn(base);
+  } finally {
+    child.kill();
+  }
+}
+
+async function runLab() {
+  await withLab(async (base) => {
+    const uni = new UnifiShieldConnector({
+      baseUrl: base,
+      user: 'lab',
+      pass: 'lab',
+      site: 'default',
+    });
+    const h = await uni.health();
+    assert(h.ok, 'health');
+    assert(uni.getLoginPathUsed() === '/api/auth/login', 'UniFi OS path');
+    const deny = await uni.authorizeClient({
+      clientKey: 'aa:bb:cc:dd:ee:ff',
+      mode: 'deny',
+    });
+    assert(deny.ok, 'block-sta');
+    const snap = await (await fetch(`${base}/snapshot`)).json();
+    assert((snap.hits || []).some((x) => String(x).includes('/cmd/stamgr')), 'stamgr called');
+    assert((snap.hits || []).some((x) => String(x).includes('block-sta')), 'block-sta cmd');
+    console.log('unifi-auth-acceptance lab OK', {
+      hits: (snap.hits || []).length,
+      path: uni.getLoginPathUsed(),
+      base,
+    });
   });
-  const h = await uni.health();
-  assert(h.ok, 'health');
-  assert(uni.getLoginPathUsed() === '/api/auth/login', 'UniFi OS path');
-  const deny = await uni.authorizeClient({
-    clientKey: 'aa:bb:cc:dd:ee:ff',
-    mode: 'deny',
-  });
-  assert(deny.ok, 'block-sta');
-  assert(hits.some((x) => x.includes('/cmd/stamgr')), 'stamgr called');
-  assert(hits.some((x) => x.includes('block-sta')), 'block-sta cmd');
-  await new Promise((r) => server.close(r));
-  console.log('unifi-auth-acceptance mock OK', { hits: hits.length, path: uni.getLoginPathUsed() });
 }
 
 async function runLive() {
@@ -90,4 +114,4 @@ async function runLive() {
   console.log('unifi-auth-acceptance live OK', { login: uni.getLoginPathUsed() });
 }
 
-void (LIVE ? runLive() : runMock());
+void (LIVE ? runLive() : runLab());

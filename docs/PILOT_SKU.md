@@ -27,9 +27,11 @@
 
 1. 合同边界本页升格为「GA SKU」并去掉 Pilot 字样。  
 2. 约定的现场体验（在线矩阵、下课清单、同版处置、门户人话等）已合入 main。  
-3. 至少一所学校的脱敏 live-shield / openNDS 证据归档通过 `check:live-evidence`。  
+3. **硬条件（不可跳过）：** 至少一所**真实学校**的脱敏 live-shield / openNDS 证据归档，且 `npm run check:live-evidence` 通过。本地 `lab:shield` / `archive:opennds-lab` **不能**顶替本条；无学校凭据时只能保持 Pilot，不得改口为 GA。  
 4. 若售硬件：`examBoxHardware=true` 且报价单 / 刷机镜像 digest 与文档一致。  
 5. 版本号改为 **1.0.0**（或明确标注 GA 的日历版本），Release 说明引用本页。
+
+其余能力旗标（DeskDNS、Portal、Zones 等）可先按 Pilot 交付，**不因旗标齐全而宣称 GA**——第 3 条未满足前版本叙事保持 Pilot。
 
 在此之前对外口径：**Pilot 可售 / 可试点交付**，禁止宣传「全线发售」「硬件开箱即用」。
 

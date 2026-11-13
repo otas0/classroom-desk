@@ -73,18 +73,25 @@ export CLASSROOM_DESK_SHIELD=opnsense   # 或 unifi / http
 # http 时另设 CLASSROOM_DESK_SHIELD_URL + CLASSROOM_DESK_SHIELD_TOKEN
 ```
 
-本地联调（可运行程序，非进程内假成功）：
+本地联调（可部署 lab 程序，无进程内假成功）：
 
 ```bash
-npm run lab:shield   # http://127.0.0.1:8791
-export CLASSROOM_DESK_SHIELD=http
-export CLASSROOM_DESK_SHIELD_URL=http://127.0.0.1:8791
+npm run lab:shield      # HTTP 网关 :8791 + openNDS 证据页
+npm run lab:opnsense    # OPNsense API :8792
+npm run lab:unifi       # UniFi API :8793
 ```
 
-`CLASSROOM_DESK_SHIELD=mock` 已移除；若仍设置会被映射到上述 lab HTTP。
+| 适配器 | 本地 | 学校真机 |
+|---|---|---|
+| `http` | `lab:shield` + `CLASSROOM_DESK_SHIELD_URL` | 自建 HTTP 网关 |
+| `opnsense` | `lab:opnsense` + `OPNSENSE_*` | 控制器 API |
+| `unifi` | `lab:unifi` + `UNIFI_*` | UDM/UCG API |
+| `off` | 默认；未配置不假装成功 | — |
+
+`CLASSROOM_DESK_SHIELD=mock` **不支持**（设了会落回 `off` 并打错误日志）。
 
 ## 不建议
 
 - 把 8787 映射到公网
 - 依赖开发端口 5174 做教室部署
-- 生产环境使用 `CLASSROOM_DESK_SHIELD=mock`（会假装放行/踢网成功）
+- 未配置 Shield 却对外宣称「已断网」

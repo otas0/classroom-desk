@@ -8,7 +8,7 @@ import type { ShieldConnector } from './types.js';
 
 let active: ShieldConnector = new OffShieldConnector();
 
-/** Default URL for the runnable lab gateway (deploy/lab-shield-http). */
+/** Default URL for the runnable lab HTTP gateway (deploy/lab-shield-http). */
 export const LAB_SHIELD_DEFAULT_URL = 'http://127.0.0.1:8791';
 
 function readSettingsShield(): { kind: string; url: string; token: string } {
@@ -31,19 +31,13 @@ function createFromEnv(): ShieldConnector {
     .trim()
     .toLowerCase();
   const settings = readSettingsShield();
-  // Env wins when set (ops / systemd); otherwise teacher settings.
-  let kind = envKind || settings.kind;
-  // Legacy "mock" → real lab HTTP program (npm run lab:shield).
+  const kind = envKind || settings.kind;
+
   if (kind === 'mock') {
-    console.warn(
-      '[shield] CLASSROOM_DESK_SHIELD=mock is removed; using http lab gateway at',
-      LAB_SHIELD_DEFAULT_URL,
-      '(npm run lab:shield)',
+    console.error(
+      '[shield] CLASSROOM_DESK_SHIELD=mock is not supported. Use off|http|opnsense|unifi. Local: npm run lab:shield',
     );
-    kind = 'http';
-    if (!process.env.CLASSROOM_DESK_SHIELD_URL && !settings.url) {
-      process.env.CLASSROOM_DESK_SHIELD_URL = LAB_SHIELD_DEFAULT_URL;
-    }
+    return new OffShieldConnector();
   }
   if (kind === 'opnsense') return new OpnsenseShieldConnector();
   if (kind === 'unifi') return new UnifiShieldConnector();
@@ -79,11 +73,6 @@ export function resetShieldConnectorToOff() {
   return active;
 }
 
-/** @deprecated use resetShieldConnectorToOff or startLabShieldHttp */
-export function resetShieldConnectorToMock() {
-  return resetShieldConnectorToOff();
-}
-
 export function reloadShieldConnectorFromEnv() {
   active = createFromEnv();
   return active;
@@ -95,7 +84,6 @@ export function listShieldAdapterIds(): string[] {
 
 export function formatShieldActiveLabel(id: string | null | undefined): string {
   const v = String(id ?? '').trim().toLowerCase();
-  if (!v || v === 'off') return 'off';
-  if (v === 'mock') return 'http';
+  if (!v || v === 'off' || v === 'mock') return 'off';
   return v;
 }

@@ -756,7 +756,7 @@ settingsRouter.patch('/api/v1/settings', requireAuth, requireRoles('teacher', 'a
     if (!allowed.has(raw)) {
       res.status(400).json({
         error: 'invalid_shield_adapter',
-        message: 'shieldAdapter 须为 off|http|opnsense|unifi|lab 或空（mock 已移除，联调用 npm run lab:shield + http）',
+        message: 'shieldAdapter 须为 off|http|opnsense|unifi|lab 或空（本地联调：npm run lab:shield）',
       });
       return;
     }

@@ -17,13 +17,13 @@ assert.equal(principalReconnectDelayMs(1), 1_000);
 assert.equal(principalReconnectDelayMs(7), 30_000);
 assert.equal(principalReconnectDelayMs(0), 1_000);
 
-// Disconnect mock: failed reconnects escalate backoff; successful open resets + live.
+// Disconnect harness: failed reconnects escalate backoff; successful open resets + live.
 {
   const sockets: PrincipalWsLike[] = [];
   const queued: Array<{ fn: () => void; ms: number }> = [];
   let live = false;
   const ctl = attachPrincipalWsReconnect({
-    buildUrl: () => 'ws://mock/principal',
+    buildUrl: () => 'ws://lab-test/principal',
     wsFactory: () => {
       const sock: PrincipalWsLike = {
         onopen: null,

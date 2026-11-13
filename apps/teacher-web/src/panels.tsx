@@ -5755,6 +5755,42 @@ export function SettingsPanel({
             >
               {t('保存 Shield')}
             </button>
+            <button
+              type="button"
+              className="secondary"
+              data-testid="shield-ping-btn"
+              onClick={() => {
+                const adapter = shieldAdapter || 'active';
+                void api<{
+                  ok?: boolean;
+                  adapter?: string;
+                  detail?: string;
+                  hint?: string;
+                  displayName?: string;
+                }>('/api/v1/shield/wizard/ping', {
+                  method: 'POST',
+                  body: JSON.stringify({
+                    adapter,
+                    httpUrl: shieldHttpUrl || undefined,
+                  }),
+                })
+                  .then((r) => {
+                    const line = [
+                      r.ok ? t('连通正常') : t('连通失败'),
+                      r.adapter || adapter,
+                      r.displayName,
+                      r.detail,
+                      r.hint,
+                    ]
+                      .filter(Boolean)
+                      .join(' · ');
+                    setUpgradeMsg(line);
+                  })
+                  .catch((err) => setUpgradeMsg(te(err, '测连通失败')));
+              }}
+            >
+              {t('测连通')}
+            </button>
           </div>
 
           <h3 data-testid="deskdns-settings">{t('DeskDNS')}</h3>
@@ -6579,15 +6615,15 @@ export function SettingsPanel({
                 ) : null}
               </p>
               <p className="hint" data-testid="input-lock-expires-readonly">
-                课次自动到期：
+                {t('课次自动到期')}：
                 {inputLockExpiresAt
                   ? new Date(inputLockExpiresAt).toLocaleString()
-                  : '未绑定'}
+                  : t('未绑定')}
                 {inputLockSsePolling ? (
                   <>
                     {' '}
                     <span className="badge" data-testid="input-lock-sse-polling-badge">
-                      轮询中
+                      {t('轮询中')}
                     </span>
                   </>
                 ) : null}

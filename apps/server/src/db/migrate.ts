@@ -108,7 +108,7 @@ const DEFAULT_SETTINGS: Record<string, string> = {
   exam_box_accepted_at: '',
   /**
    * Shield adapter: empty = follow env / off.
-   * Values: off | http | opnsense | unifi | mock
+   * Values: off | http | opnsense | unifi
    */
   shield_adapter: '',
   shield_http_url: '',

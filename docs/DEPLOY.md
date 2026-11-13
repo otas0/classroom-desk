@@ -7,7 +7,7 @@
 1. Set a strong `JWT_SECRET` (≥32 random bytes); rotate by redeploying with a new value (invalidates all sessions).
 2. Set `ADMIN_PASSWORD` / `TEACHER_PASSWORD` only on first boot; change via app/settings afterward; do not leave demo passwords.
 3. Prefer env injection (systemd `EnvironmentFile`, Docker secrets); never commit `.env`.
-4. Shield defaults to **off** (honest empty). Set `CLASSROOM_DESK_SHIELD=opnsense|unifi|http` for real gateway control. Local lab: `npm run lab:shield` then `=http` + `CLASSROOM_DESK_SHIELD_URL=http://127.0.0.1:8791`. `=mock` is removed.
+4. Shield defaults to **off** (honest empty). Set `CLASSROOM_DESK_SHIELD=opnsense|unifi|http` for real gateway control. Local labs: `npm run lab:shield|lab:opnsense|lab:unifi` (deploy/lab-*-api). No mock adapter.
 
 ## HTTPS & reverse proxy
 

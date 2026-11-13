@@ -32,7 +32,7 @@ export function PrincipalDashboard({
   wsFactory,
 }: {
   onOpenPresence?: (classId: string) => void;
-  /** Inject for tests (disconnect/backoff mocks). */
+  /** Inject for tests (disconnect/backoff harness). */
   wsFactory?: (url: string) => PrincipalWsLike;
 }) {
   const [stats, setStats] = useState<Stats>({});

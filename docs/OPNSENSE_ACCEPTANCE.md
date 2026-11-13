@@ -19,14 +19,15 @@ export OPNSENSE_ALIAS=classroom_desk_block
 export OPNSENSE_ALLOW_ALIAS=classroom_desk_allow
 ```
 
-## 自动化验收（本地 mock 或真机）
+## 自动化验收（本地 lab 或真机）
 
 ```bash
-# 无真机：内置 mock HTTP 验收路径与别名写入顺序
-node scripts/opnsense-alias-acceptance.mjs
+# 本地可部署 lab（deploy/lab-opnsense-api；默认自动拉起）
+npm run lab:opnsense       # 可选：常驻 :8792
+npm run test:opnsense-acceptance
 
 # 真机：设置 OPNSENSE_* 后再跑
-OPNSENSE_LIVE=1 node scripts/opnsense-alias-acceptance.mjs
+OPNSENSE_LIVE=1 npm run test:opnsense-acceptance
 ```
 
 期望：
