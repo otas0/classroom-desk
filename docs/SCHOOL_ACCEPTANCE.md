@@ -12,7 +12,7 @@
 | 门户 admit + 花名册 | 校园网包 | □ |
 | DeskDNS 绑定与课策略回落 | 单网校包 | □ |
 | OPNsense 或 UniFi live-shield 脱敏包 | 校园网包 | □ 需学校凭据 |
-| openNDS allow / deny / FAS 三张图 | 考场 compose / 开放网关 | □ 需真机 |
+| openNDS allow / deny / FAS 三张图 | 考场 compose / 开放网关 | □ 本地 `npm run archive:opennds-lab`；学校真机另补 |
 | Exam Box compose `api-ready` 宕机退出 | 考场 compose | □ |
 | Cosign 验签（digest 见 EXAM_BOX.md） | 考场 compose | □ |
 | C2 / Intune 证据槽（若学校机考试锁） | 机房包 | □ |

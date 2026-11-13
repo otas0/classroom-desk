@@ -17,8 +17,8 @@ import {
   resolveUnauthorizedAction,
   saveNetworkZones,
 } from '../services/networkZones.js';
-import { MockShieldConnector } from '../services/shield/mockConnector.js';
-import { setShieldConnector, resetShieldConnectorToMock } from '../services/shield/registry.js';
+import { OffShieldConnector } from '../services/shield/offConnector.js';
+import { setShieldConnector, resetShieldConnectorToOff } from '../services/shield/registry.js';
 
 assert.equal(ipv4InCidr('10.20.1.5', '10.20.0.0/16'), true);
 assert.equal(
@@ -90,8 +90,7 @@ db.prepare(
 ).run(studentId, classId, new Date().toISOString());
 
 saveNetworkZones(db, zones);
-const mock = new MockShieldConnector();
-setShieldConnector(mock);
+setShieldConnector(new OffShieldConnector());
 
 const r = await enforceStudentZonePolicy(db, {
   studentId,
@@ -111,7 +110,7 @@ await enforceStudentZonePolicy(db, {
 });
 assert.equal(getEverStudentZone(db, studentId), true);
 
-resetShieldConnectorToMock();
+resetShieldConnectorToOff();
 db.close();
 rmSync(dir, { recursive: true, force: true });
 console.log('networkZones.test.ts ok');

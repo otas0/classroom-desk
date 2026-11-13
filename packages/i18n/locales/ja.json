@@ -1233,5 +1233,12 @@
   "已下载本班专用 U 盘包": "本クラス専用USBパックをダウンロードしました",
   "打包失败": "パック作成に失敗",
   "导出 C2 验收 PDF": "C2検収PDFを書き出し",
-  "已导出 C2 验收 PDF": "C2検収PDFを書き出しました"
+  "已导出 C2 验收 PDF": "C2検収PDFを書き出しました",
+  "量产硬件已验收亮起（序列号 + 镜像 tag）。合同可含对应硬件条款。": "量産ハードが検収で有効（シリアル + イメージ tag）。契約に当該ハード条項を書けます。",
+  "灰显默认：examBoxHardware=false，直至 BOM/镜像验收登记。Pilot 合同不得含未登记硬件到货条款。": "既定は灰表示：examBoxHardware=false。BOM/イメージ検収まで。Pilot 契約に未登録ハード納品を書いてはいけません。",
+  "考场包：compose + 量产硬件已验收亮起。": "考場パック：compose + 量産ハード検収済み。",
+  "考场 compose 包：量产硬件灰显（examBoxHardware=false），须 BOM/镜像验收登记后亮起。": "考場 compose パック：量産ハードは灰表示（examBoxHardware=false）。BOM/イメージ検収後に有効。",
+  "对外仍是 Pilot（gaReady=false），不是 1.0 GA。见 docs/PILOT_SKU.md。": "対外は依然 Pilot（gaReady=false）。1.0 GA ではない。docs/PILOT_SKU.md 参照。",
+  "默认未配置（off）。选 OPNsense / UniFi / HTTP 后才会真断网；本地联调先 npm run lab:shield。": "既定は未設定（off）。OPNsense / UniFi / HTTP で実制御。ローカルは npm run lab:shield。",
+  "HTTP/lab 网关": "HTTP/lab ゲートウェイ"
 }

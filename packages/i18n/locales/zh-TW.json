@@ -1233,5 +1233,12 @@
   "已下载本班专用 U 盘包": "已下載本班專用 U 盤包",
   "打包失败": "打包失敗",
   "导出 C2 验收 PDF": "匯出 C2 驗收 PDF",
-  "已导出 C2 验收 PDF": "已匯出 C2 驗收 PDF"
+  "已导出 C2 验收 PDF": "已匯出 C2 驗收 PDF",
+  "量产硬件已验收亮起（序列号 + 镜像 tag）。合同可含对应硬件条款。": "量產硬體已驗收亮起（序號 + 映像 tag）。合約可含對應硬體條款。",
+  "灰显默认：examBoxHardware=false，直至 BOM/镜像验收登记。Pilot 合同不得含未登记硬件到货条款。": "灰顯預設：examBoxHardware=false，直至 BOM/映像驗收登記。Pilot 合約不得含未登記硬體到貨條款。",
+  "考场包：compose + 量产硬件已验收亮起。": "考場包：compose + 量產硬體已驗收亮起。",
+  "考场 compose 包：量产硬件灰显（examBoxHardware=false），须 BOM/镜像验收登记后亮起。": "考場 compose 包：量產硬體灰顯（examBoxHardware=false），須 BOM/映像驗收登記後亮起。",
+  "对外仍是 Pilot（gaReady=false），不是 1.0 GA。见 docs/PILOT_SKU.md。": "對外仍是 Pilot（gaReady=false），不是 1.0 GA。見 docs/PILOT_SKU.md。",
+  "默认未配置（off）。选 OPNsense / UniFi / HTTP 后才会真断网；本地联调先 npm run lab:shield。": "預設未設定（off）。選 OPNsense / UniFi / HTTP 後才會真斷網；本地聯調先 npm run lab:shield。",
+  "HTTP/lab 网关": "HTTP/lab 網關"
 }

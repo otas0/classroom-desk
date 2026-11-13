@@ -329,11 +329,19 @@ function examBoxHardwareAccepted(): boolean {
   }
 }
 
-/** Product capability flags for UI / open-api. */
+/**
+ * Product capability flags for UI / open-api.
+ * salesPhase stays `pilot` and gaReady stays false until PILOT_SKU.md GA gates are met
+ * (live-shield evidence, contract page rename, optional hardware SKU). Do not bump to GA here.
+ */
 export function productCapabilities() {
   const deskDns = getDeskDnsStatus();
   const shieldId = getShieldConnector().id;
   return {
+    /** Contract track: Pilot 可售；不是 1.0 GA（见 docs/PILOT_SKU.md）. */
+    salesPhase: 'pilot' as const,
+    /** Always false on Pilot track — flip only when GA checklist is done in docs + Release. */
+    gaReady: false,
     labAgent: true,
     deepLock: true,
     networkZones: true,
@@ -344,7 +352,10 @@ export function productCapabilities() {
     netShieldAdapters: listShieldAdapterIds(),
     netShieldActive: shieldId,
     examBox: true, // SKU docs + compose shipped; hardware optional
-    /** True only after first-unit acceptance (settings or CLASSROOM_DESK_EXAM_BOX_HARDWARE=1). */
+    /**
+     * Default false（灰显）. True only after BOM/镜像验收登记
+     * （序列号+镜像 tag+勾选，或 CLASSROOM_DESK_EXAM_BOX_HARDWARE=1）. 见 deploy/exam-box/HARDWARE.md.
+     */
     examBoxHardware: examBoxHardwareAccepted(),
     enterprise8021x: true,
     deviceFingerprinting: false,

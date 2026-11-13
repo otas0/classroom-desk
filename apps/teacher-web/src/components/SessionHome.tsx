@@ -467,9 +467,19 @@ export function SessionHome({
           )}
         </p>
       </CapabilityGate>
-      <CapabilityGate flag="examBoxHardware" label={t('Exam Box 量产硬件')}>
-        <p className="hint" data-testid="exam-box-hardware-gray">
-          {t('灰显：量产硬件未发售（examBoxHardware=false），Pilot 合同不得含硬件到货条款。')}
+      <CapabilityGate
+        flag="examBoxHardware"
+        label={t('Exam Box 量产硬件')}
+        offHint={
+          <p className="hint" data-testid="exam-box-hardware-gray">
+            {t(
+              '灰显默认：examBoxHardware=false，直至 BOM/镜像验收登记。Pilot 合同不得含未登记硬件到货条款。',
+            )}
+          </p>
+        }
+      >
+        <p className="hint" data-testid="exam-box-hardware-on">
+          {t('量产硬件已验收亮起（序列号 + 镜像 tag）。合同可含对应硬件条款。')}
         </p>
       </CapabilityGate>
       <CapabilityGate flag="enterprise8021x" label={t('802.1X')}>

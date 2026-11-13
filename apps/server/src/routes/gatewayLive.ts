@@ -6,6 +6,7 @@ import { openDb } from '../db/client.js';
 import { requireAuth, requireRoles, type AuthedRequest } from '../middleware/auth.js';
 import { listGatewayAccess } from '../services/gatewayAllowlist.js';
 import { getSetting } from '../db/migrate.js';
+import { formatShieldActiveLabel, getShieldConnector } from '../services/shield/registry.js';
 
 export const gatewayLiveRouter = Router();
 
@@ -23,7 +24,7 @@ gatewayLiveRouter.get(
     } catch {
       recent = [];
     }
-    const shieldActive = String(process.env.CLASSROOM_DESK_SHIELD ?? 'mock').toLowerCase();
+    const shieldActive = formatShieldActiveLabel(getShieldConnector().id);
     const lastError = getSetting(db, 'shield_last_error');
     const hb = getSetting(db, 'shield_last_heartbeat_at');
     res.json({
@@ -31,7 +32,7 @@ gatewayLiveRouter.get(
       recent: recent.slice(-5).reverse(),
       items: entries.slice(0, 50),
       shield: {
-        active: shieldActive === 'opnsense' || shieldActive === 'unifi' ? shieldActive : 'mock',
+        active: shieldActive,
         lastError: lastError || null,
         healthy: !lastError,
         lastHeartbeatAt: hb || null,

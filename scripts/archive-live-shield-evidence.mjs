@@ -76,5 +76,17 @@ if (hasUni) {
   fs.writeFileSync(path.join(outDir, 'unifi-SKIPPED.txt'), manifest.unifi.detail + '\n');
 }
 
+// Always try local openNDS lab evidence (runnable program; no school creds).
+manifest.openndsLab = { attempted: true, ok: false, detail: '' };
+{
+  const r = run(process.execPath, [path.join(root, 'scripts/archive-opennds-lab-evidence.mjs')], {
+    LAB_SHIELD_AUTO: '1',
+  });
+  fs.writeFileSync(path.join(outDir, 'opennds-lab-stdout.txt'), r.stdout || '');
+  fs.writeFileSync(path.join(outDir, 'opennds-lab-stderr.txt'), r.stderr || '');
+  manifest.openndsLab.ok = r.status === 0;
+  manifest.openndsLab.detail = r.status === 0 ? 'lab_screenshots_ok' : `exit_${r.status}`;
+}
+
 fs.writeFileSync(path.join(outDir, 'manifest.json'), JSON.stringify(manifest, null, 2));
 console.log(JSON.stringify({ outDir, ...manifest }, null, 2));

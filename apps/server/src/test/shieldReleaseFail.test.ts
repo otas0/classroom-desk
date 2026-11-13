@@ -7,12 +7,12 @@ import { openDb, closeDb } from '../db/client.js';
 import { applyDeepLockAction } from '../services/deepLock.js';
 import { grantGatewayAccess, listGatewayAccess } from '../services/gatewayAllowlist.js';
 import { listAudit } from '../services/audit.js';
-import { MockShieldConnector } from '../services/shield/mockConnector.js';
 import {
   clearShieldLastError,
   getShieldLastError,
 } from '../services/shield/lastError.js';
-import { resetShieldConnectorToMock, setShieldConnector } from '../services/shield/registry.js';
+import { resetShieldConnectorToOff } from '../services/shield/registry.js';
+import { startLabShieldHttp } from './helpers/labShieldHttp.js';
 
 const dir = mkdtempSync(path.join(tmpdir(), 'cd-shield-fail-'));
 process.env.CLASSROOM_DESK_DATA_DIR = dir;
@@ -35,27 +35,23 @@ grantGatewayAccess(db, {
 });
 assert.equal(listGatewayAccess(db).some((x) => x.ip === '10.9.9.9'), true);
 
-const mock = new MockShieldConnector();
-mock.failRelease = true;
-mock.failReleaseDetail = 'alias_delete_denied';
-setShieldConnector(mock);
+const lab = await startLabShieldHttp({ failRelease: true });
 clearShieldLastError();
 
 await applyDeepLockAction(db, { action: 'end', classId });
 
 const err = getShieldLastError();
 assert.ok(err);
-assert.match(err.message, /alias_delete_denied|releaseClient/);
+assert.match(err.message, /lab_release_boom|releaseClient|http_500/);
 
 const audits = listAudit({ action: 'shield.release_client_fail', limit: 5 });
 assert.ok(audits.length >= 1);
-assert.match(String(audits[0]?.detail ?? ''), /alias_delete_denied/);
+assert.match(String(audits[0]?.detail ?? ''), /lab_release_boom|http_500/);
 
-// Health payload should surface lastError
-assert.equal(getShieldLastError()?.message.includes('alias_delete_denied'), true);
 assert.equal(openDb(), db);
 
-resetShieldConnectorToMock();
+lab.stop();
+resetShieldConnectorToOff();
 clearShieldLastError();
 closeDb();
 rmSync(dir, { recursive: true, force: true });

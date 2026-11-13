@@ -5689,7 +5689,7 @@ export function SettingsPanel({
 
           <h3 data-testid="shield-settings">{t('Shield 网关')}</h3>
           <p className="hint">
-            {t('默认未配置（off）。选 OPNsense / UniFi / HTTP 后才会真断网；mock 仅联调。')}{' '}
+            {t('默认未配置（off）。选 OPNsense / UniFi / HTTP 后才会真断网；本地联调先 npm run lab:shield。')}{' '}
             <a
               href="https://github.com/otas0/classroom-desk/blob/main/docs/NETWORK.md"
               target="_blank"
@@ -5710,8 +5710,7 @@ export function SettingsPanel({
                 <option value="off">off</option>
                 <option value="opnsense">opnsense</option>
                 <option value="unifi">unifi</option>
-                <option value="http">http</option>
-                <option value="mock">mock（{t('仅联调')}）</option>
+                <option value="http">http（含本地 lab:shield）</option>
               </select>
             </label>
             <label>

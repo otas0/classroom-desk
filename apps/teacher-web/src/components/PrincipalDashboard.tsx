@@ -114,7 +114,7 @@ export function PrincipalDashboard({
         {(() => {
           const active = String(stats.shield?.active ?? caps.netShieldActive ?? 'off');
           if (!active || active === 'off') return t('未配置');
-          if (active === 'mock') return t('联调 mock（非生产）');
+          if (active === 'http') return t('HTTP/lab 网关');
           return active;
         })()}
         <span data-testid="principal-ws-live">{live ? ` · ${t('实时')}` : ` · ${t('轮询后备')}`}</span>
