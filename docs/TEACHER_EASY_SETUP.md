@@ -7,32 +7,36 @@ One admin step. No git. Portable Node is downloaded into the install folder.
 **Right-click Start → Windows PowerShell (Admin)**, paste:
 
 ```powershell
-irm https://raw.githubusercontent.com/otas0/classroom-desk/v0.1.9/install-teacher.ps1 -OutFile $env:TEMP\install-teacher.ps1; powershell -ExecutionPolicy Bypass -File $env:TEMP\install-teacher.ps1
+irm https://raw.githubusercontent.com/otas0/classroom-desk/v0.1.10/install-teacher.ps1 -OutFile $env:TEMP\install-teacher.ps1; powershell -ExecutionPolicy Bypass -File $env:TEMP\install-teacher.ps1
 ```
 
-Or pin `main` after merge:
+Or `main` after merge:
 
 ```powershell
 irm https://raw.githubusercontent.com/otas0/classroom-desk/main/install-teacher.ps1 -OutFile $env:TEMP\install-teacher.ps1; powershell -ExecutionPolicy Bypass -File $env:TEMP\install-teacher.ps1
 ```
 
-## Or double-click
+## Or double-click (unzip — no git)
 
-1. Get the repo folder (clone, or unzip a GitHub tag source).
-2. Double-click **`Install-Teacher.bat`** (allow Admin).
-3. Open **`Desktop\ClassroomDesk-Desk-Login.txt`** → browser `/admin/`.
+1. Download https://github.com/otas0/classroom-desk/archive/refs/tags/v0.1.10.zip (or newer tag).  
+2. Unzip; open the folder that contains **`Install-Teacher.bat`**.  
+3. Right-click **`Install-Teacher.bat`** → **Run as administrator**.  
+4. If it fails: open Desktop **`ClassroomDesk-Install-Log.txt`** (last lines show the real error).  
+5. On success: Desktop **`ClassroomDesk-Desk-Login.txt`** → `http://127.0.0.1:8787/admin/`.
 
-Default folder for the online installer: **`C:\ClassroomDesk`**.
+Local unzip **skips re-downloading source** and **does not call GitHub API**. It still needs network for portable Node + `npm install` (uses **npmmirror** fallbacks).
+
+Default folder for the *online* installer (no prior zip): **`C:\ClassroomDesk`**.
 
 ## What it does
 
-1. Portable **Node 22** → `C:\ClassroomDesk\runtime\…`  
-2. Latest GitHub Release **source zip** (no git)  
-3. `.env` + **`ClassroomDesk-Desk-Login.txt`** on the Desktop  
-4. `npm install` → fonts → build teacher UI  
+1. Portable **Node 22** (nodejs.org → npmmirror fallback) into `runtime\`  
+2. If folder already has source: use it; else download Release source zip  
+3. `.env` + **`ClassroomDesk-Desk-Login.txt`** + install log on Desktop  
+4. `npm install` (registry.npmmirror.com) → optional fonts → build teacher UI  
 5. Firewall **8787**, logon autostart, start API, open `/admin/`
 
-Needs access to **GitHub** and **nodejs.org** (optional `GITHUB_TOKEN`).
+Needs network for Node/npm mirrors (optional `GITHUB_TOKEN` only if downloading source from GitHub).
 
 ## After install
 

@@ -47,7 +47,10 @@ else ok('bat → ps1');
 for (const needle of [
   'Ensure-PortableNode',
   'nodejs.org/dist',
-  'archive/refs/tags',
+  'npmmirror.com/mirrors/node',
+  'registry.npmmirror.com',
+  'SkipSourceDownload',
+  'ClassroomDesk-Install-Log.txt',
   'ClassroomDesk-Desk-Login.txt',
   'start:classroom',
   'build:teacher',
@@ -85,8 +88,13 @@ for (const rel of [
 
 const nodeVer = '22.14.0';
 const nodeZip = `https://nodejs.org/dist/v${nodeVer}/node-v${nodeVer}-win-x64.zip`;
-const tag = pkg.version ? `v${pkg.version}` : 'v0.1.8';
-const srcZip = `https://github.com/otas0/classroom-desk/archive/refs/tags/${tag}.zip`;
+const tag = pkg.version ? `v${pkg.version}` : 'v0.1.10';
+// Prefer current tag; fall back to previous known release for pre-tag CI
+const srcZipCandidates = [
+  `https://github.com/otas0/classroom-desk/archive/refs/tags/${tag}.zip`,
+  'https://github.com/otas0/classroom-desk/archive/refs/tags/v0.1.9.zip',
+];
+const srcZip = srcZipCandidates[0];
 
 function curlReachable(url, label) {
   try {
@@ -106,7 +114,29 @@ function curlReachable(url, label) {
 }
 
 curlReachable(nodeZip, 'portable Node zip');
-curlReachable(srcZip, `release source zip ${tag}`);
+{
+  let okSrc = false;
+  for (const u of srcZipCandidates) {
+    try {
+      const out = execFileSync(
+        'curl',
+        ['-sI', '-L', '--max-time', '45', '-A', 'classroom-desk-verify-install-teacher', u],
+        { encoding: 'utf8', maxBuffer: 2_000_000 },
+      );
+      const m = out.match(/HTTP\/\d(?:\.\d)?\s+(\d+)/g);
+      const last = m && m.length ? m[m.length - 1] : '';
+      const code = Number((last.match(/(\d+)$/) || [])[1] || 0);
+      if (code >= 200 && code < 400) {
+        ok(`release source zip reachable (${u})`);
+        okSrc = true;
+        break;
+      }
+    } catch {
+      /* try next */
+    }
+  }
+  if (!okSrc) fail(`release source zip unreachable (tried ${srcZipCandidates.join(', ')})`);
+}
 
 // Confirm current tree scripts match what a zip install would run
 const startClassroom = fs.readFileSync(path.join(root, 'scripts/start-classroom.mjs'), 'utf8');

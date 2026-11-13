@@ -11,7 +11,8 @@
 
 | 产物文件名 | 对应 tag / package.json | 备注 |
 |---|---|---|
-| `ClassroomDesk-Setup-0.1.9.exe` / `*-x64.exe` / `*-arm64.exe` | `v0.1.9` | 含教师一键安装脚本；热更须双架构齐；对外以 **Release 附件** 为准 |
+| `ClassroomDesk-Setup-0.1.10.exe` / `*-x64.exe` / `*-arm64.exe` | `v0.1.10` | 教师安装脚本含镜像回退 + 本地 zip；热更须双架构齐 |
+| `ClassroomDesk-Setup-0.1.9.exe` / `*-x64.exe` / `*-arm64.exe` | `v0.1.9` | |
 | `ClassroomDesk-Setup-0.1.8.exe` / `*-x64.exe` / `*-arm64.exe` | `v0.1.8` | |
 | `ClassroomDesk-Setup-0.1.7.exe` | `v0.1.7` | |
 | `ClassroomDesk-Setup-0.1.6.exe` | `v0.1.6` | |
