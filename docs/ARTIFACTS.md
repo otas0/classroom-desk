@@ -160,3 +160,14 @@ badge / 样机核对：优先 **tag**；内容对齐用 **tree SHA**（见上文
 
 badge / 样机核对：优先 **tag**；内容对齐用 **tree SHA**（见上文「Commit SHA vs tree SHA」）。
 
+<!-- release-record:v0.1.10 -->
+### 发版记录 v0.1.10（2026-11-13）
+
+| 字段 | 值 |
+|---|---|
+| **tag** | `v0.1.10` |
+| **tree SHA** | `e8ba4f3a7b11118256da92c212f1591d56923d3a` |
+| **commit SHA**（可能与远程 tip 字面不同） | `fa6017c5a5e9ce1f2d6f3994b2a1d5880b59b7f2` |
+
+badge / 样机核对：优先 **tag**；内容对齐用 **tree SHA**（见上文「Commit SHA vs tree SHA」）。
+
