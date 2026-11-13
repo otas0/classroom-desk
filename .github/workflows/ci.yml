@@ -83,6 +83,9 @@ jobs:
       API_BASE: http://127.0.0.1:8787
       TEACHER_WEB: http://localhost:5174
       STUDENT_WEB: http://127.0.0.1:5173
+      # Must match Start API bootstrap (helpers default to TeacherPass123 if unset).
+      TEACHER_PASSWORD: CiTeacherPass9!
+      TEACHER_NEW_PASSWORD: E2eTeacherPass9
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
@@ -192,6 +195,9 @@ jobs:
       API_BASE: http://127.0.0.1:8787
       TEACHER_WEB: http://localhost:5174
       STUDENT_WEB: http://127.0.0.1:5173
+      # Must match Start API bootstrap (helpers default to TeacherPass123 if unset).
+      TEACHER_PASSWORD: CiTeacherPass9!
+      TEACHER_NEW_PASSWORD: E2eTeacherPass9
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
