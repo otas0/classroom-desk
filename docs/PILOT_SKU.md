@@ -21,6 +21,7 @@
 | Exam Box **量产硬件** | `examBoxHardware` | **永久 false 直到**量产镜像签名 + 硬件 BOM/报价单发布 |
 | 隐蔽设备指纹 | `deviceFingerprinting` | **始终 false**（产品承诺不做） |
 | 无学校凭据的「网关真机验收已完成」 | — | live-shield / openNDS 截图须学校侧补齐后才可写入验收 PDF |
+| Easy Join 超时 / 下课关 | 主线已有 `student_easy_join_auto_off` + 可选 TTL（`syncEasyJoinTtl`） | Pilot 包不另改 TTL 逻辑；教师端「下课自动关」+「倒计时（分钟）」即可 |
 
 ## 切 1.0 GA 的门槛（全部满足才改版本叙事）
 

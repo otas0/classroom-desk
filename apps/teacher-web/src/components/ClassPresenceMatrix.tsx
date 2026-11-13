@@ -17,6 +17,7 @@ type RosterRow = { id: string; displayName: string; studentNo: string | null };
 type ExitLockPublic = {
   clientExitAllowed?: boolean;
   exitUnlockCodeRotationDue?: boolean;
+  studentAutoUpdate?: boolean;
 };
 
 /**
@@ -48,10 +49,10 @@ export function ClassPresenceMatrix({
       fetch('/health', { cache: 'no-store' })
         .then((r) => r.json())
         .catch(() => ({})) as Promise<{ studentDesktopVersion?: string; version?: string }>,
-      api<ExitLockPublic & { studentAutoUpdate?: boolean }>('/api/v1/settings').catch(
-        () => ({}) as ExitLockPublic,
+      api<ExitLockPublic>('/api/v1/settings').catch(() => ({}) as ExitLockPublic),
+      api<{ studentAutoUpdate?: boolean }>('/api/v1/upgrades').catch(
+        () => ({}) as { studentAutoUpdate?: boolean },
       ),
-      api<{ studentAutoUpdate?: boolean }>('/api/v1/upgrades').catch(() => ({})),
     ]);
     setRoster(students.items ?? []);
     setOnline(presence.items ?? []);

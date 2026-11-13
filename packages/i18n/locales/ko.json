@@ -1227,5 +1227,11 @@
   "一键踢网": "Kick network",
   "对违规班执行踢网并冻结？": "Kick network and freeze for violators?",
   "结束深锁并恢复？": "End deep lock and restore?",
-  "examBoxHardware=false：量产硬件灰显；已有 Shield 时默认不推小盒。": "examBoxHardware=false: hardware grayed; if Shield exists do not push Exam Box."
+  "examBoxHardware=false：量产硬件灰显；已有 Shield 时默认不推小盒。": "examBoxHardware=false: hardware grayed; if Shield exists do not push Exam Box.",
+  "本班专用一键打包（U 盘 zip）": "본반 전용 USB 팩(원클릭 zip)",
+  "打包中…": "패키징 중…",
+  "已下载本班专用 U 盘包": "본반 전용 USB 팩을 다운로드했습니다",
+  "打包失败": "패키징 실패",
+  "导出 C2 验收 PDF": "C2 검수 PDF 내보내기",
+  "已导出 C2 验收 PDF": "C2 검수 PDF를 내보냈습니다"
 }

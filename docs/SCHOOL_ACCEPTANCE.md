@@ -2,6 +2,8 @@
 
 签约/试点结项前勾选。脱敏后归档：`npm run archive:live-shield` → `npm run check:live-evidence`。
 
+**一键导出 PDF：** 教师端「加固体检」→「导出 C2 验收 PDF」（`GET /api/v1/c2-evidence/acceptance.pdf`）。文档槽已在 #16 合入；本接口按现场 C2 目录与 SKU 旗标填状态（无学校凭据的网关项标 SKIPPED，不写成通过）。
+
 ## 必选（有对应 SKU 时）
 
 | 证据 | 适用包 | 状态 |

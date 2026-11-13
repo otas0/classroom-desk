@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { GITHUB_RELEASES_BASE } from '@classroom-desk/shared';
 import { api } from '../api';
+import { downloadGet } from '../download';
 import { t } from '@classroom-desk/i18n';
 
 type HealthBody = {
@@ -282,6 +283,25 @@ export function HardeningHealthPanel({ classId }: { classId: string }) {
           }}
         >
           {t('复制 verify:c2-evidence')}
+        </button>
+        <button
+          type="button"
+          className="secondary"
+          data-testid="c2-acceptance-pdf"
+          onClick={() => {
+            const day = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+            void downloadGet(
+              '/api/v1/c2-evidence/acceptance.pdf',
+              `school-acceptance-C2-${day}.pdf`,
+            )
+              .then(() => {
+                setCopyMsg(t('已导出 C2 验收 PDF'));
+                window.setTimeout(() => setCopyMsg(''), 2500);
+              })
+              .catch((e) => window.alert(e instanceof Error ? e.message : t('导出失败')));
+          }}
+        >
+          {t('导出 C2 验收 PDF')}
         </button>
       </div>
       {c2Status ? (

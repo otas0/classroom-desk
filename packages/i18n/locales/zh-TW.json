@@ -1227,5 +1227,11 @@
   "一键踢网": "Kick network",
   "对违规班执行踢网并冻结？": "Kick network and freeze for violators?",
   "结束深锁并恢复？": "End deep lock and restore?",
-  "examBoxHardware=false：量产硬件灰显；已有 Shield 时默认不推小盒。": "examBoxHardware=false: hardware grayed; if Shield exists do not push Exam Box."
+  "examBoxHardware=false：量产硬件灰显；已有 Shield 时默认不推小盒。": "examBoxHardware=false: hardware grayed; if Shield exists do not push Exam Box.",
+  "本班专用一键打包（U 盘 zip）": "本班專用一鍵打包（U 盤 zip）",
+  "打包中…": "打包中…",
+  "已下载本班专用 U 盘包": "已下載本班專用 U 盤包",
+  "打包失败": "打包失敗",
+  "导出 C2 验收 PDF": "匯出 C2 驗收 PDF",
+  "已导出 C2 验收 PDF": "已匯出 C2 驗收 PDF"
 }
