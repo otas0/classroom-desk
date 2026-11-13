@@ -189,8 +189,8 @@
             const classId = b.classId || params.get('classId') || '';
             if (classId && qr) {
               qr.hidden = false;
-              qr.src = 'https://api.qrserver.com/v1/create-qr-code/?size=148x148&data=' +
-                encodeURIComponent(location.origin + '/portal?classId=' + encodeURIComponent(classId));
+              // Self-hosted PNG (exam nets often block external QR CDNs).
+              qr.src = '/api/v1/portal/class-qr?classId=' + encodeURIComponent(classId);
             }
           }
           if (b.authenticated) admit();

@@ -109,6 +109,26 @@ const allowed = await admitPortalClient(db, {
 assert.equal(allowed.decision, 'allow');
 assert.equal(allowed.everStudentZone, true);
 
+const unmappedHold = await admitPortalClient(db, {
+  session: sess!,
+  hint: { ssid: 'Unknown-Guest-Net' },
+  clientKey: 'portal-unmapped',
+});
+assert.equal(unmappedHold.decision, 'block');
+assert.equal(unmappedHold.reason, 'unmapped_zone');
+
+const prevUnmapped = process.env.CLASSROOM_DESK_PORTAL_UNMAPPED;
+process.env.CLASSROOM_DESK_PORTAL_UNMAPPED = 'allow';
+const unmappedSoft = await admitPortalClient(db, {
+  session: sess!,
+  hint: { ssid: 'Unknown-Guest-Net' },
+  clientKey: 'portal-unmapped-soft',
+});
+assert.equal(unmappedSoft.decision, 'allow');
+assert.equal(unmappedSoft.reason, 'unmapped_zone');
+if (prevUnmapped === undefined) delete process.env.CLASSROOM_DESK_PORTAL_UNMAPPED;
+else process.env.CLASSROOM_DESK_PORTAL_UNMAPPED = prevUnmapped;
+
 resetShieldConnectorToOff();
 db.close();
 rmSync(dir, { recursive: true, force: true });
