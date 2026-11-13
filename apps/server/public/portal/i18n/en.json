@@ -9,5 +9,8 @@
   "otpSent": "Code sent",
   "mailtoReady": "mailto ready",
   "offline": "offline",
-  "ssidRequired": "Open from gateway redirect (signed SSID required)"
+  "ssidRequired": "Open from gateway redirect (signed SSID required)",
+  "epochExpired": "This class portal session expired (class ended or reset). Scan the class QR or open the portal again.",
+  "epochExpiredEn": "This class portal session expired. Scan the class QR or open the portal again.",
+  "rescanHint": "Scan the class QR on the teacher projection to re-enter."
 }

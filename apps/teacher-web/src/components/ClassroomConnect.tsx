@@ -3,6 +3,7 @@ import QRCode from 'qrcode';
 import { encodeRoomCode } from '@classroom-desk/shared';
 import { RoomJoinQr } from './RoomJoinQr';
 import { API_BASE, api } from '../api';
+import { downloadGet } from '../download';
 import type { ClassItem } from '../types';
 import { t } from '@classroom-desk/i18n';
 
@@ -37,6 +38,7 @@ export function ClassroomConnect({
   const [joinRequireApproval, setJoinRequireApproval] = useState(false);
   const [pullJoin, setPullJoin] = useState(false);
   const [pullJoinBusy, setPullJoinBusy] = useState(false);
+  const [usbPackBusy, setUsbPackBusy] = useState(false);
   const [pendingDevices, setPendingDevices] = useState<
     Array<{ id: string; deviceId: string; hostname: string; clientIp?: string | null; createdAt: string }>
   >([]);
@@ -639,6 +641,28 @@ export function ClassroomConnect({
         onClick={() => void copyText('config.json', JSON.stringify(configObject(), null, 2))}
       >
         {t('复制 config.json')}
+      </button>{' '}
+      <button
+        type="button"
+        data-testid="usb-class-pack"
+        disabled={!classId || usbPackBusy}
+        onClick={() => {
+          if (!classId) return;
+          setUsbPackBusy(true);
+          const safe = (klass?.name || 'class').replace(/[^\w\u4e00-\u9fff-]+/g, '_').slice(0, 40);
+          void downloadGet(
+            `/api/v1/usb-class-pack?classId=${encodeURIComponent(classId)}`,
+            `usb-class-pack-${safe}-${classId.slice(0, 8)}.zip`,
+          )
+            .then(() => {
+              setCopyMsg(t('已下载本班专用 U 盘包'));
+              window.setTimeout(() => setCopyMsg(''), 3500);
+            })
+            .catch((e) => window.alert(e instanceof Error ? e.message : t('打包失败')))
+            .finally(() => setUsbPackBusy(false));
+        }}
+      >
+        {usbPackBusy ? t('打包中…') : t('本班专用一键打包（U 盘 zip）')}
       </button>
       {qrDataUrl ? (
         <div className="qr-block">

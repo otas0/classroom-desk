@@ -9,5 +9,8 @@
   "otpSent": "验证码已发送",
   "mailtoReady": "可打开邮件客户端发送",
   "offline": "无法连接服务器",
-  "ssidRequired": "请从网关跳转进入（需签名 SSID）"
+  "ssidRequired": "请从网关跳转进入（需签名 SSID）",
+  "epochExpired": "本班门户会话已过期（老师已下课或重置）。请扫码或重新打开认证页再进。",
+  "epochExpiredEn": "This class portal session expired. Scan the class QR or open the portal again.",
+  "rescanHint": "用手机扫教师投影的班码 / QR 重新进入即可。"
 }

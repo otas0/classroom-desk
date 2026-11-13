@@ -13,6 +13,9 @@ type Stats = {
   capabilities?: Record<string, unknown>;
   shield?: { active?: string; displayName?: string };
   deskDns?: { enabled?: boolean; running?: boolean; port?: number | null };
+  deepLockSessionsToday?: number;
+  portalAdmitsToday?: number;
+  unlockCodeOverdueClasses?: number;
   byClass?: Array<{
     classId: string;
     name: string;
@@ -137,6 +140,11 @@ export function PrincipalDashboard({
             DeskDNS：{stats.deskDns.running ? `udp/${stats.deskDns.port}` : t('未绑定')}
           </p>
         ) : null}
+        <p data-testid="principal-pilot-metrics">
+          {t('今日深锁场次')}：{stats.deepLockSessionsToday ?? 0} · {t('门户准入')}：
+          {stats.portalAdmitsToday ?? 0} · {t('解除码逾期班级')}：
+          {stats.unlockCodeOverdueClasses ?? 0}
+        </p>
       </div>
       {stats.byClass && stats.byClass.length ? (
         <ul className="hint" data-testid="principal-by-class">

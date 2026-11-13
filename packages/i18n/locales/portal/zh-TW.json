@@ -9,5 +9,8 @@
   "otpSent": "驗證碼已發送",
   "mailtoReady": "可開啟郵件客戶端",
   "offline": "無法連線",
-  "ssidRequired": "請從閘道跳轉進入（需簽名 SSID）"
+  "ssidRequired": "請從閘道跳轉進入（需簽名 SSID）",
+  "epochExpired": "本班門戶工作階段已過期（老師已下課或重置）。請掃碼或重新開啟認證頁再進。",
+  "epochExpiredEn": "This class portal session expired. Scan the class QR or open the portal again.",
+  "rescanHint": "用手機掃教師投影的班碼 / QR 重新進入即可。"
 }
