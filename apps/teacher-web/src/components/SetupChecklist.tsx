@@ -44,6 +44,16 @@ export function SetupChecklist({
   const [c2Complete, setC2Complete] = useState<boolean | null>(null);
   const [c2Problems, setC2Problems] = useState('');
   const [shieldActive, setShieldActive] = useState<string | null>(null);
+  /** First-run mode: interactive (publish Q) | lock_only | exam_deep */
+  const [readyMode, setReadyMode] = useState<'interactive' | 'lock_only' | 'exam_deep'>(() => {
+    try {
+      const v = localStorage.getItem('cd_setup_ready_mode');
+      if (v === 'lock_only' || v === 'exam_deep' || v === 'interactive') return v;
+    } catch {
+      /* ignore */
+    }
+    return 'interactive';
+  });
 
   useEffect(() => {
     if (!classId) {
@@ -206,7 +216,14 @@ export function SetupChecklist({
   const studentsOnline = Boolean(classId) && serverOk === true && connectedCount > 0;
   const studentsPending = serverOk === null;
   const questionDone = hasQuestion;
-  const coreDone = rosterDone && studentsOnline && (!questionKnown || questionDone);
+  const shieldOff = shieldActive === 'off' || shieldActive === '';
+  const modeStepDone =
+    readyMode === 'interactive'
+      ? !questionKnown || questionDone
+      : readyMode === 'lock_only'
+        ? studentsOnline
+        : studentsOnline; // exam_deep: roster+online enough to dismiss; Shield amber is health alert
+  const coreDone = rosterDone && studentsOnline && modeStepDone;
 
   const onlineForHardening = hardenedCount + unhardenedCount;
   const unhardenedRate = onlineForHardening > 0 ? unhardenedCount / onlineForHardening : 0;
@@ -217,7 +234,6 @@ export function SetupChecklist({
   const joinRateAlert = joinRateLimitLive > 0;
   const deskDnsAlert = deskDnsOk === false;
   const c2Alert = c2Complete === false;
-  const shieldOff = shieldActive === 'off' || shieldActive === '';
   const healthAlerts =
     easyJoinMissing ||
     unhardenedAlert ||
@@ -268,7 +284,7 @@ export function SetupChecklist({
     {
       id: 'shield',
       label: 'Shield',
-      state: shieldActive === null ? 'unknown' : shieldOff ? 'unknown' : 'ok',
+      state: shieldActive === null ? 'unknown' : shieldOff ? 'bad' : 'ok',
     },
   ];
   if (coreDone && !healthAlerts) return null;
@@ -335,15 +351,30 @@ export function SetupChecklist({
     },
     {
       n: 3,
-      label: t('发第一题'),
-      done: questionDone,
-      pending: !questionKnown,
-      actionLabel: t('去发第一题'),
+      label:
+        readyMode === 'interactive'
+          ? t('发第一题')
+          : readyMode === 'lock_only'
+            ? t('仅锁定上机（可跳过发题）')
+            : t('考试深锁就绪（上课页开锁）'),
+      done: modeStepDone,
+      pending: readyMode === 'interactive' && !questionKnown,
+      actionLabel:
+        readyMode === 'interactive'
+          ? t('去发第一题')
+          : readyMode === 'exam_deep'
+            ? t('去上课开考试锁')
+            : t('去上课'),
       action: () => onGo('session'),
     },
   ];
 
-  let ctaLabel = t('去发第一题');
+  let ctaLabel =
+    readyMode === 'interactive'
+      ? t('去发第一题')
+      : readyMode === 'exam_deep'
+        ? t('去上课开考试锁')
+        : t('去上课');
   let cta = () => onGo('session');
   if (!rosterDone) {
     ctaLabel = classes.length === 0 ? t('创建班级') : t('去导入名单');
@@ -363,6 +394,25 @@ export function SetupChecklist({
     <section className="setup-checklist" data-testid="setup-checklist-simple">
       <h2>{coreDone ? t('开课健康') : t('开课准备')}</h2>
       {!coreDone ? <p className="hint">{t('三步即可上课。做完会自动收起。')}</p> : null}
+      <label className="hint" data-testid="setup-ready-mode">
+        {t('开课模式')}
+        <select
+          value={readyMode}
+          onChange={(e) => {
+            const v = e.target.value as typeof readyMode;
+            setReadyMode(v);
+            try {
+              localStorage.setItem('cd_setup_ready_mode', v);
+            } catch {
+              /* ignore */
+            }
+          }}
+        >
+          <option value="interactive">{t('互动题（发第一题）')}</option>
+          <option value="lock_only">{t('仅锁定上机')}</option>
+          <option value="exam_deep">{t('考试深锁')}</option>
+        </select>
+      </label>
 
       {readyUrl ? (
         <p className="hint" data-testid="setup-ready-link">
@@ -399,15 +449,15 @@ export function SetupChecklist({
           ) : null}
           {joinPendingAlert ? (
             <p className="setup-health-alert" data-testid="setup-join-pending-alert">
-              {t('有 {v0} 台设备待批准连班。请到指派页「连班鉴权」处理。', {
+              {t('有 {v0} 台设备待批准连班。可在上课页顶栏当场批准。', {
                 v0: String(joinPendingCount),
               })}{' '}
               <button
                 type="button"
                 className="secondary setup-step-jump"
-                onClick={() => goAssignWithAudit('setup_join_pending')}
+                onClick={() => onGo('session')}
               >
-                {t('去批准')}
+                {t('去上课页批准')}
               </button>
             </p>
           ) : null}
