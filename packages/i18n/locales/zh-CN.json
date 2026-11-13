@@ -1240,5 +1240,9 @@
   "考场 compose 包：量产硬件灰显（examBoxHardware=false），须 BOM/镜像验收登记后亮起。": "考场 compose 包：量产硬件灰显（examBoxHardware=false），须 BOM/镜像验收登记后亮起。",
   "对外仍是 Pilot（gaReady=false），不是 1.0 GA。见 docs/PILOT_SKU.md。": "对外仍是 Pilot（gaReady=false），不是 1.0 GA。见 docs/PILOT_SKU.md。",
   "默认未配置（off）。选 OPNsense / UniFi / HTTP 后才会真断网；本地联调先 npm run lab:shield。": "默认未配置（off）。选 OPNsense / UniFi / HTTP 后才会真断网；本地联调先 npm run lab:shield。",
-  "HTTP/lab 网关": "HTTP/lab 网关"
+  "HTTP/lab 网关": "HTTP/lab 网关",
+  "连通正常": "连通正常",
+  "连通失败": "连通失败",
+  "测连通失败": "测连通失败",
+  "课次自动到期": "课次自动到期"
 }

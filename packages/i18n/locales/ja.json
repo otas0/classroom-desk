@@ -1202,7 +1202,7 @@
   "可改绑非特权端口，或关闭占用进程后再开 DeskDNS。": "Rebind a non-privileged port or stop the process using :53, then start DeskDNS.",
   "未检测到 :53 冲突（或 DeskDNS 未启）": "No :53 conflict detected (or DeskDNS off)",
   "Shield 首次配置向导": "Shield first-run wizard",
-  "测连通": "Test connectivity",
+  "测连通": "疎通確認",
   "写 alias": "Write alias",
   "干跑测试 MAC/IP": "Dry-run test MAC/IP",
   "验收页 / PDF": "Acceptance page / PDF",
@@ -1240,5 +1240,9 @@
   "考场 compose 包：量产硬件灰显（examBoxHardware=false），须 BOM/镜像验收登记后亮起。": "考場 compose パック：量産ハードは灰表示（examBoxHardware=false）。BOM/イメージ検収後に有効。",
   "对外仍是 Pilot（gaReady=false），不是 1.0 GA。见 docs/PILOT_SKU.md。": "対外は依然 Pilot（gaReady=false）。1.0 GA ではない。docs/PILOT_SKU.md 参照。",
   "默认未配置（off）。选 OPNsense / UniFi / HTTP 后才会真断网；本地联调先 npm run lab:shield。": "既定は未設定（off）。OPNsense / UniFi / HTTP で実制御。ローカルは npm run lab:shield。",
-  "HTTP/lab 网关": "HTTP/lab ゲートウェイ"
+  "HTTP/lab 网关": "HTTP/lab ゲートウェイ",
+  "连通正常": "疎通OK",
+  "连通失败": "疎通失敗",
+  "测连通失败": "疎通確認に失敗",
+  "课次自动到期": "授業回の自動期限"
 }

@@ -1240,5 +1240,9 @@
   "考场 compose 包：量产硬件灰显（examBoxHardware=false），须 BOM/镜像验收登记后亮起。": "Exam compose pack: hardware grayed (examBoxHardware=false) until BOM/image acceptance.",
   "对外仍是 Pilot（gaReady=false），不是 1.0 GA。见 docs/PILOT_SKU.md。": "Still Pilot externally (gaReady=false), not 1.0 GA. See docs/PILOT_SKU.md.",
   "默认未配置（off）。选 OPNsense / UniFi / HTTP 后才会真断网；本地联调先 npm run lab:shield。": "Default off. Pick OPNsense / UniFi / HTTP for real control; for local lab run npm run lab:shield first.",
-  "HTTP/lab 网关": "HTTP/lab gateway"
+  "HTTP/lab 网关": "HTTP/lab gateway",
+  "连通正常": "Reachable",
+  "连通失败": "Unreachable",
+  "测连通失败": "Connectivity check failed",
+  "课次自动到期": "Session auto-expiry"
 }

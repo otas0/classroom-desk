@@ -37,14 +37,13 @@ assert.equal(verifyPortalSsid({ ssid: 'Faculty', ts, sig }).ok, true);
 if (prev == null) delete process.env.CLASSROOM_DESK_PORTAL_SSID_REQUIRE_SIG;
 else process.env.CLASSROOM_DESK_PORTAL_SSID_REQUIRE_SIG = prev;
 
+// Unconfigured connector must not pretend success (use lab:opnsense for live API).
 const op = new OpnsenseShieldConnector({ baseUrl: '' });
 const r = await op.authorizeClient({ clientKey: '10.1.2.3', mode: 'deny' });
-assert.equal(r.ok, true);
-assert.equal(op.isBlocked('10.1.2.3'), true);
-const a = await op.authorizeClient({ clientKey: '10.1.2.3', mode: 'allowlist' });
-assert.equal(a.ok, true);
-assert.equal(op.isAllowed('10.1.2.3'), true);
-assert.equal(op.isBlocked('10.1.2.3'), false);
+assert.equal(r.ok, false);
+assert.match(String(r.detail), /unconfigured/);
+const hOff = await op.health();
+assert.equal(hOff.ok, false);
 
 // UniFi OS login path preference
 {

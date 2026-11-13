@@ -12,11 +12,16 @@ export function ShieldSetupWizard() {
     const next = [...log];
     try {
       if (step === 0) {
-        const r = await api<{ ok?: boolean; detail?: string }>('/api/v1/shield/wizard/ping', {
-          method: 'POST',
-          body: JSON.stringify({ adapter }),
-        });
-        next.push(`连通：${r.ok ? 'OK' : r.detail || 'fail'}`);
+        const r = await api<{ ok?: boolean; detail?: string; hint?: string }>(
+          '/api/v1/shield/wizard/ping',
+          {
+            method: 'POST',
+            body: JSON.stringify({ adapter }),
+          },
+        );
+        next.push(
+          `连通：${r.ok ? 'OK' : r.detail || 'fail'}${r.hint ? ` · ${r.hint}` : ''}`,
+        );
       } else if (step === 1) {
         const r = await api<{ ok?: boolean; detail?: string }>('/api/v1/shield/wizard/alias', {
           method: 'POST',

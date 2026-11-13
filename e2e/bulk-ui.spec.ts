@@ -27,15 +27,25 @@ test.describe('bulk delete UI path', () => {
     await selectTeacherClass(page, classId);
     await openPrepTab(page, '名单');
     // Virtual roster: filter so the new row mounts in the viewport.
-    await page.getByPlaceholder('搜索姓名/学号').fill(`UI删${stamp}`);
+    await page
+      .getByPlaceholder(/搜索姓名\/学号|Search name|搜尋姓名|氏名|이름/)
+      .fill(`UI删${stamp}`);
 
     const check = page.getByTestId(`student-check-${studentId}`);
     await expect(check).toBeVisible({ timeout: 15_000 });
     await check.check();
 
-    await page.getByTestId('bulk-delete-students').click();
-    await expect(page.getByRole('dialog', { name: '确认移入回收站' })).toBeVisible();
-    await page.getByRole('button', { name: '移入回收站' }).click();
+    const bulkDel = page.getByTestId('bulk-delete-students');
+    await expect(bulkDel).toBeEnabled({ timeout: 10_000 });
+    await bulkDel.click();
+    await expect(
+      page.getByRole('dialog', {
+        name: /确认移入回收站|Confirm move to recycle bin|確認移入回收站|ごみ箱|휴지통/,
+      }),
+    ).toBeVisible({ timeout: 10_000 });
+    await page
+      .getByRole('button', { name: /^(移入回收站|Move to recycle bin|移入回收站|ごみ箱へ|휴지통으로)$/ })
+      .click();
 
     await expect(page.getByTestId(`student-check-${studentId}`)).toHaveCount(0, { timeout: 10_000 });
 
