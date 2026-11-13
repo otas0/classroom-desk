@@ -15,6 +15,7 @@ import {
   portalSetCookieHeader,
   PORTAL_COOKIE_NAME,
   productCapabilities,
+  pushPortalBlockAlert,
   setPortalSharedCode,
   signPortalSession,
   verifyPortalOtp,
@@ -251,6 +252,19 @@ portalRouter.post('/api/v1/portal/admit', async (req, res) => {
   const clientKey =
     String(req.body?.clientKey ?? '').trim() || hint.ipv4 || `portal:${session.studentId}`;
   const decision = await admitPortalClient(db, { session, hint, clientKey });
+  if (decision.decision === 'block') {
+    pushPortalBlockAlert(db, {
+      at: new Date().toISOString(),
+      reason: String(decision.reason ?? 'block'),
+      ssid: hint.ssid || '（无 SSID）',
+      ipv4: hint.ipv4 || undefined,
+      studentId: session.studentId,
+      studentNo: session.studentNo ?? null,
+      displayName: session.displayName ?? null,
+      classId: session.classId ?? null,
+      message: decision.message,
+    });
+  }
   writeAudit(
     {
       action: `portal.admit.${decision.decision}`,

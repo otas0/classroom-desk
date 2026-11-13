@@ -6,6 +6,7 @@ import { openDb } from '../db/client.js';
 import { requireAuth, requireRoles, type AuthedRequest } from '../middleware/auth.js';
 import { listGatewayAccess } from '../services/gatewayAllowlist.js';
 import { getSetting } from '../db/migrate.js';
+import { listPortalBlockAlerts } from '../services/portalAuth.js';
 import { formatShieldActiveLabel, getShieldConnector } from '../services/shield/registry.js';
 
 export const gatewayLiveRouter = Router();
@@ -27,10 +28,12 @@ gatewayLiveRouter.get(
     const shieldActive = formatShieldActiveLabel(getShieldConnector().id);
     const lastError = getSetting(db, 'shield_last_error');
     const hb = getSetting(db, 'shield_last_heartbeat_at');
+    const portalBlocks = listPortalBlockAlerts(db, 8);
     res.json({
       count: entries.length,
       recent: recent.slice(-5).reverse(),
       items: entries.slice(0, 50),
+      portalBlocks,
       shield: {
         active: shieldActive,
         lastError: lastError || null,

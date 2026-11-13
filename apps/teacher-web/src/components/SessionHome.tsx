@@ -9,6 +9,7 @@ import { PrincipalDashboard } from './PrincipalDashboard';
 import { ClassPresenceMatrix } from './ClassPresenceMatrix';
 import { EndOfClassChecklist } from './EndOfClassChecklist';
 import { LiveClassNetStrip } from './LiveClassNetStrip';
+import { PortalBlockBanner } from './PortalBlockBanner';
 import { ShieldAllowlistLive } from './ShieldAllowlistLive';
 import { ShieldSetupWizard } from './ShieldSetupWizard';
 import { DeskDnsControls } from './DeskDnsControls';
@@ -426,9 +427,9 @@ export function SessionHome({
         onOpenPresence={onOpenPresence ? () => onOpenPresence(classId) : undefined}
       />
       <ClassPresenceMatrix classId={classId} compact />
+      <PortalBlockBanner classId={classId} />
       <LiveClassNetStrip classId={classId} />
       <ExamLockPanel classId={classId} onOpenAdvanced={onOpenLockAdvanced} />
-      <EndOfClassChecklist classId={classId} />
       <ScheduleDeepLockPanel classId={classId} />
       <DeviceControlBar classId={classId} />
       <details className="session-more-net" data-testid="campus-pack-panel">
@@ -638,6 +639,14 @@ export function SessionHome({
       <div className="session-live">
         <LiveBoard key={boardKey} classId={classId} />
       </div>
+
+      <details className="session-end-drawer" data-testid="end-of-class-drawer">
+        <summary>{t('下课收工（底部 · 需确认）')}</summary>
+        <p className="hint">
+          {t('与锁网按钮分开，降低误触。结局 B：清 epoch / 放行表 / DNS / 连班 / 深锁。')}
+        </p>
+        <EndOfClassChecklist classId={classId} />
+      </details>
     </div>
   );
 }

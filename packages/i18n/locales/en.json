@@ -1282,5 +1282,14 @@
   "去上课开考试锁": "Go live to arm exam lock",
   "去上课": "Go to live class",
   "有 {v0} 台设备待批准连班。可在上课页顶栏当场批准。": "{v0} device(s) pending join. Approve from the live-class strip.",
-  "去上课页批准": "Approve on live class"
+  "去上课页批准": "Approve on live class",
+  "Shield 未断网（未配置网关）": "Shield not cutting net (gateway unconfigured)",
+  "Shield：{v0}": "Shield: {v0}",
+  "待批准 {v0}": "Pending {v0}",
+  "网络档未映射 · 已拦截认证": "Unmapped zone · admit blocked",
+  "门户认证已拦截": "Portal admit blocked",
+  "未知学生": "Unknown student",
+  "近 {v0} 条拦截": "{v0} recent block(s)",
+  "下课收工（底部 · 需确认）": "End class (bottom · confirm)",
+  "与锁网按钮分开，降低误触。结局 B：清 epoch / 放行表 / DNS / 连班 / 深锁。": "Separated from lock buttons to reduce mis-taps. Outcome B clears epoch / allowlist / DNS / join / deep-lock."
 }

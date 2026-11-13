@@ -134,6 +134,8 @@ const DEFAULT_SETTINGS: Record<string, string> = {
   private_device_portal_only: '1',
   /** Reject unsigned portal SSID (setup wizard / NetworkZones can flip). Env can still force on. */
   portal_ssid_require_sig: '0',
+  /** Recent portal admit blocks for teacher banner (JSON array). */
+  portal_block_alerts: '[]',
 };
 
 export function migrate(database?: DatabaseSync): DatabaseSync {

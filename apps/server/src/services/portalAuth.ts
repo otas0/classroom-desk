@@ -21,8 +21,46 @@ const encoder = new TextEncoder();
 const COOKIE = 'cd_portal_sess';
 const KEY_SHARED = 'portal_shared_code';
 const KEY_OTP_BUCKET = 'portal_otp_bucket';
+const KEY_BLOCK_ALERTS = 'portal_block_alerts';
 
 export { COOKIE as PORTAL_COOKIE_NAME };
+
+export type PortalBlockAlert = {
+  at: string;
+  reason: string;
+  ssid: string;
+  ipv4?: string;
+  studentId?: string;
+  studentNo?: string | null;
+  displayName?: string | null;
+  classId?: string | null;
+  message?: string;
+};
+
+/** Ring buffer of recent portal admit blocks (teacher banner). */
+export function pushPortalBlockAlert(db: DatabaseSync, row: PortalBlockAlert) {
+  let list: PortalBlockAlert[] = [];
+  try {
+    list = JSON.parse(String(getSetting(db, KEY_BLOCK_ALERTS) ?? '[]')) as PortalBlockAlert[];
+  } catch {
+    list = [];
+  }
+  if (!Array.isArray(list)) list = [];
+  list.push(row);
+  while (list.length > 40) list.shift();
+  upsertSetting(db, KEY_BLOCK_ALERTS, JSON.stringify(list));
+}
+
+export function listPortalBlockAlerts(db: DatabaseSync, limit = 8): PortalBlockAlert[] {
+  let list: PortalBlockAlert[] = [];
+  try {
+    list = JSON.parse(String(getSetting(db, KEY_BLOCK_ALERTS) ?? '[]')) as PortalBlockAlert[];
+  } catch {
+    list = [];
+  }
+  if (!Array.isArray(list)) return [];
+  return list.slice(-Math.max(1, limit)).reverse();
+}
 
 type OtpRow = {
   studentId: string;
