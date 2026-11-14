@@ -29,6 +29,9 @@ function run(cmd, args, opts = {}) {
 
 const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 
+console.log('[start:classroom] ensure minimal .env…');
+await run(npm, ['run', 'ensure:minimal-env']);
+
 if (!fs.existsSync(font)) {
   console.log('[start:classroom] fetching CJK fonts…');
   await run(npm, ['run', 'fonts:cjk']);

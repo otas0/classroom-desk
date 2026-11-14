@@ -47,9 +47,14 @@
 cp .env.example .env
 ```
 
-### Pilot 上线四条（必读）
+### 最小部署（推荐）
 
-见 [`docs/PILOT_GO_LIVE.md`](./docs/PILOT_GO_LIVE.md)：强 `JWT_SECRET` + `AUDIT_HMAC_KEY`、HTTPS 反代、按 SKU 配 Shield/DeskDNS（未配则 UI「网关未断」）、禁止对外写 GA/绝密/安全局最高机密。自检：`npm run check:pilot-go-live`。
+```bash
+npm install
+npm run start:minimal
+```
+
+不配网关 / TLS / DeskDNS，自动写 `.env`。见 [`docs/MINIMAL_DEPLOY.md`](./docs/MINIMAL_DEPLOY.md)。禁止对外写 GA/绝密/安全局最高机密。自检：`npm run check:pilot-go-live -- --minimal`。
 
 ### 生产部署与 JWT_SECRET（必读）
 

@@ -45,6 +45,13 @@ export function maxSecrecyAirgap(db: DatabaseSync): boolean {
 /** Production + max secrecy: refuse staff login without TLS (or loopback). */
 export function maxSecrecyRequireTls(db: DatabaseSync): boolean {
   if (!maxSecrecyEnabled(db)) return false;
+  // Minimal classroom profile stays HTTP on LAN even if NODE_ENV=production.
+  if (
+    process.env.CLASSROOM_DESK_MINIMAL === '1' ||
+    process.env.CLASSROOM_DESK_MINIMAL === 'true'
+  ) {
+    return false;
+  }
   if (process.env.NODE_ENV === 'production') return true;
   const v = getSetting(db, 'max_secrecy_require_tls');
   return v === '1' || v === 'true';

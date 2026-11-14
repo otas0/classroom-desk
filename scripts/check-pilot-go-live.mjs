@@ -1,17 +1,18 @@
 #!/usr/bin/env node
 /**
- * Pilot go-live gate: secrets strength, TLS hint, Shield/DeskDNS honesty, marketing bans.
- * Usage: node scripts/check-pilot-go-live.mjs [path/to.env]
- * Exit 0 = ok for Pilot checklist; 1 = hard fail; 2 = warnings only (still ok with notes).
+ * Pilot go-live gate.
+ *   node scripts/check-pilot-go-live.mjs [--minimal] [path/to.env]
+ * --minimal: Shield off / no DeskDNS / no HTTPS are OK (default classroom path).
  */
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const envPath = process.argv[2]
-  ? path.resolve(process.argv[2])
-  : path.join(root, '.env');
+const argv = process.argv.slice(2);
+const minimal = argv.includes('--minimal');
+const envArg = argv.find((a) => !a.startsWith('--'));
+const envPath = envArg ? path.resolve(envArg) : path.join(root, '.env');
 
 const fails = [];
 const warns = [];
@@ -49,18 +50,24 @@ const audit = String(env.AUDIT_HMAC_KEY ?? '').trim();
 const weakRe = /replace|change-me|dev-secret|please-change|classroom-desk-secret|secret123/i;
 
 if (!jwt) {
-  fails.push('JWT_SECRET missing — production will refuse to start');
+  if (minimal) {
+    warns.push('JWT_SECRET missing — run: npm run ensure:minimal-env');
+  } else {
+    fails.push('JWT_SECRET missing — production will refuse to start');
+  }
 } else if (jwt.length < 32) {
   fails.push(`JWT_SECRET too short (${jwt.length} < 32)`);
 } else if (weakRe.test(jwt)) {
-  fails.push('JWT_SECRET looks like a placeholder — generate with: openssl rand -hex 32');
+  fails.push('JWT_SECRET looks like a placeholder — npm run ensure:minimal-env -- --force');
 } else {
   oks.push('JWT_SECRET present and length ≥ 32');
 }
 
 if (!audit) {
   warns.push(
-    'AUDIT_HMAC_KEY unset — audit HMAC falls back to JWT_SECRET (set a separate key for Pilot/compliance)',
+    minimal
+      ? 'AUDIT_HMAC_KEY unset — ensure:minimal-env writes both keys; ok if JWT alone for lab'
+      : 'AUDIT_HMAC_KEY unset — prefer separate key',
   );
 } else if (audit.length < 32) {
   fails.push(`AUDIT_HMAC_KEY too short (${audit.length} < 32)`);
@@ -75,32 +82,39 @@ if (!audit) {
 const shield = String(env.CLASSROOM_DESK_SHIELD ?? '')
   .trim()
   .toLowerCase();
-const dnsOn =
-  env.CLASSROOM_DESK_DNS === '1' ||
-  env.CLASSROOM_DESK_DNS === 'true';
-if (!shield || shield === 'off') {
-  warns.push(
-    'Shield=off (or unset): UI must show 网关未断 — do not claim gateway cut. Campus SKU needs opnsense|unifi|http.',
-  );
-} else if (!['http', 'opnsense', 'unifi', 'lab'].includes(shield)) {
-  fails.push(`CLASSROOM_DESK_SHIELD=${shield} invalid (use off|http|opnsense|unifi)`);
+const dnsOn = env.CLASSROOM_DESK_DNS === '1' || env.CLASSROOM_DESK_DNS === 'true';
+
+if (minimal) {
+  oks.push('profile=minimal — no gateway/TLS/DeskDNS required');
+  if (!shield || shield === 'off') {
+    oks.push('Shield off — UI must show 网关未断 (honest)');
+  } else {
+    oks.push(`Shield adapter: ${shield}`);
+  }
+  if (dnsOn) oks.push('DeskDNS enabled (optional add-on)');
 } else {
-  oks.push(`Shield adapter: ${shield}`);
+  if (!shield || shield === 'off') {
+    warns.push(
+      'Shield=off — campus SKU needs opnsense|unifi|http; minimal classroom OK (docs/MINIMAL_DEPLOY.md)',
+    );
+  } else if (!['http', 'opnsense', 'unifi', 'lab'].includes(shield)) {
+    fails.push(`CLASSROOM_DESK_SHIELD=${shield} invalid`);
+  } else {
+    oks.push(`Shield adapter: ${shield}`);
+  }
+  if (dnsOn) oks.push('DeskDNS env enabled');
+  else warns.push('DeskDNS not enabled — OK unless 单网校包');
+  warns.push('HTTPS: optional unless max_secrecy in production (docs/TLS_REVERSE_PROXY.md)');
 }
-if (dnsOn) oks.push('DeskDNS env enabled (CLASSROOM_DESK_DNS=1)');
-else warns.push('DeskDNS not enabled via env — OK for campus Shield SKU; required for 单网校包');
 
 warns.push(
-  'HTTPS: terminate TLS at Caddy/nginx (docs/TLS_REVERSE_PROXY.md); max_secrecy production rejects non-TLS staff login',
-);
-warns.push(
-  'Marketing ban: do not claim GA / 绝密 / 安全局最高机密 — Pilot only (docs/PILOT_SKU.md, docs/PILOT_GO_LIVE.md)',
+  'Marketing ban: do not claim GA / 绝密 / 安全局最高机密 — Pilot only',
 );
 
 const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
-oks.push(`package version ${pkg.version} (Pilot narrative; gaReady=false until school live evidence)`);
+oks.push(`package ${pkg.version} · gaReady=false`);
 
-console.log('=== Pilot go-live check ===\n');
+console.log(`=== Pilot go-live check${minimal ? ' (minimal)' : ''} ===\n`);
 for (const x of oks) console.log(`OK   ${x}`);
 for (const x of warns) console.log(`WARN ${x}`);
 for (const x of fails) console.log(`FAIL ${x}`);
@@ -111,7 +125,7 @@ if (fails.length) {
 }
 console.log(
   warns.length
-    ? `Result: PASS with ${warns.length} warning(s) — review before classroom cutover`
+    ? `Result: PASS with ${warns.length} warning(s)`
     : 'Result: PASS',
 );
 process.exit(0);
