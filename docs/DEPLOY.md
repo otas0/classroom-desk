@@ -53,16 +53,23 @@
 `/etc/classroom-desk.env`（权限 `640`，属主 `root:classroom`）:
 
 ```bash
-JWT_SECRET=replace-me
+# openssl rand -hex 32 each — docs/PILOT_GO_LIVE.md
+JWT_SECRET=
+AUDIT_HMAC_KEY=
+NODE_ENV=production
 ADMIN_PASSWORD=
 TEACHER_PASSWORD=
 DEFAULT_CLASS_CODE=DEMO01
 CLASSROOM_DESK_DATA_DIR=/var/lib/classroom-desk
 CLASSROOM_DESK_NAS_DIR=/mnt/school-nas/classroom-desk
 CLASSROOM_DESK_BACKUP_KEEP_DAYS=14
+# Campus SKU: CLASSROOM_DESK_SHIELD=opnsense|unifi|http
+# 单网校包: CLASSROOM_DESK_DNS=1
 PORT=8787
 HOST=127.0.0.1
 ```
+
+上线四条自检：`npm run check:pilot-go-live -- /etc/classroom-desk.env`（[`PILOT_GO_LIVE.md`](./PILOT_GO_LIVE.md)）。
 
 `/etc/systemd/system/classroom-desk.service`:
 

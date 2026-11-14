@@ -133,7 +133,7 @@ export function ProjectionRoomBanner({ classId }: { classId: string }) {
         role="status"
       >
         {shieldOff
-          ? t('Shield 未断网（未配置网关）')
+          ? t('网关未断 · Shield 未配置')
           : t('Shield：{v0}', { v0: shieldActive })}
         {' · '}
         {t('待批准 {v0}', { v0: String(pendingCount) })}

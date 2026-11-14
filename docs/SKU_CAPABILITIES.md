@@ -1,6 +1,6 @@
 # 销售一页纸：能力旗标 ↔ SKU
 
-**对外口径：Pilot 可售，不是 1.0 GA。** 合同边界见 [`PILOT_SKU.md`](./PILOT_SKU.md)。  
+**对外口径：Pilot 可售，不是 1.0 GA。** 禁止写「绝密 / 安全局最高机密 / 全线发售」。合同边界见 [`PILOT_SKU.md`](./PILOT_SKU.md) · 上线四条见 [`PILOT_GO_LIVE.md`](./PILOT_GO_LIVE.md)。  
 `examBoxHardware=false`：考场**量产硬件**未发售；仅 compose/镜像试点可报价。
 
 可打印 HTML（浏览器「另存为 PDF」）：[`SKU_CAPABILITIES.html`](./SKU_CAPABILITIES.html)  

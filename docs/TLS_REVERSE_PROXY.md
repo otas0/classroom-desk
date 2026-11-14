@@ -13,9 +13,12 @@
 
 1. 校内 CA 签发 `classroom.school.local`（或教师机名）证书；学生机信任校根。  
 2. 复制 Caddyfile，改域名与证书路径；`reverse_proxy 127.0.0.1:8787`。  
-3. 教师设置 / 学生 `apiBase` = `https://classroom.school.local`（无尾斜杠、无 `:8787`）。  
-4. 验证：`curl -fsS https://classroom.school.local/health`；学生连班走 HTTPS。  
-5. **勿**把 `:8787` 映射公网；连班 PIN 仅教室 VLAN。见 [CLASSROOM_JOIN_SECURITY.md](./CLASSROOM_JOIN_SECURITY.md)。
+3. 反代须转发 **`X-Forwarded-Proto: https`**（否则生产 + 最高保密档会把登录判为非 TLS → `tls_required`）。  
+4. 教师设置 / 学生 `apiBase` = `https://classroom.school.local`（无尾斜杠、无 `:8787`）。  
+5. 验证：`curl -fsS https://classroom.school.local/health`；学生连班走 HTTPS。  
+6. **勿**把 `:8787` 映射公网；连班 PIN 仅教室 VLAN。见 [CLASSROOM_JOIN_SECURITY.md](./CLASSROOM_JOIN_SECURITY.md)。
+
+教室同 VLAN 仅 HTTP 的 Pilot：**保持 `max_secrecy_mode=0`**（默认）；S 档仍可用。最高保密档生产环境必须本页 HTTPS。见 [PILOT_GO_LIVE.md](./PILOT_GO_LIVE.md)。
 
 ## 明确不做
 

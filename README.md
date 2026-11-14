@@ -47,6 +47,10 @@
 cp .env.example .env
 ```
 
+### Pilot 上线四条（必读）
+
+见 [`docs/PILOT_GO_LIVE.md`](./docs/PILOT_GO_LIVE.md)：强 `JWT_SECRET` + `AUDIT_HMAC_KEY`、HTTPS 反代、按 SKU 配 Shield/DeskDNS（未配则 UI「网关未断」）、禁止对外写 GA/绝密/安全局最高机密。自检：`npm run check:pilot-go-live`。
+
 ### 生产部署与 JWT_SECRET（必读）
 
 | 变量 | 生产要求 | 说明 |

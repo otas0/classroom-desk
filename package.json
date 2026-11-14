@@ -46,6 +46,7 @@
     "archive:live-shield": "node scripts/archive-live-shield-evidence.mjs",
     "archive:opennds-lab": "node scripts/archive-opennds-lab-evidence.mjs",
     "check:live-evidence": "node scripts/check-live-evidence-sanitized.mjs",
+    "check:pilot-go-live": "node scripts/check-pilot-go-live.mjs",
     "test:live-evidence": "node scripts/check-live-evidence-sanitized.test.mjs",
     "export:compliance-evidence": "node scripts/export-compliance-evidence.mjs",
     "test:net-reconcile": "npx tsx apps/server/src/test/netReconcile.test.ts",
