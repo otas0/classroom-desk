@@ -30,6 +30,14 @@ export function EndOfClassChecklist({ classId }: { classId: string }) {
       setMsg(t('已取消：须密码再认证'));
       return;
     }
+    const second = window.prompt(
+      t('双人规则：请输入另一特权账号密码（教师操作须管理员；管理员操作须教师）'),
+      '',
+    );
+    if (second == null || !String(second).trim()) {
+      setMsg(t('已取消：须双人密码'));
+      return;
+    }
     setBusy(true);
     setMsg('');
     try {
@@ -44,6 +52,7 @@ export function EndOfClassChecklist({ classId }: { classId: string }) {
         body: JSON.stringify({
           classId,
           confirmPassword: String(confirmPassword).trim(),
+          secondPassword: String(second).trim(),
         }),
       });
       setMsg(

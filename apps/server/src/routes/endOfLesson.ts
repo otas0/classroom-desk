@@ -6,7 +6,10 @@ import { clearEasyJoin } from '../services/easyJoin.js';
 import { upsertSetting } from '../services/exitLock.js';
 import { getPortalSessionEpoch } from '../services/portalSessionRevoke.js';
 import { maxSecrecyEnabled } from '../services/maxSecrecy.js';
-import { reauthRequiredResponse, verifyActorReauth } from '../services/reauth.js';
+import {
+  twoPersonRequiredResponse,
+  verifyTwoPersonRule,
+} from '../services/reauth.js';
 
 export const endOfLessonRouter = Router();
 
@@ -27,13 +30,14 @@ endOfLessonRouter.post(
     }
     const db = openDb();
     if (maxSecrecyEnabled(db)) {
-      const ok = await verifyActorReauth(db, {
+      const two = await verifyTwoPersonRule(db, {
         userId: req.user?.id,
         role: req.user?.role,
-        password: req.body?.confirmPassword ?? req.body?.password,
+        confirmPassword: req.body?.confirmPassword ?? req.body?.password,
+        secondPassword: req.body?.secondPassword,
       });
-      if (!ok) {
-        res.status(403).json(reauthRequiredResponse());
+      if (!two.ok) {
+        res.status(403).json(twoPersonRequiredResponse(two.detail));
         return;
       }
     }

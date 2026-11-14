@@ -45,6 +45,7 @@ import { addExitLockSseClient, broadcastExitLockPayload } from '../services/exit
 import { addInputLockSseClient, broadcastInputLock, buildInputLockPayload } from '../services/inputLockHub.js';
 import { previewPurgeExpiredSoftDeletes, purgeExpiredSoftDeletes, writeAudit } from '../services/audit.js';
 import { maxSecrecyEnabled } from '../services/maxSecrecy.js';
+import { getSecretSetting } from '../services/secretAtRest.js';
 import { toCsv } from '../utils/csv.js';
 import {
   decryptFileAesGcm,
@@ -296,7 +297,7 @@ settingsRouter.get('/api/v1/settings', requireAuth, requireRoles('teacher', 'adm
     joinRateLimitedIpsLive: countLiveJoinRateLimitedIps(),
     joinRateLimitedIpsLiveList: listLiveJoinRateLimitedIps(),
     federationHubUrl: getSetting(db, 'federation_hub_url') ?? '',
-    hasFederationHubToken: Boolean((getSetting(db, 'federation_hub_token') ?? '').trim()),
+    hasFederationHubToken: Boolean(getSecretSetting(db, 'federation_hub_token').trim()),
     classListPullEnabled: (getSetting(db, 'class_list_pull_enabled') ?? '0') === '1',
     classListPullClassId: getSetting(db, 'class_list_pull_class_id') ?? '',
     classroomDisplayName: getSetting(db, 'classroom_display_name') ?? '',
@@ -318,7 +319,7 @@ settingsRouter.get('/api/v1/settings', requireAuth, requireRoles('teacher', 'adm
     examBoxAcceptedAt: getSetting(db, 'exam_box_accepted_at') ?? '',
     shieldAdapter: getSetting(db, 'shield_adapter') ?? '',
     shieldHttpUrl: getSetting(db, 'shield_http_url') ?? '',
-    hasShieldHttpToken: Boolean((getSetting(db, 'shield_http_token') ?? '').trim()),
+    hasShieldHttpToken: Boolean(getSecretSetting(db, 'shield_http_token').trim()),
     deskDnsEnabled: (getSetting(db, 'desk_dns_enabled') ?? '0') === '1',
     deskDnsPort: Number(getSetting(db, 'desk_dns_port') ?? 5353),
     restoreConfirmEmail: getSetting(db, 'restore_confirm_email') ?? '',
@@ -793,7 +794,9 @@ settingsRouter.patch('/api/v1/settings', requireAuth, requireRoles('teacher', 'a
     reloadShieldConnectorFromEnv();
   }
   if (req.body?.shieldHttpToken !== undefined) {
-    upsertSettingKey(
+    const { setSecretSetting } = await import('../services/secretAtRest.js');
+    setSecretSetting(
+      db,
       'shield_http_token',
       String(req.body.shieldHttpToken ?? '').trim().slice(0, 256),
     );
@@ -821,6 +824,13 @@ settingsRouter.patch('/api/v1/settings', requireAuth, requireRoles('teacher', 'a
   }
   if (req.body?.federationHubUrl !== undefined) {
     const url = String(req.body.federationHubUrl ?? '').trim().slice(0, 500);
+    if (url && maxSecrecyEnabled(db)) {
+      res.status(403).json({
+        error: 'max_secrecy_airgap',
+        message: '最高保密档空域：禁止配置联邦 Hub',
+      });
+      return;
+    }
     if (url && !/^https?:\/\//i.test(url)) {
       res.status(400).json({
         error: 'invalid_federation_hub_url',
@@ -831,8 +841,12 @@ settingsRouter.patch('/api/v1/settings', requireAuth, requireRoles('teacher', 'a
     upsertSettingKey('federation_hub_url', url);
   }
   if (req.body?.federationHubToken !== undefined) {
-    const token = String(req.body.federationHubToken ?? '').trim().slice(0, 256);
-    upsertSettingKey('federation_hub_token', token);
+    const { setSecretSetting } = await import('../services/secretAtRest.js');
+    setSecretSetting(
+      db,
+      'federation_hub_token',
+      String(req.body.federationHubToken ?? '').trim().slice(0, 256),
+    );
   }
   if (req.body?.sisRosterSyncNow === true || req.body?.sisRosterSyncNow === 1) {
     const dryRun =

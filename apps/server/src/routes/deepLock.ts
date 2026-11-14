@@ -17,7 +17,12 @@ import { getClientExitLockState } from '../services/exitLock.js';
 import { broadcastInputLock } from '../services/inputLockHub.js';
 import { getShieldConnector } from '../services/shield/registry.js';
 import { maxSecrecyEnabled } from '../services/maxSecrecy.js';
-import { reauthRequiredResponse, verifyActorReauth } from '../services/reauth.js';
+import {
+  reauthRequiredResponse,
+  twoPersonRequiredResponse,
+  verifyActorReauth,
+  verifyTwoPersonRule,
+} from '../services/reauth.js';
 
 export const deepLockRouter = Router();
 
@@ -52,6 +57,14 @@ deepLockRouter.get('/api/v1/deep-lock/stream', (_req, res) => {
 
 deepLockRouter.get('/api/v1/deep-lock/public', (_req, res) => {
   const db = openDb();
+  // Max-secrecy air-gap: do not leak lock state / shield identity unauthenticated.
+  if (maxSecrecyEnabled(db)) {
+    res.status(403).json({
+      error: 'max_secrecy_public_blocked',
+      message: '最高保密档禁止未鉴权读取深锁公开态',
+    });
+    return;
+  }
   const store = getDeepLockStore(db);
   res.json({
     type: 'deep_lock',
@@ -81,14 +94,28 @@ deepLockRouter.post(
       : undefined;
     const db = openDb();
     if (maxSecrecyEnabled(db) && action !== 'patch') {
-      const ok = await verifyActorReauth(db, {
-        userId: req.user?.id,
-        role: req.user?.role,
-        password: req.body?.confirmPassword ?? req.body?.password,
-      });
-      if (!ok) {
-        res.status(403).json(reauthRequiredResponse());
-        return;
+      // allow_net / end: two-person; other tighten actions: single reauth
+      if (action === 'allow_net' || action === 'end') {
+        const two = await verifyTwoPersonRule(db, {
+          userId: req.user?.id,
+          role: req.user?.role,
+          confirmPassword: req.body?.confirmPassword ?? req.body?.password,
+          secondPassword: req.body?.secondPassword,
+        });
+        if (!two.ok) {
+          res.status(403).json(twoPersonRequiredResponse(two.detail));
+          return;
+        }
+      } else {
+        const ok = await verifyActorReauth(db, {
+          userId: req.user?.id,
+          role: req.user?.role,
+          password: req.body?.confirmPassword ?? req.body?.password,
+        });
+        if (!ok) {
+          res.status(403).json(reauthRequiredResponse());
+          return;
+        }
       }
     }
     const actor = {

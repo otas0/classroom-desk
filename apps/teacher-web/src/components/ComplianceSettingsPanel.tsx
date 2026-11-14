@@ -34,6 +34,7 @@ export function ComplianceSettingsPanel() {
   const [follow, setFollow] = useState(true);
   const [maxSec, setMaxSec] = useState(true);
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [secondPassword, setSecondPassword] = useState('');
   const [alias, setAlias] = useState<AliasReport | null>(null);
   const [chain, setChain] = useState<{
     ok?: boolean;
@@ -104,6 +105,10 @@ export function ComplianceSettingsPanel() {
       setMsg(t('请先输入管理员密码再切换最高保密档'));
       return;
     }
+    if (!maxSec && !secondPassword.trim()) {
+      setMsg(t('关闭最高保密档须双人：再填教师口令（secondPassword）'));
+      return;
+    }
     setBusy(true);
     setMsg('');
     try {
@@ -115,14 +120,16 @@ export function ComplianceSettingsPanel() {
         body: JSON.stringify({
           maxSecrecyMode: maxSec,
           confirmPassword: confirmPassword.trim(),
+          secondPassword: secondPassword.trim() || undefined,
         }),
       });
       setMsg(
         body.maxSecrecyMode
-          ? t('已开启最高保密档（双线 AND · HMAC 审计 · 深锁再认证）')
+          ? t('已开启最高保密档（空域·双人·落盘加密·短会话）')
           : t('已关闭最高保密档（仍可用 S 档）'),
       );
       setConfirmPassword('');
+      setSecondPassword('');
       await load();
     } catch (e) {
       setMsg(e instanceof Error ? e.message : t('切换失败'));
@@ -265,6 +272,17 @@ export function ComplianceSettingsPanel() {
               autoComplete="current-password"
               data-testid="compliance-confirm-password"
               onChange={(e) => setConfirmPassword(e.target.value)}
+            />
+          </label>
+          <label className="row">
+            <span>{t('双人第二口令（关保密档须教师口令）')}</span>
+            <input
+              type="password"
+              value={secondPassword}
+              disabled={busy}
+              autoComplete="off"
+              data-testid="compliance-second-password"
+              onChange={(e) => setSecondPassword(e.target.value)}
             />
           </label>
           <button type="button" disabled={busy} onClick={() => void saveMaxSec()}>

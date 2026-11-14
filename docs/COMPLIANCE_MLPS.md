@@ -4,7 +4,7 @@
 > **定位：** 在「校安运维级」（失败闭合、无假成功、可审计）之上，补控制矩阵、日志留存、账号分权与证据包，供学校信息中心 / 密评材料引用。  
 > **非承诺：** 本文不替代正式等保测评报告；不宣称产品已通过某级等保认证。材料由学校 IT 结合本校拓扑填证。  
 > **S 档声明：** `security_tier_s=1`（默认）是学校硬化档（审计链、OR 双线门闩、禁未映射软放行）。  
-> **最高保密档：** `max_secrecy_mode=1`（默认）是**产品内最严机制**（双线 **AND**、HMAC 密钥审计链 + `data/audit-seal/` 只追加镜像、深锁/合规 **密码再认证**、考试态心跳失败自动收紧、禁一键连班、禁联邦广播、合规包 `packHmac`）。**不是**国家秘密 / 绝密信息系统，禁止对外宣传「安全局最高机密」或等同密级。单网校仅 DeskDNS 时须关闭最高保密档、保留 S 档。
+> **最高保密档：** `max_secrecy_mode=1`（默认）是**产品内最严机制**：双线 **AND**；HMAC 审计 + 密封镜像；敏感配置 **AES-GCM 落盘**；深锁再认证；**放行/下课/关保密档双人规则**；考试态心跳失败 **加深锁+踢班**；员工 JWT **15 分钟 + IP 绑定**；空域（禁 mDNS/beacon/GitHub 轮询/联邦 Hub）；生产 **HTTPS 登录**；禁公开深锁态 / 一键连班。**不是**国家秘密 / 绝密信息系统。单网校仅 DeskDNS 时须关闭最高保密档、保留 S 档。
 
 相关：[`SECURITY.md`](./SECURITY.md) · [`PERMISSIONS.md`](./PERMISSIONS.md) · [`NETWORK.md`](./NETWORK.md) · [`PILOT_SKU.md`](./PILOT_SKU.md) · [`CLASSROOM_JOIN_SECURITY.md`](./CLASSROOM_JOIN_SECURITY.md)
 
@@ -85,14 +85,15 @@ flowchart TB
 
 | 场景 | 期望行为 |
 |---|---|
-| 最高保密档：Shield 或 DeskDNS 缺一 | **拒绝** freeze/exam_net/kick（`max_secrecy_dual_path`）；审计 `deep_lock.maxsec_dual_refuse` |
-| S 档且关闭最高保密：双线皆未武装 | **拒绝**（`strict_net_fail_closed`）；须 Shield **或** DeskDNS |
-| 深锁敏感动作无 `confirmPassword` | **403** `reauth_required` |
-| 考试态 Shield 心跳过期或 DeskDNS 宕 | 调度器 `maxsec.heartbeat_fail_lockdown`；**禁止 allow_net** |
-| Shield API 失败 | `ok:false` + 审计 + 顶栏错误；客户端仍按深锁收紧 |
-| 未映射 SSID | 默认 **block**；S/最高保密/生产 **禁止** 软放行 |
-| 一键连班 / 联邦广播 | 最高保密档 **禁止开启 / 不广播** |
-| 下课收工 | 确认 + 再认证后清 epoch / 放行表 / 连班 / 深锁 |
+| 最高保密档：Shield 或 DeskDNS 缺一 | **拒绝** freeze/exam_net/kick（`max_secrecy_dual_path`） |
+| 深锁收紧无 `confirmPassword` | **403** `reauth_required` |
+| `allow_net` / 下课 / 关最高保密档 | **双人**：`confirmPassword` + `secondPassword`（教师↔管理员） |
+| 考试态心跳失败 | 加深冻结 + **踢全班** + 禁 `allow_net`；审计 `maxsec.heartbeat_fail_lockdown` |
+| 员工会话 | JWT ≤15min + `bindIp`；错 IP → `ip_bind_mismatch` |
+| 空域 | 停 mDNS / UDP beacon / GitHub 轮询 / 联邦 Hub |
+| 敏感配置 | `shield_http_token` 等 `enc1:` AES-GCM（`AUDIT_HMAC_KEY`） |
+| 公开深锁态 | `GET /deep-lock/public` **403** |
+| 生产登录 | 非回环须 HTTPS（`tls_required`） |
 
 ## 6. 证据包清单
 

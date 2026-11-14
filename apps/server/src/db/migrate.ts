@@ -157,7 +157,11 @@ const DEFAULT_SETTINGS: Record<string, string> = {
    * forces portal sig / private-device / easy-join off / DeskDNS follow.
    */
   max_secrecy_mode: '1',
-  max_secrecy_heartbeat_stale_sec: '120',
+  max_secrecy_heartbeat_stale_sec: '60',
+  max_secrecy_jwt_ttl_sec: '900',
+  max_secrecy_airgap: '1',
+  max_secrecy_bind_ip: '1',
+  max_secrecy_require_tls: '0',
   max_secrecy_lockdown: '0',
   max_secrecy_lockdown_reason: '',
 };

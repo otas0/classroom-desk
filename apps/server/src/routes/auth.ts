@@ -53,8 +53,37 @@ authRouter.post('/api/v1/auth/login', async (req, res) => {
     return;
   }
 
+  const {
+    maxSecrecyEnabled,
+    maxSecrecyRequireTls,
+    maxSecrecyBindIp,
+    maxSecrecyJwtTtlSec,
+  } = await import('../services/maxSecrecy.js');
+  if (maxSecrecyRequireTls(db)) {
+    const proto = String(req.headers['x-forwarded-proto'] ?? '').split(',')[0]?.trim();
+    const secure = Boolean(req.secure) || proto === 'https';
+    const ip = String(req.ip ?? '');
+    const loopback =
+      ip === '127.0.0.1' ||
+      ip === '::1' ||
+      ip === '::ffff:127.0.0.1' ||
+      ip.startsWith('127.');
+    if (!secure && !loopback) {
+      res.status(403).json({
+        error: 'tls_required',
+        message: '最高保密档生产环境须经 HTTPS（或本机回环）登录',
+      });
+      return;
+    }
+  }
+
   const authUser = mapUser(user);
-  const token = await signToken(authUser);
+  const signOpts: { expiresIn?: string | number; bindIp?: string } = {};
+  if (maxSecrecyEnabled(db)) {
+    signOpts.expiresIn = `${maxSecrecyJwtTtlSec(db)}s`;
+    if (maxSecrecyBindIp(db) && req.ip) signOpts.bindIp = String(req.ip);
+  }
+  const token = await signToken(authUser, signOpts);
   let mustChangePassword = false;
   if (user.role === 'assistant') {
     // Assistants: only force on first login (password_ok) or when the password itself is weak.

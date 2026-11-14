@@ -11,6 +11,7 @@ import { getDataDir, openDb } from '../db/client.js';
 import { getSetting } from '../db/migrate.js';
 import { createRequire } from 'node:module';
 import { upsertSetting } from './exitLock.js';
+import { maxSecrecyAirgap } from './maxSecrecy.js';
 
 const requireJson = createRequire(import.meta.url);
 function packageVersion(): string {
@@ -337,6 +338,11 @@ export function startReleaseCheckScheduler() {
   if (pollTimer) return;
   const ms = Number(process.env.CLASSROOM_DESK_RELEASE_CHECK_MS ?? 6 * 60 * 60 * 1000);
   const tick = () => {
+    try {
+      if (maxSecrecyAirgap(openDb())) return;
+    } catch {
+      /* continue */
+    }
     void checkLatestRelease({ force: false }).catch((err) => {
       console.warn('[release-check]', err instanceof Error ? err.message : err);
     });

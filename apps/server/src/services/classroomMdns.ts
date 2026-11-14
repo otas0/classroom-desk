@@ -9,6 +9,7 @@ import { config } from '../config.js';
 import { openDb } from '../db/client.js';
 import { getSetting } from '../db/migrate.js';
 import { orderedLanIpsForAdvertise, resolveAdvertiseLanIp } from './lanNetwork.js';
+import { maxSecrecyAirgap } from './maxSecrecy.js';
 
 type Mdns = ReturnType<typeof multicastDns>;
 
@@ -78,6 +79,11 @@ function answers() {
 function announce() {
   if (!mdns) return;
   try {
+    if (maxSecrecyAirgap(openDb())) return;
+  } catch {
+    /* continue */
+  }
+  try {
     mdns.respond({ answers: answers() as never });
   } catch {
     /* ignore */
@@ -89,6 +95,14 @@ export function startClassroomMdns(): void {
   if (process.env.CLASSROOM_DESK_MDNS === '0') {
     console.log('[classroom-mdns] disabled (CLASSROOM_DESK_MDNS=0)');
     return;
+  }
+  try {
+    if (maxSecrecyAirgap(openDb())) {
+      console.log('[classroom-mdns] disabled (max_secrecy airgap)');
+      return;
+    }
+  } catch {
+    /* continue */
   }
   try {
     mdns = multicastDns();

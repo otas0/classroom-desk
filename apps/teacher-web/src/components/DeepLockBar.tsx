@@ -75,6 +75,18 @@ export function DeepLockBar({ classId }: { classId: string }) {
       setMsg(t('已取消：须密码再认证'));
       return;
     }
+    let secondPassword: string | undefined;
+    if (action === 'allow_net' || action === 'end') {
+      const second = window.prompt(
+        t('双人规则：请输入另一特权账号密码（教师操作须管理员；管理员操作须教师）'),
+        '',
+      );
+      if (second == null || !String(second).trim()) {
+        setMsg(t('已取消：须双人密码'));
+        return;
+      }
+      secondPassword = String(second).trim();
+    }
     setBusy(true);
     const allowlistHosts = hosts
       .split(/[,;\s]+/)
@@ -88,6 +100,7 @@ export function DeepLockBar({ classId }: { classId: string }) {
         examUrl: examUrl.trim() || undefined,
         allowlistHosts,
         confirmPassword: String(confirmPassword).trim(),
+        secondPassword,
       }),
     })
       .then(async (r) => {

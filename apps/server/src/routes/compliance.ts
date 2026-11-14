@@ -30,12 +30,19 @@ import {
 import {
   applyMaxSecrecyPosture,
   evaluateDualPathRequired,
+  maxSecrecyAirgap,
+  maxSecrecyBindIp,
   maxSecrecyEnabled,
   maxSecrecyLockdownActive,
   setMaxSecrecyMode,
   tickMaxSecrecyWatchdog,
 } from '../services/maxSecrecy.js';
-import { reauthRequiredResponse, verifyActorReauth } from '../services/reauth.js';
+import {
+  reauthRequiredResponse,
+  twoPersonRequiredResponse,
+  verifyActorReauth,
+  verifyTwoPersonRule,
+} from '../services/reauth.js';
 
 export const complianceRouter = Router();
 
@@ -79,6 +86,8 @@ complianceRouter.get(
       maxSecrecyMode: maxSecrecyEnabled(db),
       maxSecrecyLockdown: maxSecrecyLockdownActive(db),
       maxSecrecyLockdownReason: getSetting(db, 'max_secrecy_lockdown_reason') || null,
+      maxSecrecyAirgap: maxSecrecyAirgap(db),
+      maxSecrecyBindIp: maxSecrecyBindIp(db),
       dualPath: evaluateDualPathRequired(db),
       watchdog: wd,
       auditSealPath: auditSealPath(),
@@ -162,26 +171,40 @@ complianceRouter.patch(
   requireRoles('admin'),
   async (req: AuthedRequest, res) => {
     const db = openDb();
-    const ok = await verifyActorReauth(db, {
-      userId: req.user?.id,
-      role: req.user?.role,
-      password: req.body?.confirmPassword ?? req.body?.password,
-    });
-    if (!ok) {
-      res.status(403).json(reauthRequiredResponse());
-      return;
-    }
     const on =
       req.body?.maxSecrecyMode === true ||
       req.body?.maxSecrecyMode === 1 ||
       req.body?.maxSecrecyMode === '1';
+    // Turning OFF requires two-person; turning ON needs admin reauth only.
+    if (!on) {
+      const two = await verifyTwoPersonRule(db, {
+        userId: req.user?.id,
+        role: req.user?.role,
+        confirmPassword: req.body?.confirmPassword ?? req.body?.password,
+        secondPassword: req.body?.secondPassword,
+      });
+      if (!two.ok) {
+        res.status(403).json(twoPersonRequiredResponse(two.detail));
+        return;
+      }
+    } else {
+      const ok = await verifyActorReauth(db, {
+        userId: req.user?.id,
+        role: req.user?.role,
+        password: req.body?.confirmPassword ?? req.body?.password,
+      });
+      if (!ok) {
+        res.status(403).json(reauthRequiredResponse());
+        return;
+      }
+    }
     setMaxSecrecyMode(db, on);
     const forced = on ? applyMaxSecrecyPosture(db) : {};
     writeAudit({
       actorUserId: req.user?.id,
       actorRole: req.user?.role,
       action: 'compliance.max_secrecy',
-      detail: { maxSecrecyMode: on, forced },
+      detail: { maxSecrecyMode: on, forced, twoPerson: !on },
       clientIp: req.ip,
     });
     res.json({

@@ -8,6 +8,7 @@ import os from 'node:os';
 import { config } from '../config.js';
 import { openDb } from '../db/client.js';
 import { orderedLanIpsForAdvertise } from './lanNetwork.js';
+import { maxSecrecyAirgap } from './maxSecrecy.js';
 
 export const CLASSROOM_BEACON_PORT = 8799;
 
@@ -43,6 +44,11 @@ export function startClassroomBeacon(): void {
       socket = sock;
       const tick = () => {
         if (!socket) return;
+        try {
+          if (maxSecrecyAirgap(openDb())) return;
+        } catch {
+          /* continue */
+        }
         const buf = payload();
         try {
           socket.send(buf, CLASSROOM_BEACON_PORT, '255.255.255.255');
