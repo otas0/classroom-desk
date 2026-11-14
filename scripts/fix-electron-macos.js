@@ -6,6 +6,15 @@ import { fileURLToPath } from 'node:url';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const electronDir = path.join(root, 'node_modules/electron');
 
+// Offline / teacher-host packs: never download Electron from GitHub.
+if (
+  process.env.ELECTRON_SKIP_BINARY_DOWNLOAD === '1' ||
+  process.env.CLASSROOM_DESK_OFFLINE === '1' ||
+  fs.existsSync(path.join(root, '.classroom-desk-offline-ready'))
+) {
+  process.exit(0);
+}
+
 if (!fs.existsSync(electronDir)) {
   process.exit(0);
 }

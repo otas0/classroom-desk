@@ -8,9 +8,21 @@ import { DeviceControlBar } from './DeviceControlBar';
 import { NetworkZonesPanel } from './NetworkZonesPanel';
 import { PrincipalDashboard } from './PrincipalDashboard';
 import { HealthNetCard } from './HealthNetCard';
+import { DeskDnsDeployPanel } from './DeskDnsDeployPanel';
 import { CapabilityGate } from './CapabilityGates';
 import { LiveBoard } from './LiveBoard';
 import { FleetDriftNudge } from './FleetDriftNudge';
+import { PresenceClients } from './PresenceClients';
+import {
+  AssignedAccessBanner,
+  EMPTY_ASSIGNED_ACCESS_GATE,
+  type AssignedAccessGate,
+} from './AssignedAccessBanner';
+import {
+  EMPTY_LAB_GO_LIVE_GATE,
+  LabGoLivePanel,
+  type LabGoLiveGate,
+} from './LabGoLivePanel';
 import { t, te } from '@classroom-desk/i18n';
 
 const OCR_DRAFT_KEY = 'cd_ocr_draft';
@@ -20,6 +32,76 @@ type RosterStudent = {
   displayName: string;
   studentNo: string | null;
 };
+
+/** Export LAN links + Setup names for this class (no passwords). */
+function LessonPackBar({ classId }: { classId: string }) {
+  const [msg, setMsg] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  async function downloadPack() {
+    if (!classId.trim()) return;
+    setBusy(true);
+    setMsg('');
+    try {
+      const pack = await api<{ text?: string }>(
+        `/api/v1/ops/lesson-pack?classId=${encodeURIComponent(classId)}`,
+      );
+      const text = String(pack.text ?? '');
+      const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `ClassroomDesk-Lesson-${classId.slice(0, 8)}.txt`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+      try {
+        await navigator.clipboard.writeText(text);
+        setMsg(t('已下载并复制上课包'));
+      } catch {
+        setMsg(t('已下载上课包'));
+      }
+    } catch (e) {
+      setMsg(te(e, t('导出失败')));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function refreshStudentCard() {
+    setBusy(true);
+    setMsg('');
+    try {
+      await api('/api/v1/ops/refresh-student-install-card', { method: 'POST', body: '{}' });
+      setMsg(t('已刷新桌面学生安装说明（IP）'));
+    } catch (e) {
+      setMsg(te(e, t('刷新失败')));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section className="lesson-pack-bar" data-testid="lesson-pack-bar">
+      <h3>{t('本班上课包')}</h3>
+      <p className="hint">
+        {t('导出当前 LAN 链接与学生 Setup 文件名（不含密码）。双网卡请先在「连班」里选广播 IP。')}
+      </p>
+      <div className="row">
+        <button type="button" disabled={!classId || busy} onClick={() => void downloadPack()}>
+          {t('导出上课包')}
+        </button>
+        <button
+          type="button"
+          className="secondary"
+          disabled={busy}
+          onClick={() => void refreshStudentCard()}
+        >
+          {t('刷新学生安装卡 IP')}
+        </button>
+      </div>
+      {msg ? <p className="hint">{msg}</p> : null}
+    </section>
+  );
+}
 
 export function SessionHome({
   classId,
@@ -65,6 +147,8 @@ export function SessionHome({
   const buzzWsRef = useRef<WebSocket | null>(null);
   const [groupA, setGroupA] = useState(0);
   const [groupB, setGroupB] = useState(0);
+  const [aaGate, setAaGate] = useState<AssignedAccessGate>(EMPTY_ASSIGNED_ACCESS_GATE);
+  const [labGate, setLabGate] = useState<LabGoLiveGate>(EMPTY_LAB_GO_LIVE_GATE);
 
   const [requests, setRequests] = useState<Array<Record<string, unknown>>>([]);
   const [requestErr, setRequestErr] = useState('');
@@ -418,10 +502,39 @@ export function SessionHome({
         onOpenUpgrades={onOpenUpgrades}
         onOpenPresence={onOpenPresence ? () => onOpenPresence(classId) : undefined}
       />
+      <LessonPackBar classId={classId} />
+      <PresenceClients classId={classId} />
       <ClassroomLockBar classId={classId} onOpenAdvanced={onOpenLockAdvanced} />
-      <DeepLockBar classId={classId} />
-      <ScheduleDeepLockPanel classId={classId} />
-      <DeviceControlBar classId={classId} />
+      <DeviceControlBar
+        classId={classId}
+        securityBureauAllowed={labGate.readyForMaxSecrecy}
+        securityBureauBlockReason={
+          labGate.readyForMaxSecrecy
+            ? ''
+            : labGate.blockReasons.length
+              ? t('未达机房上线门禁：{v0}', { v0: labGate.blockReasons.join('；') })
+              : aaGate.blockReason || t('未达机房上线门禁，禁止武装最高保密级')
+        }
+      />
+      <details className="session-more-net" data-testid="lab-advanced-panel">
+        <summary>{t('机房高级（最高保密级 · DeskDNS · 深锁）')}</summary>
+        <p className="hint">
+          {t('日常上课可跳过。考试/最高保密级再展开配置。')}
+        </p>
+        <AssignedAccessBanner classId={classId} onGateChange={setAaGate} />
+        <LabGoLivePanel classId={classId} onGateChange={setLabGate} />
+        <DeskDnsDeployPanel aaGate={aaGate} labGate={labGate} />
+        <DeepLockBar
+          classId={classId}
+          labGoLiveReady={labGate.readyForMaxSecrecy}
+          labGoLiveBlockReason={
+            labGate.blockReasons.length
+              ? t('未达机房上线门禁：{v0}', { v0: labGate.blockReasons.join('；') })
+              : ''
+          }
+        />
+        <ScheduleDeepLockPanel classId={classId} />
+      </details>
       <details className="session-more-net" data-testid="campus-pack-panel">
         <summary>{t('校园网包（Portal · Shield · Zones）')}</summary>
         <p className="hint">
@@ -479,7 +592,7 @@ export function SessionHome({
       </CapabilityGate>
       <CapabilityGate flag="netDns" label={t('DeskDNS')}>
         <p className="hint" data-testid="desk-dns-hint">
-          {t('DeskDNS：设置页可启用，或 CLASSROOM_DESK_DNS=1；DHCP 指本机（默认 5353，生产见 :53 文档）。')}
+          {t('DeskDNS：请用上方「部署 DeskDNS」启用与检测；设置页为进阶项。生产绑 53 见 docs/DESKDNS_PORT53.md。')}
         </p>
       </CapabilityGate>
       <HealthNetCard />

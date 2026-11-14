@@ -22,23 +22,184 @@ let examShellWindow: BrowserWindow | null = null;
 let blackoutWindows: BrowserWindow[] = [];
 let focusStealTimer: ReturnType<typeof setInterval> | null = null;
 let collapsed = false;
+/** Teacher settings (via renderer): allow chip collapse / OS minimize. */
+let allowCollapse = false;
+let allowMinimize = false;
 /** Deep-lock armed (freeze / exam allowlist / deny) — visible classroom policy. */
 let deepLockAggressiveActive = false;
 let deepLockFrozenActive = false;
+/** Offline security-custody: full primary cover + persist until unlock code. */
+let offlineCustodyActive = false;
+/** When true, Chromium cancels navigations except teacher API / localhost. */
+let custodyNetworkSeal = false;
 let examAllowHosts: string[] = [];
 /** Teacher device-control blocked hosts for openExternal. */
 let blockedHostsCache: string[] = [];
+/** Teacher blocked process names — merged into custody/deep-lock kill loops. */
+let blockedAppsCache: string[] = [];
 const registeredDeepLockShortcuts: string[] = [];
+let custodyNetworkSealInstalled = false;
 
 /**
- * Exit lock: students cannot close/quit unless unlocked.
- * Unlock via teacher batch (renderer polls) or local 解除码 (IPC grant).
+ * Exit lock: after first successful teacher connect, students cannot close/quit
+ * unless the teacher grants a timed unlock or 解除码. First-run / never bonded → exit OK.
  * Dev override: ALLOW_STUDENT_EXIT=1
  *
  * Note: OS Task Manager / kill -9 / Alt+Tab need school Assigned Access + Intune (L3).
  * This app does not hook Task Manager (see docs/SECURITY.md).
  */
+let teacherBonded = false;
+let exitUnlockGranted = false;
 let exitAllowed = process.env.ALLOW_STUDENT_EXIT === '1';
+
+function teacherBondPath(): string {
+  return path.join(app.getPath('userData'), 'teacher-bond.json');
+}
+
+function offlineCustodyPath(): string {
+  return path.join(app.getPath('userData'), 'offline-custody.json');
+}
+
+/** Windows ProgramData flag — survives userData wipe; still deletable by local admin without AA. */
+function offlineCustodyProgramDataFlag(): string | null {
+  if (process.platform !== 'win32') return null;
+  const root = process.env.PROGRAMDATA || 'C:\\ProgramData';
+  return path.join(root, 'ClassroomDesk', 'offline-custody.flag');
+}
+
+function loadOfflineCustodyFlag(): boolean {
+  try {
+    const raw = JSON.parse(fs.readFileSync(offlineCustodyPath(), 'utf8')) as { active?: boolean };
+    if (Boolean(raw?.active)) return true;
+  } catch {
+    /* fall through */
+  }
+  try {
+    const pd = offlineCustodyProgramDataFlag();
+    if (pd && fs.existsSync(pd)) {
+      const raw = JSON.parse(fs.readFileSync(pd, 'utf8')) as { active?: boolean };
+      return Boolean(raw?.active);
+    }
+  } catch {
+    /* ignore */
+  }
+  return false;
+}
+
+function persistOfflineCustodyFlag(active: boolean): void {
+  const payload = JSON.stringify({ active, at: new Date().toISOString() }, null, 2);
+  try {
+    fs.mkdirSync(path.dirname(offlineCustodyPath()), { recursive: true });
+    fs.writeFileSync(offlineCustodyPath(), payload, 'utf8');
+  } catch {
+    /* ignore */
+  }
+  const pd = offlineCustodyProgramDataFlag();
+  if (!pd) return;
+  try {
+    fs.mkdirSync(path.dirname(pd), { recursive: true });
+    if (active) {
+      fs.writeFileSync(pd, payload, 'utf8');
+    } else if (fs.existsSync(pd)) {
+      fs.unlinkSync(pd);
+    }
+  } catch {
+    /* ProgramData may require elevation — userData flag remains primary */
+  }
+}
+
+/** Re-cover primary kiosk + secondary blackouts after display hotplug while custody is on. */
+function refreshOfflineCustodyDisplays(): void {
+  if (!offlineCustodyActive || !mainWindow || mainWindow.isDestroyed()) return;
+  try {
+    placeFullPrimary(mainWindow);
+    openSecondaryBlackouts();
+    mainWindow.setAlwaysOnTop(true, 'screen-saver');
+    mainWindow.show();
+    mainWindow.focus();
+  } catch {
+    /* ignore */
+  }
+}
+
+function placeFullPrimary(win: BrowserWindow): void {
+  const b = screen.getPrimaryDisplay().bounds;
+  win.setBounds({ x: b.x, y: b.y, width: b.width, height: b.height });
+}
+
+function teacherApiAllowHosts(): string[] {
+  const hosts = new Set<string>(['127.0.0.1', 'localhost']);
+  try {
+    const { apiBase } = loadConfig();
+    const u = new URL(String(apiBase || ''));
+    if (u.hostname) hosts.add(u.hostname.toLowerCase());
+  } catch {
+    /* ignore */
+  }
+  return [...hosts];
+}
+
+function installCustodyNetworkSealOnce(): void {
+  if (custodyNetworkSealInstalled) return;
+  custodyNetworkSealInstalled = true;
+  try {
+    session.defaultSession.webRequest.onBeforeRequest(
+      { urls: ['http://*/*', 'https://*/*'] },
+      (details, callback) => {
+        if (!custodyNetworkSeal && !offlineCustodyActive) {
+          callback({});
+          return;
+        }
+        try {
+          const u = new URL(details.url);
+          const host = u.hostname.toLowerCase();
+          const allow = teacherApiAllowHosts();
+          if (allow.some((h) => host === h || host.endsWith(`.${h}`))) {
+            callback({});
+            return;
+          }
+        } catch {
+          /* deny */
+        }
+        callback({ cancel: true });
+      },
+    );
+  } catch {
+    /* ignore */
+  }
+}
+
+function loadTeacherBonded(): boolean {
+  try {
+    const raw = fs.readFileSync(teacherBondPath(), 'utf8');
+    const parsed = JSON.parse(raw) as { bonded?: boolean };
+    return Boolean(parsed?.bonded);
+  } catch {
+    return false;
+  }
+}
+
+function persistTeacherBonded(): void {
+  try {
+    fs.mkdirSync(path.dirname(teacherBondPath()), { recursive: true });
+    fs.writeFileSync(
+      teacherBondPath(),
+      JSON.stringify({ bonded: true, bondedAt: new Date().toISOString() }, null, 2),
+      'utf8',
+    );
+  } catch {
+    /* ignore */
+  }
+}
+
+function recomputeExitAllowed(): boolean {
+  exitAllowed =
+    process.env.ALLOW_STUDENT_EXIT === '1' || !teacherBonded || exitUnlockGranted;
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.setClosable(exitAllowed);
+  }
+  return exitAllowed;
+}
 
 function placeBottomRight(win: BrowserWindow, height: number) {
   const display = screen.getPrimaryDisplay();
@@ -96,8 +257,8 @@ function createWindow() {
     frame: false,
     resizable: false,
     maximizable: false,
-    minimizable: true,
-    closable: false,
+    minimizable: false,
+    closable: exitAllowed,
     fullscreenable: false,
     alwaysOnTop: true,
     skipTaskbar: false,
@@ -112,6 +273,11 @@ function createWindow() {
   });
 
   placeBottomRight(mainWindow, WINDOW_HEIGHT);
+  try {
+    mainWindow.setFullScreenable(false);
+  } catch {
+    /* ignore */
+  }
 
   if (process.env.VITE_DEV_SERVER_URL) {
     void mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL);
@@ -128,7 +294,13 @@ function createWindow() {
 
   // Frameless drag can leave the widget half off-screen; clamp on move / display change.
   mainWindow.on('will-move', (event, newBounds) => {
-    if (!mainWindow || mainWindow.isDestroyed() || deepLockFrozenActive) return;
+    if (!mainWindow || mainWindow.isDestroyed() || deepLockFrozenActive || offlineCustodyActive) {
+      if (offlineCustodyActive && mainWindow && !mainWindow.isDestroyed()) {
+        event.preventDefault();
+        placeFullPrimary(mainWindow);
+      }
+      return;
+    }
     const display = screen.getDisplayMatching(newBounds);
     const { workArea } = display;
     const w = Math.min(newBounds.width, workArea.width);
@@ -155,11 +327,18 @@ function createWindow() {
       clampWindowToWorkArea(mainWindow);
     }
   });
-  screen.on('display-metrics-changed', () => {
+  const onDisplayLayoutChange = () => {
+    if (offlineCustodyActive) {
+      refreshOfflineCustodyDisplays();
+      return;
+    }
     if (mainWindow && !mainWindow.isDestroyed() && !deepLockFrozenActive) {
       clampWindowToWorkArea(mainWindow);
     }
-  });
+  };
+  screen.on('display-metrics-changed', onDisplayLayoutChange);
+  screen.on('display-added', onDisplayLayoutChange);
+  screen.on('display-removed', onDisplayLayoutChange);
 
   // Block DevTools / reload escapes when packaged, or whenever deep-lock is armed.
   mainWindow.webContents.on('before-input-event', (event, input) => {
@@ -231,6 +410,9 @@ if (!gotLock) {
   app.whenReady().then(() => {
     applyProductionCsp();
     loadConfig();
+    teacherBonded = loadTeacherBonded();
+    exitUnlockGranted = false;
+    recomputeExitAllowed();
 
     Menu.setApplicationMenu(null);
 
@@ -239,7 +421,15 @@ if (!gotLock) {
       path: process.execPath,
     });
 
+    installCustodyNetworkSealOnce();
     createWindow();
+
+    // Restore security-custody after crash/relaunch (bonded students only).
+    if (teacherBonded && loadOfflineCustodyFlag()) {
+      setTimeout(() => {
+        applyOfflineCustody(true);
+      }, 400);
+    }
 
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) {
@@ -272,53 +462,85 @@ app.on('window-all-closed', () => {
   }
 });
 
-ipcMain.handle('window:toggle-collapse', () => {
-  if (!mainWindow) return collapsed;
-  // Deep-lock: keep surface expanded so freeze/banner cannot be tucked away.
-  if (deepLockAggressiveActive || deepLockFrozenActive) {
+function applyWindowChromePolicy() {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  const locked = deepLockAggressiveActive || deepLockFrozenActive || offlineCustodyActive;
+  const canMinimize = allowMinimize && !locked;
+  try {
+    mainWindow.setMinimizable(canMinimize);
+  } catch {
+    /* ignore */
+  }
+  if (!canMinimize && mainWindow.isMinimized()) {
+    mainWindow.restore();
+    mainWindow.show();
+  }
+  if ((!allowCollapse || locked) && collapsed) {
     collapsed = false;
-    if (deepLockFrozenActive) {
-      const { workArea } = screen.getPrimaryDisplay();
-      mainWindow.setBounds({
-        x: workArea.x,
-        y: workArea.y,
-        width: workArea.width,
-        height: workArea.height,
-      });
-    } else {
-      placeBottomRight(mainWindow, WINDOW_HEIGHT);
-    }
+    if (offlineCustodyActive) placeFullPrimary(mainWindow);
+    else placeBottomRight(mainWindow, WINDOW_HEIGHT);
+  }
+}
+
+ipcMain.handle('window:toggle-collapse', () => {
+  if (!mainWindow || mainWindow.isDestroyed()) return collapsed;
+  if (
+    !allowCollapse ||
+    deepLockAggressiveActive ||
+    deepLockFrozenActive ||
+    offlineCustodyActive
+  ) {
+    collapsed = false;
+    if (offlineCustodyActive) placeFullPrimary(mainWindow);
+    else placeBottomRight(mainWindow, WINDOW_HEIGHT);
     return false;
   }
   collapsed = !collapsed;
-  const height = collapsed ? COLLAPSED_HEIGHT : WINDOW_HEIGHT;
-  placeBottomRight(mainWindow, height);
+  placeBottomRight(mainWindow, collapsed ? COLLAPSED_HEIGHT : WINDOW_HEIGHT);
   return collapsed;
 });
 
 ipcMain.handle('window:get-collapsed', () => collapsed);
 
 ipcMain.handle('window:snap-bottom-right', () => {
-  if (!mainWindow) return;
+  if (!mainWindow || mainWindow.isDestroyed()) return;
   placeBottomRight(mainWindow, collapsed ? COLLAPSED_HEIGHT : WINDOW_HEIGHT);
 });
 
+ipcMain.handle(
+  'window:set-chrome-policy',
+  (_event, policy: { allowCollapse?: boolean; allowMinimize?: boolean }) => {
+    if (policy?.allowCollapse != null) allowCollapse = Boolean(policy.allowCollapse);
+    if (policy?.allowMinimize != null) allowMinimize = Boolean(policy.allowMinimize);
+    applyWindowChromePolicy();
+    return { ok: true, allowCollapse, allowMinimize, collapsed };
+  },
+);
+
 ipcMain.handle('lock:get-state', () => ({
   exitAllowed,
+  teacherBonded,
   allowStudentExitEnv: process.env.ALLOW_STUDENT_EXIT === '1',
 }));
 
+ipcMain.handle('lock:mark-teacher-bonded', () => {
+  teacherBonded = true;
+  persistTeacherBonded();
+  recomputeExitAllowed();
+  return { ok: true, teacherBonded, exitAllowed };
+});
+
 ipcMain.handle('lock:set-exit-allowed', (_event, allowed: boolean) => {
-  // Teacher batch unlock (from renderer poll) or revoke when window expires
-  exitAllowed = Boolean(allowed) || process.env.ALLOW_STUDENT_EXIT === '1';
-  if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.setClosable(exitAllowed);
-  }
+  // Teacher batch unlock / 解除码 (from renderer) or revoke when window expires.
+  // Never bonded → still allow exit even if server reports locked.
+  exitUnlockGranted = Boolean(allowed);
+  recomputeExitAllowed();
   return { exitAllowed };
 });
 
 ipcMain.handle('lock:grant-exit-and-quit', () => {
-  exitAllowed = true;
+  exitUnlockGranted = true;
+  recomputeExitAllowed();
   return quitIfAllowed();
 });
 
@@ -354,6 +576,9 @@ ipcMain.handle('admin:open-uninstall-guide', async () => {
 });
 
 ipcMain.handle('shell:open-external', async (_event, rawUrl: unknown) => {
+  if (offlineCustodyActive) {
+    return { ok: false, error: 'custody_blocks_external' };
+  }
   const url = String(rawUrl ?? '').trim();
   if (!/^https?:\/\//i.test(url)) {
     return { ok: false, error: 'only_http_https' };
@@ -739,12 +964,26 @@ ipcMain.handle(
 /**
  * Soft Assigned Access / kiosk signal (ethical, visible tip only).
  * - CD_ASSIGNED_ACCESS=1 → hardened
+ * - marker file (IT drops after AA) → hardened
  * - non-Windows → no nag (hardened=true)
- * - Windows → hardened=false unless env set (IT configures Assigned Access separately)
+ * - Windows → hardened=false until env or marker (AA itself is not auto-detectable)
  */
 ipcMain.handle('kiosk:get-hardening', () => {
   if (process.env.CD_ASSIGNED_ACCESS === '1') {
     return { hardened: true, reason: 'env_assigned_access' as const };
+  }
+  const markers = [
+    path.join(process.env.PROGRAMDATA || 'C:\\ProgramData', 'ClassroomDesk', 'assigned-access.ready'),
+    path.join(app.getPath('userData'), 'assigned-access.ready'),
+  ];
+  for (const m of markers) {
+    try {
+      if (fs.existsSync(m)) {
+        return { hardened: true, reason: 'marker_file' as const, marker: m };
+      }
+    } catch {
+      /* ignore */
+    }
   }
   if (process.platform !== 'win32') {
     return { hardened: true, reason: 'non_windows' as const };
@@ -829,11 +1068,18 @@ function stopFocusSteal() {
   }
 }
 
-function startFocusSteal() {
+function startFocusSteal(intervalMs = 600) {
   stopFocusSteal();
   focusStealTimer = setInterval(() => {
-    if (!deepLockFrozenActive || !mainWindow || mainWindow.isDestroyed()) return;
+    if (
+      (!deepLockFrozenActive && !offlineCustodyActive) ||
+      !mainWindow ||
+      mainWindow.isDestroyed()
+    ) {
+      return;
+    }
     try {
+      if (offlineCustodyActive) placeFullPrimary(mainWindow);
       mainWindow.setAlwaysOnTop(true, 'screen-saver');
       mainWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
       mainWindow.show();
@@ -841,7 +1087,83 @@ function startFocusSteal() {
     } catch {
       /* ignore */
     }
-  }, 600);
+  }, intervalMs);
+}
+
+/** Apply offline security-custody (kiosk cover; survives restart via userData). */
+function applyOfflineCustody(on: boolean): { ok: boolean; error?: string } {
+  if (!mainWindow || mainWindow.isDestroyed()) return { ok: false, error: 'no_window' };
+  try {
+    installCustodyNetworkSealOnce();
+    offlineCustodyActive = Boolean(on);
+    persistOfflineCustodyFlag(offlineCustodyActive);
+    custodyNetworkSeal = offlineCustodyActive;
+    mainWindow.setIgnoreMouseEvents(false);
+    collapsed = false;
+    if (offlineCustodyActive) {
+      deepLockAggressiveActive = true;
+      deepLockFrozenActive = true;
+      closeExamShell();
+      openSecondaryBlackouts();
+      registerDeepLockShortcuts();
+      applyDeepLockSessionGuards(true);
+      try {
+        mainWindow.setFullScreenable(true);
+      } catch {
+        /* ignore */
+      }
+      try {
+        // App-layer maximum: OS kiosk flag (still bypassable via Task Manager without AA).
+        mainWindow.setKiosk(true);
+      } catch {
+        placeFullPrimary(mainWindow);
+      }
+      placeFullPrimary(mainWindow);
+      try {
+        mainWindow.setContentProtection(true);
+      } catch {
+        /* optional */
+      }
+      mainWindow.setAlwaysOnTop(true, 'screen-saver');
+      mainWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+      mainWindow.setClosable(false);
+      mainWindow.setMinimizable(false);
+      mainWindow.show();
+      mainWindow.focus();
+      mainWindow.moveTop();
+      startFocusSteal(200);
+    } else {
+      stopFocusSteal();
+      closeBlackouts();
+      unregisterDeepLockShortcuts();
+      applyDeepLockSessionGuards(false);
+      deepLockFrozenActive = false;
+      try {
+        mainWindow.setKiosk(false);
+      } catch {
+        /* ignore */
+      }
+      try {
+        mainWindow.setFullScreenable(false);
+        if (mainWindow.isFullScreen()) mainWindow.setFullScreen(false);
+      } catch {
+        /* ignore */
+      }
+      try {
+        mainWindow.setContentProtection(false);
+      } catch {
+        /* optional */
+      }
+      mainWindow.setVisibleOnAllWorkspaces(false);
+      mainWindow.setAlwaysOnTop(true);
+      placeBottomRight(mainWindow, WINDOW_HEIGHT);
+      recomputeExitAllowed();
+    }
+    applyWindowChromePolicy();
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : 'custody_failed' };
+  }
 }
 
 function hostAllowedForExam(rawUrl: string): boolean {
@@ -909,16 +1231,26 @@ function applyDeepLockSessionGuards(on: boolean) {
   }
 }
 
-/** Expand widget to work-area overlay while frozen (visible kiosk freeze). */
+/** Freeze stays a bottom-right widget unless offline custody is active. */
 ipcMain.handle('deep-lock:set-frozen', (_event, frozen: boolean) => {
   if (!mainWindow || mainWindow.isDestroyed()) return { ok: false };
   try {
+    // Custody owns the window layout — don't shrink back to widget while custody is on.
+    if (offlineCustodyActive && !frozen) {
+      return { ok: true, deferred: true };
+    }
+    if (offlineCustodyActive && frozen) {
+      return applyOfflineCustody(true);
+    }
     deepLockFrozenActive = Boolean(frozen);
     if (frozen) deepLockAggressiveActive = true;
-    const display = screen.getPrimaryDisplay();
-    const { bounds } = display;
     mainWindow.setIgnoreMouseEvents(false);
-    mainWindow.setMinimizable(false);
+    try {
+      mainWindow.setFullScreenable(false);
+      if (mainWindow.isFullScreen()) mainWindow.setFullScreen(false);
+    } catch {
+      /* ignore */
+    }
     mainWindow.show();
     collapsed = false;
     if (frozen) {
@@ -926,17 +1258,7 @@ ipcMain.handle('deep-lock:set-frozen', (_event, frozen: boolean) => {
       openSecondaryBlackouts();
       registerDeepLockShortcuts();
       applyDeepLockSessionGuards(true);
-      mainWindow.setBounds({
-        x: bounds.x,
-        y: bounds.y,
-        width: bounds.width,
-        height: bounds.height,
-      });
-      try {
-        mainWindow.setFullScreen(true);
-      } catch {
-        /* some platforms reject — bounds already fill display */
-      }
+      placeBottomRight(mainWindow, WINDOW_HEIGHT);
       try {
         mainWindow.setContentProtection(true);
       } catch {
@@ -952,34 +1274,41 @@ ipcMain.handle('deep-lock:set-frozen', (_event, frozen: boolean) => {
       unregisterDeepLockShortcuts();
       applyDeepLockSessionGuards(false);
       try {
-        mainWindow.setFullScreen(false);
-      } catch {
-        /* ignore */
-      }
-      try {
         mainWindow.setContentProtection(false);
       } catch {
         /* optional */
       }
       mainWindow.setVisibleOnAllWorkspaces(false);
       mainWindow.setAlwaysOnTop(true);
-      mainWindow.setMinimizable(true);
       placeBottomRight(mainWindow, WINDOW_HEIGHT);
     }
+    applyWindowChromePolicy();
     return { ok: true };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : 'set_failed' };
   }
 });
 
+ipcMain.handle('offline:set-custody', (_event, on: boolean) => applyOfflineCustody(Boolean(on)));
+ipcMain.handle('offline:get-custody', () => ({
+  active: offlineCustodyActive || loadOfflineCustodyFlag(),
+}));
+
 /** Mark deep-lock armed so collapse/devtools escapes stay blocked. */
 ipcMain.handle(
   'deep-lock:set-aggressive',
   (_event, aggressive: boolean) => {
+    // Offline custody outranks teacher deep-lock end — student stays covered until unlock code.
+    if (!aggressive && offlineCustodyActive) {
+      deepLockAggressiveActive = true;
+      applyWindowChromePolicy();
+      return { ok: true, aggressive: true, custodyHeld: true };
+    }
     deepLockAggressiveActive = Boolean(aggressive);
     if (deepLockAggressiveActive) {
       registerDeepLockShortcuts();
       applyDeepLockSessionGuards(true);
+      applyWindowChromePolicy();
     } else {
       deepLockFrozenActive = false;
       stopFocusSteal();
@@ -990,7 +1319,7 @@ ipcMain.handle(
       examAllowHosts = [];
       if (mainWindow && !mainWindow.isDestroyed()) {
         try {
-          mainWindow.setFullScreen(false);
+          if (mainWindow.isFullScreen()) mainWindow.setFullScreen(false);
         } catch {
           /* ignore */
         }
@@ -1000,8 +1329,9 @@ ipcMain.handle(
           /* ignore */
         }
         mainWindow.setVisibleOnAllWorkspaces(false);
-        mainWindow.setMinimizable(true);
+        placeBottomRight(mainWindow, WINDOW_HEIGHT);
       }
+      applyWindowChromePolicy();
     }
     return { ok: true, aggressive: deepLockAggressiveActive };
   },
@@ -1250,7 +1580,13 @@ ipcMain.handle(
       'Arc.exe',
       '360se.exe',
       '360chrome.exe',
+      '360ChromeX.exe',
       'sogouexplorer.exe',
+      'QQBrowser.exe',
+      'Liebao.exe',
+      'Maxthon.exe',
+      'UCBrowser.exe',
+      'theworld.exe',
     ];
     const winDistractions = [
       'WeChat.exe',
@@ -1259,11 +1595,22 @@ ipcMain.handle(
       'QQ.exe',
       'QQNT.exe',
       'TIM.exe',
+      'WXWork.exe',
+      'DingTalk.exe',
+      'Feishu.exe',
+      'Lark.exe',
       'Discord.exe',
       'Telegram.exe',
       'Steam.exe',
       'steamwebhelper.exe',
       'epicgameslauncher.exe',
+      'Origin.exe',
+      'Battle.net.exe',
+      'RiotClientServices.exe',
+      'LeagueClient.exe',
+      'LeagueClientUx.exe',
+      'wegame.exe',
+      'WeGameLauncher.exe',
       'Slack.exe',
       'Teams.exe',
       'ms-teams.exe',
@@ -1271,7 +1618,11 @@ ipcMain.handle(
       'Notion.exe',
       'Spotify.exe',
       'cloudmusic.exe',
+      'kwmusic.exe',
+      'QQMusic.exe',
       'BiliBili.exe',
+      'iQIYI.exe',
+      'Youku.exe',
       'GameBar.exe',
       'GameBarFTServer.exe',
       'XboxApp.exe',
@@ -1286,10 +1637,15 @@ ipcMain.handle(
       'Vivaldi',
       'Safari',
       'Arc',
+      'QQBrowser',
+      '360Chrome',
     ];
     const macDistractions = [
       'WeChat',
       'QQ',
+      'DingTalk',
+      'Lark',
+      'Feishu',
       'Discord',
       'Telegram',
       'Steam',
@@ -1299,12 +1655,19 @@ ipcMain.handle(
       'Notion',
       'Spotify',
       'NeteaseMusic',
+      'QQMusic',
     ];
+    const extraBlocked = blockedAppsCache
+      .map((a) => sanitizeProcessName(a))
+      .filter((x): x is string => Boolean(x));
     try {
       if (process.platform === 'win32') {
         const targets = [
-          ...(opts.killForeignBrowsers ? winBrowsers : []),
-          ...(opts.killDistractions ? winDistractions : []),
+          ...new Set([
+            ...(opts.killForeignBrowsers ? winBrowsers : []),
+            ...(opts.killDistractions ? winDistractions : []),
+            ...(offlineCustodyActive || deepLockAggressiveActive ? extraBlocked : []),
+          ]),
         ];
         for (const name of targets) {
           try {
@@ -1316,8 +1679,11 @@ ipcMain.handle(
         }
       } else if (process.platform === 'darwin') {
         const targets = [
-          ...(opts.killForeignBrowsers ? macBrowsers : []),
-          ...(opts.killDistractions ? macDistractions : []),
+          ...new Set([
+            ...(opts.killForeignBrowsers ? macBrowsers : []),
+            ...(opts.killDistractions ? macDistractions : []),
+            ...(offlineCustodyActive || deepLockAggressiveActive ? extraBlocked : []),
+          ]),
         ];
         for (const name of targets) {
           try {
@@ -1329,12 +1695,15 @@ ipcMain.handle(
         }
       } else {
         const targets = [
-          ...(opts.killForeignBrowsers
-            ? ['chrome', 'chromium', 'firefox', 'msedge', 'brave', 'opera']
-            : []),
-          ...(opts.killDistractions
-            ? ['discord', 'telegram', 'steam', 'slack', 'teams', 'zoom']
-            : []),
+          ...new Set([
+            ...(opts.killForeignBrowsers
+              ? ['chrome', 'chromium', 'firefox', 'msedge', 'brave', 'opera']
+              : []),
+            ...(opts.killDistractions
+              ? ['discord', 'telegram', 'steam', 'slack', 'teams', 'zoom']
+              : []),
+            ...(offlineCustodyActive || deepLockAggressiveActive ? extraBlocked : []),
+          ]),
         ];
         for (const name of targets) {
           try {
@@ -1444,6 +1813,16 @@ ipcMain.handle('device-control:set-blocked-hosts', (_event, hosts: unknown) => {
   return { ok: true, count: blockedHostsCache.length };
 });
 
+ipcMain.handle('device-control:set-blocked-apps', (_event, apps: unknown) => {
+  blockedAppsCache = Array.isArray(apps)
+    ? apps
+        .map((a) => sanitizeProcessName(String(a ?? '')))
+        .filter((x): x is string => Boolean(x))
+        .slice(0, 64)
+    : [];
+  return { ok: true, count: blockedAppsCache.length };
+});
+
 ipcMain.handle('lock:verify-offline-code', async (_event, code: unknown, hash: unknown) => {
   const plain = String(code ?? '');
   const stored = String(hash ?? '');
@@ -1482,9 +1861,28 @@ function downloadToFile(url: string, dest: string): Promise<void> {
   });
 }
 
+function isLanOrLoopbackHost(hostname: string): boolean {
+  const h = String(hostname ?? '')
+    .trim()
+    .toLowerCase();
+  if (!h) return false;
+  if (h === 'localhost' || h === '::1') return true;
+  if (/^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(h)) return true;
+  if (/^10\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(h)) return true;
+  if (/^192\.168\.\d{1,3}\.\d{1,3}$/.test(h)) return true;
+  if (/^172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}$/.test(h)) return true;
+  return false;
+}
+
+function sameServicePort(a: URL, b: URL): boolean {
+  const def = (u: URL) => u.port || (u.protocol === 'https:' ? '443' : '80');
+  return def(a) === def(b);
+}
+
 /**
  * Teacher-enabled force sync: download LAN Setup from teacher host and run NSIS /S.
- * Only allows http(s) URLs whose path contains /upgrades/ and host matches configured apiBase.
+ * Allows http(s) /upgrades/*.exe when host matches apiBase, or same-port private LAN
+ * (multi-NIC teacher: bonded IP ≠ upgrade URL host).
  */
 ipcMain.handle('upgrade:force-lan-setup', async (_event, rawUrl: unknown) => {
   const url = String(rawUrl ?? '').trim();
@@ -1493,9 +1891,14 @@ ipcMain.handle('upgrade:force-lan-setup', async (_event, rawUrl: unknown) => {
   }
   try {
     const cfg = loadConfig();
-    const apiHost = new URL(String(cfg.apiBase || 'http://127.0.0.1:8787')).hostname.toLowerCase();
+    const api = new URL(String(cfg.apiBase || 'http://127.0.0.1:8787'));
     const u = new URL(url);
-    if (u.hostname.toLowerCase() !== apiHost) {
+    const apiHost = api.hostname.toLowerCase();
+    const upHost = u.hostname.toLowerCase();
+    const hostOk =
+      upHost === apiHost ||
+      (sameServicePort(api, u) && isLanOrLoopbackHost(apiHost) && isLanOrLoopbackHost(upHost));
+    if (!hostOk) {
       return { ok: false, error: 'host_mismatch' };
     }
   } catch {

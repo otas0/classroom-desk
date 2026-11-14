@@ -23,6 +23,7 @@ function blankZone(): NetworkZone {
     label: '',
     ssidIncludes: [],
     cidrs: [],
+    vlan: '',
     allowedRoles: ['student'],
     defaultNetMode: 'allow',
     defaultAllowlistHosts: [],
@@ -240,6 +241,15 @@ export function NetworkZonesPanel() {
                     .filter(Boolean),
                 })
               }
+            />
+          </label>
+          <label className="hint">
+            {t('VLAN（导出用）')}
+            <input
+              value={z.vlan ?? ''}
+              disabled={readonly}
+              placeholder={t('如 20 / staff')}
+              onChange={(e) => update(i, { vlan: e.target.value.trim() })}
             />
           </label>
           <div className="chip-row">

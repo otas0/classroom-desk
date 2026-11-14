@@ -1,13 +1,15 @@
 import { StrictMode, useCallback, useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import {
-  DEFAULT_UI_LOCALE,
+  detectSystemUiLocale,
   normalizeUiLocale,
   setUiLocale,
   type UiLocale,
 } from '@classroom-desk/i18n';
 import { I18nProvider } from '@classroom-desk/i18n/react';
 import { App } from './App';
+import { isTeacherBonded } from './teacherBond';
+import { readTeacherUiLocale } from './teacherLocale';
 import './styles.css';
 
 const root = document.getElementById('root');
@@ -15,8 +17,16 @@ if (!root) {
   throw new Error('Root element #root not found');
 }
 
+function initialStudentLocale(): UiLocale {
+  if (isTeacherBonded()) {
+    const cached = readTeacherUiLocale();
+    if (cached) return normalizeUiLocale(cached);
+  }
+  return detectSystemUiLocale();
+}
+
 function Root() {
-  const [locale, setLocale] = useState<UiLocale>(DEFAULT_UI_LOCALE);
+  const [locale, setLocale] = useState<UiLocale>(() => setUiLocale(initialStudentLocale()));
 
   const applyLocale = useCallback((next: UiLocale) => {
     setLocale(setUiLocale(next));

@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
-# openNDS / FAS helper: poll Classroom Desk gateway allowlist and authorize clients.
-# Usage (cron or openNDS custom script):
-#   CD_API_BASE=http://teacher:8787 CD_STAFF_TOKEN=... ./auth_allowlist.sh
+# openNDS / FAS helper: poll Classroom Desk gateway policy and authorize clients.
+# Preferred (no JWT):
+#   CD_API_BASE=http://teacher:8787 ./auth_allowlist.sh
+# Legacy (staff JWT still works):
+#   CD_API_BASE=... CD_STAFF_TOKEN=... ./auth_allowlist.sh
 #
 # Requires: curl, jq
 # openNDS: set FAS / BinAuth to call this, or run every 15s via systemd timer.
@@ -13,16 +15,41 @@ CD_STAFF_TOKEN="${CD_STAFF_TOKEN:-}"
 STATE_DIR="${CD_OPENNDS_STATE:-/var/lib/classroom-desk/opennds}"
 mkdir -p "$STATE_DIR"
 
-if [[ -z "$CD_STAFF_TOKEN" ]]; then
-  echo "CD_STAFF_TOKEN required (teacher/admin JWT)" >&2
+BASE="${CD_API_BASE%/}"
+
+# Prefer public policy (DeskDNS-shaped); fall back to JWT allowlist.
+json=""
+if json="$(curl -fsS "${BASE}/api/v1/gateway/policy" 2>/dev/null)"; then
+  echo "$json" | jq -e '.type == "gateway_policy"' >/dev/null
+elif [[ -n "$CD_STAFF_TOKEN" ]]; then
+  json="$(curl -fsS \
+    -H "Authorization: Bearer ${CD_STAFF_TOKEN}" \
+    "${BASE}/api/v1/gateway/allowlist")"
+  echo "$json" | jq -e '.items' >/dev/null
+else
+  echo "gateway/policy unreachable and CD_STAFF_TOKEN empty" >&2
   exit 1
 fi
 
-json="$(curl -fsS \
-  -H "Authorization: Bearer ${CD_STAFF_TOKEN}" \
-  "${CD_API_BASE%/}/api/v1/gateway/allowlist")"
-
-echo "$json" | jq -e '.items' >/dev/null
+# When deep-lock deny: deauth everyone we previously authorized (optional hard cut).
+net_mode="$(echo "$json" | jq -r '.deepLock.netMode // "allow"')"
+if [[ "$net_mode" == "deny" ]]; then
+  if command -v ndsctl >/dev/null 2>&1 || command -v openndsctl >/dev/null 2>&1; then
+    for marker in "$STATE_DIR"/allowed_*; do
+      [[ -e "$marker" ]] || continue
+      ip="${marker##*/allowed_}"
+      ip="${ip//_//}"
+      if command -v ndsctl >/dev/null 2>&1; then
+        ndsctl deauth "$ip" || true
+      else
+        openndsctl deauth "$ip" || true
+      fi
+      rm -f "$marker"
+    done
+  fi
+  echo "opennds sync: deepLock deny — cleared local auths"
+  exit 0
+fi
 
 now="$(date +%s)"
 echo "$json" | jq -c '.items[]?' | while read -r row; do
@@ -33,8 +60,16 @@ echo "$json" | jq -c '.items[]?' | while read -r row; do
     continue
   fi
   if [[ -n "$exp" && "$exp" != "null" ]]; then
-    # ISO expiry — skip if past (best-effort via date -d when available)
-    if date -d "$exp" +%s >/dev/null 2>&1; then
+    if [[ "$exp" =~ ^[0-9]+$ ]]; then
+      exp_s="$exp"
+      # ms epoch from Desk
+      if (( exp_s > 10_000_000_000 )); then
+        exp_s=$((exp_s / 1000))
+      fi
+      if (( exp_s < now )); then
+        continue
+      fi
+    elif date -d "$exp" +%s >/dev/null 2>&1; then
       exp_s="$(date -d "$exp" +%s)"
       if (( exp_s < now )); then
         continue
@@ -45,7 +80,6 @@ echo "$json" | jq -c '.items[]?' | while read -r row; do
   if [[ -f "$marker" ]]; then
     continue
   fi
-  # Prefer ndsctl when present (openNDS / nodogsplash family).
   if command -v ndsctl >/dev/null 2>&1; then
     ndsctl auth "$ip" || true
   elif command -v openndsctl >/dev/null 2>&1; then
@@ -56,7 +90,6 @@ echo "$json" | jq -c '.items[]?' | while read -r row; do
   touch "$marker"
 done
 
-# De-auth IPs no longer on allowlist (optional cleanup)
 if command -v ndsctl >/dev/null 2>&1 || command -v openndsctl >/dev/null 2>&1; then
   allowed_ips="$(echo "$json" | jq -r '.items[]?.ip // empty')"
   for marker in "$STATE_DIR"/allowed_*; do
@@ -74,4 +107,4 @@ if command -v ndsctl >/dev/null 2>&1 || command -v openndsctl >/dev/null 2>&1; t
   done
 fi
 
-echo "opennds sync ok ($(echo "$json" | jq '.items | length') entries)"
+echo "opennds sync ok ($(echo "$json" | jq '.items | length') entries · netMode=$net_mode)"

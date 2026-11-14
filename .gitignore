@@ -51,3 +51,9 @@ tmp/
 # Teacher easy-install portable Node + local marker (Install-Teacher.bat)
 runtime/
 .classroom-desk-installed-tag
+# Local pack/cache/USB drops — never commit binaries
+.cache/
+.tmp-rel/
+ClassroomDesk-Dist/
+ClassroomDesk-Teacher-USB/
+Give-To-Teacher/

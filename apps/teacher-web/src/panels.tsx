@@ -3222,6 +3222,8 @@ export function SettingsPanel({
     setupAssets?: Array<{ name: string; size: number }>;
   } | null>(null);
   const [releaseBusy, setReleaseBusy] = useState(false);
+  /** Default off: packed C:\\ClassroomDesk + offline labs only need student LAN packages. */
+  const [pullUpdateTeacherHost, setPullUpdateTeacherHost] = useState(false);
   const [sisDiffPreview, setSisDiffPreview] = useState<{
     wouldAdd: Array<{ name: string; studentNo: string | null }>;
     wouldUpdate: Array<{ name: string; studentNo: string | null; prevName?: string }>;
@@ -3259,6 +3261,8 @@ export function SettingsPanel({
   const [driftSnapBusy, setDriftSnapBusy] = useState(false);
   const [upgradesKeep, setUpgradesKeep] = useState(3);
   const [studentAutoUpdate, setStudentAutoUpdate] = useState(true);
+  const [studentAllowCollapse, setStudentAllowCollapse] = useState(false);
+  const [studentAllowMinimize, setStudentAllowMinimize] = useState(false);
   const [prunedFiles, setPrunedFiles] = useState<string[]>([]);
   const [purgeJumpHint, setPurgeJumpHint] = useState('');
 
@@ -3290,6 +3294,8 @@ export function SettingsPanel({
       fleetDriftSnapshotLastAt?: string | null;
       upgradesKeepCount?: number;
       studentAutoUpdate?: boolean;
+      studentAllowCollapse?: boolean;
+      studentAllowMinimize?: boolean;
       sisRosterLastApplyAvailable?: boolean;
       enterprise8021xRequired?: boolean;
       enterprise8021xIdp?: string;
@@ -3360,6 +3366,8 @@ export function SettingsPanel({
       setUpgradesKeep(Number(s.upgradesKeepCount));
     }
     setStudentAutoUpdate(s.studentAutoUpdate ?? true);
+    setStudentAllowCollapse(s.studentAllowCollapse === true);
+    setStudentAllowMinimize(s.studentAllowMinimize === true);
     setSisRosterLastApplyAvailable(Boolean(s.sisRosterLastApplyAvailable));
     setEnterprise8021xRequired(Boolean(s.enterprise8021xRequired));
     setEnterprise8021xIdp(String(s.enterprise8021xIdp ?? ''));
@@ -5686,13 +5694,23 @@ export function SettingsPanel({
 
           <h3 data-testid="shield-settings">{t('Shield 网关')}</h3>
           <p className="hint">
-            {t('默认未配置（off）。选 OPNsense / UniFi / HTTP 后才会真断网；mock 仅联调。')}{' '}
+            {t(
+              '默认未配置（off）。选 OPNsense / UniFi / HTTP 后才会真断网。mock/off 不能当生产；最高保密级武装要求真网关。',
+            )}{' '}
             <a
               href="https://github.com/otas0/classroom-desk/blob/main/docs/NETWORK.md"
               target="_blank"
               rel="noreferrer"
             >
               docs/NETWORK.md
+            </a>
+            {' · '}
+            <a
+              href="https://github.com/otas0/classroom-desk/blob/main/docs/LAB_GO_LIVE.md"
+              target="_blank"
+              rel="noreferrer"
+            >
+              docs/LAB_GO_LIVE.md
             </a>
           </p>
           <div className="row" style={{ flexWrap: 'wrap', gap: 8 }}>
@@ -5708,7 +5726,7 @@ export function SettingsPanel({
                 <option value="opnsense">opnsense</option>
                 <option value="unifi">unifi</option>
                 <option value="http">http</option>
-                <option value="mock">mock（{t('仅联调')}）</option>
+                <option value="mock">mock（{t('禁止生产 · 须 ALLOW_SHIELD_MOCK')}）</option>
               </select>
             </label>
             <label>
@@ -5757,7 +5775,9 @@ export function SettingsPanel({
 
           <h3 data-testid="deskdns-settings">{t('DeskDNS')}</h3>
           <p className="hint">
-            {t('启用后本机提供 DNS；生产绑 53 见 docs/DESKDNS_PORT53.md。HTTPS 见 docs/TLS_REVERSE_PROXY.md。')}
+            {t(
+              '完整部署入口在上课页「部署 DeskDNS」。此处为进阶项；生产绑 53 见 docs/DESKDNS_PORT53.md。HTTPS 见 docs/TLS_REVERSE_PROXY.md。旁路互通：GET /api/v1/desk-dns/policy。',
+            )}
           </p>
           <div className="row" style={{ flexWrap: 'wrap', gap: 8 }}>
             <label className="row">
@@ -5801,14 +5821,14 @@ export function SettingsPanel({
 
           <h3 id="teacher-upgrades-panel">{t('学生机升级包')}</h3>
           <p className="hint">
-            {t('上传 Setup.exe（可含 -x64 / -arm64）→ 自动 sha256 → 旧包自动删。学生按本机 arch 拉包。')}
+            {t(
+              '安装时已预置学生包。有新版本：点下方同步，或拖入 Setup.exe。学生默认强制同版，自动从本机局域网安装。',
+            )}
           </p>
           <div className="release-sync-card" data-testid="release-sync-card">
-            <h4>{t('GitHub Release 一键同步')}</h4>
+            <h4>{t('更新学生机')}</h4>
             <p className="hint">
-              {t(
-                '后台定期自检最新 Release。一点击：①公网拉学生 Setup 到本机升级库（同哈希跳过＝增量）②教师机代码切到同 tag 并自动重启 API（保留 data/.env）。学生强制同版本会打开。',
-              )}
+              {t('需教师机能访问 GitHub。离线机房：U 盘拷 Setup.exe 上传即可。')}
             </p>
             {releaseInfo ? (
               <p className="hint" data-testid="release-sync-status">
@@ -5858,13 +5878,26 @@ export function SettingsPanel({
               >
                 {releaseBusy ? t('处理中…') : t('检查最新 Release')}
               </button>
+              <label className="hint" data-testid="pull-update-teacher-host">
+                <input
+                  type="checkbox"
+                  checked={pullUpdateTeacherHost}
+                  disabled={releaseBusy}
+                  onChange={(e) => setPullUpdateTeacherHost(e.target.checked)}
+                />{' '}
+                {t('同时更新教师机代码（需 GitHub + npm；打包机房默认只同步学生包）')}
+              </label>
               <button
                 type="button"
                 disabled={releaseBusy}
                 data-testid="release-pull-btn"
                 onClick={() => {
                   setReleaseBusy(true);
-                  setUpgradeMsg(t('正在从 GitHub 拉取…'));
+                  setUpgradeMsg(
+                    pullUpdateTeacherHost
+                      ? t('正在从 GitHub 拉取（含教师机）…')
+                      : t('正在从 GitHub 拉取学生机包…'),
+                  );
                   void api<{
                     ok?: boolean;
                     message?: string;
@@ -5879,7 +5912,7 @@ export function SettingsPanel({
                     method: 'POST',
                     body: JSON.stringify({
                       arches: ['x64', 'arm64'],
-                      updateTeacherHost: true,
+                      updateTeacherHost: pullUpdateTeacherHost,
                     }),
                   })
                     .then((r) => {
@@ -5915,7 +5948,9 @@ export function SettingsPanel({
                     .finally(() => setReleaseBusy(false));
                 }}
               >
-                {t('一键更新（教师机 + 学生机包）')}
+                {pullUpdateTeacherHost
+                  ? t('一键更新（教师机 + 学生机包）')
+                  : t('同步学生机包到局域网')}
               </button>
               {releaseInfo?.htmlUrl ? (
                 <a href={releaseInfo.htmlUrl} target="_blank" rel="noreferrer" className="secondary">
@@ -6483,6 +6518,48 @@ export function SettingsPanel({
               。
             </p>
           )}
+
+          <h3 id="student-window-chrome">{t('学生端窗口')}</h3>
+          <p className="hint">
+            {t(
+              '默认关闭。学生首次配置、尚未连上教师机时可临时折叠/最小化；连上后以本开关为准。深锁/冻结时仍强制展开。',
+            )}
+            {isAssistant() ? t(' · 助教只读') : ''}
+          </p>
+          <label className="row">
+            <input
+              type="checkbox"
+              checked={studentAllowCollapse}
+              disabled={isAssistant()}
+              data-testid="student-allow-collapse"
+              onChange={(e) => {
+                const on = e.target.checked;
+                setStudentAllowCollapse(on);
+                void api('/api/v1/settings', {
+                  method: 'PATCH',
+                  body: JSON.stringify({ studentAllowCollapse: on }),
+                }).catch(() => setStudentAllowCollapse(!on));
+              }}
+            />
+            {t('允许学生折叠窗口')}
+          </label>
+          <label className="row">
+            <input
+              type="checkbox"
+              checked={studentAllowMinimize}
+              disabled={isAssistant()}
+              data-testid="student-allow-minimize"
+              onChange={(e) => {
+                const on = e.target.checked;
+                setStudentAllowMinimize(on);
+                void api('/api/v1/settings', {
+                  method: 'PATCH',
+                  body: JSON.stringify({ studentAllowMinimize: on }),
+                }).catch(() => setStudentAllowMinimize(!on));
+              }}
+            />
+            {t('允许学生最小化窗口')}
+          </label>
 
           <h3 id="exit-lock-settings">{t('学生端退出锁定')}</h3>
           <p className="hint">

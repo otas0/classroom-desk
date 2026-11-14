@@ -3,8 +3,12 @@ import dns from 'node:dns/promises';
 import { openDb } from '../db/client.js';
 import { getSetting } from '../db/migrate.js';
 import { getDeepLockStore } from './deepLock.js';
-import { getDeviceControlPolicy } from './deviceControl.js';
-import { resolveDeepLockState, deepLockAggressive } from '@classroom-desk/shared';
+import { getDeviceControlStore } from './deviceControl.js';
+import {
+  collectAllBlockedHosts,
+  resolveDeepLockState,
+  deepLockAggressive,
+} from '@classroom-desk/shared';
 
 /**
  * Lightweight DeskDNS — single-network schools point DHCP DNS here.
@@ -80,26 +84,75 @@ function buildResponse(req: Buffer, name: string, ips: string[] | null): Buffer 
   return Buffer.concat([id, flags, counts, question, ...answers]);
 }
 
-function deviceHostBlocked(name: string): boolean {
-  try {
-    const host = name.replace(/\.$/, '').toLowerCase();
-    const hosts = getDeviceControlPolicy(openDb()).blockedHosts.map((h) => h.toLowerCase());
-    return hosts.some((h) => h && (host === h || host.endsWith(`.${h}`)));
-  } catch {
-    return false;
-  }
-}
+export type DeskDnsResolveSnapshot = {
+  type: 'desk_dns_policy';
+  at: string;
+  blockedHosts: string[];
+  deepLock: {
+    netMode: string;
+    allowlistHosts: string[];
+    aggressive: boolean;
+  };
+  portalHost: string;
+  /** Teacher API hostname(s) that should keep resolving (from env / settings). */
+  teacherApiHosts: string[];
+};
 
-async function resolvePolicy(name: string): Promise<string[] | null> {
-  if (deviceHostBlocked(name)) return ['0.0.0.0'];
-  const db = openDb();
+/** Shared snapshot for embedded UDP DeskDNS and bypass/sidecar pollers. */
+export function getDeskDnsResolveSnapshot(db = openDb()): DeskDnsResolveSnapshot {
   const store = getDeepLockStore(db);
   const state = resolveDeepLockState(store, null);
   const portalHost = String(process.env.CLASSROOM_DESK_PORTAL_HOST ?? '')
     .trim()
     .toLowerCase();
+  const teacherApiHosts: string[] = [];
+  const advertise = String(getSetting(db, 'advertise_lan_ip') ?? '').trim();
+  if (advertise && /^\d{1,3}(\.\d{1,3}){3}$/.test(advertise)) {
+    teacherApiHosts.push(advertise);
+  }
+  try {
+    const apiBase = String(process.env.CLASSROOM_DESK_API_BASE ?? '').trim();
+    if (apiBase) {
+      const h = new URL(apiBase).hostname.toLowerCase();
+      if (h) teacherApiHosts.push(h);
+    }
+  } catch {
+    /* ignore */
+  }
+  return {
+    type: 'desk_dns_policy',
+    at: new Date().toISOString(),
+    blockedHosts: collectAllBlockedHosts(getDeviceControlStore(db)),
+    deepLock: {
+      netMode: state.netMode,
+      allowlistHosts: [...(state.allowlistHosts ?? [])],
+      aggressive: deepLockAggressive(state),
+    },
+    portalHost,
+    teacherApiHosts: [...new Set(teacherApiHosts)],
+  };
+}
 
-  if (portalHost && (name === portalHost || name.endsWith(`.${portalHost}`))) {
+function hostMatchesList(name: string, hosts: string[]): boolean {
+  const host = name.replace(/\.$/, '').toLowerCase();
+  return hosts.some((h) => {
+    const x = String(h ?? '')
+      .trim()
+      .toLowerCase();
+    return Boolean(x) && (host === x || host.endsWith(`.${x}`) || x.endsWith(`.${host}`));
+  });
+}
+
+async function resolvePolicy(name: string): Promise<string[] | null> {
+  const snap = getDeskDnsResolveSnapshot();
+  const host = name.replace(/\.$/, '').toLowerCase();
+
+  if (hostMatchesList(host, snap.blockedHosts)) return ['0.0.0.0'];
+
+  if (
+    snap.portalHost &&
+    (host === snap.portalHost || host.endsWith(`.${snap.portalHost}`))
+  ) {
     try {
       return await dns.resolve4(name);
     } catch {
@@ -107,7 +160,7 @@ async function resolvePolicy(name: string): Promise<string[] | null> {
     }
   }
 
-  if (!deepLockAggressive(state) && state.netMode === 'allow') {
+  if (hostMatchesList(host, snap.teacherApiHosts)) {
     try {
       return await dns.resolve4(name);
     } catch {
@@ -115,13 +168,18 @@ async function resolvePolicy(name: string): Promise<string[] | null> {
     }
   }
 
-  if (state.netMode === 'deny') return null;
+  if (!snap.deepLock.aggressive && snap.deepLock.netMode === 'allow') {
+    try {
+      return await dns.resolve4(name);
+    } catch {
+      return null;
+    }
+  }
 
-  if (state.netMode === 'allowlist') {
-    const ok = state.allowlistHosts.some(
-      (h) => name === h || name.endsWith(`.${h}`) || h.endsWith(`.${name}`),
-    );
-    if (!ok) return null;
+  if (snap.deepLock.netMode === 'deny') return null;
+
+  if (snap.deepLock.netMode === 'allowlist') {
+    if (!hostMatchesList(host, snap.deepLock.allowlistHosts)) return null;
     try {
       return await dns.resolve4(name);
     } catch {

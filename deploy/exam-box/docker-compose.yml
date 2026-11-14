@@ -45,4 +45,34 @@ services:
       retries: 3
       start_period: 10s
 
+  # Poll DeskDNS + gateway + shield + zones policies (no JWT).
+  policy-sync:
+    image: curlimages/curl:8.11.1
+    environment:
+      CD_API_BASE: ${CD_API_BASE:-http://host.docker.internal:8787}
+      CD_EXAM_BOX_STATE: /state
+    volumes:
+      - ./policy-sync.sh:/policy-sync.sh:ro
+      - exam-box-policy:/state
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        set -e
+        chmod +x /policy-sync.sh 2>/dev/null || true
+        while true; do
+          /bin/sh /policy-sync.sh || echo "policy-sync soft-fail"
+          sleep 15
+        done
+    depends_on:
+      api-ready:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
   # Optional: run DeskDNS on host with CLASSROOM_DESK_DNS=1 instead.
+  # Sidecar policies land in volume exam-box-policy (gateway/desk-dns/shield JSON).
+
+volumes:
+  exam-box-policy:

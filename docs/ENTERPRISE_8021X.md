@@ -24,10 +24,14 @@ Classroom Desk **不内置 RADIUS 服务器**。学校用现有 IdP（Windows NP
 
 | 接点 | 说明 |
 |---|---|
-| 网络配置档 | 按 VLAN/SSID/CIDR 匹配，不写死 guest/teacher 名称 |
+| 网络配置档 | 按 VLAN/SSID/CIDR 匹配；可选填 `vlan` 字段供防火墙导出 |
+| `GET /api/v1/network-zones/export` | 公开导出 SSID/CIDR→VLAN + 设置里登记的教工/学生 SSID·VLAN（**映射提示，非 RADIUS**） |
 | `/portal` | PSK 场景零安装认人；802.1X 场景可作二次课堂授权 |
-| Shield | OPNsense / UniFi 适配器按客户端 IP/MAC 放行 |
+| Shield | OPNsense / UniFi 适配器按客户端 IP/MAC 放行；`GET /api/v1/shield/policy` + 分钟级 pull 兜底 |
+| DeskDNS / gateway | `GET /api/v1/desk-dns/policy` · `GET /api/v1/gateway/policy`（无 JWT） |
 | `never_student_net` | 学生账号从未在学生允许档认证却出现在教工档 → block |
+
+**不做：** 应用内 RADIUS / 伪造 802.1X 成功。身份永远在学校 IdP；Desk 只消费「认人后的课堂策略」。
 
 ## 部署检查清单
 

@@ -33,6 +33,7 @@ import {
   listGatewayAccess,
   walledGardenHint,
 } from '../services/gatewayAllowlist.js';
+import { getGatewayPolicySnapshot } from '../services/gatewayPolicy.js';
 import { listShieldAdapterIds, getShieldConnector } from '../services/shield/registry.js';
 import { getSetting } from '../db/migrate.js';
 import { upsertSetting } from '../services/exitLock.js';
@@ -332,6 +333,14 @@ portalRouter.get(
     });
   },
 );
+
+/**
+ * Public policy (no JWT) — openNDS / Exam Box poll this like DeskDNS.
+ * Prefer over /gateway/allowlist for sidecars.
+ */
+portalRouter.get('/api/v1/gateway/policy', (_req, res) => {
+  res.json(getGatewayPolicySnapshot(openDb()));
+});
 
 portalRouter.get('/api/v1/gateway/check', (req, res) => {
   const db = openDb();

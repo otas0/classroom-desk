@@ -50,3 +50,11 @@ export function exitLockCacheConflicts(
   const b = serverUntil ?? '';
   return a !== b;
 }
+
+/** Cached teacher unlock still in force (batch window or open grant). */
+export function isCachedExitStillAllowed(cache: ExitLockCache | null = readExitLockCache()): boolean {
+  if (!cache?.allowed) return false;
+  if (!cache.until) return true;
+  const ms = Date.parse(cache.until);
+  return Number.isFinite(ms) && ms > Date.now();
+}

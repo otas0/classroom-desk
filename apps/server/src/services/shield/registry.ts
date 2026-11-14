@@ -38,7 +38,20 @@ function createFromEnv(): ShieldConnector {
     const token = String(process.env.CLASSROOM_DESK_SHIELD_TOKEN ?? settings.token);
     return new HttpShieldConnector(url, token);
   }
-  if (kind === 'mock') return new MockShieldConnector();
+  if (kind === 'mock') {
+    // Settings PATCH already blocks mock; env/DB must not bypass in production.
+    // Dynamic import avoided — allowShieldMock is tiny and sync.
+    const allow =
+      process.env.CLASSROOM_DESK_ALLOW_SHIELD_MOCK === '1' ||
+      process.env.NODE_ENV === 'test';
+    if (!allow) {
+      console.warn(
+        '[shield] mock requested but CLASSROOM_DESK_ALLOW_SHIELD_MOCK≠1 — using off',
+      );
+      return new OffShieldConnector();
+    }
+    return new MockShieldConnector();
+  }
   if (kind === 'off') return new OffShieldConnector();
   const url = String(process.env.CLASSROOM_DESK_SHIELD_URL ?? settings.url).trim();
   if (url) {

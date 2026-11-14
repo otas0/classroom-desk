@@ -233,6 +233,9 @@ settingsRouter.get('/api/v1/settings/public', (req, res) => {
     inputLockClearedReason: inputLockClearedReasonNow(),
     examModeSnapshot: hasExamModeSnapshot(db),
     studentAutoUpdate: (getSetting(db, 'student_auto_update') ?? '1') === '1',
+    /** Teacher-controlled student widget chrome (default off = locked down). */
+    studentAllowCollapse: (getSetting(db, 'student_allow_collapse') ?? '0') === '1',
+    studentAllowMinimize: (getSetting(db, 'student_allow_minimize') ?? '0') === '1',
   });
 });
 
@@ -267,6 +270,12 @@ settingsRouter.get('/api/v1/settings', requireAuth, requireRoles('teacher', 'adm
       const n = Number(getSetting(db, 'unhardened_alert_threshold') ?? 0.25);
       return Number.isFinite(n) && n >= 0 && n <= 1 ? n : 0.25;
     })(),
+    /** IT-declared Assigned Access / Intune L3 ready (gates security-bureau arm). */
+    assignedAccessReady: (getSetting(db, 'assigned_access_ready') ?? '0') === '1',
+    /** Lab go-live ops declarations — see GET /api/v1/ops/lab-go-live. */
+    labOpsFixedIpReady: (getSetting(db, 'lab_ops_fixed_ip_ready') ?? '0') === '1',
+    labOpsAvAllowlistReady: (getSetting(db, 'lab_ops_av_allowlist_ready') ?? '0') === '1',
+    labOpsWifiNoIsolation: (getSetting(db, 'lab_ops_wifi_no_isolation') ?? '0') === '1',
     fleetDriftSnapshotLastAt:
       (
         db
@@ -279,6 +288,8 @@ settingsRouter.get('/api/v1/settings', requireAuth, requireRoles('teacher', 'adm
       )?.createdAt ?? null,
     upgradesKeepCount: Number(getSetting(db, 'upgrades_keep_count') ?? 3),
     studentAutoUpdate: (getSetting(db, 'student_auto_update') ?? '1') === '1',
+    studentAllowCollapse: (getSetting(db, 'student_allow_collapse') ?? '0') === '1',
+    studentAllowMinimize: (getSetting(db, 'student_allow_minimize') ?? '0') === '1',
     studentEasyJoin: (getSetting(db, 'student_easy_join') ?? '0') === '1',
     studentEasyJoinClassId: getSetting(db, 'student_easy_join_class_id') ?? '',
     studentEasyJoinAutoOff: (getSetting(db, 'student_easy_join_auto_off') ?? '1') === '1',
@@ -461,6 +472,70 @@ settingsRouter.patch('/api/v1/settings', requireAuth, requireRoles('teacher', 'a
     );
   }
 
+
+  if (req.body?.assignedAccessReady != null) {
+    const on =
+      req.body.assignedAccessReady === true ||
+      req.body.assignedAccessReady === 1 ||
+      req.body.assignedAccessReady === '1';
+    const prev = (getSetting(db, 'assigned_access_ready') ?? '0') === '1';
+    db.prepare(
+      `INSERT INTO settings (key, value) VALUES ('assigned_access_ready', ?)
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+    ).run(on ? '1' : '0');
+    writeAudit(
+      {
+        action: 'settings.assigned_access_ready',
+        actorUserId: req.user?.id ?? null,
+        actorRole: req.user?.role ?? null,
+        classId: null,
+        detail: JSON.stringify({
+          previous: prev,
+          next: on,
+          summary: on
+            ? 'IT 声明：本机房已配置 Assigned Access / Intune（L3）'
+            : '已清除 Assigned Access 就绪声明',
+        }),
+        clientIp: req.ip ?? null,
+      },
+      db,
+    );
+  }
+
+  const labOpsFlags: Array<{ body: string; key: string; audit: string }> = [
+    { body: 'labOpsFixedIpReady', key: 'lab_ops_fixed_ip_ready', audit: 'settings.lab_ops_fixed_ip' },
+    {
+      body: 'labOpsAvAllowlistReady',
+      key: 'lab_ops_av_allowlist_ready',
+      audit: 'settings.lab_ops_av_allowlist',
+    },
+    {
+      body: 'labOpsWifiNoIsolation',
+      key: 'lab_ops_wifi_no_isolation',
+      audit: 'settings.lab_ops_wifi_no_isolation',
+    },
+  ];
+  for (const f of labOpsFlags) {
+    if ((req.body as Record<string, unknown>)?.[f.body] == null) continue;
+    const raw = (req.body as Record<string, unknown>)[f.body];
+    const on = raw === true || raw === 1 || raw === '1';
+    db.prepare(
+      `INSERT INTO settings (key, value) VALUES (?, ?)
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+    ).run(f.key, on ? '1' : '0');
+    writeAudit(
+      {
+        action: f.audit,
+        actorUserId: req.user?.id ?? null,
+        actorRole: req.user?.role ?? null,
+        classId: null,
+        detail: JSON.stringify({ next: on }),
+        clientIp: req.ip ?? null,
+      },
+      db,
+    );
+  }
+
   if (req.body?.fleetDriftSnapshotMinutes != null) {
     const mins = Number(req.body.fleetDriftSnapshotMinutes);
     if (!Number.isFinite(mins) || mins < 0 || mins > 1440) {
@@ -509,6 +584,42 @@ settingsRouter.patch('/api/v1/settings', requireAuth, requireRoles('teacher', 'a
       actorRole: req.user?.role,
       action: 'settings.student_auto_update',
       detail: { studentAutoUpdate: on },
+      clientIp: req.ip,
+    });
+  }
+
+  if (req.body?.studentAllowCollapse != null) {
+    const on =
+      req.body.studentAllowCollapse === true ||
+      req.body.studentAllowCollapse === 1 ||
+      req.body.studentAllowCollapse === '1';
+    db.prepare(
+      `INSERT INTO settings (key, value) VALUES ('student_allow_collapse', ?)
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+    ).run(on ? '1' : '0');
+    writeAudit({
+      actorUserId: req.user?.id,
+      actorRole: req.user?.role,
+      action: 'settings.student_allow_collapse',
+      detail: { studentAllowCollapse: on },
+      clientIp: req.ip,
+    });
+  }
+
+  if (req.body?.studentAllowMinimize != null) {
+    const on =
+      req.body.studentAllowMinimize === true ||
+      req.body.studentAllowMinimize === 1 ||
+      req.body.studentAllowMinimize === '1';
+    db.prepare(
+      `INSERT INTO settings (key, value) VALUES ('student_allow_minimize', ?)
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+    ).run(on ? '1' : '0');
+    writeAudit({
+      actorUserId: req.user?.id,
+      actorRole: req.user?.role,
+      action: 'settings.student_allow_minimize',
+      detail: { studentAllowMinimize: on },
       clientIp: req.ip,
     });
   }
@@ -759,6 +870,17 @@ settingsRouter.patch('/api/v1/settings', requireAuth, requireRoles('teacher', 'a
         message: 'shieldAdapter 须为 off|http|opnsense|unifi|mock 或空',
       });
       return;
+    }
+    if (raw === 'mock') {
+      const { allowShieldMock } = await import('../services/labGoLive.js');
+      if (!allowShieldMock()) {
+        res.status(400).json({
+          error: 'shield_mock_not_allowed',
+          message:
+            'mock 禁止当生产 Shield。请选 opnsense / unifi / http。联调可设 CLASSROOM_DESK_ALLOW_SHIELD_MOCK=1',
+        });
+        return;
+      }
     }
     upsertSettingKey('shield_adapter', raw);
     const { reloadShieldConnectorFromEnv } = await import('../services/shield/registry.js');

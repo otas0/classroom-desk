@@ -2,10 +2,18 @@ import type { DatabaseSync } from 'node:sqlite';
 import {
   normalizeDeviceControlCommand,
   normalizeDeviceControlPolicy,
+  normalizeDeviceControlStore,
   normalizeOfflineLockPolicy,
+  normalizeOfflineLockStore,
+  resolveDeviceControlPolicy,
+  resolveOfflineLockPolicy,
   type DeviceControlCommand,
   type DeviceControlPolicy,
+  type DeviceControlScope,
+  type DeviceControlStore,
   type OfflineLockPolicy,
+  type OfflineLockScope,
+  type OfflineLockStore,
 } from '@classroom-desk/shared';
 import { getSetting } from '../db/migrate.js';
 import { upsertSetting } from './exitLock.js';
@@ -16,32 +24,139 @@ const KEY_CMD = 'device_control_last_command';
 
 const sseClients = new Set<import('express').Response>();
 
-export function getDeviceControlPolicy(db: DatabaseSync): DeviceControlPolicy {
+export function getDeviceControlStore(db: DatabaseSync): DeviceControlStore {
   try {
-    return normalizeDeviceControlPolicy(JSON.parse(getSetting(db, KEY_POLICY) ?? 'null'));
+    return normalizeDeviceControlStore(JSON.parse(getSetting(db, KEY_POLICY) ?? 'null'));
   } catch {
-    return normalizeDeviceControlPolicy(null);
+    return normalizeDeviceControlStore(null);
   }
 }
 
-export function saveDeviceControlPolicy(db: DatabaseSync, policy: DeviceControlPolicy): DeviceControlPolicy {
-  const next = normalizeDeviceControlPolicy(policy);
+/** Resolved flat policy (global when no opts). */
+export function getDeviceControlPolicy(
+  db: DatabaseSync,
+  opts?: { classId?: string | null; studentId?: string | null },
+): DeviceControlPolicy {
+  return resolveDeviceControlPolicy(getDeviceControlStore(db), opts);
+}
+
+export function saveDeviceControlStore(db: DatabaseSync, store: DeviceControlStore): DeviceControlStore {
+  const next = normalizeDeviceControlStore(store);
   upsertSetting(db, KEY_POLICY, JSON.stringify(next));
   return next;
 }
 
-export function getOfflineLockPolicy(db: DatabaseSync): OfflineLockPolicy {
+export function saveDeviceControlPolicyScoped(
+  db: DatabaseSync,
+  policy: DeviceControlPolicy,
+  opts: { scope: DeviceControlScope; classId?: string | null; studentIds?: string[] },
+): { store: DeviceControlStore; policy: DeviceControlPolicy } {
+  const store = getDeviceControlStore(db);
+  const nextPolicy = normalizeDeviceControlPolicy(policy);
+  const scope = opts.scope;
+  if (scope === 'global') {
+    store.global = nextPolicy;
+  } else if (scope === 'class') {
+    const cid = String(opts.classId ?? '').trim();
+    if (!cid) throw new Error('class_id_required');
+    store.byClass[cid] = nextPolicy;
+  } else if (scope === 'student') {
+    const ids = (opts.studentIds ?? []).map((x) => String(x).trim()).filter(Boolean);
+    if (!ids.length) throw new Error('student_ids_required');
+    for (const id of ids) store.byStudent[id] = nextPolicy;
+  }
+  const saved = saveDeviceControlStore(db, store);
+  const resolved = resolveDeviceControlPolicy(saved, {
+    classId: opts.classId,
+    studentId: opts.studentIds?.[0],
+  });
+  return { store: saved, policy: resolved };
+}
+
+/** @deprecated flat global write — prefer saveDeviceControlPolicyScoped. */
+export function saveDeviceControlPolicy(db: DatabaseSync, policy: DeviceControlPolicy): DeviceControlPolicy {
+  return saveDeviceControlPolicyScoped(db, policy, { scope: 'global' }).policy;
+}
+
+export function clearDeviceControlScope(
+  db: DatabaseSync,
+  opts: { scope: 'class' | 'student'; classId?: string | null; studentIds?: string[] },
+): DeviceControlStore {
+  const store = getDeviceControlStore(db);
+  if (opts.scope === 'class') {
+    const cid = String(opts.classId ?? '').trim();
+    if (cid) delete store.byClass[cid];
+  } else {
+    for (const id of opts.studentIds ?? []) {
+      const sid = String(id).trim();
+      if (sid) delete store.byStudent[sid];
+    }
+  }
+  return saveDeviceControlStore(db, store);
+}
+
+export function getOfflineLockStore(db: DatabaseSync): OfflineLockStore {
   try {
-    return normalizeOfflineLockPolicy(JSON.parse(getSetting(db, KEY_OFFLINE) ?? 'null'));
+    return normalizeOfflineLockStore(JSON.parse(getSetting(db, KEY_OFFLINE) ?? 'null'));
   } catch {
-    return normalizeOfflineLockPolicy(null);
+    return normalizeOfflineLockStore(null);
   }
 }
 
-export function saveOfflineLockPolicy(db: DatabaseSync, policy: OfflineLockPolicy): OfflineLockPolicy {
-  const next = normalizeOfflineLockPolicy(policy);
+/** @deprecated prefer getOfflineLockStore + resolve — kept for callers expecting flat global. */
+export function getOfflineLockPolicy(db: DatabaseSync): OfflineLockPolicy {
+  return resolveOfflineLockPolicy(getOfflineLockStore(db), {});
+}
+
+export function saveOfflineLockStore(db: DatabaseSync, store: OfflineLockStore): OfflineLockStore {
+  const next = normalizeOfflineLockStore(store);
   upsertSetting(db, KEY_OFFLINE, JSON.stringify(next));
   return next;
+}
+
+export function saveOfflineLockPolicyScoped(
+  db: DatabaseSync,
+  policy: OfflineLockPolicy,
+  opts: { scope: OfflineLockScope; classId?: string | null; studentIds?: string[] },
+): { store: OfflineLockStore; offline: OfflineLockPolicy } {
+  const store = getOfflineLockStore(db);
+  const nextPolicy = normalizeOfflineLockPolicy(policy);
+  const scope = opts.scope;
+  if (scope === 'global') {
+    store.global = nextPolicy;
+  } else if (scope === 'class') {
+    const cid = String(opts.classId ?? '').trim();
+    if (!cid) throw new Error('class_id_required');
+    store.byClass[cid] = nextPolicy;
+  } else if (scope === 'student') {
+    const ids = (opts.studentIds ?? []).map((x) => String(x).trim()).filter(Boolean);
+    if (!ids.length) throw new Error('student_ids_required');
+    for (const id of ids) store.byStudent[id] = nextPolicy;
+  }
+  const saved = saveOfflineLockStore(db, store);
+  const offline = resolveOfflineLockPolicy(saved, {
+    classId: opts.classId,
+    studentId: opts.studentIds?.[0],
+  });
+  return { store: saved, offline };
+}
+
+/** Remove class or student overrides (revert to parent scope). */
+export function clearOfflineLockScope(
+  db: DatabaseSync,
+  opts: { scope: 'class' | 'student'; classId?: string | null; studentIds?: string[] },
+): OfflineLockStore {
+  const store = getOfflineLockStore(db);
+  if (opts.scope === 'class') {
+    const cid = String(opts.classId ?? '').trim();
+    if (cid) delete store.byClass[cid];
+  } else {
+    for (const id of opts.studentIds ?? []) {
+      const sid = String(id).trim();
+      if (sid) delete store.byStudent[sid];
+    }
+  }
+  return saveOfflineLockStore(db, store);
 }
 
 export function getLastDeviceCommand(db: DatabaseSync): DeviceControlCommand | null {
@@ -63,15 +178,22 @@ export function publishDeviceCommand(
   });
   if (!full) throw new Error('invalid_device_command');
   upsertSetting(db, KEY_CMD, JSON.stringify(full));
-  broadcastDeviceControl({ type: 'device_control', command: full, policy: getDeviceControlPolicy(db) });
+  broadcastDeviceControl(deviceControlPublicPayload(db));
   return full;
 }
 
-export function deviceControlPublicPayload(db: DatabaseSync) {
+export function deviceControlPublicPayload(
+  db: DatabaseSync,
+  opts?: { classId?: string | null; studentId?: string | null },
+) {
+  const offlineStore = getOfflineLockStore(db);
+  const policyStore = getDeviceControlStore(db);
   return {
     type: 'device_control' as const,
-    policy: getDeviceControlPolicy(db),
-    offline: getOfflineLockPolicy(db),
+    policy: resolveDeviceControlPolicy(policyStore, opts),
+    policyStore,
+    offline: resolveOfflineLockPolicy(offlineStore, opts),
+    offlineStore,
     command: getLastDeviceCommand(db),
   };
 }

@@ -98,6 +98,35 @@ function parseHosts(raw: unknown): string[] {
     .slice(0, 64);
 }
 
+/** Re-push current deep-lock net intent to Shield (pull fallback when push missed). */
+export async function resyncShieldFromDesk(db: DatabaseSync): Promise<{ classes: number }> {
+  const store = getDeepLockStore(db);
+  const ids = new Set<string>();
+  for (const k of Object.keys(store.byClass ?? {})) {
+    if (String(k).trim()) ids.add(String(k).trim());
+  }
+  try {
+    const rows = db
+      .prepare(
+        `SELECT DISTINCT class_id AS classId FROM presence_heartbeats WHERE class_id IS NOT NULL AND class_id != ''`,
+      )
+      .all() as Array<{ classId: string }>;
+    for (const r of rows) {
+      if (String(r.classId ?? '').trim()) ids.add(String(r.classId).trim());
+    }
+  } catch {
+    /* presence table may be empty */
+  }
+  if (ids.size === 0) {
+    await pushShieldForClass(db, null, resolveDeepLockState(store, null), false);
+    return { classes: 0 };
+  }
+  for (const cid of ids) {
+    await pushShieldForClass(db, cid, resolveDeepLockState(store, cid), false);
+  }
+  return { classes: ids.size };
+}
+
 async function pushShieldForClass(
   db: DatabaseSync,
   classId: string | null,
@@ -300,6 +329,15 @@ export async function applyDeepLockAction(
       break;
     default:
       throw new Error('invalid_deep_lock_action');
+  }
+
+  {
+    const { deepLockActionRequiresLabGoLive, assertLabGoLiveReady } = await import(
+      './labGoLive.js'
+    );
+    if (deepLockActionRequiresLabGoLive(current, next, opts.action)) {
+      await assertLabGoLiveReady(db, classId);
+    }
   }
 
   const store = writeState(db, classId, next);

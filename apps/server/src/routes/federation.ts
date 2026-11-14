@@ -33,6 +33,10 @@ federationRouter.post('/api/v1/federation/ingest', (req, res) => {
     classId: body.classId ? String(body.classId).trim() : null,
     className: body.className ? String(body.className).trim().slice(0, 64) : null,
     updatedAt: new Date().toISOString(),
+    // Status-only fields from peer — never used for remote lock commands.
+    netMode: body.netMode != null ? String(body.netMode).trim().slice(0, 32) : null,
+    examActive: Boolean(body.examActive),
+    frozen: Boolean(body.frozen),
   };
   const peers = upsertFederationPeer(peer);
   res.json({ ok: true, peers: peers.length });

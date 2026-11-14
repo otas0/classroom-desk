@@ -130,6 +130,30 @@ jobs:
         run: |
           Copy-Item apps/student-desktop/resources/config.example.json apps/student-desktop/release/config.example.json -Force
           node scripts/extract-release-notes.mjs $env:GITHUB_REF_NAME
+      - name: Pack product distribution
+        shell: pwsh
+        run: |
+          npm run pack
+          if (-not (Test-Path 'ClassroomDesk-Dist/ClassroomDesk/.classroom-desk-ready')) {
+            Write-Error 'product pack marker missing after npm run pack'
+            exit 1
+          }
+          $setup = Get-ChildItem 'ClassroomDesk-Dist/ClassroomDesk-Teacher-Setup-*-x64.exe' -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -notlike 'ClassroomDesk-Teacher-Setup-x64.exe' } |
+            Select-Object -First 1
+          if (-not $setup -or -not (Test-Path 'ClassroomDesk-Dist/ClassroomDesk-Teacher-Setup-x64.exe')) {
+            Write-Error 'ClassroomDesk-Teacher-Setup-x64.exe missing after npm run pack'
+            exit 1
+          }
+          $ver = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          $zipName = "ClassroomDesk-$ver-win-x64.zip"
+          if (Test-Path $zipName) { Remove-Item $zipName -Force }
+          Compress-Archive -Path 'ClassroomDesk-Dist\*' -DestinationPath $zipName -CompressionLevel Optimal
+          foreach ($f in @($setup.FullName, 'ClassroomDesk-Dist/ClassroomDesk-Teacher-Setup-x64.exe', $zipName)) {
+            $hash = (Get-FileHash -Algorithm SHA256 $f).Hash.ToLower()
+            Set-Content -Path "$f.sha256" -Value ("{0}  {1}" -f $hash, (Split-Path $f -Leaf))
+            Write-Host "sha256 $hash $(Split-Path $f -Leaf)"
+          }
       - name: Upload to GitHub Release
         uses: softprops/action-gh-release@v3
         with:
@@ -137,6 +161,12 @@ jobs:
             apps/student-desktop/release/ClassroomDesk-Setup-*.exe
             apps/student-desktop/release/ClassroomDesk-Setup-*.exe.sha256
             apps/student-desktop/release/config.example.json
+            ClassroomDesk-Dist/ClassroomDesk-Teacher-Setup-x64.exe
+            ClassroomDesk-Dist/ClassroomDesk-Teacher-Setup-x64.exe.sha256
+            ClassroomDesk-Dist/ClassroomDesk-Teacher-Setup-*-x64.exe
+            ClassroomDesk-Dist/ClassroomDesk-Teacher-Setup-*-x64.exe.sha256
+            ClassroomDesk-*-win-x64.zip
+            ClassroomDesk-*-win-x64.zip.sha256
           fail_on_unmatched_files: true
           generate_release_notes: true
           body_path: RELEASE_NOTES.md

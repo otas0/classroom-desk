@@ -210,6 +210,11 @@ export type NetworkZone = {
   ssidIncludes: string[];
   /** IPv4 CIDRs, e.g. 10.20.0.0/16. Empty = ignore IP. */
   cidrs: string[];
+  /**
+   * Optional VLAN id/name for firewall/controller export (SSID/CIDR → VLAN).
+   * Empty = not mapped; IdP/RADIUS still owns real VLAN assignment.
+   */
+  vlan: string;
   /** Who is allowed on this zone. Empty = anyone (not recommended). */
   allowedRoles: NetworkZoneRole[];
   /** Idle default when no deep-lock lesson override. */
@@ -263,6 +268,9 @@ export function normalizeNetworkZone(raw: unknown): NetworkZone | null {
     cidrs: Array.isArray(o.cidrs)
       ? o.cidrs.map((s) => String(s).trim()).filter(Boolean).slice(0, 16)
       : [],
+    vlan: String((o as { vlan?: string }).vlan ?? '')
+      .trim()
+      .slice(0, 32),
     allowedRoles: roles.slice(0, 8),
     defaultNetMode: net,
     defaultAllowlistHosts: Array.isArray(o.defaultAllowlistHosts)
@@ -354,14 +362,49 @@ export type OfflineLockPolicy = {
   collapseOnReconnect: boolean;
   /** Keep fullscreen until unlock code succeeds even after reconnect. */
   holdUntilUnlockCode: boolean;
+  /**
+   * Security-custody: cover primary display + blackout secondaries; survive app restart
+   * until unlock code (persisted in student userData).
+   */
+  custodyFullscreen: boolean;
+  /** While offline-locked, keep killing browsers / chat / games (same list as deep-lock distractions). */
+  killEscapesOnOffline: boolean;
+  /**
+   * When a bonded student drops from presence:
+   * - false (default): only that student's machine enters offline custody.
+   * - true: teacher presence UI also kick_class + freeze the whole class.
+   * Teachers change this in device-control 「有学生掉线时」.
+   */
+  freezeClassOnPeerDrop: boolean;
 };
 
+/** Lab default: lock the disconnected student only; whole-class peer-drop is teacher opt-in. */
 export const DEFAULT_OFFLINE_LOCK_POLICY = (): OfflineLockPolicy => ({
   mode: 'hard_lock',
-  graceMs: 8_000,
+  graceMs: 1_500,
   unlockWithCode: true,
   collapseOnReconnect: true,
-  holdUntilUnlockCode: false,
+  holdUntilUnlockCode: true,
+  custodyFullscreen: true,
+  killEscapesOnOffline: true,
+  freezeClassOnPeerDrop: false,
+});
+
+/**
+ * Max-secrecy one-click arm preset (最高保密级): 1s grace, hold until unlock,
+ * kill escapes, and class-wide peer-drop freeze. Still needs Assigned Access for OS keys.
+ * Day-to-day DEFAULT keeps freezeClassOnPeerDrop false — only this preset turns 连坐 on.
+ */
+export const SECURITY_BUREAU_OFFLINE_LOCK_POLICY = (): OfflineLockPolicy => ({
+  ...DEFAULT_OFFLINE_LOCK_POLICY(),
+  graceMs: 1_000,
+  mode: 'hard_lock',
+  holdUntilUnlockCode: true,
+  custodyFullscreen: true,
+  killEscapesOnOffline: true,
+  freezeClassOnPeerDrop: true,
+  unlockWithCode: true,
+  collapseOnReconnect: true,
 });
 
 export function normalizeOfflineLockPolicy(raw: unknown): OfflineLockPolicy {
@@ -371,14 +414,72 @@ export function normalizeOfflineLockPolicy(raw: unknown): OfflineLockPolicy {
   const mode: OfflineLockMode =
     o.mode === 'warn' || o.mode === 'off' || o.mode === 'hard_lock' ? o.mode : base.mode;
   const grace = Number(o.graceMs);
+  const flag = (v: unknown, fallback: boolean) =>
+    v === undefined ? fallback : Boolean(v);
   return {
     mode,
-    graceMs: Number.isFinite(grace) ? Math.min(120_000, Math.max(2_000, Math.round(grace))) : base.graceMs,
+    graceMs: Number.isFinite(grace) ? Math.min(120_000, Math.max(1_000, Math.round(grace))) : base.graceMs,
     unlockWithCode: o.unlockWithCode !== false,
     collapseOnReconnect: o.collapseOnReconnect !== false,
-    holdUntilUnlockCode: Boolean(o.holdUntilUnlockCode),
+    holdUntilUnlockCode: flag(o.holdUntilUnlockCode, base.holdUntilUnlockCode),
+    custodyFullscreen: flag(o.custodyFullscreen, base.custodyFullscreen),
+    killEscapesOnOffline: flag(o.killEscapesOnOffline, base.killEscapesOnOffline),
+    freezeClassOnPeerDrop: flag(o.freezeClassOnPeerDrop, base.freezeClassOnPeerDrop),
   };
 }
+
+/** Scoped offline / custody policies: student > class > global. */
+export type OfflineLockStore = {
+  global: OfflineLockPolicy;
+  byClass: Record<string, OfflineLockPolicy>;
+  byStudent: Record<string, OfflineLockPolicy>;
+};
+
+export const EMPTY_OFFLINE_LOCK_STORE = (): OfflineLockStore => ({
+  global: DEFAULT_OFFLINE_LOCK_POLICY(),
+  byClass: {},
+  byStudent: {},
+});
+
+export function normalizeOfflineLockStore(raw: unknown): OfflineLockStore {
+  const empty = EMPTY_OFFLINE_LOCK_STORE();
+  if (!raw || typeof raw !== 'object') return empty;
+  const o = raw as Record<string, unknown>;
+  // Migrate legacy flat OfflineLockPolicy (no byClass/global keys).
+  if (o.global == null && o.byClass == null && o.byStudent == null && ('mode' in o || 'graceMs' in o)) {
+    return { global: normalizeOfflineLockPolicy(o), byClass: {}, byStudent: {} };
+  }
+  const byClass: Record<string, OfflineLockPolicy> = {};
+  for (const [k, v] of Object.entries((o.byClass as Record<string, unknown>) ?? {})) {
+    if (!String(k).trim()) continue;
+    byClass[String(k).trim()] = normalizeOfflineLockPolicy(v);
+  }
+  const byStudent: Record<string, OfflineLockPolicy> = {};
+  for (const [k, v] of Object.entries((o.byStudent as Record<string, unknown>) ?? {})) {
+    if (!String(k).trim()) continue;
+    byStudent[String(k).trim()] = normalizeOfflineLockPolicy(v);
+  }
+  return {
+    global: normalizeOfflineLockPolicy(o.global ?? empty.global),
+    byClass,
+    byStudent,
+  };
+}
+
+export function resolveOfflineLockPolicy(
+  store: OfflineLockStore,
+  opts?: { classId?: string | null; studentId?: string | null },
+): OfflineLockPolicy {
+  const s = normalizeOfflineLockStore(store);
+  let p = s.global;
+  const cid = String(opts?.classId ?? '').trim();
+  if (cid && s.byClass[cid]) p = s.byClass[cid]!;
+  const sid = String(opts?.studentId ?? '').trim();
+  if (sid && s.byStudent[sid]) p = s.byStudent[sid]!;
+  return p;
+}
+
+export type OfflineLockScope = 'global' | 'class' | 'student';
 
 /** Always-on app/web blocks + one-shot open/close commands for lab-agent. */
 export type DeviceControlPolicy = {
@@ -415,12 +516,82 @@ export function normalizeDeviceControlPolicy(raw: unknown): DeviceControlPolicy 
   };
 }
 
+/** Scoped block lists: student > class > global (same resolve order as offline lock). */
+export type DeviceControlStore = {
+  global: DeviceControlPolicy;
+  byClass: Record<string, DeviceControlPolicy>;
+  byStudent: Record<string, DeviceControlPolicy>;
+};
+
+export const EMPTY_DEVICE_CONTROL_STORE = (): DeviceControlStore => ({
+  global: EMPTY_DEVICE_CONTROL_POLICY(),
+  byClass: {},
+  byStudent: {},
+});
+
+export function normalizeDeviceControlStore(raw: unknown): DeviceControlStore {
+  const empty = EMPTY_DEVICE_CONTROL_STORE();
+  if (!raw || typeof raw !== 'object') return empty;
+  const o = raw as Record<string, unknown>;
+  // Migrate legacy flat DeviceControlPolicy.
+  if (
+    o.global == null &&
+    o.byClass == null &&
+    o.byStudent == null &&
+    ('blockedHosts' in o || 'blockedApps' in o)
+  ) {
+    return { global: normalizeDeviceControlPolicy(o), byClass: {}, byStudent: {} };
+  }
+  const byClass: Record<string, DeviceControlPolicy> = {};
+  for (const [k, v] of Object.entries((o.byClass as Record<string, unknown>) ?? {})) {
+    if (!String(k).trim()) continue;
+    byClass[String(k).trim()] = normalizeDeviceControlPolicy(v);
+  }
+  const byStudent: Record<string, DeviceControlPolicy> = {};
+  for (const [k, v] of Object.entries((o.byStudent as Record<string, unknown>) ?? {})) {
+    if (!String(k).trim()) continue;
+    byStudent[String(k).trim()] = normalizeDeviceControlPolicy(v);
+  }
+  return {
+    global: normalizeDeviceControlPolicy(o.global ?? empty.global),
+    byClass,
+    byStudent,
+  };
+}
+
+export function resolveDeviceControlPolicy(
+  store: DeviceControlStore,
+  opts?: { classId?: string | null; studentId?: string | null },
+): DeviceControlPolicy {
+  const s = normalizeDeviceControlStore(store);
+  let p = s.global;
+  const cid = String(opts?.classId ?? '').trim();
+  if (cid && s.byClass[cid]) p = s.byClass[cid]!;
+  const sid = String(opts?.studentId ?? '').trim();
+  if (sid && s.byStudent[sid]) p = s.byStudent[sid]!;
+  return p;
+}
+
+/** DeskDNS / fleet-wide: union of every blocked host in the store (most restrictive). */
+export function collectAllBlockedHosts(store: DeviceControlStore): string[] {
+  const s = normalizeDeviceControlStore(store);
+  const hosts = new Set<string>();
+  for (const h of s.global.blockedHosts) hosts.add(h);
+  for (const p of Object.values(s.byClass)) for (const h of p.blockedHosts) hosts.add(h);
+  for (const p of Object.values(s.byStudent)) for (const h of p.blockedHosts) hosts.add(h);
+  return [...hosts].slice(0, 256);
+}
+
+export type DeviceControlScope = OfflineLockScope;
+
 export type DeviceControlCommandKind = 'open_url' | 'open_app' | 'close_apps';
 
 export type DeviceControlCommand = {
   id: string;
   at: string;
   classId: string;
+  /** Empty / omit = whole class. Otherwise only these student ids apply the command. */
+  studentIds?: string[];
   kind: DeviceControlCommandKind;
   url?: string;
   app?: string;
@@ -447,5 +618,8 @@ export function normalizeDeviceControlCommand(raw: unknown): DeviceControlComman
   const apps = Array.isArray(o.apps)
     ? o.apps.map((a) => String(a).trim()).filter(Boolean).slice(0, 32)
     : undefined;
-  return { id, at, classId, kind, url, app, apps };
+  const studentIds = Array.isArray(o.studentIds)
+    ? [...new Set(o.studentIds.map((x) => String(x).trim()).filter(Boolean))].slice(0, 128)
+    : undefined;
+  return { id, at, classId, studentIds, kind, url, app, apps };
 }

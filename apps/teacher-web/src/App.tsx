@@ -419,11 +419,12 @@ export function App() {
     localStorage.setItem(NAV_CLASS_KEY, classId);
   }, [classId]);
 
-  // Optional: switching class clears easy-join so the previous podium vanishes from LAN scan.
+  // Follow current class for easy-join (day-1: students Find classroom without extra toggles).
+  // Auto-off setting now means “repoint to the selected class”, not “turn off”.
   useEffect(() => {
     const prev = prevClassIdRef.current;
     prevClassIdRef.current = classId;
-    if (!tokenReady || mustChangePassword || !prev || !classId || prev === classId) return;
+    if (!tokenReady || mustChangePassword || !classId || isAssistant()) return;
     void (async () => {
       try {
         const s = await api<{
@@ -432,13 +433,17 @@ export function App() {
           studentEasyJoinAutoOff?: boolean;
         }>('/api/v1/settings');
         if (s.studentEasyJoinAutoOff === false) return;
-        if (!s.studentEasyJoin) return;
-        if (s.studentEasyJoinClassId && s.studentEasyJoinClassId !== prev) return;
-        await api('/api/v1/settings', {
-          method: 'PATCH',
-          body: JSON.stringify({ studentEasyJoin: false, studentEasyJoinClassId: '' }),
-        });
-        setSetupTick((n) => n + 1);
+        const already =
+          s.studentEasyJoin === true && String(s.studentEasyJoinClassId ?? '') === classId;
+        if (already) return;
+        // First select or switch: point easy-join at this class (minimal teacher steps).
+        if (!prev || prev !== classId || !s.studentEasyJoin) {
+          await api('/api/v1/settings', {
+            method: 'PATCH',
+            body: JSON.stringify({ studentEasyJoin: true, studentEasyJoinClassId: classId }),
+          });
+          setSetupTick((n) => n + 1);
+        }
       } catch {
         /* ignore */
       }

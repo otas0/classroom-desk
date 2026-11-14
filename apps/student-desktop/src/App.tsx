@@ -19,9 +19,11 @@ import {
 } from './api';
 import {
   exitLockCacheConflicts,
+  isCachedExitStillAllowed,
   readExitLockCache,
   writeExitLockCache,
 } from './exitLockCache';
+import { isTeacherBonded, markTeacherBonded } from './teacherBond';
 import {
   EMPTY_INPUT_LOCK,
   anyInputLocked,
@@ -44,12 +46,17 @@ import {
   deepLockAggressive,
   normalizeDeviceControlCommand,
   normalizeDeviceControlPolicy,
+  normalizeDeviceControlStore,
   normalizeOfflineLockPolicy,
+  normalizeOfflineLockStore,
+  resolveDeviceControlPolicy,
+  resolveOfflineLockPolicy,
   type DeviceControlCommand,
   type DeviceControlPolicy,
   type OfflineLockPolicy,
 } from '@classroom-desk/shared';
-import { normalizeUiLocale, t, type UiLocale } from '@classroom-desk/i18n';
+import { detectSystemUiLocale, normalizeUiLocale, t, type UiLocale } from '@classroom-desk/i18n';
+import { writeTeacherUiLocale } from './teacherLocale';
 import { fetchClassroomJoin, resolveClassroomJoin } from './classroomJoin';
 declare const __APP_VERSION__: string;
 const CLIENT_VERSION = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.0.0';
@@ -93,7 +100,6 @@ function questionTypeZh(type: string): string {
 
 export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } = {}) {
   const [tab, setTab] = useState<TabId>('points');
-  const [collapsed, setCollapsed] = useState(false);
   const [user, setUser] = useState<User | null>(null);
   const [className, setClassName] = useState('');
   const [classId, setClassId] = useState('');
@@ -112,6 +118,8 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
   const [studentAutoUpdate, setStudentAutoUpdate] = useState(true);
   const forceUpgradeBusyRef = useRef(false);
   const [forceUpgradeMsg, setForceUpgradeMsg] = useState('');
+  const [collapsed, setCollapsed] = useState(false);
+  const [allowCollapse, setAllowCollapse] = useState(() => !isTeacherBonded());
   const [newQuizPulse, setNewQuizPulse] = useState(false);
   const [openQuizCount, setOpenQuizCount] = useState(0);
   const [offlineQueueCount, setOfflineQueueCount] = useState(0);
@@ -139,8 +147,14 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
   const [gateAdmin, setGateAdmin] = useState(false);
   const [needsFirstRun, setNeedsFirstRun] = useState(false);
   const [classroomLabel, setClassroomLabel] = useState('');
-  const [exitAllowed, setExitAllowed] = useState(false);
-  const [exitUnlockUntil, setExitUnlockUntil] = useState<string | null>(null);
+  const [exitAllowed, setExitAllowed] = useState(() => {
+    if (!isTeacherBonded()) return true;
+    return isCachedExitStillAllowed();
+  });
+  const [exitUnlockUntil, setExitUnlockUntil] = useState<string | null>(() => {
+    const cache = readExitLockCache();
+    return cache?.until ?? null;
+  });
   const [quizConfirmSubmit, setQuizConfirmSubmit] = useState(true);
   const [nowTick, setNowTick] = useState(() => Date.now());
   const [hardeningTip, setHardeningTip] = useState(false);
@@ -213,24 +227,65 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
         void window.classroomDesk.setInputMouseLocked(resolved.mouse);
       }
       if (wasActive && !nextActive && opts?.clearedReason === 'ttl_expire') {
-        showToastRef.current('课次结束，输入锁已解除');
+        showToastRef.current(t('课次结束，输入锁已解除'));
       }
     },
     [],
   );
 
   const syncExitLock = useCallback(async (allowed: boolean, until: string | null = null) => {
-    setExitAllowed(allowed);
-    if (until !== undefined) setExitUnlockUntil(until);
-    writeExitLockCache(allowed, until);
+    // Never bonded / first setup: always allow exit even if caller asks to lock.
+    const bonded = isTeacherBonded();
+    const grant = bonded ? allowed : true;
+    const nextUntil = grant && bonded ? until : null;
+    setExitUnlockUntil(nextUntil);
+    writeExitLockCache(grant, nextUntil);
     if (window.classroomDesk?.setExitAllowed) {
-      const st = await window.classroomDesk.setExitAllowed(allowed);
+      const st = await window.classroomDesk.setExitAllowed(bonded ? allowed : true);
       setExitAllowed(Boolean(st.exitAllowed));
+    } else {
+      setExitAllowed(grant);
     }
   }, []);
 
+  const bondToTeacher = useCallback(async () => {
+    markTeacherBonded();
+    if (window.classroomDesk?.markTeacherBonded) {
+      await window.classroomDesk.markTeacherBonded();
+    }
+  }, []);
+
+  const applyWindowChromePolicy = useCallback(async (collapse: boolean, minimize: boolean) => {
+    setAllowCollapse(collapse);
+    if (!collapse) setCollapsed(false);
+    if (window.classroomDesk?.setWindowChromePolicy) {
+      const st = await window.classroomDesk.setWindowChromePolicy({
+        allowCollapse: collapse,
+        allowMinimize: minimize,
+      });
+      if (typeof st?.collapsed === 'boolean') setCollapsed(st.collapsed);
+    }
+  }, []);
+
+  /** First setup / never bonded → allow fold & minimize; after teacher bond → server policy (default off). */
+  const syncWindowChromeFromServer = useCallback(
+    async (serverCollapse?: boolean, serverMinimize?: boolean, firstRun = needsFirstRun) => {
+      if (!isTeacherBonded() || firstRun) {
+        await applyWindowChromePolicy(true, true);
+        return;
+      }
+      await applyWindowChromePolicy(serverCollapse === true, serverMinimize === true);
+    },
+    [applyWindowChromePolicy, needsFirstRun],
+  );
+
   const applyServerExitLock = useCallback(
     async (serverAllowed: boolean, serverUntil: string | null, opts?: { reconcile?: boolean }) => {
+      if (!isTeacherBonded()) {
+        setExitUnlockUntil(null);
+        await syncExitLock(true, null);
+        return;
+      }
       const cache = readExitLockCache();
       if (opts?.reconcile !== false && exitLockCacheConflicts(cache, serverAllowed, serverUntil)) {
         try {
@@ -311,7 +366,7 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
             : kind === 'voice'
               ? t('语音')
               : t('相机');
-      showToast(`教师已锁定${label}输入，请向教师申请解除`);
+      showToast(t('教师已锁定{v0}输入，请向教师申请解除', { v0: label }));
     };
     return installInputLockGuards(inputLock, notify);
   }, [inputLock, showToast]);
@@ -416,7 +471,7 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
     function startSse(reason: string) {
       if (closed || usingSse) return;
       usingSse = true;
-      showToast(`实时通道已切到备用（${reason}）`);
+      showToast(t('实时通道已切到备用（{v0}）', { v0: reason }));
       es = new EventSource(`${base}/api/v1/exit-lock/stream`);
       es.onmessage = (ev) => applyExitPayload(ev.data);
       es.onerror = () => {
@@ -517,9 +572,9 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
     };
   }, [ready, healthOk, applyServerExitLock, applyResolvedInputLock, showToast, classId]);
 
-  // Focus freeze: blur → report violation (visible policy; no screenshots).
+  // Focus freeze / custody: blur → report violation + re-assert lock (visible policy; no screenshots).
   useEffect(() => {
-    if (!user || (!deepLock.focusFreeze && !deepLock.frozen)) return;
+    if (!user || (!deepLock.focusFreeze && !deepLock.frozen && !offlineHardLocked)) return;
     const onBlur = () => {
       window.clearTimeout(deepLockFocusTimerRef.current);
       deepLockFocusTimerRef.current = window.setTimeout(() => {
@@ -529,10 +584,12 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
           method: 'POST',
           body: JSON.stringify({ classId }),
         }).catch(() => undefined);
-        if (deepLock.focusFreeze || deepLock.frozen) {
+        if (offlineHardLocked) {
+          enterOfflineCustody();
+        } else if (deepLock.focusFreeze || deepLock.frozen) {
           void window.classroomDesk?.setDeepLockFrozen?.(true);
         }
-      }, 800);
+      }, 400);
     };
     const onFocus = () => window.clearTimeout(deepLockFocusTimerRef.current);
     window.addEventListener('blur', onBlur);
@@ -542,7 +599,7 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
       window.removeEventListener('blur', onBlur);
       window.removeEventListener('focus', onFocus);
     };
-  }, [user, deepLock.focusFreeze, deepLock.frozen, classId, showToast]);
+  }, [user, deepLock.focusFreeze, deepLock.frozen, offlineHardLocked, classId, showToast, offlinePolicy]);
 
   // Re-kill browsers + distractions while armed (students can relaunch otherwise).
   useEffect(() => {
@@ -582,16 +639,33 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
       try {
         const data = typeof raw === 'string' ? JSON.parse(raw) : raw;
         if (!data || data.type !== 'device_control') return;
-        const policy = normalizeDeviceControlPolicy(data.policy);
-        const offline = normalizeOfflineLockPolicy(data.offline);
+        const sid = user?.id ?? '';
+        const resolveOpts = { classId, studentId: sid };
+        const policy = data.policyStore
+          ? resolveDeviceControlPolicy(normalizeDeviceControlStore(data.policyStore), resolveOpts)
+          : normalizeDeviceControlPolicy(data.policy);
+        const offline = data.offlineStore
+          ? resolveOfflineLockPolicy(normalizeOfflineLockStore(data.offlineStore), resolveOpts)
+          : normalizeOfflineLockPolicy(data.offline);
         setDevicePolicy(policy);
         setOfflinePolicy(offline);
+        try {
+          localStorage.setItem('cd_offline_policy', JSON.stringify(offline));
+        } catch {
+          /* ignore */
+        }
         void window.classroomDesk?.setBlockedHosts?.(policy.blockedHosts);
+        void window.classroomDesk?.setBlockedApps?.(policy.blockedApps);
         const cmd = normalizeDeviceControlCommand(data.command);
         if (cmd && cmd.id && cmd.id !== lastDeviceCmdIdRef.current) {
           if (!cmd.classId || cmd.classId === classId) {
-            lastDeviceCmdIdRef.current = cmd.id;
-            void applyDeviceCommand(cmd);
+            const targets = cmd.studentIds?.filter(Boolean) ?? [];
+            if (targets.length && sid && !targets.includes(sid)) {
+              /* command for other students only */
+            } else {
+              lastDeviceCmdIdRef.current = cmd.id;
+              void applyDeviceCommand(cmd);
+            }
           }
         }
       } catch {
@@ -613,7 +687,11 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
       }
     }
 
-    void fetch(`${base}/api/v1/device-control/public`)
+    const qs = new URLSearchParams();
+    if (classId) qs.set('classId', classId);
+    if (user?.id) qs.set('studentId', user.id);
+    const q = qs.toString() ? `?${qs}` : '';
+    void fetch(`${base}/api/v1/device-control/public${q}`)
       .then((r) => r.json())
       .then((data) => {
         if (!closed) applyPayload(data);
@@ -628,7 +706,7 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
       closed = true;
       es?.close();
     };
-  }, [ready, healthOk, classId, showToast]);
+  }, [ready, healthOk, classId, user?.id, showToast]);
 
   useEffect(() => {
     if (!devicePolicy.blockedApps.length) return;
@@ -640,9 +718,71 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
     return () => window.clearInterval(id);
   }, [devicePolicy.blockedApps]);
 
-  // Offline hard-lock: no teacher host → fullscreen until code or reconnect policy.
+  function enterOfflineCustody() {
+    setOfflineHardLocked(true);
+    setOfflineWarn(false);
+    try {
+      localStorage.setItem('cd_offline_custody', '1');
+      localStorage.setItem('cd_offline_policy', JSON.stringify(offlinePolicy));
+    } catch {
+      /* ignore */
+    }
+    void window.classroomDesk?.setDeepLockAggressive?.(true);
+    void window.classroomDesk?.setInputMouseLocked?.(true);
+    if (offlinePolicy.custodyFullscreen !== false) {
+      void window.classroomDesk?.setOfflineCustody?.(true);
+    } else {
+      void window.classroomDesk?.setDeepLockFrozen?.(true);
+    }
+    if (offlinePolicy.killEscapesOnOffline !== false) {
+      void window.classroomDesk?.enforceDeepLockBrowsers?.({
+        killForeignBrowsers: true,
+        killDistractions: true,
+        allowHosts: [],
+      });
+    }
+  }
+
+  function leaveOfflineCustody() {
+    setOfflineHardLocked(false);
+    try {
+      localStorage.removeItem('cd_offline_custody');
+    } catch {
+      /* ignore */
+    }
+    void window.classroomDesk?.setOfflineCustody?.(false);
+    void window.classroomDesk?.setDeepLockFrozen?.(false);
+    void window.classroomDesk?.setInputMouseLocked?.(false);
+    void window.classroomDesk?.snapBottomRight?.();
+  }
+
+  // Restore custody after relaunch (main process may already cover the screen).
   useEffect(() => {
-    if (!ready) return;
+    if (!ready || needsFirstRun || !isTeacherBonded()) return;
+    let cancelled = false;
+    void (async () => {
+      const fromMain = await window.classroomDesk?.getOfflineCustody?.().catch(() => null);
+      const fromLs = localStorage.getItem('cd_offline_custody') === '1';
+      if (cancelled) return;
+      if (fromMain?.active || fromLs) {
+        try {
+          const raw = localStorage.getItem('cd_offline_policy');
+          if (raw) setOfflinePolicy(normalizeOfflineLockPolicy(JSON.parse(raw)));
+        } catch {
+          /* ignore */
+        }
+        setOfflineHardLocked(true);
+        void window.classroomDesk?.setOfflineCustody?.(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [ready, needsFirstRun]);
+
+  // Offline hard-lock / security-custody: only after a prior teacher bond.
+  useEffect(() => {
+    if (!ready || needsFirstRun || !isTeacherBonded()) return;
     let cancelled = false;
     const tick = async () => {
       try {
@@ -653,15 +793,12 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
         setOfflineWarn(false);
         if (offlineHardLocked) {
           if (offlinePolicy.holdUntilUnlockCode) {
-            /* stay locked until unlock code */
+            /* stay locked until unlock code — even after reconnect */
           } else if (offlinePolicy.collapseOnReconnect) {
-            setOfflineHardLocked(false);
-            void window.classroomDesk?.setDeepLockFrozen?.(false);
-            void window.classroomDesk?.snapBottomRight?.();
-            showToast(t('已连上教师机，回到右下角'));
+            leaveOfflineCustody();
+            showToast(t('已连上教师机'));
           } else {
-            setOfflineHardLocked(false);
-            void window.classroomDesk?.setDeepLockFrozen?.(false);
+            leaveOfflineCustody();
           }
         }
       } catch {
@@ -675,28 +812,39 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
           return;
         }
         if (!offlineHardLocked) {
-          setOfflineHardLocked(true);
-          setOfflineWarn(false);
-          void window.classroomDesk?.setDeepLockFrozen?.(true);
-          showToast(t('与教师机断开：已强硬锁屏'));
+          enterOfflineCustody();
+          showToast(t('与教师机断开：已进入监管锁屏'));
         }
       }
     };
     void tick();
-    const id = window.setInterval(() => void tick(), 2_000);
+    const id = window.setInterval(() => void tick(), 600);
     return () => {
       cancelled = true;
       window.clearInterval(id);
     };
   }, [
     ready,
+    needsFirstRun,
     offlineHardLocked,
-    offlinePolicy.graceMs,
-    offlinePolicy.mode,
-    offlinePolicy.collapseOnReconnect,
-    offlinePolicy.holdUntilUnlockCode,
+    offlinePolicy,
     showToast,
   ]);
+
+  // Keep killing escape apps while custody is active (students relaunch otherwise).
+  useEffect(() => {
+    if (!offlineHardLocked || offlinePolicy.killEscapesOnOffline === false) return;
+    const tick = () => {
+      void window.classroomDesk?.enforceDeepLockBrowsers?.({
+        killForeignBrowsers: true,
+        killDistractions: true,
+        allowHosts: [],
+      });
+    };
+    tick();
+    const id = window.setInterval(tick, 1_000);
+    return () => window.clearInterval(id);
+  }, [offlineHardLocked, offlinePolicy.killEscapesOnOffline]);
 
   useEffect(() => {
     if (!user || !healthOk) return;
@@ -708,11 +856,9 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
   }, [user, healthOk]);
 
   function releaseOfflineHardLock() {
-    setOfflineHardLocked(false);
     setOfflineUnlockCode('');
-    void window.classroomDesk?.setDeepLockFrozen?.(false);
-    void window.classroomDesk?.snapBottomRight?.();
-    showToast(t('解除码有效，已解除掉线锁'));
+    leaveOfflineCustody();
+    showToast(t('解除码有效，已解除监管锁'));
   }
 
   async function clearOfflineHardLockWithCode() {
@@ -768,7 +914,7 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
       playNewQuestionChime();
       setNewQuizPulse(true);
       window.setTimeout(() => setNewQuizPulse(false), 1800);
-      showToast(`新题：${String(fresh[0]?.title ?? '')}`);
+      showToast(t('新题：{v0}', { v0: String(fresh[0]?.title ?? '') }));
       return true;
     },
     [showToast],
@@ -803,17 +949,28 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
         uiLocale?: string;
         clientExitAllowed?: boolean;
         clientExitUnlockUntil?: string | null;
+        studentAllowCollapse?: boolean;
+        studentAllowMinimize?: boolean;
         inputLock?: InputLockFlags;
         inputLockStore?: InputLockStore;
         inputLockClearedReason?: string | null;
       }>(`/api/v1/settings/public${qs ? `?${qs}` : ''}`);
-      if (pub.uiLocale) {
-        const loc = normalizeUiLocale(pub.uiLocale);
+      // First setup / never bonded: keep OS language. After teacher bond: force classroom locale.
+      if (isTeacherBonded()) {
+        if (pub.uiLocale) {
+          const loc = normalizeUiLocale(pub.uiLocale);
+          writeTeacherUiLocale(loc);
+          onUiLocale?.(loc);
+          window.dispatchEvent(new CustomEvent('cd-ui-locale', { detail: { uiLocale: loc } }));
+        }
+      } else {
+        const loc = detectSystemUiLocale();
         onUiLocale?.(loc);
         window.dispatchEvent(new CustomEvent('cd-ui-locale', { detail: { uiLocale: loc } }));
       }
       setMessagesEnabled(pub.messagesEnabled !== false);
       setQuizConfirmSubmit(pub.quizConfirmSubmit !== false);
+      await syncWindowChromeFromServer(pub.studentAllowCollapse, pub.studentAllowMinimize);
       if (pub.inputLockStore != null || pub.inputLock != null) {
         applyResolvedInputLock(
           pub.inputLockStore ? normalizeInputLockStore(pub.inputLockStore) : null,
@@ -942,7 +1099,7 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
         setUser(null);
       }
     }
-  }, [applyServerExitLock, applyResolvedInputLock, classId, onUiLocale]);
+  }, [applyServerExitLock, applyResolvedInputLock, syncWindowChromeFromServer, classId, onUiLocale]);
 
   const probeHealth = useCallback(async () => {
     const base = getApiBase();
@@ -962,7 +1119,7 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
       };
       if (!body.ok) {
         setHealthOk(false);
-        setHealthDetail(`服务未就绪（${ms}ms）· ${base}`);
+        setHealthDetail(t('服务未就绪（{v0}ms）· {v1}', { v0: String(ms), v1: base }));
         return false;
       }
       const expected = String(body.studentDesktopVersion ?? body.version ?? '').trim();
@@ -993,19 +1150,37 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
       } catch {
         /* LAN latest is optional; keep health OK */
       }
+      // First successful reach of a real teacher host → bond; exit stays locked offline afterward.
+      if (!/127\.0\.0\.1|localhost/i.test(base)) {
+        const wasUnbonded = !isTeacherBonded();
+        await bondToTeacher();
+        // After first bond, collapse/minimize follow teacher defaults (off) until public settings arrive.
+        if (wasUnbonded) await syncWindowChromeFromServer(false, false, false);
+        // Locale switches to teacher on the following refreshMe / public settings.
+      }
       setHealthOk(true);
-      setHealthDetail(`正常 ${ms}ms · ${base}`);
+      setHealthDetail(t('正常 {v0}ms · {v1}', { v0: String(ms), v1: base }));
       return true;
     } catch (e) {
       setHealthOk(false);
-      setHealthDetail(`${e instanceof Error ? e.message : '无法连接'} · ${base}`);
+      setHealthDetail(
+        `${e instanceof Error ? e.message : t('无法连接')} · ${base}`,
+      );
       return false;
     }
-  }, []);
+  }, [bondToTeacher, syncWindowChromeFromServer]);
 
   useEffect(() => {
     void (async () => {
       await initApiBase();
+      // Restore exit policy before UI: unbound → free; bonded → cache / locked.
+      if (!isTeacherBonded()) {
+        await syncExitLock(true, null);
+        await syncWindowChromeFromServer(false, false, true);
+      } else {
+        const cache = readExitLockCache();
+        await syncExitLock(isCachedExitStillAllowed(cache), cache?.until ?? null);
+      }
       let cid = '';
       let firstRun = false;
       try {
@@ -1023,6 +1198,11 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
       }
       setNeedsFirstRun(firstRun);
       if (firstRun) {
+        await syncExitLock(true, null);
+        await syncWindowChromeFromServer(false, false, true);
+        const sys = detectSystemUiLocale();
+        onUiLocale?.(sys);
+        window.dispatchEvent(new CustomEvent('cd-ui-locale', { detail: { uiLocale: sys } }));
         setReady(true);
         return;
       }
@@ -1036,10 +1216,14 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
           }
         }
         await refreshMe();
+      } else if (isTeacherBonded()) {
+        // Offline after bond: keep locked unless a cached teacher unlock is still valid.
+        const cache = readExitLockCache();
+        await syncExitLock(isCachedExitStillAllowed(cache), cache?.until ?? null);
       }
       setReady(true);
     })();
-  }, [loadRoster, refreshMe, probeHealth]);
+  }, [loadRoster, refreshMe, probeHealth, syncExitLock, syncWindowChromeFromServer, onUiLocale]);
 
   useEffect(() => {
     const _cdTimer = window.setInterval(() => void refreshMe(), 8000);
@@ -1201,6 +1385,29 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
     setTab(next);
   }
 
+  async function onToggleCollapse() {
+    const canCollapse = allowCollapse || needsFirstRun || !isTeacherBonded();
+    if (!canCollapse) {
+      await expandCollapsed();
+      return;
+    }
+    if (studentAutoUpdate && versionDrift) {
+      await expandCollapsed();
+      return;
+    }
+    // Ensure main process allows collapse for first-setup / unbound machines.
+    if (window.classroomDesk?.setWindowChromePolicy && canCollapse) {
+      await window.classroomDesk.setWindowChromePolicy({
+        allowCollapse: true,
+        allowMinimize: true,
+      });
+    }
+    if (window.classroomDesk) {
+      const next = await window.classroomDesk.toggleCollapse();
+      setCollapsed(next);
+    } else setCollapsed((c) => !c);
+  }
+
   async function selectStudent(row: RosterRow) {
     setError('');
     if (!classId) {
@@ -1220,7 +1427,7 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
       setPendingIdentity(null);
       setSwitchIdentity(false);
       setGateAdmin(false);
-      showToast(`已选择 ${res.user.displayName}`);
+      showToast(t('已选择 {v0}', { v0: res.user.displayName }));
       let openCount = 0;
       try {
         const qs = await api<{ items: Array<Record<string, unknown>> }>('/api/v1/questions');
@@ -1241,9 +1448,28 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
   }
 
   const meta = useMemo(() => {
-    if (!user) return className ? `${className} · 请点选自己的姓名` : '请老师指派班级';
-    return className ? `${className} · ${user.totalPoints} 分` : `${user.totalPoints} 分`;
+    if (!user) {
+      return className
+        ? `${className} · ${t('请点选自己的姓名')}`
+        : t('请老师指派班级');
+    }
+    const pts = t('{v0} 分', { v0: String(user.totalPoints) });
+    return className ? `${className} · ${pts}` : pts;
   }, [user, className]);
+
+  // Timed teacher unlock must expire locally even while offline.
+  useEffect(() => {
+    if (!isTeacherBonded() || !exitAllowed || !exitUnlockUntil) return;
+    const untilMs = Date.parse(exitUnlockUntil);
+    if (!Number.isFinite(untilMs)) return;
+    const left = untilMs - Date.now();
+    if (left <= 0) {
+      void syncExitLock(false, null);
+      return;
+    }
+    const id = window.setTimeout(() => void syncExitLock(false, null), left + 30);
+    return () => window.clearTimeout(id);
+  }, [exitAllowed, exitUnlockUntil, syncExitLock]);
 
   const exitLockLabel = useMemo(() => {
     void nowTick;
@@ -1254,9 +1480,9 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
       const sec = Math.ceil(left / 1000);
       const m = Math.floor(sec / 60);
       const s = String(sec % 60).padStart(2, '0');
-      return `可退出 ${m}:${s}`;
+      return t('可退出 {v0}:{v1}', { v0: String(m), v1: s });
     }
-    return '可退出';
+    return t('可退出');
   }, [exitAllowed, exitUnlockUntil, nowTick]);
 
   const visibleTabs = TABS.filter((t) => t.id !== 'messages' || messagesEnabled);
@@ -1266,17 +1492,6 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
     CLIENT_VERSION !== '0.0.0' &&
     expectedClientVersion !== CLIENT_VERSION;
 
-  async function onToggleCollapse() {
-    // Force same-version: teacher authority > student — cannot tuck away the overlay.
-    if (studentAutoUpdate && versionDrift) {
-      await expandCollapsed();
-      return;
-    }
-    if (window.classroomDesk) {
-      const next = await window.classroomDesk.toggleCollapse();
-      setCollapsed(next);
-    } else setCollapsed((c) => !c);
-  }
 
   const openUpgradeUrl = useCallback(async (url: string) => {
     const target = String(url ?? '').trim();
@@ -1291,7 +1506,6 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
   // Teacher-controlled force sync: when on, students cannot cancel — teacher authority > student.
   useEffect(() => {
     if (!versionDrift || !studentAutoUpdate) return;
-    void expandCollapsed();
     let cancelled = false;
     const run = async () => {
       if (!lanUpgradeUrl) {
@@ -1343,8 +1557,12 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
     );
   }
 
-  // Force same-version must not stay tucked in the corner chip.
-  if (collapsed && !(studentAutoUpdate && versionDrift)) {
+  // Teacher may allow chip collapse; force-upgrade must not stay tucked away.
+  if (
+    collapsed &&
+    (allowCollapse || needsFirstRun || !isTeacherBonded()) &&
+    !(studentAutoUpdate && versionDrift)
+  ) {
     return (
       <div className={`shell collapsed${newQuizPulse ? ' quiz-flash' : ''}`}>
         <header className="titlebar" data-drag>
@@ -1353,7 +1571,7 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
             <span className="collapsed-stats">
               <span
                 className={exitAllowed ? 'lock-badge unlocked' : 'lock-badge'}
-                title="退出锁定状态"
+                title={t('退出锁定状态')}
                 role="status"
                 aria-live="polite"
                 aria-atomic="true"
@@ -1365,22 +1583,26 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
                   type="button"
                   className="identity-chip"
                   data-no-drag
-                  aria-label={`当前身份 ${user.displayName}，更换需确认`}
+                  aria-label={t('当前身份 {v0}，更换需确认', { v0: user.displayName })}
                   onClick={() => void expandCollapsed().then(() => beginSwitch())}
                 >
                   <span className="chip-name">{user.displayName}</span>
                 </button>
               ) : null}
-              {offline ? '离线' : user ? `${user.totalPoints} 分` : '未登录'}
+              {offline
+                ? t('离线')
+                : user
+                  ? t('{v0} 分', { v0: String(user.totalPoints) })
+                  : t('未登录')}
               {openQuizCount > 0 ? (
                 <button
                   type="button"
                   className={`badge clickable unanswered-badge${newQuizPulse ? ' quiz-badge' : ''}`}
                   data-no-drag
-                  aria-label={`未答 ${openQuizCount}`}
+                  aria-label={t('未答 {v0}', { v0: String(openQuizCount) })}
                   onClick={() => void expandTo('quiz')}
                 >
-                  未答 {openQuizCount}
+                  {t('未答 {v0}', { v0: String(openQuizCount) })}
                 </button>
               ) : null}
               {offlineQueueCount > 0 ? (
@@ -1389,18 +1611,18 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
                   className={`badge clickable${offlineFlushErr ? ' badge-fail' : ''}`}
                   data-no-drag
                   data-testid="offline-queue-badge"
-                  title={offlineFlushErr || `待补交 ${offlineQueueCount}`}
+                  title={offlineFlushErr || t('待补交 {v0}', { v0: String(offlineQueueCount) })}
                   aria-label={
                     offlineFlushErr
-                      ? `待补交 ${offlineQueueCount}，最近失败：${offlineFlushErr}`
-                      : `待补交 ${offlineQueueCount}`
+                      ? t('待补交 {v0}，最近失败：{v1}', { v0: String(offlineQueueCount), v1: offlineFlushErr })
+                      : t('待补交 {v0}', { v0: String(offlineQueueCount) })
                   }
                   onClick={() => {
                     requestOfflineQueueFlush();
                     void expandTo('quiz');
                   }}
                 >
-                  补{offlineQueueCount}
+                  {t('补{v0}', { v0: String(offlineQueueCount) })}
                 </button>
               ) : null}
               {offlineFlushErr && offlineQueueCount > 0 ? (
@@ -1413,7 +1635,7 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
                   type="button"
                   className="badge clickable"
                   data-no-drag
-                  aria-label={`未读留言 ${unread}`}
+                  aria-label={t('未读留言 {v0}', { v0: String(unread) })}
                   onClick={() => void expandTo('messages')}
                 >
                   {unread}
@@ -1422,12 +1644,27 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
             </span>
           </div>
           <button type="button" className="icon-btn" onClick={() => void onToggleCollapse()}>
-            展开
+            {t('展开')}
           </button>
         </header>
       </div>
     );
   }
+
+  const showCollapseBtn = allowCollapse || needsFirstRun || !isTeacherBonded();
+  const collapseActions =
+    showCollapseBtn ? (
+      <div className="titlebar-actions" data-no-drag>
+        <button
+          type="button"
+          className="icon-btn"
+          data-testid="student-collapse-btn"
+          onClick={() => void onToggleCollapse()}
+        >
+          {t('折叠')}
+        </button>
+      </div>
+    ) : null;
 
   if (ready && needsFirstRun) {
     return (
@@ -1437,6 +1674,7 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
             <strong className="brand">{APP_NAME}</strong>
             <span className="meta">{t('首次配置')}</span>
           </div>
+          {collapseActions}
         </header>
         <main className="content" data-no-drag>
           <FirstRunSetup
@@ -1469,6 +1707,7 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
             <strong className="brand">{APP_NAME}</strong>
             <span className="meta">{t('请找老师')}</span>
           </div>
+          {collapseActions}
         </header>
         <main className="content" data-no-drag>
           <section className="panel">
@@ -1490,7 +1729,7 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
                       try {
                         await loadRoster(classId);
                       } catch (e) {
-                        setError(e instanceof Error ? e.message : '名单加载失败');
+                        setError(e instanceof Error ? e.message : t('名单加载失败'));
                       }
                     }
                     await refreshMe();
@@ -1516,7 +1755,7 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
               <summary>{t('教师调试')}</summary>
               <p className="hint">{healthDetail}</p>
               <label className="field">
-                临时改 apiBase（连通后再到设置里保存）
+                {t('临时改 apiBase（连通后再到设置里保存）')}
                 <input
                   defaultValue={getApiBase()}
                   id="health-api-base"
@@ -1533,7 +1772,7 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
                   void setApiBase(next).then(() => probeHealth());
                 }}
               >
-                应用并重测
+                {t('应用并重测')}
               </button>
             </details>
           </section>
@@ -1543,12 +1782,12 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
   }
 
   return (
-    <div className="shell">
+    <div className={`shell${newQuizPulse ? ' quiz-flash' : ''}`}>
       {offline ? (
         <div className="offline-banner" data-no-drag>
-          断线了 · 查网线 / 同一 Wi‑Fi · 找老师
+          {t('断线了 · 查网线 / 同一 Wi‑Fi · 找老师')}
           <button type="button" className="icon-btn" onClick={() => void refreshMe()}>
-            重连
+            {t('重连')}
           </button>
         </div>
       ) : null}
@@ -1623,7 +1862,7 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
             <strong className="brand">{APP_NAME}</strong>
           <span
             className={`lock-badge${exitAllowed ? ' unlocked' : ''}`}
-            title="退出锁定状态"
+            title={t('退出锁定状态')}
             role="status"
             aria-live="polite"
             aria-atomic="true"
@@ -1635,7 +1874,7 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
                 type="button"
                 className="identity-chip"
                 data-no-drag
-                aria-label={`当前身份 ${user.displayName}，更换需确认`}
+                aria-label={t('当前身份 {v0}，更换需确认', { v0: user.displayName })}
                 onClick={beginSwitch}
               >
                 <span className="chip-name">{user.displayName}</span>
@@ -1663,22 +1902,18 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
               </button>
             ) : null}
             {hasSeatBinding ? (
-              <span className="meta" data-testid="student-seat-binding" title="当前座位绑定">
-                座位 {seatBindLabel || '已排'}
+              <span className="meta" data-testid="student-seat-binding" title={t('当前座位绑定')}>
+                {t('座位 {v0}', { v0: seatBindLabel || t('已排') })}
               </span>
             ) : user ? (
               <span className="meta" data-testid="student-seat-unbound">
-                未排座
+                {t('未排座')}
               </span>
             ) : null}
           </div>
           <span className="meta">{meta}</span>
         </div>
-        <div className="titlebar-actions" data-no-drag>
-          <button type="button" className="icon-btn" onClick={() => void onToggleCollapse()}>
-            折叠
-          </button>
-        </div>
+        {collapseActions}
       </header>
 
       {!user || switchIdentity ? (
@@ -1686,7 +1921,7 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
           {gateAdmin && !switchIdentity ? (
             <>
               <button type="button" className="secondary" onClick={() => setGateAdmin(false)}>
-                返回选姓名
+                {t('返回选姓名')}
               </button>
               <AdminTab
                 classId={classId}
@@ -1698,7 +1933,7 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
                 onSaved={async (next) => {
                   setClassId(next.classId);
                   await loadRoster(next.classId);
-                  showToast('本机配置已保存');
+                  showToast(t('本机配置已保存'));
                   await probeHealth();
                   await refreshMe();
                 }}
@@ -1735,7 +1970,7 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
         </main>
       ) : (
         <>
-          <nav className="tabs" aria-label="主导航">
+          <nav className="tabs" aria-label={t('主导航')}>
             {visibleTabs.map((item) => (
               <button
                 key={item.id}
@@ -1750,7 +1985,7 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
                 {item.id === 'quiz' && openQuizCount > 0 ? (
                   <span
                     className="badge"
-                    aria-label={`未答 ${openQuizCount}`}
+                    aria-label={t('未答 {v0}', { v0: String(openQuizCount) })}
                   >
                     {openQuizCount}
                   </span>
@@ -1761,11 +1996,11 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
                     title={offlineFlushErr || undefined}
                     aria-label={
                       offlineFlushErr
-                        ? `待补交 ${offlineQueueCount}，最近失败：${offlineFlushErr}`
-                        : `待补交 ${offlineQueueCount}`
+                        ? t('待补交 {v0}，最近失败：{v1}', { v0: String(offlineQueueCount), v1: offlineFlushErr })
+                        : t('待补交 {v0}', { v0: String(offlineQueueCount) })
                     }
                   >
-                    补{offlineQueueCount}
+                    {t('补{v0}', { v0: String(offlineQueueCount) })}
                   </span>
                 ) : null}
                 {item.id === 'messages' && unread > 0 ? <span className="badge">{unread}</span> : null}
@@ -1806,7 +2041,7 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
                 onSaved={async (next) => {
                   setClassId(next.classId);
                   await loadRoster(next.classId);
-                  showToast('本机配置已保存');
+                  showToast(t('本机配置已保存'));
                   await probeHealth();
                   await refreshMe();
                 }}
@@ -1842,10 +2077,12 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
 
       {offlineHardLocked ? (
         <div className="deep-lock-freeze-overlay offline-hard-lock" data-testid="offline-hard-lock">
-          <p>{t('与教师机断开 · 已强硬锁屏')}</p>
+          <p>{t('与教师机断开 · 监管锁屏（安全局模式）')}</p>
           <p className="hint">
             {offlinePolicy.unlockWithCode
-              ? t('输入解除码，或等待重新连上教师机')
+              ? offlinePolicy.holdUntilUnlockCode
+                ? t('须输入教师解除码才能退出（重连后仍须解除码；重启无效）')
+                : t('输入解除码，或等待重新连上教师机')
               : t('请等待重新连上教师机')}
           </p>
           {offlinePolicy.unlockWithCode ? (
@@ -1874,11 +2111,11 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
           aria-live="polite"
         >
           <p>
-            教师已启用物理输入锁：{inputLockSummary(inputLock) || '—'}。本应用内对应输入已禁用，请向教师申请解除。
+            {t('教师已启用物理输入锁：{v0}。本应用内对应输入已禁用，请向教师申请解除。', { v0: inputLockSummary(inputLock) || '—' })}
           </p>
           {!hasSeatBinding && storeHasActiveNonSeatLocks(inputLockStoreState, classId) ? (
             <p className="hint" data-testid="input-lock-unseated-note">
-              本机未排座，座锁未生效。
+              {t('本机未排座，座锁未生效。')}
             </p>
           ) : null}
         </div>
@@ -1909,12 +2146,12 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
                 method: 'POST',
                 body: '{}',
               })
-                .then((r) => showToast(r.message ?? '已向教师举手'))
-                .catch((e) => showToast(e instanceof Error ? e.message : '举手失败'))
+                .then((r) => showToast(r.message ?? t('已向教师举手')))
+                .catch((e) => showToast(e instanceof Error ? e.message : t('举手失败')))
                 .finally(() => setRaiseHandBusy(false));
             }}
           >
-            {raiseHandBusy ? '发送中…' : '向教师举手'}
+            {raiseHandBusy ? t('发送中…') : t('向教师举手')}
           </button>
         </>
       ) : null}
@@ -1923,7 +2160,7 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
         <div className="banner-alert" role="status" data-testid="hardening-tip">
           <p>
             {t(
-              '本机未加固（未检测到 Assigned Access / 展台模式）。学校机考试锁未完成：Alt+Tab / 任务管理器仍可能切走；请 IT 配置 AA + Intune。应用内不挂钩、无隐瞒采集。',
+              t('本机未加固（未检测到 Assigned Access / 展台模式）。学校机考试锁未完成：Alt+Tab / 任务管理器仍可能切走；请 IT 配置 AA + Intune。应用内不挂钩、无隐瞒采集。'),
             )}
           </p>
           <button
@@ -1935,7 +2172,7 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
               setHardeningTip(false);
             }}
           >
-            知道了，不再提示
+            {t('知道了，不再提示')}
           </button>
         </div>
       ) : null}
@@ -1964,7 +2201,7 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
             data-testid="toast-dismiss"
             onClick={() => setToast('')}
           >
-            知道了
+            {t('知道了')}
           </button>
         </div>
       ) : null}
@@ -2085,7 +2322,7 @@ function FirstRunSetup({
         if (locked) {
           setShowPaste(true);
           setMsg(
-            '教师已锁定相机，扫码入口已禁用。请使用下方「粘贴 JSON」完成指派，或请教师解除相机锁。',
+            t('教师已锁定相机，扫码入口已禁用。请使用下方「粘贴 JSON」完成指派，或请教师解除相机锁。'),
           );
         }
       } catch {
@@ -2103,7 +2340,7 @@ function FirstRunSetup({
   function applyPayload(apiBase: string, classId: string) {
     setServerUrl(apiBase);
     setSeat(classId);
-    setMsg('已从教师 QR 填入，请点「保存并检测 /health」');
+    setMsg(t('已从教师 QR 填入，请点「保存并检测 /health」'));
   }
 
   function stopScan() {
@@ -2125,7 +2362,7 @@ function FirstRunSetup({
     if (cameraLocked) {
       setShowPaste(true);
       setMsg(
-        '教师已锁定相机，无法扫码指派。请改用下方「粘贴 JSON」完成配置，或请教师在设置中解除「禁止相机」。',
+        t('教师已锁定相机，无法扫码指派。请改用下方「粘贴 JSON」完成配置，或请教师在设置中解除「禁止相机」。'),
       );
       return;
     }
@@ -2161,7 +2398,7 @@ function FirstRunSetup({
           }
           const parsed = parseClassroomQrPayload(text);
           if (!parsed) {
-            setMsg('识别到二维码，但不是教师指派格式 — 可改用下方粘贴 JSON');
+            setMsg(t('识别到二维码，但不是教师指派格式 — 可改用下方粘贴 JSON'));
             setShowPaste(true);
             setPasteJson(text);
             return;
@@ -2174,10 +2411,10 @@ function FirstRunSetup({
       const raw = e instanceof Error ? e.message : '';
       if (/教师已锁定相机|相机已被教师|NotAllowedError|Permission denied/i.test(raw)) {
         setMsg(
-          '教师已锁定相机，无法扫码指派。请改用下方「粘贴 JSON」完成配置，或请教师在设置中解除「禁止相机」。',
+          t('教师已锁定相机，无法扫码指派。请改用下方「粘贴 JSON」完成配置，或请教师在设置中解除「禁止相机」。'),
         );
       } else {
-        setMsg(raw ? `无法打开摄像头：${raw} — 可改用粘贴 JSON` : '无法打开摄像头');
+        setMsg(raw ? t('无法打开摄像头：{v0} — 可改用粘贴 JSON', { v0: raw }) : t('无法打开摄像头'));
       }
       setShowPaste(true);
       stopScan();
@@ -2187,7 +2424,7 @@ function FirstRunSetup({
   function applyPasteJson() {
     const parsed = parseClassroomQrPayload(pasteJson);
     if (!parsed) {
-      setMsg('粘贴内容无法解析，需含 apiBase 与 classId 的 JSON');
+      setMsg(t('粘贴内容无法解析，需含 apiBase 与 classId 的 JSON'));
       setShowPaste(true);
       return;
     }
@@ -2207,12 +2444,12 @@ function FirstRunSetup({
       ctx.drawImage(bmp, 0, 0);
       const image = ctx.getImageData(0, 0, canvas.width, canvas.height);
       const code = jsQR(image.data, image.width, image.height);
-      if (!code?.data) throw new Error('图片中未识别到二维码');
+      if (!code?.data) throw new Error(t('图片中未识别到二维码'));
       const parsed = parseClassroomQrPayload(code.data);
-      if (!parsed) throw new Error('二维码内容不是教师指派 JSON');
+      if (!parsed) throw new Error(t('二维码内容不是教师指派 JSON'));
       applyPayload(parsed.apiBase, parsed.classId);
     } catch (e) {
-      setMsg(e instanceof Error ? `${e.message} — 可改用粘贴 JSON` : '读图失败');
+      setMsg(e instanceof Error ? t('无法打开摄像头：{v0} — 可改用粘贴 JSON', { v0: e.message }) : t('读图失败'));
       setShowPaste(true);
     }
   }
@@ -2222,31 +2459,31 @@ function FirstRunSetup({
     const apiBase = serverUrl.trim().replace(/\/$/, '');
     const classId = seat.trim();
     if (!/^https?:\/\/[^/\s]+/i.test(apiBase)) {
-      setMsg('请填写完整服务器地址，例如 http://192.168.1.50:8787');
+      setMsg(t('请填写完整服务器地址，例如 http://192.168.1.50:8787'));
       return;
     }
     if (/127\.0\.0\.1|localhost/i.test(apiBase)) {
-      setMsg('学生机不可使用 127.0.0.1 / localhost，请填教师机局域网 IP');
+      setMsg(t('学生机不可使用 127.0.0.1 / localhost，请填教师机局域网 IP'));
       return;
     }
     if (!classId) {
-      setMsg('请填写机位班级 ID（教师后台「指派学生机」复制的 classId）');
+      setMsg(t('请填写机位班级 ID（教师后台「指派学生机」复制的 classId）'));
       return;
     }
     setBusy(true);
     try {
       const res = await fetch(`${apiBase}/health`, { cache: 'no-store' });
-      if (!res.ok) throw new Error(`健康检查失败 HTTP ${res.status}`);
+      if (!res.ok) throw new Error(t('健康检查失败 HTTP {v0}', { v0: String(res.status) }));
       const body = (await res.json()) as { ok?: boolean; version?: string };
-      if (!body.ok) throw new Error('服务未就绪（/health ok=false）');
+      if (!body.ok) throw new Error(t('服务未就绪（/health ok=false）'));
       await setApiBase(apiBase);
       if (window.classroomDesk?.setConfig) {
         await window.classroomDesk.setConfig({ apiBase, classId });
       }
-      setMsg(`已写入本机 config.json · 服务端 v${body.version ?? '—'} · 本机 v${CLIENT_VERSION}`);
+      setMsg(t('已写入本机 config.json · 服务端 v{v0} · 本机 v{v1}', { v0: String(body.version ?? '—'), v1: CLIENT_VERSION }));
       await onDone({ apiBase, classId });
     } catch (e) {
-      setMsg(e instanceof Error ? e.message : '保存或连通失败');
+      setMsg(e instanceof Error ? e.message : t('保存或连通失败'));
     } finally {
       setBusy(false);
     }
@@ -2541,7 +2778,7 @@ function FirstRunSetup({
       if (!hit) {
         setMsg(
           t(
-            '未找到 classroom-desk-config.json。请把教师下载的 config 放到 U 盘/共享盘根目录并改名。',
+            t('未找到 classroom-desk-config.json。请把教师下载的 config 放到 U 盘/共享盘根目录并改名。'),
           ),
         );
         return;
@@ -2620,14 +2857,18 @@ function FirstRunSetup({
           className="secondary"
           disabled={scanning || cameraLocked}
           data-testid="first-run-scan-qr"
-          title={cameraLocked ? '相机已锁定，请粘贴 JSON' : undefined}
+          title={cameraLocked ? t('相机已锁定，请粘贴 JSON') : undefined}
           onClick={() => void startScan()}
         >
-          {cameraLocked ? '扫码不可用（相机锁）' : scanning ? '扫码中…' : '扫教师 QR'}
+          {cameraLocked
+            ? t('扫码不可用（相机锁）')
+            : scanning
+              ? t('扫码中…')
+              : t('扫教师 QR')}
         </button>
         {scanning ? (
           <button type="button" className="secondary" onClick={stopScan}>
-            停止摄像头
+            {t('停止摄像头')}
           </button>
         ) : null}
         <label
@@ -2639,9 +2880,9 @@ function FirstRunSetup({
             opacity: cameraLocked ? 0.45 : 1,
             pointerEvents: cameraLocked ? 'none' : 'auto',
           }}
-          title={cameraLocked ? '相机已锁定' : undefined}
+          title={cameraLocked ? t('相机已锁定') : undefined}
         >
-          选 QR 图片
+          {t('选 QR 图片')}
           <input
             type="file"
             accept="image/*"
@@ -2659,7 +2900,11 @@ function FirstRunSetup({
           data-testid="first-run-paste-toggle"
           onClick={() => setShowPaste((v) => (cameraLocked ? true : !v))}
         >
-          {cameraLocked ? '粘贴 JSON（必填）' : showPaste ? '收起粘贴' : '粘贴 JSON 兜底'}
+          {cameraLocked
+            ? t('粘贴 JSON（必填）')
+            : showPaste
+              ? t('收起粘贴')
+              : t('粘贴 JSON 兜底')}
         </button>
       </div>
       {scanProgress && scanProgress.total > 0 ? (
@@ -2777,7 +3022,7 @@ function FirstRunSetup({
       ) : null}
       {cameraLocked ? (
         <p className="hint" data-testid="first-run-camera-locked" role="status">
-          相机锁已开启：二维码扫码/选图已灰态，请使用粘贴区完成指派。
+          {t('相机锁已开启：二维码扫码/选图已灰态，请使用粘贴区完成指派。')}
         </p>
       ) : null}
       {scanning ? (
@@ -2785,7 +3030,7 @@ function FirstRunSetup({
       ) : null}
       {showPaste ? (
         <label className="field">
-          教师 QR 原文（JSON）
+          {t('教师 QR 原文（JSON）')}
           <textarea
             value={pasteJson}
             onChange={(e) => setPasteJson(e.target.value)}
@@ -2793,25 +3038,25 @@ function FirstRunSetup({
             placeholder='{"apiBase":"http://192.168.x.x:8787","classId":"..."}'
           />
           <button type="button" className="secondary" onClick={applyPasteJson}>
-            从粘贴填入
+            {t('从粘贴填入')}
           </button>
         </label>
       ) : null}
       <label className="field">
-        服务器地址（serverUrl / apiBase）
+        {t('服务器地址（serverUrl / apiBase）')}
         <input
           value={serverUrl}
           onChange={(e) => setServerUrl(e.target.value)}
-          placeholder="http://教师机局域网IP:8787"
+          placeholder={t('http://教师机局域网IP:8787')}
           autoComplete="off"
         />
       </label>
       <label className="field">
-        机位班级（seat / classId）
+        {t('机位班级（seat / classId）')}
         <input
           value={seat}
           onChange={(e) => setSeat(e.target.value)}
-          placeholder="从教师后台「复制 classId」粘贴"
+          placeholder={t('从教师后台「复制 classId」粘贴')}
           autoComplete="off"
         />
       </label>
@@ -2819,18 +3064,18 @@ function FirstRunSetup({
         {busy ? t('检测中…') : t('保存并检测 /health')}
       </button>
       {msg ? <p className="hint">{msg}</p> : null}
-      <p className="hint">禁止 127.0.0.1。本机版本 v{CLIENT_VERSION}。</p>
+      <p className="hint">{t('禁止 127.0.0.1。本机版本 v{v0}。', { v0: CLIENT_VERSION })}</p>
     </section>
   );
 }
 
 function statusZh(status: string): string {
   const map: Record<string, string> = {
-    none: '无场次',
-    absent: '未签到',
-    present: '已到',
-    late: '迟到',
-    excused: '请假',
+    none: t('无场次'),
+    absent: t('未签到'),
+    present: t('已到'),
+    late: t('迟到'),
+    excused: t('请假'),
   };
   return map[status] ?? status;
 }
@@ -2886,13 +3131,13 @@ function IdentityGate({
 
   return (
     <section className="panel identity-gate">
-      <h1>{switching ? '更换身份' : '你是谁？'}</h1>
+      <h1>{switching ? t('更换身份') : t('你是谁？')}</h1>
       <p className="hint">
         {className
-          ? `${className} · 点自己的姓名，再点确认`
+          ? t('{v0} · 点自己的姓名，再点确认', { v0: className })
           : classId
-            ? '点自己的姓名，再点确认'
-            : '本机还没有班级，请老师先配置'}
+            ? t('点自己的姓名，再点确认')
+            : t('本机还没有班级，请老师先配置')}
       </p>
       {sessionEndedBanner ? (
         <div className="session-ended-banner" data-testid="session-ended-banner" role="alert">
@@ -2903,7 +3148,7 @@ function IdentityGate({
             data-testid="session-ended-dismiss"
             onClick={() => onDismissSessionBanner?.()}
           >
-            知道了
+            {t('知道了')}
           </button>
         </div>
       ) : null}
@@ -2912,19 +3157,23 @@ function IdentityGate({
       {pending ? (
         <div className="confirm-bar">
           <p>
-            是 {pending.displayName}
-            {pending.studentNo ? `（${pending.studentNo}）` : ''} 吗？
+            {pending.studentNo
+              ? t('是 {v0}（{v1}）吗？', {
+                  v0: pending.displayName,
+                  v1: pending.studentNo,
+                })
+              : t('是 {v0} 吗？', { v0: pending.displayName })}
           </p>
           <button type="button" className="primary" disabled={selecting} onClick={onConfirm}>
-            {selecting ? '确认中…' : '确认是我'}
+            {selecting ? t('确认中…') : t('确认是我')}
           </button>
           <button type="button" className="secondary" disabled={selecting} onClick={onCancelPending}>
-            重选
+            {t('重选')}
           </button>
         </div>
       ) : null}
       <button type="button" className="secondary" onClick={onRefresh}>
-        刷新名单
+        {t('刷新名单')}
       </button>
       {filtered.length === 0 ? <p className="hint">{t('暂无名单 · 找老师导入名单')}</p> : null}
       <div className="identity-list">
@@ -2937,17 +3186,17 @@ function IdentityGate({
             aria-pressed={pending?.id === row.id}
           >
             <span>{row.displayName}</span>
-            <span className="identity-no">{row.studentNo || '无学号'}</span>
+            <span className="identity-no">{row.studentNo || t('无学号')}</span>
           </button>
         ))}
       </div>
       {switching ? (
         <button type="button" className="secondary" onClick={onCancelSwitch}>
-          取消更换
+          {t('取消更换')}
         </button>
       ) : (
         <button type="button" className={classId ? 'link-btn' : 'primary'} onClick={onOpenAdmin}>
-          教师设置
+          {t('教师设置')}
         </button>
       )}
     </section>
@@ -3287,7 +3536,7 @@ function AdminTab({
             {` · ${user.totalPoints} 分`}
           </p>
           <button type="button" className="secondary" onClick={onSwitchIdentity}>
-            更换身份
+            {t('更换身份')}
           </button>
         </>
       ) : (

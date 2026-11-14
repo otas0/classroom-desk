@@ -1,6 +1,21 @@
 # DeskDNS 绑定 UDP/53（systemd + setcap）
 
-默认开发端口为 **5353**。生产若要让 DHCP 直接指向教师机 DNS，需绑定 **53**。
+DeskDNS 是 **Classroom Desk 产品内模块**（非独立产品线）。默认开发端口 **5353**；生产 DHCP 直指教师机 DNS 时需绑定 **53**。
+
+## 主路径：上课页「部署 DeskDNS」
+
+1. 教师上课页 → **部署 DeskDNS** → 启用、端口、保存并绑定  
+2. **检测 DeskDNS** / **复制 DHCP 提示**（含 LAN IP）  
+3. 机房 DHCP DNS 指向讲台 LAN（:53 或路由器支持的非标端口）  
+4. 拉黑域名与深锁策略与讲台同源；旁路机可轮询：
+
+```http
+GET /api/v1/desk-dns/policy
+```
+
+返回 `blockedHosts`（各范围并集）、`deepLock.netMode` / `allowlistHosts`、`portalHost`、`teacherApiHosts`、`status`。
+
+设置页 DeskDNS 区块为进阶项；环境变量仍可用于 systemd。
 
 ## 环境变量
 
@@ -9,7 +24,7 @@ CLASSROOM_DESK_DNS=1
 CLASSROOM_DESK_DNS_PORT=53
 ```
 
-## 教师设置（可不改环境变量）
+## 教师设置（进阶 / 可不改环境变量）
 
 设置 → 勾选启用 DeskDNS，端口填 `5353`（开发）或 `53`（生产 DHCP）。  
 保存后服务会重新绑定。绑定 53 失败时 `/health.deskDns.error` 为真实 bind 错误（常见：无 `CAP_NET_BIND_SERVICE`）。
