@@ -81,6 +81,56 @@ export function ensureZoneIds(zones: NetworkZone[]): NetworkZone[] {
   }));
 }
 
+/** Firewall/controller export: SSID / CIDR → VLAN (+ roles). LAN-safe public snapshot. */
+export function exportNetworkZonesFirewallMap(db: DatabaseSync) {
+  const zones = getNetworkZones(db).filter((z) => z.enabled);
+  const rows = zones.map((z) => ({
+    id: z.id,
+    label: z.label,
+    ssidIncludes: z.ssidIncludes,
+    cidrs: z.cidrs,
+    vlan: z.vlan || null,
+    allowedRoles: z.allowedRoles,
+    defaultNetMode: z.defaultNetMode,
+    requirePortal: z.requirePortal,
+    studentUnauthorized: z.studentUnauthorized,
+  }));
+  return {
+    type: 'network_zones_export' as const,
+    at: new Date().toISOString(),
+    rows,
+    /** Flat rules for OPNsense/UniFi scripting. */
+    rules: rows.flatMap((z) => {
+      const out: Array<{
+        zoneId: string;
+        match: 'ssid' | 'cidr';
+        value: string;
+        vlan: string | null;
+        allowedRoles: string[];
+      }> = [];
+      for (const s of z.ssidIncludes) {
+        out.push({
+          zoneId: z.id,
+          match: 'ssid',
+          value: s,
+          vlan: z.vlan,
+          allowedRoles: z.allowedRoles,
+        });
+      }
+      for (const c of z.cidrs) {
+        out.push({
+          zoneId: z.id,
+          match: 'cidr',
+          value: c,
+          vlan: z.vlan,
+          allowedRoles: z.allowedRoles,
+        });
+      }
+      return out;
+    }),
+  };
+}
+
 export function resolveZoneForHint(db: DatabaseSync, hint: NetworkHint | null | undefined) {
   return matchNetworkZone(getNetworkZones(db), hint);
 }

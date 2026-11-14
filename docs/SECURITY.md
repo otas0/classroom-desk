@@ -26,6 +26,8 @@ Evidence: `npm run init:c2-evidence` → fill on Windows samples → `npm run ve
 
 Without AA/Intune, students can still Alt+Tab or kill the process — that is an **incomplete school deployment**, not a supported production posture.
 
+「最高保密级」= **L3 Assigned Access（单应用→学生端）** → **DeskDNS/防火墙 deny** → **拉黑 + 一键武装** →（考场需要时）**考试壳 allowlist**。详见 [SECURITY_CUSTODY.md](./SECURITY_CUSTODY.md) 官方加固阶梯。The product will not add keyloggers, anti-kill drivers, or hidden processes to fake OS lockdown.
+
 ## Forbidden (even on school-owned PCs)
 
 School ownership does **not** authorize covert spyware. Still forbidden:

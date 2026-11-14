@@ -18,6 +18,11 @@ import { nowIso } from '../utils/id.js';
 import { packageVersion } from '../routes/health.js';
 import { takeFleetDriftSnapshot } from '../services/fleetDrift.js';
 import { markFleetDriftSnapshotTaken } from '../jobs/scheduler.js';
+import {
+  buildLessonPack,
+  refreshStudentInstallCardFiles,
+} from '../services/studentInstallCard.js';
+import { evaluateLabGoLive, resolveDeskDnsPathForGoLive } from '../services/labGoLive.js';
 
 export const opsRouter = Router();
 
@@ -388,5 +393,64 @@ opsRouter.get(
       readyCount: durations.length,
       ...summarizeDurations(durations),
     });
+  },
+);
+
+/** One-click “this class” LAN + Setup links (no passwords / no join PIN plaintext). */
+opsRouter.get(
+  '/api/v1/ops/lesson-pack',
+  requireAuth,
+  requireRoles('teacher', 'admin', 'assistant'),
+  (req: AuthedRequest, res) => {
+    const classId = String(req.query.classId ?? '').trim();
+    if (!classId) {
+      res.status(400).json({ error: 'class_id_required' });
+      return;
+    }
+    const pack = buildLessonPack(classId);
+    const asText = String(req.query.format ?? '').toLowerCase() === 'txt';
+    if (asText) {
+      res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+      res.setHeader(
+        'Content-Disposition',
+        `attachment; filename="ClassroomDesk-Lesson-${classId.slice(0, 8)}.txt"`,
+      );
+      res.send(pack.text);
+      return;
+    }
+    res.json(pack);
+  },
+);
+
+/** Force-refresh Public Desktop student install card (IPs / Setup names). */
+opsRouter.post(
+  '/api/v1/ops/refresh-student-install-card',
+  requireAuth,
+  requireRoles('teacher', 'admin'),
+  (_req: AuthedRequest, res) => {
+    const r = refreshStudentInstallCardFiles();
+    res.json({ ok: true, wrote: r.wrote });
+  },
+);
+
+/**
+ * Unified lab go-live gate for「最高保密级」:
+ * AA L3 · hardened fleet · DeskDNS on path · real Shield · ops baseline.
+ */
+opsRouter.get(
+  '/api/v1/ops/lab-go-live',
+  requireAuth,
+  requireRoles('teacher', 'admin', 'assistant'),
+  async (req: AuthedRequest, res) => {
+    const db = openDb();
+    const classId = String(req.query.classId ?? '').trim();
+    const path = await resolveDeskDnsPathForGoLive(db);
+    const status = evaluateLabGoLive(db, {
+      classId: classId || null,
+      deskDnsPathOk: path.deskDnsPathOk,
+      deskDnsHint: path.deskDnsHint,
+    });
+    // Always 200 — readiness is in readyForMaxSecrecy / checks (UI polls this).
+    res.json(status);
   },
 );

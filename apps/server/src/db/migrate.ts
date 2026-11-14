@@ -52,7 +52,10 @@ const DEFAULT_SETTINGS: Record<string, string> = {
   student_easy_join_class_id: '',
   /** Optional friendly label for join list, e.g. 高一3班讲台. */
   classroom_display_name: '',
-  /** When 1: ending deep-lock / switching class clears student_easy_join. */
+  /**
+   * When 1: switching class re-points easy-join to the new class (day-1 default).
+   * Set 0 only if IT wants manual easy-join toggles.
+   */
   student_easy_join_auto_off: '1',
   /** ISO time when easy-join was last turned on (TTL countdown). */
   student_easy_join_opened_at: '',
@@ -93,6 +96,15 @@ const DEFAULT_SETTINGS: Record<string, string> = {
   sis_roster_last_apply: '',
   /** Minutes between SIS pulls; 0 = manual only. */
   sis_roster_interval_minutes: '0',
+  /**
+   * IT declares school Assigned Access / Intune L3 is configured for lab PCs.
+   * Required before teacher can arm「安全局模式」. Not a live AA probe.
+   */
+  assigned_access_ready: '0',
+  /** Lab go-live ops declarations (teacher confirms; not live probes). */
+  lab_ops_fixed_ip_ready: '0',
+  lab_ops_av_allowlist_ready: '0',
+  lab_ops_wifi_no_isolation: '0',
   /** Hint only: IT requires 802.1X on student SSID. */
   enterprise_8021x_required: '0',
   /** School IdP name (NPS / FreeRADIUS / …) — registry only, not a live RADIUS probe. */

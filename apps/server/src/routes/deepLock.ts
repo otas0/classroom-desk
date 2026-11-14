@@ -123,6 +123,16 @@ deepLockRouter.post(
         },
       });
     } catch (e) {
+      const { LabGoLiveBlockedError } = await import('../services/labGoLive.js');
+      if (e instanceof LabGoLiveBlockedError) {
+        res.status(403).json({
+          error: e.code,
+          message: e.message,
+          blockReasons: e.blockReasons,
+          labGoLive: e.labGoLive,
+        });
+        return;
+      }
       res.status(400).json({
         error: 'deep_lock_failed',
         message: e instanceof Error ? e.message : 'deep_lock_failed',

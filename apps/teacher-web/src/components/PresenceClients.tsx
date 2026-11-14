@@ -1,5 +1,10 @@
-import { useEffect, useMemo, useState } from 'react';
-import { GITHUB_RELEASES_BASE } from '@classroom-desk/shared';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  DEFAULT_OFFLINE_LOCK_POLICY,
+  GITHUB_RELEASES_BASE,
+  normalizeOfflineLockPolicy,
+  type OfflineLockPolicy,
+} from '@classroom-desk/shared';
 import { API_BASE, api, getToken } from '../api';
 import { t } from '@classroom-desk/i18n';
 import { ClassPresenceMatrix } from './ClassPresenceMatrix';
@@ -24,6 +29,14 @@ export function PresenceClients({ classId }: { classId: string }) {
   const [copyMsg, setCopyMsg] = useState('');
   const [live, setLive] = useState(false);
   const [lanTip, setLanTip] = useState('');
+  const [offlinePolicy, setOfflinePolicy] = useState<OfflineLockPolicy>(() =>
+    DEFAULT_OFFLINE_LOCK_POLICY(),
+  );
+  const offlinePolicyRef = useRef(offlinePolicy);
+  offlinePolicyRef.current = offlinePolicy;
+  const [peerDropMsg, setPeerDropMsg] = useState('');
+  const prevIdsRef = useRef<Set<string>>(new Set());
+  const primedRef = useRef(false);
 
   async function loadHealthExpected() {
     const health = (await fetch('/health', { cache: 'no-store' })
@@ -33,7 +46,33 @@ export function PresenceClients({ classId }: { classId: string }) {
   }
 
   function applyClients(body: { items?: ClientRow[]; versions?: string[] }) {
-    setItems(body.items ?? []);
+    const next = body.items ?? [];
+    const nextIds = new Set(next.map((r) => r.studentId).filter(Boolean));
+    if (primedRef.current && offlinePolicyRef.current.freezeClassOnPeerDrop === true && classId) {
+      const dropped: string[] = [];
+      for (const id of prevIdsRef.current) {
+        if (!nextIds.has(id)) dropped.push(id);
+      }
+      // Ignore total wipe (SSE blip / class switch). Require partial drop while others remain,
+      // or a single-seat room losing its only client.
+      const partialDrop =
+        dropped.length > 0 &&
+        (nextIds.size > 0 || prevIdsRef.current.size === 1) &&
+        dropped.length < prevIdsRef.current.size + (nextIds.size === 0 ? 0 : 1);
+      const singleSeatDrop = prevIdsRef.current.size === 1 && dropped.length === 1 && nextIds.size === 0;
+      if (partialDrop || singleSeatDrop) {
+        setPeerDropMsg(
+          t('检测到 {v0} 台掉线 → 已下发全班踢网+冻结（安全局）', { v0: String(dropped.length) }),
+        );
+        void api('/api/v1/deep-lock/action', {
+          method: 'POST',
+          body: JSON.stringify({ action: 'kick_class', classId }),
+        }).catch(() => undefined);
+      }
+    }
+    primedRef.current = true;
+    prevIdsRef.current = nextIds;
+    setItems(next);
     setVersions(body.versions ?? []);
   }
 
@@ -54,14 +93,25 @@ export function PresenceClients({ classId }: { classId: string }) {
     } catch {
       setLanTip('');
     }
+    try {
+      const q = classId ? `?classId=${encodeURIComponent(classId)}` : '';
+      const dc = await api<{ offline?: OfflineLockPolicy }>(`/api/v1/device-control${q}`);
+      setOfflinePolicy(normalizeOfflineLockPolicy(dc.offline));
+    } catch {
+      /* keep defaults */
+    }
   }
 
   useEffect(() => {
     if (!classId) {
       setItems([]);
       setLive(false);
+      primedRef.current = false;
+      prevIdsRef.current = new Set();
       return;
     }
+    primedRef.current = false;
+    prevIdsRef.current = new Set();
     let cancelled = false;
     let es: EventSource | null = null;
     let poll: number | undefined;
@@ -150,14 +200,21 @@ export function PresenceClients({ classId }: { classId: string }) {
   }
 
   return (
-    <section>
+    <section data-testid="presence-clients">
       <ClassPresenceMatrix classId={classId} />
       <h2>{t('在线机位')}</h2>
       <p className="hint">
-        按最近心跳列出本班学生桌面端（约 90 秒内）
-        {live ? ' · SSE 实时' : ' · 轮询后备'}。期望安装包版本：v{expected || '—'}
-        {versions.length ? ` · 已上报 ${versions.join(' / ')}` : ''}
+        {t('按最近心跳列出本班学生桌面端（约 90 秒内）')}
+        {live ? t(' · SSE 实时') : t(' · 轮询后备')}
+        {t('。期望安装包版本：')}v{expected || '—'}
+        {versions.length ? ` · ${t('已上报')} ${versions.join(' / ')}` : ''}
       </p>
+      <p className="hint">
+        {t(
+          '掉线机位：日常默认只锁该学生本机。武装「最高保密级」后会开启全班连坐；也可在下方「有学生掉线时」随时改回只锁该生。',
+        )}
+      </p>
+      {peerDropMsg ? <p className="hint" data-testid="presence-peer-drop">{peerDropMsg}</p> : null}
       <div className="row">
         <button type="button" className="secondary" onClick={() => void loadOnce().catch((e) => setErr(String(e)))}>
           {t('刷新')}
@@ -168,7 +225,7 @@ export function PresenceClients({ classId }: { classId: string }) {
           disabled={driftRows.length === 0}
           onClick={() => void copyUpgradeTip()}
         >
-          一键复制升级提示（{driftRows.length}）
+          {t('一键复制升级提示')}（{driftRows.length}）
         </button>
       </div>
       {copyMsg ? <p className="hint">{copyMsg}</p> : null}

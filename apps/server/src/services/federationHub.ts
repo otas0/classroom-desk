@@ -10,6 +10,7 @@ import { encodeRoomCode } from '@classroom-desk/shared';
 import { config } from '../config.js';
 import { getDataDir, openDb } from '../db/client.js';
 import { getSetting } from '../db/migrate.js';
+import { getDeepLockForClass } from './deepLock.js';
 
 export type FederationPeer = {
   apiBase: string;
@@ -20,6 +21,13 @@ export type FederationPeer = {
   classId: string | null;
   className: string | null;
   updatedAt: string;
+  /**
+   * Status-only interop (no remote lockdown): deep-lock net mode for this room's default class.
+   * Consumers may show “exam in progress” — must NOT apply remote freeze/kick.
+   */
+  netMode?: string | null;
+  examActive?: boolean;
+  frozen?: boolean;
 };
 
 const TTL_MS = 5 * 60_000;
@@ -99,6 +107,21 @@ export function buildLocalAnnouncePayload(): FederationPeer {
   } catch {
     lanIp = '';
   }
+  let netMode: string | null = null;
+  let examActive = false;
+  let frozen = false;
+  try {
+    const state = getDeepLockForClass(db, classId);
+    netMode = state.netMode;
+    frozen = Boolean(state.frozen);
+    examActive =
+      Boolean(state.frozen) ||
+      state.netMode === 'deny' ||
+      state.netMode === 'allowlist' ||
+      Boolean(state.examUrl);
+  } catch {
+    /* deep-lock optional at announce time */
+  }
   return {
     apiBase,
     displayName,
@@ -108,6 +131,9 @@ export function buildLocalAnnouncePayload(): FederationPeer {
     classId,
     className,
     updatedAt: new Date().toISOString(),
+    netMode,
+    examActive,
+    frozen,
   };
 }
 

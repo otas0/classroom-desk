@@ -2,6 +2,7 @@ import { spawnSync } from 'node:child_process';
 import { Router } from 'express';
 import { openDb } from '../db/client.js';
 import { getSetting } from '../db/migrate.js';
+import { getDeskDnsResolveSnapshot, getDeskDnsStatus } from '../services/deskDns.js';
 import { requireAuth, requireRoles, type AuthedRequest } from '../middleware/auth.js';
 import { upsertSetting } from '../services/exitLock.js';
 
@@ -27,6 +28,18 @@ function probePort53(): { pid?: number; cmd?: string; hint?: string } | null {
     return null;
   }
 }
+
+/**
+ * Public policy for embedded DeskDNS + bypass/sidecar DeskDNS.
+ * Lab LAN only — same trust model as /api/v1/device-control/public.
+ */
+deskDnsRouter.get('/api/v1/desk-dns/policy', (_req, res) => {
+  const snap = getDeskDnsResolveSnapshot(openDb());
+  res.json({
+    ...snap,
+    status: getDeskDnsStatus(),
+  });
+});
 
 deskDnsRouter.get(
   '/api/v1/deskdns/status',

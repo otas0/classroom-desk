@@ -20,8 +20,18 @@ const IDLE: DeepLockState = {
 /**
  * Aggressive classroom controls: freeze / exam allowlist / allow / kick / end.
  * Default-deny only after teacher arms a mode — idle stays permissive for normal labs.
+ * Freeze / exam / kick require lab go-live (server-enforced); allow/end always available.
  */
-export function DeepLockBar({ classId }: { classId: string }) {
+export function DeepLockBar({
+  classId,
+  labGoLiveReady,
+  labGoLiveBlockReason = '',
+}: {
+  classId: string;
+  /** From LabGoLivePanel. When omitted, this bar polls `/api/v1/ops/lab-go-live`. */
+  labGoLiveReady?: boolean;
+  labGoLiveBlockReason?: string;
+}) {
   const [state, setState] = useState<DeepLockState>(IDLE);
   const [examUrl, setExamUrl] = useState('');
   const [hosts, setHosts] = useState('');
@@ -29,7 +39,14 @@ export function DeepLockBar({ classId }: { classId: string }) {
   const [shieldLabel, setShieldLabel] = useState('');
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
+  const [fetchedReady, setFetchedReady] = useState(false);
+  const [fetchedBlock, setFetchedBlock] = useState('');
   const readonly = isAssistant();
+  const gateReady = labGoLiveReady !== undefined ? labGoLiveReady : fetchedReady;
+  const gateBlock =
+    labGoLiveBlockReason ||
+    fetchedBlock ||
+    t('未达机房上线门禁，禁止深锁断网（见上课页门禁与 docs/LAB_GO_LIVE.md）');
 
   const refresh = useCallback(async () => {
     const cid = classId.trim();
@@ -64,8 +81,39 @@ export function DeepLockBar({ classId }: { classId: string }) {
     };
   }, [refresh]);
 
+  useEffect(() => {
+    if (labGoLiveReady !== undefined) return;
+    let cancelled = false;
+    const poll = async () => {
+      try {
+        const q = classId.trim() ? `?classId=${encodeURIComponent(classId.trim())}` : '';
+        const r = await api<{ readyForMaxSecrecy?: boolean; blockReasons?: string[] }>(
+          `/api/v1/ops/lab-go-live${q}`,
+        );
+        if (cancelled) return;
+        setFetchedReady(r.readyForMaxSecrecy === true);
+        setFetchedBlock((r.blockReasons ?? []).join('；'));
+      } catch {
+        if (cancelled) return;
+        setFetchedReady(false);
+      }
+    };
+    void poll();
+    const id = window.setInterval(() => void poll(), 15_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [classId, labGoLiveReady]);
+
   function run(action: string, confirmText?: string) {
     if (readonly) return;
+    const needsGate =
+      action === 'freeze' || action === 'exam_net' || action === 'kick_class';
+    if (needsGate && !gateReady && !state.frozen && state.netMode === 'allow') {
+      setMsg(gateBlock);
+      return;
+    }
     if (confirmText && !window.confirm(confirmText)) return;
     setBusy(true);
     const allowlistHosts = hosts
@@ -129,7 +177,10 @@ export function DeepLockBar({ classId }: { classId: string }) {
         <button
           type="button"
           data-testid="deep-lock-freeze"
-          disabled={busy || readonly}
+          disabled={busy || readonly || (!gateReady && state.netMode === 'allow' && !state.frozen)}
+          title={
+            !gateReady && state.netMode === 'allow' && !state.frozen ? gateBlock : undefined
+          }
           onClick={() =>
             run('freeze', t('冻结全班？将断网、锁键鼠、重锁退出，并启用失焦冻结。'))
           }
@@ -139,7 +190,10 @@ export function DeepLockBar({ classId }: { classId: string }) {
         <button
           type="button"
           data-testid="deep-lock-exam-net"
-          disabled={busy || readonly}
+          disabled={busy || readonly || (!gateReady && state.netMode === 'allow' && !state.frozen)}
+          title={
+            !gateReady && state.netMode === 'allow' && !state.frozen ? gateBlock : undefined
+          }
           onClick={() =>
             run(
               'exam_net',
@@ -161,7 +215,10 @@ export function DeepLockBar({ classId }: { classId: string }) {
         <button
           type="button"
           data-testid="deep-lock-kick"
-          disabled={busy || readonly}
+          disabled={busy || readonly || (!gateReady && state.netMode === 'allow' && !state.frozen)}
+          title={
+            !gateReady && state.netMode === 'allow' && !state.frozen ? gateBlock : undefined
+          }
           onClick={() =>
             run('kick_class', t('踢下线并冻结？将收回 Shield 会话并深锁本班。'))
           }

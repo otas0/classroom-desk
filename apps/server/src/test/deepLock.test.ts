@@ -16,6 +16,7 @@ import { startLabShieldHttp } from './helpers/labShieldHttp.js';
 
 const dir = mkdtempSync(path.join(tmpdir(), 'cd-deeplock-'));
 process.env.CLASSROOM_DESK_DATA_DIR = dir;
+process.env.CLASSROOM_DESK_SKIP_LAB_GO_LIVE = '1';
 
 const db = new DatabaseSync(path.join(dir, 'test.sqlite'));
 migrate(db);

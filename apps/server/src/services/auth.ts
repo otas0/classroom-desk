@@ -65,15 +65,19 @@ export function findUserByUsername(db: DatabaseSync, username: string): DbUser |
   return db.prepare(`SELECT * FROM users WHERE username = ?`).get(username) as DbUser | undefined;
 }
 
+function upsertSetting(db: DatabaseSync, key: string, value: string) {
+  db.prepare(
+    `INSERT INTO settings (key, value) VALUES (?, ?)
+     ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+  ).run(key, value);
+}
+
 export async function ensureBootstrap(db: DatabaseSync): Promise<void> {
   const adminHash = getSetting(db, 'admin_password_hash');
   if (!adminHash) {
     const password = process.env.ADMIN_PASSWORD?.trim() || randomTempPassword();
     const hash = await hashPassword(password);
-    db.prepare(
-      `INSERT INTO settings (key, value) VALUES ('admin_password_hash', ?)
-       ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
-    ).run(hash);
+    upsertSetting(db, 'admin_password_hash', hash);
     if (!process.env.ADMIN_PASSWORD?.trim()) {
       console.warn(`[bootstrap] ADMIN_PASSWORD generated for first run (not stored in plaintext): ${password}`);
     } else {
@@ -94,17 +98,26 @@ export async function ensureBootstrap(db: DatabaseSync): Promise<void> {
     const hash = await hashPassword(password);
     const teacherId = newId();
     const createdAt = nowIso();
+    let bootClassId = '';
     if (teacherCount === 0) {
-      const classId = newId();
+      bootClassId = newId();
       const classCode = process.env.DEFAULT_CLASS_CODE?.trim().toUpperCase() || newClassCode();
       db.prepare(
         `INSERT INTO classes (id, name, class_code, created_at) VALUES (?, ?, ?, ?)`,
-      ).run(classId, '本教室', classCode, createdAt);
+      ).run(bootClassId, '本教室', classCode, createdAt);
+      // Day-1 speed: Find classroom works as soon as Admin opens (no toggle).
+      upsertSetting(db, 'student_easy_join', '1');
+      upsertSetting(db, 'student_easy_join_class_id', bootClassId);
+      upsertSetting(db, 'student_easy_join_opened_at', createdAt);
     }
     db.prepare(
       `INSERT INTO users (id, role, display_name, username, password_hash, class_id, total_points, created_at)
        VALUES (?, 'teacher', ?, ?, ?, NULL, 0, ?)`,
     ).run(teacherId, '默认教师', username, hash, createdAt);
+    // Installer-generated TEACHER_PASSWORD is strong — skip forced password-change gate (~30–60s).
+    if (envTeacherPassword) {
+      upsertSetting(db, 'teacher_password_ok', '1');
+    }
     console.warn(
       `[bootstrap] created teacher "${username}". Teacher password (env TEACHER_PASSWORD or generated): ${password}`,
     );
@@ -112,6 +125,7 @@ export async function ensureBootstrap(db: DatabaseSync): Promise<void> {
     // CI / lab: force-align named teacher password when TEACHER_PASSWORD is set.
     const hash = await hashPassword(envTeacherPassword);
     db.prepare(`UPDATE users SET password_hash = ? WHERE id = ?`).run(hash, existingNamed.id);
+    upsertSetting(db, 'teacher_password_ok', '1');
     console.log(`[bootstrap] teacher "${username}" password hash aligned from TEACHER_PASSWORD env`);
   }
 }

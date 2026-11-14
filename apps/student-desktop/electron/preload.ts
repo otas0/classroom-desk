@@ -9,6 +9,7 @@ export type AppConfig = {
 
 export type ExitLockState = {
   exitAllowed: boolean;
+  teacherBonded?: boolean;
   allowStudentExitEnv?: boolean;
 };
 
@@ -21,6 +22,10 @@ export type StudentDesktopAPI = {
   toggleCollapse: () => Promise<boolean>;
   getCollapsed: () => Promise<boolean>;
   snapBottomRight: () => Promise<void>;
+  setWindowChromePolicy: (policy: {
+    allowCollapse?: boolean;
+    allowMinimize?: boolean;
+  }) => Promise<{ ok: boolean; allowCollapse?: boolean; allowMinimize?: boolean; collapsed?: boolean }>;
   adminQuit: () => Promise<{ ok: boolean; error?: string } | void>;
   setAutostart: (enabled: boolean) => Promise<boolean>;
   getAutostart: () => Promise<boolean>;
@@ -51,6 +56,7 @@ export type StudentDesktopAPI = {
   }>;
   onDiscoverProgress: (cb: (p: { done: number; total: number; phase?: string }) => void) => () => void;
   getExitLockState: () => Promise<ExitLockState>;
+  markTeacherBonded: () => Promise<{ ok: boolean; teacherBonded?: boolean; exitAllowed?: boolean }>;
   setExitAllowed: (allowed: boolean) => Promise<ExitLockState>;
   grantExitAndQuit: () => Promise<boolean>;
   onBlockedClose: (cb: () => void) => () => void;
@@ -59,6 +65,8 @@ export type StudentDesktopAPI = {
   /** Open http(s) URLs via OS browser / download handler (LAN Setup.exe, Release). */
   openExternal: (url: string) => Promise<{ ok: boolean; error?: string }>;
   setDeepLockFrozen: (frozen: boolean) => Promise<{ ok: boolean; error?: string }>;
+  setOfflineCustody: (on: boolean) => Promise<{ ok: boolean; error?: string }>;
+  getOfflineCustody: () => Promise<{ active: boolean }>;
   setDeepLockAggressive: (aggressive: boolean) => Promise<{ ok: boolean; aggressive?: boolean }>;
   setDeepLockExamUrl: (
     url: string | null,
@@ -76,6 +84,7 @@ export type StudentDesktopAPI = {
   killApps: (apps: string[]) => Promise<{ ok: boolean; killed?: string[] }>;
   openApp: (app: string) => Promise<{ ok: boolean; error?: string }>;
   setBlockedHosts: (hosts: string[]) => Promise<{ ok: boolean; count?: number }>;
+  setBlockedApps: (apps: string[]) => Promise<{ ok: boolean; count?: number }>;
   verifyOfflineCode: (code: string, hash: string) => Promise<{ ok: boolean }>;
   forceLanSetup: (url: string) => Promise<{ ok: boolean; error?: string; path?: string }>;
 };
@@ -84,6 +93,7 @@ const api: StudentDesktopAPI = {
   toggleCollapse: () => ipcRenderer.invoke('window:toggle-collapse'),
   getCollapsed: () => ipcRenderer.invoke('window:get-collapsed'),
   snapBottomRight: () => ipcRenderer.invoke('window:snap-bottom-right'),
+  setWindowChromePolicy: (policy) => ipcRenderer.invoke('window:set-chrome-policy', policy),
   adminQuit: () => ipcRenderer.invoke('admin:quit'),
   setAutostart: (enabled) => ipcRenderer.invoke('admin:set-autostart', enabled),
   getAutostart: () => ipcRenderer.invoke('admin:get-autostart'),
@@ -99,6 +109,7 @@ const api: StudentDesktopAPI = {
     return () => ipcRenderer.removeListener('config:discover-progress', handler);
   },
   getExitLockState: () => ipcRenderer.invoke('lock:get-state'),
+  markTeacherBonded: () => ipcRenderer.invoke('lock:mark-teacher-bonded'),
   setExitAllowed: (allowed) => ipcRenderer.invoke('lock:set-exit-allowed', allowed),
   grantExitAndQuit: () => ipcRenderer.invoke('lock:grant-exit-and-quit'),
   onBlockedClose: (cb) => {
@@ -110,6 +121,8 @@ const api: StudentDesktopAPI = {
   setInputMouseLocked: (locked) => ipcRenderer.invoke('lock:set-input-mouse-locked', locked),
   openExternal: (url) => ipcRenderer.invoke('shell:open-external', url),
   setDeepLockFrozen: (frozen) => ipcRenderer.invoke('deep-lock:set-frozen', frozen),
+  setOfflineCustody: (on) => ipcRenderer.invoke('offline:set-custody', on),
+  getOfflineCustody: () => ipcRenderer.invoke('offline:get-custody'),
   setDeepLockAggressive: (aggressive) => ipcRenderer.invoke('deep-lock:set-aggressive', aggressive),
   setDeepLockExamUrl: (url, allowHosts) =>
     ipcRenderer.invoke('deep-lock:set-exam-url', url, allowHosts),
@@ -121,6 +134,7 @@ const api: StudentDesktopAPI = {
   killApps: (apps) => ipcRenderer.invoke('device-control:kill-apps', apps),
   openApp: (app) => ipcRenderer.invoke('device-control:open-app', app),
   setBlockedHosts: (hosts) => ipcRenderer.invoke('device-control:set-blocked-hosts', hosts),
+  setBlockedApps: (apps) => ipcRenderer.invoke('device-control:set-blocked-apps', apps),
   verifyOfflineCode: (code, hash) => ipcRenderer.invoke('lock:verify-offline-code', code, hash),
   forceLanSetup: (url) => ipcRenderer.invoke('upgrade:force-lan-setup', url),
 };

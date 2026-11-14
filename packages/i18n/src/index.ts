@@ -4,6 +4,7 @@ export {
   DEFAULT_UI_LOCALE,
   isUiLocale,
   normalizeUiLocale,
+  detectSystemUiLocale,
   type UiLocale,
 } from './locales.js';
 export { createTranslator, interpolate, type Catalog, type Vars, type Translator } from './translate.js';

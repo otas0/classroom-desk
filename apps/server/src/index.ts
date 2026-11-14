@@ -20,9 +20,17 @@ import {
 } from './services/federationHub.js';
 import { reloadShieldConnectorFromEnv } from './services/shield/registry.js';
 import {
+  startShieldPullSync,
+  stopShieldPullSync,
+} from './services/shield/pullSync.js';
+import {
   startReleaseCheckScheduler,
   stopReleaseCheckScheduler,
 } from './services/githubRelease.js';
+import {
+  startStudentInstallCardRefresh,
+  stopStudentInstallCardRefresh,
+} from './services/studentInstallCard.js';
 
 const db = migrate();
 await ensureBootstrap(db);
@@ -31,10 +39,12 @@ reloadShieldConnectorFromEnv();
 const app = createApp();
 startCleanupScheduler();
 startDeskDns();
+startShieldPullSync();
 startClassroomBeacon();
 startClassroomMdns();
 startFederationAnnounce();
 startReleaseCheckScheduler();
+startStudentInstallCardRefresh();
 
 const server = app.listen(config.port, config.host, () => {
   console.log(`[classroom-desk-server] listening on http://${config.host}:${config.port}`);
@@ -58,10 +68,12 @@ attachPrincipalWebSocket(server);
 broadcastExitLockPayload(getClientExitLockState(db));
 
 function shutdown() {
+  stopStudentInstallCardRefresh();
   stopReleaseCheckScheduler();
   stopFederationAnnounce();
   stopClassroomMdns();
   stopClassroomBeacon();
+  stopShieldPullSync();
   stopDeskDns();
   stopCleanupScheduler();
   server.close(() => {

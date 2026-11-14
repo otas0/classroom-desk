@@ -180,15 +180,30 @@ classesRouter.post('/api/v1/classes', requireAuth, requireRoles('teacher', 'admi
     .trim()
     .toUpperCase();
   const createdAt = nowIso();
+  const db = openDb();
   try {
-    openDb()
-      .prepare(`INSERT INTO classes (id, name, class_code, created_at) VALUES (?, ?, ?, ?)`)
-      .run(id, name, classCode, createdAt);
+    db.prepare(`INSERT INTO classes (id, name, class_code, created_at) VALUES (?, ?, ?, ?)`).run(
+      id,
+      name,
+      classCode,
+      createdAt,
+    );
   } catch {
     res.status(409).json({ error: 'class_code_conflict' });
     return;
   }
-  res.status(201).json({ id, name, classCode, createdAt });
+  // Day-1 default: new class is immediately joinable (Find classroom / 一键连班).
+  for (const [key, value] of [
+    ['student_easy_join', '1'],
+    ['student_easy_join_class_id', id],
+    ['student_easy_join_opened_at', createdAt],
+  ] as const) {
+    db.prepare(
+      `INSERT INTO settings (key, value) VALUES (?, ?)
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+    ).run(key, value);
+  }
+  res.status(201).json({ id, name, classCode, createdAt, easyJoin: true });
 });
 
 /** Public roster for lab machines. When private_device_portal_only=1, BYOD must use /portal. */

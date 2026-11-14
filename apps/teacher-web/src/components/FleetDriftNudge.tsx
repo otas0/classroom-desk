@@ -34,6 +34,8 @@ export function FleetDriftNudge({
   const [studentAutoUpdate, setStudentAutoUpdate] = useState(true);
   const [copyMsg, setCopyMsg] = useState('');
   const [toggleMsg, setToggleMsg] = useState('');
+  const [pullMsg, setPullMsg] = useState('');
+  const [pullBusy, setPullBusy] = useState(false);
   const [err, setErr] = useState('');
 
   async function load() {
@@ -129,6 +131,28 @@ export function FleetDriftNudge({
     }
   }
 
+  /** Student packages only — no teacher host overlay (offline-friendly default). */
+  async function pullStudentPackages() {
+    setPullMsg('');
+    setPullBusy(true);
+    try {
+      const r = await api<{ message?: string; tag?: string; studentAutoUpdate?: boolean }>(
+        '/api/v1/upgrades/pull-release',
+        {
+          method: 'POST',
+          body: JSON.stringify({ arches: ['x64', 'arm64'], updateTeacherHost: false }),
+        },
+      );
+      if (typeof r.studentAutoUpdate === 'boolean') setStudentAutoUpdate(r.studentAutoUpdate);
+      setPullMsg(r.message || t('已同步学生机包 {v0}', { v0: r.tag ?? '' }));
+      await load();
+    } catch (e) {
+      setPullMsg(e instanceof Error ? e.message : t('拉取失败（需能访问 GitHub，或改手动上传 Setup）'));
+    } finally {
+      setPullBusy(false);
+    }
+  }
+
   if (!classId || driftRows.length === 0) return null;
 
   return (
@@ -160,6 +184,14 @@ export function FleetDriftNudge({
         <button type="button" className="secondary" onClick={() => void copyUpgradeTip()}>
           {t('复制升级提示')}
         </button>
+        <button
+          type="button"
+          disabled={pullBusy}
+          data-testid="fleet-pull-student-packages"
+          onClick={() => void pullStudentPackages()}
+        >
+          {pullBusy ? t('同步中…') : t('同步学生机包')}
+        </button>
         {onOpenUpgrades ? (
           <button type="button" className="secondary" onClick={onOpenUpgrades}>
             {t('打开升级包设置')}
@@ -182,6 +214,7 @@ export function FleetDriftNudge({
       </div>
       {copyMsg ? <p className="hint">{copyMsg}</p> : null}
       {toggleMsg ? <p className="hint">{toggleMsg}</p> : null}
+      {pullMsg ? <p className="hint" data-testid="fleet-pull-msg">{pullMsg}</p> : null}
     </section>
   );
 }

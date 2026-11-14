@@ -138,11 +138,29 @@ export async function syncDeepLockToSchedules(
        ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
     ).run(ACTIVE_KEY, activeSig);
     const patch = profiles[active.profile]!;
-    await applyDeepLockAction(
-      db,
-      { action: 'patch', classId: active.classId, patch },
-      { actorRole: 'system' },
-    );
+    try {
+      await applyDeepLockAction(
+        db,
+        { action: 'patch', classId: active.classId, patch },
+        { actorRole: 'system' },
+      );
+    } catch (e) {
+      const { LabGoLiveBlockedError } = await import('./labGoLive.js');
+      if (e instanceof LabGoLiveBlockedError) {
+        console.warn(
+          `[deep-lock] schedule profile skipped — lab go-live blocked: ${e.blockReasons.join(';')}`,
+        );
+        writeAudit({
+          actorUserId: null,
+          actorRole: 'system',
+          action: 'deep_lock.schedule_blocked',
+          classId: active.classId,
+          detail: { profile: active.profile, blockReasons: e.blockReasons },
+        });
+        return { applied: false, restored: false, classId: active.classId };
+      }
+      throw e;
+    }
     broadcastDeepLock(db);
     writeAudit({
       actorUserId: null,

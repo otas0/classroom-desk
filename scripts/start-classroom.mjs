@@ -11,6 +11,13 @@ import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const font = path.join(root, 'apps/server/assets/fonts/NotoSansSC-VF.ttf');
+const teacherDist = path.join(root, 'apps/teacher-web/dist/index.html');
+const serverDist = path.join(root, 'apps/server/dist/index.mjs');
+const bundledReady =
+  process.env.CLASSROOM_DESK_BUNDLED === '1' ||
+  process.env.CLASSROOM_DESK_OFFLINE === '1' ||
+  fs.existsSync(path.join(root, '.classroom-desk-ready')) ||
+  fs.existsSync(path.join(root, '.classroom-desk-offline-ready'));
 
 function run(cmd, args, opts = {}) {
   return new Promise((resolve, reject) => {
@@ -30,14 +37,22 @@ function run(cmd, args, opts = {}) {
 const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 
 if (!fs.existsSync(font)) {
-  console.log('[start:classroom] fetching CJK fonts…');
-  await run(npm, ['run', 'fonts:cjk']);
+  if (bundledReady) {
+    console.warn('[start:classroom] bundled pack missing CJK font — PDF CJK may fall back');
+  } else {
+    console.log('[start:classroom] fetching CJK fonts…');
+    await run(npm, ['run', 'fonts:cjk']);
+  }
 } else {
   console.log('[start:classroom] CJK fonts ok');
 }
 
-console.log('[start:classroom] build teacher…');
-await run(npm, ['run', 'build:teacher']);
+if (bundledReady && fs.existsSync(teacherDist)) {
+  console.log('[start:classroom] product pack — skip build:teacher');
+} else {
+  console.log('[start:classroom] build teacher…');
+  await run(npm, ['run', 'build:teacher']);
+}
 
 const port = Number(process.env.PORT || 8787);
 const busy = await new Promise((resolve) => {
@@ -56,4 +71,9 @@ if (busy) {
 
 console.log('[start:classroom] starting server on HOST=%s …', process.env.HOST || '0.0.0.0');
 console.log('[start:classroom] open http://127.0.0.1:8787/admin/');
-await run(npm, ['run', 'start:server']);
+if (bundledReady && fs.existsSync(serverDist)) {
+  console.log('[start:classroom] bundled server', serverDist);
+  await run(process.execPath, [serverDist]);
+} else {
+  await run(npm, ['run', 'start:server']);
+}

@@ -1,50 +1,20 @@
-# Classroom deploy (short)
+# Classroom Desk — one page
 
-## 1. Teacher PC
+**SLA:** &lt; 5 min to first class after Setup is on disk (aim ~1–2 min). USB/LAN copy first — see [TIME_TO_CLASS.md](./TIME_TO_CLASS.md).
 
-**Admin PowerShell:**
+## Day-1
 
-```powershell
-irm https://raw.githubusercontent.com/otas0/classroom-desk/v0.1.10/install-teacher.ps1 -OutFile $env:TEMP\install-teacher.ps1; powershell -ExecutionPolicy Bypass -File $env:TEMP\install-teacher.ps1
-```
+1. Double-click **`Teacher-Setup.exe`**
+2. Desktop **`ClassroomDesk-Desk-Login.txt`** → log in
+3. Import roster into **本教室** (pre-created; easy-join on)
+4. Students: Public Desktop **`ClassroomDesk-Student-Install.txt`** → Find classroom
 
-Or double-click **`Install-Teacher.bat`** in the repo.
+## Updates
 
-Then: Desktop **`ClassroomDesk-Desk-Login.txt`** → `http://127.0.0.1:8787/admin/`.  
-Details: [TEACHER_EASY_SETUP.md](./TEACHER_EASY_SETUP.md).
+- Students auto-follow teacher LAN `/upgrades/` (force same version on by default)
+- New student build: Admin → sync/upload Setup
+- New teacher host: new `Teacher-Setup.exe` (or opt-in host update if online)
 
-## 2. Student PCs
+## Build
 
-1. Install `ClassroomDesk-Setup-<version>.exe` from [Releases](https://github.com/otas0/classroom-desk/releases) (ARM: `*-arm64.exe`).  
-2. Do **not** turn off Defender / SmartScreen.  
-3. Teacher enables one-click join → students **Find classroom**.
-
-## 3. Later updates
-
-Settings → **One-click update (teacher host + student packages)** (x64 + arm64 Setup + teacher host restart).
-
-### Acceptance (version lock + hardening)
-
-- [ ] Teacher install opens `/admin/`; Desktop login card exists  
-- [ ] Force same version after Setup pull; old clients upgrade  
-- [ ] Freeze: fullscreen, secondary black, refocus ≤0.6s  
-- [ ] Exam shell blocks non-allowlist URLs  
-- [ ] Freeze kills Chrome/Edge/WeChat/QQ ≤1s  
-- [ ] **L3 required:** Assigned Access + Intune trial → Alt+Tab/Win dead; Task Manager end denied; evidence videos; rollback XML. No AA = incomplete deploy ([SECURITY.md](./SECURITY.md))  
-- [ ] [C2_OPERATOR_RUNBOOK.md](./C2_OPERATOR_RUNBOOK.md) → `npm run verify:c2-evidence`  
-- [ ] Real Shield connector → `shield/health`  
-- [ ] Offline unlock after cached code  
-- [ ] DHCP → teacher :5353 blocks resolve to `0.0.0.0`
-
----
-
-| Need | Doc |
-|---|---|
-| Teacher one-click | [TEACHER_EASY_SETUP.md](./TEACHER_EASY_SETUP.md) |
-| Manual cold start | [SETUP_FROM_GITHUB.md](./SETUP_FROM_GITHUB.md) |
-| Desk card print | [PRINT_DESK_CARD.md](./PRINT_DESK_CARD.md) |
-| USB | [LOCAL_USB_CHECKLIST.md](./LOCAL_USB_CHECKLIST.md) |
-| AA / C2 | [EXIT_LOCK_MDM.md](./EXIT_LOCK_MDM.md) |
-| Security | [SECURITY.md](./SECURITY.md) |
-| Join / TLS | [CLASSROOM_JOIN_SECURITY.md](./CLASSROOM_JOIN_SECURITY.md) |
-| Release sync | [RELEASE_SYNC.md](./RELEASE_SYNC.md) |
+`npm run pack` → `Give-To-Teacher/`

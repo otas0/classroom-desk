@@ -371,6 +371,8 @@ function examBoxHardwareAccepted(): boolean {
 export function productCapabilities() {
   const deskDns = getDeskDnsStatus();
   const shieldId = getShieldConnector().id;
+  const shieldProd =
+    shieldId === 'http' || shieldId === 'opnsense' || shieldId === 'unifi';
   return {
     /** Contract track: Pilot 可售；不是 1.0 GA（见 docs/PILOT_SKU.md）. */
     salesPhase: 'pilot' as const,
@@ -382,7 +384,10 @@ export function productCapabilities() {
     netPortal: true,
     netDns: true,
     netDnsRunning: deskDns.enabled && deskDns.running,
+    /** Feature exists in product; not “currently enforcing”. */
     netShield: true,
+    /** True only when a real gateway adapter is active (not off/mock). */
+    netShieldEnforcing: shieldProd,
     netShieldAdapters: listShieldAdapterIds(),
     netShieldActive: shieldId,
     examBox: true, // SKU docs + compose shipped; hardware optional
@@ -394,6 +399,10 @@ export function productCapabilities() {
     enterprise8021x: true,
     deviceFingerprinting: false,
     portalCookieSession: true,
+    /**
+     * Product never silent-blocks students outside teacher deep-lock / Shield path.
+     * Not a claim that the lab is currently sealed.
+     */
     neverStudentNetBlock: true,
     portalSignedSsid: true,
     portalSsidRequireSig:

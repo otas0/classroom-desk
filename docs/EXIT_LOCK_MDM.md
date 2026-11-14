@@ -56,6 +56,28 @@ stateDiagram-v2
 3. 选择该账户 → 选择应用 → **Classroom Desk**（若未列出：先用该账户登录一次安装的 app）。
 4. 退出设置；用展台账户登录，应仅能进学生端。
 5. 验证：`Ctrl+Alt+Del` / 任务管理器对展台账户不可用或无法结束被允许的应用（因 Windows 版本而异）。
+6. **加固信号（给学生端上报 `hardened=true`）— 二选一：**
+   - 环境变量：展台账户 / 系统设 `CD_ASSIGNED_ACCESS=1` 后启动学生端；或
+   - 标记文件（推荐）：创建空文件  
+     `C:\ProgramData\ClassroomDesk\assigned-access.ready`  
+     （目录需 IT 创建；文件存在即视为已配 AA）
+
+### 最高保密级武装流程（教师上课页）
+
+必须按顺序；缺一步则「一键武装最高保密级」保持禁用。
+
+| 步 | 谁 | 做什么 |
+|---|---|---|
+| 1 | IT | 按上文配好 **Assigned Access**（+ 建议 Intune HideTaskManager） |
+| 2 | IT | 写下 **加固信号**（`CD_ASSIGNED_ACCESS=1` 或 `assigned-access.ready` 文件） |
+| 3 | 学生机 | 用展台账户打开 Classroom Desk，连上本班（presence 心跳带 `hardened: true`） |
+| 4 | 教师 | 上课页红条 → 勾选「本校 IT 已配置 Assigned Access / Intune」 |
+| 5 | 教师 | 确认 **在线 ≥ 1** 且 **未加固 = 0**（空班仅声明不能武装） |
+| 6 | 教师 | **设备控制 → 一键武装最高保密级** |
+
+武装后（本班）：约 1s 掉线监管、杀逃逸、重连仍须解除码，且 **有人掉线则全班踢网+冻结**。日常未武装时默认仍只锁掉线学生；教师可在「有学生掉线时」改回。
+
+详情与应用层上限：[SECURITY_CUSTODY.md](./SECURITY_CUSTODY.md)。假声明 L3 会导致「最高保密级」名不副实，审计记 `settings.assigned_access_ready`。
 
 ### Intune / 组策略要点
 
