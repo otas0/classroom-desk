@@ -152,11 +152,11 @@ const DEFAULT_SETTINGS: Record<string, string> = {
   /** When 1 with S-tier: freeze/exam_net/kick require Shield≠off OR DeskDNS running. */
   strict_net_fail_closed: '1',
   /**
-   * Max-secrecy (school highest product controls; default on). NOT national 绝密.
-   * Dual-path AND, HMAC audit + seal mirror, reauth on deep-lock, heartbeat lockdown,
-   * forces portal sig / private-device / easy-join off / DeskDNS follow.
+   * Max-secrecy (school highest product controls; opt-in). NOT national 绝密.
+   * Enable when BOTH Shield and DeskDNS are armed. Default off so DeskDNS-only Pilot deploys;
+   * S-tier (`security_tier_s`) stays default on for fail-closed OR-path.
    */
-  max_secrecy_mode: '1',
+  max_secrecy_mode: '0',
   max_secrecy_heartbeat_stale_sec: '60',
   max_secrecy_jwt_ttl_sec: '900',
   max_secrecy_airgap: '1',

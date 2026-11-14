@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { openDb } from '../db/client.js';
 import { requireAuth, requireRoles, type AuthedRequest } from '../middleware/auth.js';
 import { MANAGER_ROLES, STAFF_ROLES } from '../middleware/roles.js';
+import { findUserById, mapUser, verifyToken } from '../services/auth.js';
 import {
   applyDeepLockAction,
   clearFocusViolations,
@@ -45,11 +46,33 @@ deepLockRouter.get('/api/v1/deep-lock', requireAuth, requireRoles(...STAFF_ROLES
   });
 });
 
-deepLockRouter.get('/api/v1/deep-lock/stream', (_req, res) => {
+deepLockRouter.get('/api/v1/deep-lock/stream', async (req, res) => {
+  const db = openDb();
+  // Max-secrecy: require JWT via ?token= (EventSource cannot set Authorization).
+  if (maxSecrecyEnabled(db)) {
+    const token = String(req.query.token ?? '').trim();
+    if (!token) {
+      res.status(401).json({
+        error: 'token_required',
+        message: '最高保密档：深锁 SSE 须带 ?token=',
+      });
+      return;
+    }
+    const payload = await verifyToken(token);
+    if (!payload) {
+      res.status(401).json({ error: 'unauthorized' });
+      return;
+    }
+    const dbUser = findUserById(db, payload.id);
+    if (!dbUser) {
+      res.status(401).json({ error: 'unauthorized' });
+      return;
+    }
+    void mapUser(dbUser);
+  }
   addDeepLockSseClient(res);
-  // Push current snapshot immediately for late subscribers.
   try {
-    broadcastDeepLock(openDb());
+    broadcastDeepLock(db);
   } catch {
     /* ignore */
   }
@@ -57,11 +80,11 @@ deepLockRouter.get('/api/v1/deep-lock/stream', (_req, res) => {
 
 deepLockRouter.get('/api/v1/deep-lock/public', (_req, res) => {
   const db = openDb();
-  // Max-secrecy air-gap: do not leak lock state / shield identity unauthenticated.
+  // Max-secrecy: no unauthenticated deep-lock leak (use authed GET /deep-lock).
   if (maxSecrecyEnabled(db)) {
     res.status(403).json({
       error: 'max_secrecy_public_blocked',
-      message: '最高保密档禁止未鉴权读取深锁公开态',
+      message: '最高保密档禁止未鉴权读取深锁公开态；请用带 JWT 的 /api/v1/deep-lock',
     });
     return;
   }

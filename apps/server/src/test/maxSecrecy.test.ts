@@ -30,6 +30,7 @@ const { hmacSealBody, auditSealPath } = await import('../services/auditPersist.j
 migrate();
 resetShieldConnectorToOff();
 const db = openDb();
+setMaxSecrecyMode(db, true);
 
 assert.equal(maxSecrecyEnabled(db), true);
 assert.equal(evaluateDualPathRequired(db).ok, false);

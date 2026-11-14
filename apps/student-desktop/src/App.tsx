@@ -457,16 +457,34 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
         /* ignore */
       }
     }
-    deepEs = new EventSource(`${base}/api/v1/deep-lock/stream`);
+    const deepTok = getToken();
+    const deepStreamQs = deepTok
+      ? `?token=${encodeURIComponent(deepTok)}`
+      : '';
+    deepEs = new EventSource(`${base}/api/v1/deep-lock/stream${deepStreamQs}`);
     deepEs.addEventListener('deep_lock', (ev) => {
       applyDeepPayload((ev as MessageEvent).data);
     });
     deepEs.onmessage = (ev) => applyDeepPayload(ev.data);
-    // Initial pull (SSE may not replay if hub empty before first broadcast).
-    void fetch(`${base}/api/v1/deep-lock/public`)
-      .then((r) => r.json())
-      .then((data) => applyDeepPayload(data))
-      .catch(() => undefined);
+    // Initial pull: prefer authed /deep-lock (max-secrecy blocks /public).
+    void (async () => {
+      try {
+        const headers: Record<string, string> = {};
+        if (deepTok) headers.Authorization = `Bearer ${deepTok}`;
+        const authed = await fetch(
+          `${base}/api/v1/deep-lock${classId ? `?classId=${encodeURIComponent(classId)}` : ''}`,
+          { headers },
+        );
+        if (authed.ok) {
+          applyDeepPayload(await authed.json());
+          return;
+        }
+        const pub = await fetch(`${base}/api/v1/deep-lock/public`);
+        if (pub.ok) applyDeepPayload(await pub.json());
+      } catch {
+        /* ignore */
+      }
+    })();
 
     try {
       const wsUrl = base.replace(/^http/i, 'ws') + '/api/v1/exit-lock/ws';

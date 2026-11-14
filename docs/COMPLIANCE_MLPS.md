@@ -4,7 +4,7 @@
 > **定位：** 在「校安运维级」（失败闭合、无假成功、可审计）之上，补控制矩阵、日志留存、账号分权与证据包，供学校信息中心 / 密评材料引用。  
 > **非承诺：** 本文不替代正式等保测评报告；不宣称产品已通过某级等保认证。材料由学校 IT 结合本校拓扑填证。  
 > **S 档声明：** `security_tier_s=1`（默认）是学校硬化档（审计链、OR 双线门闩、禁未映射软放行）。  
-> **最高保密档：** `max_secrecy_mode=1`（默认）是**产品内最严机制**：双线 **AND**；HMAC 审计 + 密封镜像；敏感配置 **AES-GCM 落盘**；深锁再认证；**放行/下课/关保密档双人规则**；考试态心跳失败 **加深锁+踢班**；员工 JWT **15 分钟 + IP 绑定**；空域（禁 mDNS/beacon/GitHub 轮询/联邦 Hub）；生产 **HTTPS 登录**；禁公开深锁态 / 一键连班。**不是**国家秘密 / 绝密信息系统。单网校仅 DeskDNS 时须关闭最高保密档、保留 S 档。
+> **最高保密档：** `max_secrecy_mode=1`（**默认关 / 双线齐备后手开**）是**产品内最严机制**：双线 **AND**；HMAC 审计 + 密封镜像；敏感配置 **AES-GCM 落盘**；深锁再认证；**放行/下课/关保密档双人规则**；考试态心跳失败 **加深锁+踢班**；员工/学生 JWT 缩短 + 员工 **IP 绑定**；空域（禁 mDNS/beacon/GitHub/SIS/联邦 Hub）；生产 **HTTPS 登录**；深锁 SSE/`public` 须鉴权。**不是**国家秘密 / 绝密。DeskDNS-only / 单线校保持 S 档即可。
 
 相关：[`SECURITY.md`](./SECURITY.md) · [`PERMISSIONS.md`](./PERMISSIONS.md) · [`NETWORK.md`](./NETWORK.md) · [`PILOT_SKU.md`](./PILOT_SKU.md) · [`CLASSROOM_JOIN_SECURITY.md`](./CLASSROOM_JOIN_SECURITY.md)
 
@@ -90,9 +90,9 @@ flowchart TB
 | `allow_net` / 下课 / 关最高保密档 | **双人**：`confirmPassword` + `secondPassword`（教师↔管理员） |
 | 考试态心跳失败 | 加深冻结 + **踢全班** + 禁 `allow_net`；审计 `maxsec.heartbeat_fail_lockdown` |
 | 员工会话 | JWT ≤15min + `bindIp`；错 IP → `ip_bind_mismatch` |
-| 空域 | 停 mDNS / UDP beacon / GitHub 轮询 / 联邦 Hub |
-| 敏感配置 | `shield_http_token` 等 `enc1:` AES-GCM（`AUDIT_HMAC_KEY`） |
-| 公开深锁态 | `GET /deep-lock/public` **403** |
+| 空域 | 停 mDNS / UDP beacon / GitHub 轮询 / 联邦 Hub / **SIS 外联** |
+| 敏感配置 | `shield_http_token` / 联邦 token / **备份口令** → `enc1:` AES-GCM |
+| 深锁暴露面 | `/deep-lock/public` **403**；`/deep-lock/stream` 须 `?token=` |
 | 生产登录 | 非回环须 HTTPS（`tls_required`） |
 
 ## 6. 证据包清单

@@ -32,7 +32,7 @@ export function ComplianceSettingsPanel() {
   const [ret, setRet] = useState<Retention | null>(null);
   const [days, setDays] = useState(180);
   const [follow, setFollow] = useState(true);
-  const [maxSec, setMaxSec] = useState(true);
+  const [maxSec, setMaxSec] = useState(false);
   const [confirmPassword, setConfirmPassword] = useState('');
   const [secondPassword, setSecondPassword] = useState('');
   const [alias, setAlias] = useState<AliasReport | null>(null);
@@ -61,7 +61,7 @@ export function ComplianceSettingsPanel() {
     setRet(r);
     setDays(r.retentionDays);
     setFollow(r.deskDnsFollowDeepLock !== false);
-    setMaxSec(r.maxSecrecyMode !== false);
+    setMaxSec(r.maxSecrecyMode === true);
     if (a) setAlias(a);
     if (c) setChain(c);
   }

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { t } from '@classroom-desk/i18n';
 import { api } from '../api';
 
@@ -15,6 +15,13 @@ const END_PREVIEW = () =>
 export function EndOfClassChecklist({ classId }: { classId: string }) {
   const [msg, setMsg] = useState('');
   const [busy, setBusy] = useState(false);
+  const [maxSecrecy, setMaxSecrecy] = useState(false);
+
+  useEffect(() => {
+    void api<{ maxSecrecyMode?: boolean }>('/api/v1/compliance/audit-retention')
+      .then((r) => setMaxSecrecy(r.maxSecrecyMode === true))
+      .catch(() => setMaxSecrecy(false));
+  }, []);
 
   async function run() {
     if (!classId) return;
@@ -22,21 +29,27 @@ export function EndOfClassChecklist({ classId }: { classId: string }) {
       `${t('确认下课收工？将立即：')}\n\n• ${END_PREVIEW()}\n\n${t('误触后学生须重新认证 / 重新连班。')}`,
     );
     if (!ok) return;
-    const confirmPassword = window.prompt(
-      t('最高保密档：请输入当前账号密码以确认下课收工'),
-      '',
-    );
-    if (confirmPassword == null || !String(confirmPassword).trim()) {
-      setMsg(t('已取消：须密码再认证'));
-      return;
-    }
-    const second = window.prompt(
-      t('双人规则：请输入另一特权账号密码（教师操作须管理员；管理员操作须教师）'),
-      '',
-    );
-    if (second == null || !String(second).trim()) {
-      setMsg(t('已取消：须双人密码'));
-      return;
+    let confirmPassword: string | undefined;
+    let secondPassword: string | undefined;
+    if (maxSecrecy) {
+      const pwd = window.prompt(
+        t('最高保密档：请输入当前账号密码以确认下课收工'),
+        '',
+      );
+      if (pwd == null || !String(pwd).trim()) {
+        setMsg(t('已取消：须密码再认证'));
+        return;
+      }
+      confirmPassword = String(pwd).trim();
+      const second = window.prompt(
+        t('双人规则：请输入另一特权账号密码（教师操作须管理员；管理员操作须教师）'),
+        '',
+      );
+      if (second == null || !String(second).trim()) {
+        setMsg(t('已取消：须双人密码'));
+        return;
+      }
+      secondPassword = String(second).trim();
     }
     setBusy(true);
     setMsg('');
@@ -51,8 +64,8 @@ export function EndOfClassChecklist({ classId }: { classId: string }) {
         method: 'POST',
         body: JSON.stringify({
           classId,
-          confirmPassword: String(confirmPassword).trim(),
-          secondPassword: String(second).trim(),
+          confirmPassword,
+          secondPassword,
         }),
       });
       setMsg(
@@ -78,12 +91,13 @@ export function EndOfClassChecklist({ classId }: { classId: string }) {
         disabled={!classId || busy}
         onClick={() => void run()}
       >
-        {t('下课收工（需确认）')}
+        {t('下课收工（清会话/放行/DNS/连班）')}
       </button>
-      <p className="hint">
-        {t('结局 B：全清（epoch + 放行表 + DNS + 连班 + 深锁）。与「仅结束深锁」不同。')}
-      </p>
-      {msg ? <p className="hint">{msg}</p> : null}
+      {msg ? (
+        <p className="hint" data-testid="end-of-class-msg">
+          {msg}
+        </p>
+      ) : null}
     </div>
   );
 }

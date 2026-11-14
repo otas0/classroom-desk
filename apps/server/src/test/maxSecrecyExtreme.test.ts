@@ -26,11 +26,13 @@ const {
   maxSecrecyAirgap,
   maxSecrecyBindIp,
   applyMaxSecrecyPosture,
+  setMaxSecrecyMode,
   tickMaxSecrecyWatchdog,
 } = await import('../services/maxSecrecy.js');
 
 migrate();
 const db = openDb();
+setMaxSecrecyMode(db, true);
 
 assert.equal(maxSecrecyAirgap(db), true);
 assert.equal(maxSecrecyBindIp(db), true);
@@ -45,6 +47,10 @@ setSecretSetting(db, 'shield_http_token', plain);
 const raw = String(getSetting(db, 'shield_http_token') ?? '');
 assert.ok(raw.startsWith('enc1:'));
 assert.equal(getSecretSetting(db, 'shield_http_token'), plain);
+
+setSecretSetting(db, 'backup_encrypt_passphrase', 'BackupPass1!');
+assert.ok(String(getSetting(db, 'backup_encrypt_passphrase') ?? '').startsWith('enc1:'));
+assert.equal(getSecretSetting(db, 'backup_encrypt_passphrase'), 'BackupPass1!');
 
 const forced = applyMaxSecrecyPosture(db);
 assert.equal(forced.max_secrecy_airgap, '1');

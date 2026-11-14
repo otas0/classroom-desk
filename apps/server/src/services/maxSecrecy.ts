@@ -10,10 +10,13 @@ import { resealPlaintextSecrets } from './secretAtRest.js';
 
 const KEY_DEEP_LOCK = 'deep_lock_store';
 
-/** Product max-secrecy (school highest). NOT national 绝密. */
+/**
+ * Product max-secrecy (school highest). NOT national 绝密.
+ * Opt-in (default off) so DeskDNS-only / single-path Pilot can deploy; S-tier remains default on.
+ */
 export function maxSecrecyEnabled(db: DatabaseSync): boolean {
   const v = getSetting(db, 'max_secrecy_mode');
-  if (v == null || v === '') return true;
+  if (v == null || v === '') return false;
   return v === '1' || v === 'true';
 }
 
@@ -202,6 +205,8 @@ export function tickMaxSecrecyWatchdog(db: DatabaseSync): {
     kicked = kickAllPresentStudents(db);
     writeAudit(
       {
+        actorUserId: null,
+        actorRole: 'system',
         action: 'maxsec.heartbeat_fail_lockdown',
         detail: { reason, dual: evaluateNetPathsArmed(), kicked, deepened: true },
       },

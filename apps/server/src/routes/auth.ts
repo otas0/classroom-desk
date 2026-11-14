@@ -143,7 +143,12 @@ authRouter.post('/api/v1/auth/student-select', async (req, res) => {
   }
 
   const authUser = mapUser(user);
-  const token = await signToken(authUser);
+  const { maxSecrecyEnabled, maxSecrecyJwtTtlSec } = await import('../services/maxSecrecy.js');
+  const studentOpts =
+    maxSecrecyEnabled(db)
+      ? { expiresIn: `${Math.min(maxSecrecyJwtTtlSec(db), 7200)}s` }
+      : undefined;
+  const token = await signToken(authUser, studentOpts);
   res.json({
     token,
     user: authUser,

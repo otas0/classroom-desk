@@ -4,10 +4,11 @@
 
 ## Secrets & bootstrap
 
-1. Set a strong `JWT_SECRET` (≥32 random bytes); rotate by redeploying with a new value (invalidates all sessions).
+1. Set a strong `JWT_SECRET` (≥32 random bytes); rotate by redeploying with a new value (invalidates all sessions). Prefer also `AUDIT_HMAC_KEY` for keyed audit / compliance seals.
 2. Set `ADMIN_PASSWORD` / `TEACHER_PASSWORD` only on first boot; change via app/settings afterward; do not leave demo passwords.
 3. Prefer env injection (systemd `EnvironmentFile`, Docker secrets); never commit `.env`.
 4. Shield defaults to **off** (honest empty). Set `CLASSROOM_DESK_SHIELD=opnsense|unifi|http` for real gateway control. Local labs: `npm run lab:shield|lab:opnsense|lab:unifi` (deploy/lab-*-api). No mock adapter.
+5. **S-tier** (`security_tier_s`) defaults **on** (fail-closed OR-path). **最高保密档** (`max_secrecy_mode`) defaults **off** — enable only when **both** Shield and DeskDNS are armed (see [`COMPLIANCE_MLPS.md`](./COMPLIANCE_MLPS.md)). This is Pilot school hardening, **not** national 绝密 / GA.
 
 ## HTTPS & reverse proxy
 

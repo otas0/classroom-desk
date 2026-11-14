@@ -44,8 +44,8 @@ import {
 import { addExitLockSseClient, broadcastExitLockPayload } from '../services/exitLockHub.js';
 import { addInputLockSseClient, broadcastInputLock, buildInputLockPayload } from '../services/inputLockHub.js';
 import { previewPurgeExpiredSoftDeletes, purgeExpiredSoftDeletes, writeAudit } from '../services/audit.js';
-import { maxSecrecyEnabled } from '../services/maxSecrecy.js';
-import { getSecretSetting } from '../services/secretAtRest.js';
+import { maxSecrecyAirgap, maxSecrecyEnabled } from '../services/maxSecrecy.js';
+import { getSecretSetting, setSecretSetting } from '../services/secretAtRest.js';
 import { toCsv } from '../utils/csv.js';
 import {
   decryptFileAesGcm,
@@ -323,7 +323,7 @@ settingsRouter.get('/api/v1/settings', requireAuth, requireRoles('teacher', 'adm
     deskDnsEnabled: (getSetting(db, 'desk_dns_enabled') ?? '0') === '1',
     deskDnsPort: Number(getSetting(db, 'desk_dns_port') ?? 5353),
     restoreConfirmEmail: getSetting(db, 'restore_confirm_email') ?? '',
-    hasBackupEncryptPassphrase: Boolean((getSetting(db, 'backup_encrypt_passphrase') ?? '').trim()),
+    hasBackupEncryptPassphrase: Boolean(getSecretSetting(db, 'backup_encrypt_passphrase').trim()),
     projectionHighContrast: (getSetting(db, 'projection_high_contrast') ?? '0') === '1',
     classroomApiBase: getSetting(db, 'classroom_api_base') ?? '',
     advertiseLanIp: getSetting(db, 'advertise_lan_ip') ?? '',
@@ -849,6 +849,13 @@ settingsRouter.patch('/api/v1/settings', requireAuth, requireRoles('teacher', 'a
     );
   }
   if (req.body?.sisRosterSyncNow === true || req.body?.sisRosterSyncNow === 1) {
+    if (maxSecrecyAirgap(db)) {
+      res.status(403).json({
+        error: 'max_secrecy_airgap',
+        message: '最高保密档空域：禁止 SIS 外联同步；请关闭空域或最高保密档后再同步',
+      });
+      return;
+    }
     const dryRun =
       req.body?.sisRosterDryRun === true ||
       req.body?.sisRosterDryRun === 1 ||
@@ -894,11 +901,7 @@ settingsRouter.patch('/api/v1/settings', requireAuth, requireRoles('teacher', 'a
   }
 
   if (req.body?.backupEncryptPassphrase !== undefined) {
-    const pass = String(req.body.backupEncryptPassphrase ?? '');
-    db.prepare(
-      `INSERT INTO settings (key, value) VALUES ('backup_encrypt_passphrase', ?)
-       ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
-    ).run(pass);
+    setSecretSetting(db, 'backup_encrypt_passphrase', String(req.body.backupEncryptPassphrase ?? ''));
   }
 
   if (req.body?.projectionHighContrast != null) {
@@ -1371,7 +1374,7 @@ settingsRouter.post(
         decryptFileAesGcm(
           src,
           restoredPath,
-          passphrase || getSetting(openDb(), 'backup_encrypt_passphrase') || '',
+          passphrase || getSecretSetting(openDb(), 'backup_encrypt_passphrase') || '',
         );
       }
       const hash = createHash('sha256').update(fs.readFileSync(restoredPath)).digest('hex');
