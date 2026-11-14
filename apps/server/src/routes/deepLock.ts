@@ -84,7 +84,7 @@ deepLockRouter.post(
       clientIp: req.ip,
     };
     try {
-      const { store, state } = await applyDeepLockAction(
+      const { store, state, shieldPush } = await applyDeepLockAction(
         db,
         {
           action,
@@ -120,6 +120,11 @@ deepLockRouter.post(
         shield: {
           id: getShieldConnector().id,
           displayName: getShieldConnector().displayName,
+          push: shieldPush,
+          gatewayCut:
+            getShieldConnector().id !== 'off' && shieldPush.failed === 0
+              ? true
+              : false,
         },
       });
     } catch (e) {

@@ -78,6 +78,14 @@ const server = http.createServer(async (req, res) => {
     res.end(JSON.stringify({ result: 'ok', alias, address }));
     return;
   }
+  const list = /^\/api\/firewall\/alias_util\/list\/([^/?]+)/.exec(url);
+  if (list && req.method === 'GET') {
+    const alias = decodeURIComponent(list[1]);
+    const addresses = state.aliases[alias] || [];
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ alias, addresses, rows: addresses.map((address) => ({ address })) }));
+    return;
+  }
   if (url.startsWith('/api/firewall/alias/reconfigure') && req.method === 'POST') {
     save();
     res.writeHead(200, { 'Content-Type': 'application/json' });

@@ -327,12 +327,26 @@ export async function admitPortalClient(
   }
 
   // Unknown / unmatched zone: default hold (avoid silent SSID mix-up). Opt-in soft-allow:
-  // CLASSROOM_DESK_PORTAL_UNMAPPED=allow
+  // CLASSROOM_DESK_PORTAL_UNMAPPED=allow — forbidden under S-tier / production / CLASSROOM_DESK_STRICT=1
   const ever = getEverStudentZone(db, opts.session.studentId);
   if (!zone) {
-    const soft =
+    const { portalUnmappedSoftAllowForbidden } = await import('./securityTier.js');
+    const softRequested =
       process.env.CLASSROOM_DESK_PORTAL_UNMAPPED === 'allow' ||
       process.env.CLASSROOM_DESK_PORTAL_UNMAPPED === '1';
+    const soft = softRequested && !portalUnmappedSoftAllowForbidden(db);
+    if (softRequested && !soft) {
+      return {
+        decision: 'block',
+        reason: 'unmapped_zone',
+        zoneId: null,
+        zoneLabel: null,
+        everStudentZone: ever,
+        requirePortal: true,
+        message:
+          '已拦截：未映射 Zone。S 档/生产环境禁止 CLASSROOM_DESK_PORTAL_UNMAPPED 软放行；请补全网络档。',
+      };
+    }
     if (!soft) {
       return {
         decision: 'block',

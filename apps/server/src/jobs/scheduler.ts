@@ -9,7 +9,7 @@ import { openScheduledAttendanceSessions } from '../services/attendanceSchedule.
 import { syncEasyJoinToSchedules, syncEasyJoinTtl } from '../services/easyJoinSchedule.js';
 import { syncDeepLockToSchedules } from '../services/scheduleDeepLock.js';
 import { syncSisRosterOnce } from '../services/sisRosterSync.js';
-import { purgeExpiredSoftDeletes } from '../services/audit.js';
+import { purgeExpiredSoftDeletes, purgeExpiredAuditLog } from '../services/audit.js';
 import { flushAuditRetryQueue } from '../services/auditRetry.js';
 import { runDbBackup, shouldRunDailyBackup } from '../services/backup.js';
 import { takeFleetDriftSnapshot } from '../services/fleetDrift.js';
@@ -111,6 +111,16 @@ export function startCleanupScheduler(): void {
         console.log(
           `[recycle] purged soft-deletes students=${purged.students} questions=${purged.questions}`,
         );
+      }
+      try {
+        const auditPurged = purgeExpiredAuditLog(db);
+        if (auditPurged.deleted > 0) {
+          console.log(
+            `[audit] purged expired rows deleted=${auditPurged.deleted} retentionDays=${auditPurged.retentionDays}`,
+          );
+        }
+      } catch (e) {
+        console.error('[scheduler] audit retention purge failed', e);
       }
       try {
         const ttl = purgeExpiredInputLocks(db);

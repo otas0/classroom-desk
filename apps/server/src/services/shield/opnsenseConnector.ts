@@ -86,6 +86,78 @@ export class OpnsenseShieldConnector implements ShieldConnector {
     return this.api('/api/firewall/alias/reconfigure', {});
   }
 
+  private async aliasList(alias: string): Promise<{
+    ok: boolean;
+    members: string[];
+    detail: string;
+  }> {
+    this.lastApiCalls.push(`/api/firewall/alias_util/list/${alias}`);
+    if (this.lastApiCalls.length > 40) this.lastApiCalls.shift();
+    if (!this.baseUrl || !this.key) {
+      return { ok: false, members: [], detail: 'opnsense_unconfigured' };
+    }
+    try {
+      const res = await fetch(
+        `${this.baseUrl}/api/firewall/alias_util/list/${encodeURIComponent(alias)}`,
+        {
+          method: 'GET',
+          headers: { Authorization: this.authHeader(), Accept: 'application/json' },
+          signal: AbortSignal.timeout(8_000),
+        },
+      );
+      const text = await res.text();
+      if (!res.ok) {
+        return { ok: false, members: [], detail: `http_${res.status}:${text.slice(0, 120)}` };
+      }
+      let parsed: unknown = {};
+      try {
+        parsed = JSON.parse(text);
+      } catch {
+        return { ok: false, members: [], detail: 'alias_list_bad_json' };
+      }
+      const obj = parsed as {
+        addresses?: unknown;
+        rows?: Array<{ address?: string }>;
+        rows_addresses?: unknown;
+      };
+      const members: string[] = [];
+      if (Array.isArray(obj.addresses)) {
+        for (const a of obj.addresses) {
+          const s = String(a ?? '').trim();
+          if (s) members.push(s);
+        }
+      }
+      if (Array.isArray(obj.rows)) {
+        for (const row of obj.rows) {
+          const s = String(row?.address ?? '').trim();
+          if (s) members.push(s);
+        }
+      }
+      return {
+        ok: true,
+        members: [...new Set(members)],
+        detail: `http_${res.status};alias=${alias};n=${members.length}`,
+      };
+    } catch (e) {
+      return {
+        ok: false,
+        members: [],
+        detail: e instanceof Error ? e.message : 'fetch_failed',
+      };
+    }
+  }
+
+  async listFirewallMembers(kind: 'allow' | 'block') {
+    const alias = kind === 'allow' ? this.allowAlias : this.blockAlias;
+    const r = await this.aliasList(alias);
+    return {
+      ok: r.ok,
+      members: r.members,
+      detail: r.detail,
+      remoteReadable: r.ok,
+    };
+  }
+
   async authorizeClient(opts: ShieldAuthorizeOpts) {
     const ip = String(opts.clientKey ?? '').trim();
     if (!ip) return { ok: false, detail: 'missing_client_key' };

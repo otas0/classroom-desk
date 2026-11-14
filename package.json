@@ -47,6 +47,8 @@
     "archive:opennds-lab": "node scripts/archive-opennds-lab-evidence.mjs",
     "check:live-evidence": "node scripts/check-live-evidence-sanitized.mjs",
     "test:live-evidence": "node scripts/check-live-evidence-sanitized.test.mjs",
+    "export:compliance-evidence": "node scripts/export-compliance-evidence.mjs",
+    "test:net-reconcile": "npx tsx apps/server/src/test/netReconcile.test.ts",
     "diff:walled-garden": "node scripts/opnsense-walled-garden-diff.mjs",
     "verify:exam-box-api-ready": "node scripts/verify-exam-box-api-ready.mjs",
     "generate:sku-html": "node scripts/generate-sku-html.mjs",

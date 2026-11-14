@@ -5,8 +5,87 @@ import { newId, nowIso } from '../utils/id.js';
 import { recyclePurgeCutoffIso, RECYCLE_RETENTION_DAYS } from '../utils/recycleRetention.js';
 import { clearAuditWriteFailure, recordAuditWriteFailure } from './auditFail.js';
 import { enqueueAuditRetry } from './auditRetry.js';
+import {
+  auditGenesisHash,
+  computeAuditRowHash,
+  persistHashedAuditRow,
+} from './auditPersist.js';
 
-export { RECYCLE_RETENTION_DAYS };
+export { RECYCLE_RETENTION_DAYS, computeAuditRowHash };
+
+/** Verify append-only hash chain (S-tier tamper evidence). Legacy empty hashes are skipped. */
+export function verifyAuditHashChain(
+  db: DatabaseSync = openDb(),
+  limit = 5_000,
+): { ok: boolean; checked: number; brokenAt: string | null; tip: string } {
+  const GENESIS = auditGenesisHash();
+  const rows = db
+    .prepare(
+      `SELECT id, actor_user_id AS actorUserId, actor_role AS actorRole, action,
+              class_id AS classId, detail, client_ip AS clientIp, created_at AS createdAt,
+              prev_hash AS prevHash, row_hash AS rowHash
+       FROM teacher_audit_log
+       ORDER BY rowid ASC
+       LIMIT ?`,
+    )
+    .all(Math.min(Math.max(limit, 1), 50_000)) as Array<{
+    id: string;
+    actorUserId: string | null;
+    actorRole: string | null;
+    action: string;
+    classId: string | null;
+    detail: string;
+    clientIp: string | null;
+    createdAt: string;
+    prevHash: string | null;
+    rowHash: string | null;
+  }>;
+  let prev = GENESIS;
+  let checked = 0;
+  for (const r of rows) {
+    const rowHash = String(r.rowHash ?? '');
+    if (!rowHash) {
+      prev = GENESIS;
+      continue;
+    }
+    const claimedPrev = String(r.prevHash ?? '') || GENESIS;
+    const expect = computeAuditRowHash({
+      prevHash: claimedPrev,
+      id: r.id,
+      actorUserId: r.actorUserId,
+      actorRole: r.actorRole,
+      action: r.action,
+      classId: r.classId,
+      detail: String(r.detail ?? ''),
+      clientIp: r.clientIp,
+      createdAt: r.createdAt,
+    });
+    if (claimedPrev !== prev && prev !== GENESIS) {
+      return {
+        ok: false,
+        checked,
+        brokenAt: r.id,
+        tip: 'prev_hash discontinuity — possible insert/reorder',
+      };
+    }
+    if (expect !== rowHash) {
+      return {
+        ok: false,
+        checked,
+        brokenAt: r.id,
+        tip: 'row_hash mismatch — possible tamper',
+      };
+    }
+    prev = rowHash;
+    checked += 1;
+  }
+  return {
+    ok: true,
+    checked,
+    brokenAt: null,
+    tip: checked ? 'chain_ok' : 'no_hashed_rows_yet',
+  };
+}
 
 export type AuditAction =
   | 'students.bulk_soft_delete'
@@ -52,12 +131,16 @@ export function writeAudit(
     classId?: string | null;
     detail?: Record<string, unknown> | string;
     clientIp?: string | null;
+    /** Retry queue may preserve id/createdAt. */
+    id?: string;
+    createdAt?: string;
   },
   db: DatabaseSync = openDb(),
 ): void {
   const detail =
     typeof opts.detail === 'string' ? opts.detail : JSON.stringify(opts.detail ?? {});
-  const createdAt = nowIso();
+  const createdAt = opts.createdAt ?? nowIso();
+  const id = opts.id ?? newId();
   const row = {
     actorUserId: opts.actorUserId ?? null,
     actorRole: opts.actorRole ?? null,
@@ -68,24 +151,20 @@ export function writeAudit(
     createdAt,
   };
   try {
-    db.prepare(
-      `INSERT INTO teacher_audit_log
-         (id, actor_user_id, actor_role, action, class_id, detail, client_ip, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-    ).run(
-      newId(),
-      row.actorUserId,
-      row.actorRole,
-      row.action,
-      row.classId,
-      row.detail,
-      row.clientIp,
-      row.createdAt,
-    );
+    persistHashedAuditRow(db, {
+      id,
+      actorUserId: row.actorUserId,
+      actorRole: row.actorRole,
+      action: String(row.action),
+      classId: row.classId,
+      detail: row.detail,
+      clientIp: row.clientIp,
+      createdAt: row.createdAt,
+    });
     clearAuditWriteFailure();
   } catch (e) {
     recordAuditWriteFailure(e);
-    enqueueAuditRetry(row);
+    enqueueAuditRetry({ ...row, action: String(row.action) });
   }
 }
 
@@ -112,7 +191,8 @@ export function listAudit(opts?: {
   return db
     .prepare(
       `SELECT id, actor_user_id AS actorUserId, actor_role AS actorRole, action,
-              class_id AS classId, detail, client_ip AS clientIp, created_at AS createdAt
+              class_id AS classId, detail, client_ip AS clientIp, created_at AS createdAt,
+              prev_hash AS prevHash, row_hash AS rowHash
        FROM teacher_audit_log
        ${where}
        ORDER BY created_at DESC
@@ -127,6 +207,39 @@ export function listAuditActions(): string[] {
     .prepare(`SELECT DISTINCT action FROM teacher_audit_log ORDER BY action`)
     .all() as Array<{ action: string }>;
   return rows.map((r) => r.action);
+}
+
+/** Default audit retention for compliance packs (days). */
+export const AUDIT_RETENTION_DAYS_DEFAULT = 180;
+
+export function resolveAuditRetentionDays(db: DatabaseSync, override?: number): number {
+  let days = override;
+  if (days == null || !Number.isFinite(days)) {
+    days = Number(getSetting(db, 'audit_retention_days') ?? AUDIT_RETENTION_DAYS_DEFAULT);
+  }
+  return Math.max(30, Math.min(730, Math.trunc(Number(days) || AUDIT_RETENTION_DAYS_DEFAULT)));
+}
+
+/** Hard-delete audit rows older than retention (compliance rolling window). */
+export function purgeExpiredAuditLog(
+  db: DatabaseSync = openDb(),
+  retentionDays?: number,
+): { deleted: number; retentionDays: number; cutoff: string } {
+  const days = resolveAuditRetentionDays(db, retentionDays);
+  const cutoff = new Date(Date.now() - days * 86_400_000).toISOString();
+  const result = db
+    .prepare(`DELETE FROM teacher_audit_log WHERE created_at < ?`)
+    .run(cutoff);
+  return {
+    deleted: Number(result.changes ?? 0),
+    retentionDays: days,
+    cutoff,
+  };
+}
+
+export function countAuditLog(db: DatabaseSync = openDb()): number {
+  const row = db.prepare(`SELECT COUNT(*) AS n FROM teacher_audit_log`).get() as { n?: number };
+  return Number(row?.n ?? 0);
 }
 
 function resolveRetentionDays(db: DatabaseSync, retentionDays?: number): number {

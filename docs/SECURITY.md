@@ -2,6 +2,8 @@
 
 Classroom Desk is a **school-deployed** classroom tool on **school-owned lab PCs** (not student BYOD). Students and school IT are informed of its purpose. Visible locks and banners are intentional.
 
+**等保 / 密评材料（网络双线）：** 控制矩阵、审计留存、账号分权与证据包见 [COMPLIANCE_MLPS.md](./COMPLIANCE_MLPS.md)。产品提供材料级支撑，**不宣称**已通过某级等保认证。
+
 ## Allowed
 
 - Visible Electron process (`skipTaskbar: false`)

@@ -7,6 +7,7 @@ type DnsStatus = {
   running?: boolean;
   port?: number | null;
   conflict?: { pid?: number; cmd?: string; hint?: string } | null;
+  followDeepLock?: boolean;
 };
 
 /** DeskDNS profile presets + :53 conflict detect / rebind hints. */
@@ -39,6 +40,9 @@ export function DeskDnsControls() {
       <p className="hint">
         {t('当前')}：{st.profile}
         {st.running ? ` · udp/${st.port}` : ` · ${t('未运行')}`}
+        {st.followDeepLock !== false
+          ? ` · ${t('跟随深锁：开')}`
+          : ` · ${t('跟随深锁：关')}`}
       </p>
       <div className="row">
         <button type="button" className="secondary" onClick={() => void setProfile('exam')}>

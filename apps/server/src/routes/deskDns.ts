@@ -4,6 +4,8 @@ import { openDb } from '../db/client.js';
 import { getSetting } from '../db/migrate.js';
 import { requireAuth, requireRoles, type AuthedRequest } from '../middleware/auth.js';
 import { upsertSetting } from '../services/exitLock.js';
+import { writeAudit } from '../services/audit.js';
+import { deskDnsFollowDeepLock } from '../services/deskDnsDeepLockSync.js';
 
 export const deskDnsRouter = Router();
 
@@ -42,6 +44,7 @@ deskDnsRouter.get(
       running: enabled,
       port,
       conflict: probePort53(),
+      followDeepLock: deskDnsFollowDeepLock(db),
     });
   },
 );
@@ -56,7 +59,16 @@ deskDnsRouter.post(
       res.status(400).json({ error: 'invalid_profile' });
       return;
     }
-    upsertSetting(openDb(), PROFILE_KEY, profile);
+    const db = openDb();
+    const prev = getSetting(db, PROFILE_KEY) || 'normal';
+    upsertSetting(db, PROFILE_KEY, profile);
+    writeAudit({
+      actorUserId: req.user?.id,
+      actorRole: req.user?.role,
+      action: 'deskdns.profile',
+      detail: { from: prev, to: profile },
+      clientIp: req.ip,
+    });
     res.json({ ok: true, profile });
   },
 );
