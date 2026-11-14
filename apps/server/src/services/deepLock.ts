@@ -24,6 +24,19 @@ import {
   type GatewayAllowEntry,
 } from './gatewayAllowlist.js';
 import { clearPortalSessionsOnLessonEnd } from './portalSessionRevoke.js';
+import {
+  syncDeskDnsOnDeepLockRelease,
+  syncDeskDnsOnDeepLockTighten,
+} from './deskDnsDeepLockSync.js';
+import {
+  evaluateNetPathsArmed,
+  strictNetFailClosed,
+} from './securityTier.js';
+import {
+  evaluateDualPathRequired,
+  maxSecrecyEnabled,
+  maxSecrecyLockdownActive,
+} from './maxSecrecy.js';
 
 export const KEY_DEEP_LOCK = 'deep_lock_store';
 export const KEY_DEEP_LOCK_VIOLATIONS = 'deep_lock_violations';
@@ -98,13 +111,26 @@ function parseHosts(raw: unknown): string[] {
     .slice(0, 64);
 }
 
+export type ShieldPushSummary = {
+  attempted: number;
+  failed: number;
+  shieldId: string;
+  details: string[];
+};
+
 async function pushShieldForClass(
   db: DatabaseSync,
   classId: string | null,
   state: DeepLockState,
   kick = false,
-) {
+): Promise<ShieldPushSummary> {
   const connector = getShieldConnector();
+  const summary: ShieldPushSummary = {
+    attempted: 0,
+    failed: 0,
+    shieldId: connector.id,
+    details: [],
+  };
   const rows = (
     classId
       ? db
@@ -115,9 +141,27 @@ async function pushShieldForClass(
       : db.prepare(`SELECT student_id, client_id FROM presence_heartbeats`).all()
   ) as Array<{ student_id?: string; client_id?: string }>;
 
+  const noteFail = (op: string, clientKey: string, detail?: string) => {
+    const msg = `shield.${op} failed · ${clientKey} · ${detail ?? 'ok=false'}`;
+    recordShieldLastError(msg);
+    summary.failed += 1;
+    if (summary.details.length < 12) summary.details.push(msg);
+    writeAudit(
+      {
+        action: `shield.${op}_fail`,
+        actorUserId: null,
+        actorRole: 'system',
+        classId,
+        detail: msg,
+      },
+      db,
+    );
+  };
+
   for (const row of rows) {
     const clientKey = String(row.client_id ?? '').trim() || String(row.student_id ?? '').trim();
     if (!clientKey) continue;
+    summary.attempted += 1;
     const ref = {
       clientKey,
       classId: classId || undefined,
@@ -125,20 +169,12 @@ async function pushShieldForClass(
     };
     if (kick) {
       const kicked = await connector.kickClient(ref);
-      if (kicked && kicked.ok === false) {
-        recordShieldLastError(
-          `shield.kickClient failed · ${clientKey} · ${kicked.detail ?? 'ok=false'}`,
-        );
-      }
+      if (kicked && kicked.ok === false) noteFail('kickClient', clientKey, kicked.detail);
       continue;
     }
     if (state.netMode === 'allow' && !deepLockAggressive(state)) {
       const revoked = await connector.revokeClient(ref);
-      if (revoked && revoked.ok === false) {
-        recordShieldLastError(
-          `shield.revokeClient failed · ${clientKey} · ${revoked.detail ?? 'ok=false'}`,
-        );
-      }
+      if (revoked && revoked.ok === false) noteFail('revokeClient', clientKey, revoked.detail);
     } else {
       const authorized = await connector.authorizeClient({
         ...ref,
@@ -146,12 +182,32 @@ async function pushShieldForClass(
         allowlistHosts: state.allowlistHosts,
       });
       if (authorized && authorized.ok === false) {
-        recordShieldLastError(
-          `shield.authorizeClient failed · ${clientKey} · ${authorized.detail ?? 'ok=false'}`,
-        );
+        noteFail('authorizeClient', clientKey, authorized.detail);
       }
     }
   }
+
+  // Honest empty push when shield off during deny/freeze (no clients still worth recording).
+  if (
+    connector.id === 'off' &&
+    (state.frozen || state.netMode === 'deny' || state.netMode === 'allowlist')
+  ) {
+    const msg = 'shield_not_configured · gateway path will not cut net';
+    recordShieldLastError(msg);
+    if (!summary.details.includes(msg)) summary.details.push(msg);
+    writeAudit(
+      {
+        action: 'shield.not_configured_during_deeplock',
+        actorUserId: null,
+        actorRole: 'system',
+        classId,
+        detail: { frozen: state.frozen, netMode: state.netMode, attempted: summary.attempted },
+      },
+      db,
+    );
+  }
+
+  return summary;
 }
 
 /** After per-class gateway revoke — drop those IPs/MACs from Shield allow aliases. */
@@ -221,13 +277,81 @@ export async function applyDeepLockAction(
     patch?: Partial<DeepLockState>;
   },
   actor?: DeepLockActor,
-): Promise<{ store: DeepLockStore; state: DeepLockState }> {
+): Promise<{ store: DeepLockStore; state: DeepLockState; shieldPush: ShieldPushSummary }> {
   const classId = String(opts.classId ?? '').trim() || null;
   const current = getDeepLockForClass(db, classId);
   let next: DeepLockState = { ...current };
   let alsoExamInput = false;
   let restoreExamInput = false;
   let kick = false;
+
+  // Max-secrecy: BOTH Shield and DeskDNS must be armed for tighten.
+  if (
+    (opts.action === 'freeze' ||
+      opts.action === 'exam_net' ||
+      opts.action === 'kick_class') &&
+    maxSecrecyEnabled(db)
+  ) {
+    const dual = evaluateDualPathRequired(db);
+    if (!dual.ok) {
+      writeAudit(
+        {
+          action: 'deep_lock.maxsec_dual_refuse',
+          actorUserId: actor?.actorUserId,
+          actorRole: actor?.actorRole,
+          classId,
+          detail: { action: opts.action, ...dual },
+          clientIp: actor?.clientIp,
+        },
+        db,
+      );
+      throw new Error(
+        `max_secrecy_dual_path: 最高保密档要求 Shield≠off 且 DeskDNS 同时运行后再深锁收紧。(${dual.detail})`,
+      );
+    }
+  } else if (
+    (opts.action === 'freeze' ||
+      opts.action === 'exam_net' ||
+      opts.action === 'kick_class') &&
+    strictNetFailClosed(db)
+  ) {
+    // S-tier (max secrecy off): at least one path armed.
+    const paths = evaluateNetPathsArmed();
+    if (!paths.anyArmed) {
+      writeAudit(
+        {
+          action: 'deep_lock.strict_refuse',
+          actorUserId: actor?.actorUserId,
+          actorRole: actor?.actorRole,
+          classId,
+          detail: { action: opts.action, ...paths },
+          clientIp: actor?.clientIp,
+        },
+        db,
+      );
+      throw new Error(
+        `strict_net_fail_closed: 双线皆未武装（Shield=off 且 DeskDNS 未运行）。配置 OPNsense/UniFi/HTTP 或启用 DeskDNS 后再深锁收紧。(${paths.detail})`,
+      );
+    }
+  }
+
+  // Heartbeat-fail lockdown: refuse allow_net until paths recover (end still needs reauth at route).
+  if (opts.action === 'allow_net' && maxSecrecyLockdownActive(db)) {
+    writeAudit(
+      {
+        action: 'deep_lock.maxsec_lockdown_refuse',
+        actorUserId: actor?.actorUserId,
+        actorRole: actor?.actorRole,
+        classId,
+        detail: { action: opts.action },
+        clientIp: actor?.clientIp,
+      },
+      db,
+    );
+    throw new Error(
+      'max_secrecy_lockdown: 考试态心跳失败已自动收紧，禁止放行上网直至 Shield 心跳恢复且 DeskDNS 运行（或管理员关闭最高保密档）',
+    );
+  }
 
   switch (opts.action) {
     case 'freeze':
@@ -319,7 +443,28 @@ export async function applyDeepLockAction(
     revokedGateway = revokeGatewayAccessForClass(db, classId);
   }
 
-  await pushShieldForClass(db, classId, state, kick);
+  // DeskDNS path: force exam on tighten; restore on end / allow_net.
+  if (
+    opts.action === 'freeze' ||
+    opts.action === 'exam_net' ||
+    opts.action === 'kick_class'
+  ) {
+    syncDeskDnsOnDeepLockTighten(db, {
+      actorUserId: actor?.actorUserId,
+      actorRole: actor?.actorRole,
+      clientIp: actor?.clientIp,
+      classId,
+    });
+  } else if (opts.action === 'end' || opts.action === 'allow_net') {
+    syncDeskDnsOnDeepLockRelease(db, {
+      actorUserId: actor?.actorUserId,
+      actorRole: actor?.actorRole,
+      clientIp: actor?.clientIp,
+      classId,
+    });
+  }
+
+  const shieldPush = await pushShieldForClass(db, classId, state, kick);
   if (opts.action === 'end' && revokedGateway.length) {
     await syncShieldRemoveAllowEntries(db, classId, revokedGateway);
   }
@@ -330,13 +475,19 @@ export async function applyDeepLockAction(
       actorUserId: actor?.actorUserId,
       actorRole: actor?.actorRole,
       classId,
-      detail: `deep_lock ${opts.action} · net=${state.netMode} · frozen=${state.frozen ? 1 : 0}`,
+      detail: {
+        netMode: state.netMode,
+        frozen: state.frozen,
+        shieldId: shieldPush.shieldId,
+        shieldAttempted: shieldPush.attempted,
+        shieldFailed: shieldPush.failed,
+      },
       clientIp: actor?.clientIp,
     },
     db,
   );
 
-  return { store, state };
+  return { store, state, shieldPush };
 }
 
 export function listFocusViolations(db: DatabaseSync): FocusViolation[] {

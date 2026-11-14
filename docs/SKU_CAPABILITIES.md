@@ -1,6 +1,6 @@
 # 销售一页纸：能力旗标 ↔ SKU
 
-**对外口径：Pilot 可售，不是 1.0 GA。** 合同边界见 [`PILOT_SKU.md`](./PILOT_SKU.md)。  
+**对外口径：Pilot 可售，不是 1.0 GA。** 禁止写「绝密 / 安全局最高机密 / 全线发售」。合同边界见 [`PILOT_SKU.md`](./PILOT_SKU.md) · 上线四条见 [`PILOT_GO_LIVE.md`](./PILOT_GO_LIVE.md)。  
 `examBoxHardware=false`：考场**量产硬件**未发售；仅 compose/镜像试点可报价。
 
 可打印 HTML（浏览器「另存为 PDF」）：[`SKU_CAPABILITIES.html`](./SKU_CAPABILITIES.html)  
@@ -28,7 +28,7 @@
 ## 打包建议（Pilot 报价须带学校侧前置）
 
 1. **机房包**：labAgent + deepLock（Windows 机房；考试锁建议 AA + Intune）  
-2. **校园网包**：netPortal + networkZones + gatewayAllowlist + Shield（需网关 API）  
+2. **校园网包**：`npm run start:campus` — 门户+Zones；Shield 网关三项可选（[`CAMPUS_MINIMAL.md`](./CAMPUS_MINIMAL.md)）  
 3. **单网校包**：DeskDNS（DHCP 指教师机；可选门户）  
 4. **考场 compose 包**：`examBox` 文档 + GHCR/compose（**不含**量产硬件）  
 5. **企业包**：802.1X 白皮书 + 强制签名 SSID  

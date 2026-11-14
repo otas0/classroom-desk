@@ -47,6 +47,16 @@
 cp .env.example .env
 ```
 
+### 最小部署（推荐）
+
+```bash
+npm install
+npm run start:minimal   # 机房
+npm run start:campus    # 校园网（门户+Zones；网关三项可选）
+```
+
+见 [`docs/MINIMAL_DEPLOY.md`](./docs/MINIMAL_DEPLOY.md) · [`docs/CAMPUS_MINIMAL.md`](./docs/CAMPUS_MINIMAL.md)。禁止对外写 GA/绝密/安全局最高机密。
+
 ### 生产部署与 JWT_SECRET（必读）
 
 | 变量 | 生产要求 | 说明 |

@@ -1,82 +1,41 @@
 # 教室互联部署（无代码签名 · 教师机当服务器）
 
-**拓扑（仅单教室）：** 一台教师机跑中心服务；本教室多台学生机只装客户端，全部连该教师机局域网 IP。不跨教室部署。  
-**不需要：** `CSC_LINK` / 签名证书。未签名安装包按 [SMARTSCREEN.md](./SMARTSCREEN.md) 处理即可。  
-**讲台一页纸：** [PRINT_DESK_CARD.md](./PRINT_DESK_CARD.md)  
-**U 盘联调勾选：** [LOCAL_USB_CHECKLIST.md](./LOCAL_USB_CHECKLIST.md)  
-**本教室 IP / classId：** [CLASSROOM_IDENTITY.example.md](./CLASSROOM_IDENTITY.example.md)（学生机禁止 `127.0.0.1`）
+**默认请走最小路径：** [`MINIMAL_DEPLOY.md`](./MINIMAL_DEPLOY.md)（`npm run start:minimal`）。  
+**拓扑：** 一台教师机 `:8787`；学生机 `apiBase=http://教师机IP:8787`。不配网关 / TLS / DeskDNS 也可开课。  
+**不需要：** 签名证书、OPNsense、公网。未签名安装包见 [SMARTSCREEN.md](./SMARTSCREEN.md)。
 
 ```text
-        ┌────────────────────────────┐
-        │ 教师机（服务器）              │
-        │  Node: 0.0.0.0:8787         │
-        │  浏览器: /admin 教师后台      │
-        └─────────────▲──────────────┘
-                      │ TCP 8787
-     ┌────────────────┼────────────────┐
-     │                │                │
- 学生机A            学生机B          学生机C
- apiBase=http://教师机IP:8787
+教师机 npm run start:minimal → 0.0.0.0:8787
+学生机 apiBase=http://教师机IP:8787
 ```
 
-## 一、教师机（只做一次）
+## 一、教师机（最小 · 推荐）
 
-### 1. 准备软件
-
-1. 安装 [Node.js 22+](https://nodejs.org/)（勾选加入 PATH）。
-2. 把本仓库拷到教师机，例如 `C:\classroom-desk`（U 盘 / 网盘均可）。
-3. 管理员 PowerShell：
+1. 安装 [Node.js 22+](https://nodejs.org/)。
+2. 仓库拷到教师机，例如 `C:\classroom-desk`。
+3. PowerShell：
 
 ```powershell
 cd C:\classroom-desk
 npm install
-npm run fonts:cjk
-npm run build:teacher
+npm run start:minimal
 ```
 
-**硬步骤：** 第一次家长 PDF 或离线部署（U 盘 / 无外网）之前必须跑 `npm run fonts:cjk`，使 `NotoSansSC` 落到 `apps/server/assets/fonts/`。字体不进 git；未执行时中文 PDF 回退 ASCII。
+无需手写 `.env`（自动生成密钥）。教师：`http://127.0.0.1:8787/admin/`；学生填终端打印的 `apiBase`。
 
-### 2. 放行防火墙 + 查看本机 IP
-
-在**管理员** PowerShell 执行仓库脚本：
+Windows 学生连不上时，管理员再跑：
 
 ```powershell
-cd C:\classroom-desk
 powershell -ExecutionPolicy Bypass -File .\scripts\windows-teacher-host.ps1
 ```
 
-脚本会：放行入站 TCP **8787**，并打印本机局域网 IP（记下，例如 `192.168.1.50`）。
+（放行 TCP 8787 + 打印局域网 IP。建议路由器给教师机固定 IP。）
 
-建议在路由器给教师机做 **DHCP 地址预留 / 固定 IP**，避免第二天 IP 变了学生全连不上。
+## 一b、手工配置（可选进阶）
 
-### 3. 启动中心服务
+若不用 `start:minimal`，可自建 `.env`（参考 `.env.example`）后 `npm run start:server`。校园网 Shield / HTTPS / DeskDNS 见 [`MINIMAL_DEPLOY.md`](./MINIMAL_DEPLOY.md)「可选加料」。
 
-新建 `C:\classroom-desk\.env`（可参考 `.env.example`）：
-
-```env
-JWT_SECRET=请改成一长串随机字符
-TEACHER_PASSWORD=TeacherPass123
-ADMIN_PASSWORD=AdminPass123
-DEFAULT_CLASS_CODE=DEMO01
-HOST=0.0.0.0
-PORT=8787
-```
-
-`HOST=0.0.0.0` 必须保留，否则学生机连不进来（只监听本机）。
-
-```powershell
-cd C:\classroom-desk
-npm run start:server
-```
-
-保持此窗口开着（或做成开机任务）。本机浏览器打开：
-
-- 健康检查：`http://127.0.0.1:8787/health` → `"ok":true`
-- 教师后台：`http://127.0.0.1:8787/admin/`（也可用 `http://本机局域网IP:8787/admin/`）
-
-用教师账号登录，建班 / 发作业。
-
-### 4. 自测「别人能不能连我」
+### 自测「别人能不能连我」
 
 在**另一台**已连同一 Wi‑Fi/网线的电脑浏览器打开：
 

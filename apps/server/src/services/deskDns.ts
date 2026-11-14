@@ -95,6 +95,7 @@ async function resolvePolicy(name: string): Promise<string[] | null> {
   const db = openDb();
   const store = getDeepLockStore(db);
   const state = resolveDeepLockState(store, null);
+  const profile = (getSetting(db, 'deskdns_profile') || 'normal').toLowerCase();
   const portalHost = String(process.env.CLASSROOM_DESK_PORTAL_HOST ?? '')
     .trim()
     .toLowerCase();
@@ -107,7 +108,10 @@ async function resolvePolicy(name: string): Promise<string[] | null> {
     }
   }
 
-  if (!deepLockAggressive(state) && state.netMode === 'allow') {
+  // Forced exam profile (deep-lock follow or teacher preset): NXDOMAIN except portal.
+  if (profile === 'exam') return null;
+
+  if (!deepLockAggressive(state) && state.netMode === 'allow' && profile !== 'exam') {
     try {
       return await dns.resolve4(name);
     } catch {

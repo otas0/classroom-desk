@@ -30,6 +30,10 @@ export function isAssistant(): boolean {
   return getStaffRole() === 'assistant';
 }
 
+export function isAdmin(): boolean {
+  return getStaffRole() === 'admin';
+}
+
 /** Prep tabs visible to assistants (read-oriented). */
 export function assistantPrepTabs(): Array<
   'attendance' | 'exports' | 'questions' | 'roster' | 'messages'

@@ -27,4 +27,11 @@ export interface ShieldConnector {
   releaseClient?(opts: ShieldClientRef): Promise<{ ok: boolean; detail?: string }>;
   /** Optional health probe for IT wizard. */
   health?(): Promise<{ ok: boolean; detail?: string }>;
+  /**
+   * Read gateway alias / block membership for reconcile vs local allowlist.
+   * `kind=allow` → allow alias (OPNsense) or unblocked set; `block` → deny/kick set.
+   */
+  listFirewallMembers?(
+    kind: 'allow' | 'block',
+  ): Promise<{ ok: boolean; members: string[]; detail?: string; remoteReadable?: boolean }>;
 }

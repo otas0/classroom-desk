@@ -1,5 +1,6 @@
 import { openDb } from '../../db/client.js';
 import { getSetting } from '../../db/migrate.js';
+import { getSecretSetting } from '../secretAtRest.js';
 import { HttpShieldConnector } from './httpConnector.js';
 import { OffShieldConnector } from './offConnector.js';
 import { OpnsenseShieldConnector } from './opnsenseConnector.js';
@@ -19,7 +20,7 @@ function readSettingsShield(): { kind: string; url: string; token: string } {
         .trim()
         .toLowerCase(),
       url: String(getSetting(db, 'shield_http_url') ?? '').trim(),
-      token: String(getSetting(db, 'shield_http_token') ?? '').trim(),
+      token: getSecretSetting(db, 'shield_http_token').trim(),
     };
   } catch {
     return { kind: '', url: '', token: '' };

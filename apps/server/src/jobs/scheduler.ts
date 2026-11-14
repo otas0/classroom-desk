@@ -9,12 +9,13 @@ import { openScheduledAttendanceSessions } from '../services/attendanceSchedule.
 import { syncEasyJoinToSchedules, syncEasyJoinTtl } from '../services/easyJoinSchedule.js';
 import { syncDeepLockToSchedules } from '../services/scheduleDeepLock.js';
 import { syncSisRosterOnce } from '../services/sisRosterSync.js';
-import { purgeExpiredSoftDeletes } from '../services/audit.js';
+import { purgeExpiredSoftDeletes, purgeExpiredAuditLog } from '../services/audit.js';
 import { flushAuditRetryQueue } from '../services/auditRetry.js';
 import { runDbBackup, shouldRunDailyBackup } from '../services/backup.js';
 import { takeFleetDriftSnapshot } from '../services/fleetDrift.js';
 import { purgeExpiredInputLocks } from '../services/inputLock.js';
 import { broadcastInputLock } from '../services/inputLockHub.js';
+import { maxSecrecyAirgap, tickMaxSecrecyWatchdog } from '../services/maxSecrecy.js';
 import { nowIso } from '../utils/id.js';
 
 let timer: NodeJS.Timeout | null = null;
@@ -87,17 +88,21 @@ export function startCleanupScheduler(): void {
         console.warn('[deep-lock] schedule sync failed', e instanceof Error ? e.message : e);
       }
       try {
-        const last = getSetting(db, 'sis_roster_last_sync_at');
-        const intervalMin = Number(getSetting(db, 'sis_roster_interval_minutes') ?? 0);
-        const due =
-          intervalMin > 0 &&
-          (!last || Date.now() - Date.parse(last) >= intervalMin * 60_000);
-        if (due) {
-          void syncSisRosterOnce(db).then((r) => {
-            if (r.ok && (r.upserted ?? 0) > 0) {
-              console.log(`[sis] synced upserted=${r.upserted}`);
-            }
-          });
+        if (maxSecrecyAirgap(db)) {
+          /* air-gap: skip outbound SIS */
+        } else {
+          const last = getSetting(db, 'sis_roster_last_sync_at');
+          const intervalMin = Number(getSetting(db, 'sis_roster_interval_minutes') ?? 0);
+          const due =
+            intervalMin > 0 &&
+            (!last || Date.now() - Date.parse(last) >= intervalMin * 60_000);
+          if (due) {
+            void syncSisRosterOnce(db).then((r) => {
+              if (r.ok && (r.upserted ?? 0) > 0) {
+                console.log(`[sis] synced upserted=${r.upserted}`);
+              }
+            });
+          }
         }
       } catch (e) {
         console.warn('[sis] sync failed', e instanceof Error ? e.message : e);
@@ -113,6 +118,16 @@ export function startCleanupScheduler(): void {
         );
       }
       try {
+        const auditPurged = purgeExpiredAuditLog(db);
+        if (auditPurged.deleted > 0) {
+          console.log(
+            `[audit] purged expired rows deleted=${auditPurged.deleted} retentionDays=${auditPurged.retentionDays}`,
+          );
+        }
+      } catch (e) {
+        console.error('[scheduler] audit retention purge failed', e);
+      }
+      try {
         const ttl = purgeExpiredInputLocks(db);
         if (ttl.purged) {
           broadcastInputLock(db);
@@ -120,6 +135,14 @@ export function startCleanupScheduler(): void {
         }
       } catch (e) {
         console.error('[scheduler] input-lock TTL purge failed', e);
+      }
+      try {
+        const wd = tickMaxSecrecyWatchdog(db);
+        if (wd.lockdown) {
+          console.warn(`[maxsec] heartbeat lockdown: ${wd.reason}`);
+        }
+      } catch (e) {
+        console.error('[scheduler] max-secrecy watchdog failed', e);
       }
       const auditFlush = flushAuditRetryQueue();
       if (auditFlush.flushed > 0 || auditFlush.remaining > 0 || auditFlush.failed > 0) {

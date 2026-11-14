@@ -88,5 +88,37 @@ manifest.openndsLab = { attempted: true, ok: false, detail: '' };
   manifest.openndsLab.detail = r.status === 0 ? 'lab_screenshots_ok' : `exit_${r.status}`;
 }
 
+// Dual-path reconcile snapshot (local DB; no school creds required).
+manifest.compliance = { attempted: true, ok: false, detail: '' };
+{
+  const r = run('npx', ['tsx', path.join(root, 'scripts/compliance-evidence-snapshot.mjs')]);
+  fs.writeFileSync(path.join(outDir, 'compliance-snapshot-stdout.txt'), r.stdout || '');
+  fs.writeFileSync(path.join(outDir, 'compliance-snapshot-stderr.txt'), r.stderr || '');
+  if (r.status === 0 && r.stdout.trim()) {
+    try {
+      const parsed = JSON.parse(r.stdout.trim());
+      fs.writeFileSync(
+        path.join(outDir, 'net-reconcile.json'),
+        JSON.stringify(parsed.reconcile ?? parsed, null, 2),
+      );
+      manifest.compliance.ok = true;
+      manifest.compliance.detail = 'net_reconcile_written';
+    } catch (e) {
+      manifest.compliance.detail = e instanceof Error ? e.message : 'parse_failed';
+    }
+  } else {
+    manifest.compliance.detail = `exit_${r.status}`;
+  }
+}
+
+manifest.gaHardGate = {
+  note: 'GA requires at least one school live OPNsense or UniFi run (LIVE=1 + creds) with check:live-evidence pass. Lab SKIPPED / openNDS lab alone does not flip gaReady.',
+  schoolLiveOk: Boolean(
+    (manifest.opnsense.attempted && manifest.opnsense.ok) ||
+      (manifest.unifi.attempted && manifest.unifi.ok),
+  ),
+};
+
+fs.writeFileSync(path.join(outDir, 'GA_HARD_GATE.md'), `${manifest.gaHardGate.note}\n`);
 fs.writeFileSync(path.join(outDir, 'manifest.json'), JSON.stringify(manifest, null, 2));
 console.log(JSON.stringify({ outDir, ...manifest }, null, 2));

@@ -435,6 +435,48 @@ section label.choice input {
   margin: 0.85rem 0 0.35rem;
 }
 
+.portal-block-banner {
+  margin: 4px 0 12px;
+  padding: 12px 14px;
+  border: 2px solid #8b2e2e;
+  border-radius: var(--radius);
+  background: color-mix(in srgb, #8b2e2e 12%, var(--panel));
+}
+
+.portal-block-banner-title {
+  margin: 0 0 4px;
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: #8b2e2e;
+}
+
+.portal-block-banner-body {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.session-end-drawer {
+  margin: 1.25rem 0 0.5rem;
+  padding: 10px 14px;
+  border: 1px dashed var(--line);
+  border-radius: var(--radius);
+}
+
+.session-end-drawer summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.projection-net-truth {
+  margin: 0 0 0.5rem;
+  font-size: 1.25rem;
+  font-weight: 700;
+}
+
+.projection-net-truth.warn {
+  color: #8b2e2e;
+}
+
 .network-zones-panel {
   margin: 4px 0 18px;
   padding: 14px 16px;

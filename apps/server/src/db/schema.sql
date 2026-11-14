@@ -248,7 +248,9 @@ CREATE TABLE IF NOT EXISTS teacher_audit_log (
   class_id TEXT,
   detail TEXT NOT NULL DEFAULT '',
   client_ip TEXT,
-  created_at TEXT NOT NULL
+  created_at TEXT NOT NULL,
+  prev_hash TEXT NOT NULL DEFAULT '',
+  row_hash TEXT NOT NULL DEFAULT ''
 );
 
 CREATE INDEX IF NOT EXISTS idx_teacher_audit_created ON teacher_audit_log(created_at DESC);

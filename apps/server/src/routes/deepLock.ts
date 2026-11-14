@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { openDb } from '../db/client.js';
 import { requireAuth, requireRoles, type AuthedRequest } from '../middleware/auth.js';
 import { MANAGER_ROLES, STAFF_ROLES } from '../middleware/roles.js';
+import { findUserById, mapUser, verifyToken } from '../services/auth.js';
 import {
   applyDeepLockAction,
   clearFocusViolations,
@@ -16,6 +17,13 @@ import { broadcastExitLockPayload } from '../services/exitLockHub.js';
 import { getClientExitLockState } from '../services/exitLock.js';
 import { broadcastInputLock } from '../services/inputLockHub.js';
 import { getShieldConnector } from '../services/shield/registry.js';
+import { maxSecrecyEnabled } from '../services/maxSecrecy.js';
+import {
+  reauthRequiredResponse,
+  twoPersonRequiredResponse,
+  verifyActorReauth,
+  verifyTwoPersonRule,
+} from '../services/reauth.js';
 
 export const deepLockRouter = Router();
 
@@ -38,11 +46,33 @@ deepLockRouter.get('/api/v1/deep-lock', requireAuth, requireRoles(...STAFF_ROLES
   });
 });
 
-deepLockRouter.get('/api/v1/deep-lock/stream', (_req, res) => {
+deepLockRouter.get('/api/v1/deep-lock/stream', async (req, res) => {
+  const db = openDb();
+  // Max-secrecy: require JWT via ?token= (EventSource cannot set Authorization).
+  if (maxSecrecyEnabled(db)) {
+    const token = String(req.query.token ?? '').trim();
+    if (!token) {
+      res.status(401).json({
+        error: 'token_required',
+        message: '最高保密档：深锁 SSE 须带 ?token=',
+      });
+      return;
+    }
+    const payload = await verifyToken(token);
+    if (!payload) {
+      res.status(401).json({ error: 'unauthorized' });
+      return;
+    }
+    const dbUser = findUserById(db, payload.id);
+    if (!dbUser) {
+      res.status(401).json({ error: 'unauthorized' });
+      return;
+    }
+    void mapUser(dbUser);
+  }
   addDeepLockSseClient(res);
-  // Push current snapshot immediately for late subscribers.
   try {
-    broadcastDeepLock(openDb());
+    broadcastDeepLock(db);
   } catch {
     /* ignore */
   }
@@ -50,6 +80,14 @@ deepLockRouter.get('/api/v1/deep-lock/stream', (_req, res) => {
 
 deepLockRouter.get('/api/v1/deep-lock/public', (_req, res) => {
   const db = openDb();
+  // Max-secrecy: no unauthenticated deep-lock leak (use authed GET /deep-lock).
+  if (maxSecrecyEnabled(db)) {
+    res.status(403).json({
+      error: 'max_secrecy_public_blocked',
+      message: '最高保密档禁止未鉴权读取深锁公开态；请用带 JWT 的 /api/v1/deep-lock',
+    });
+    return;
+  }
   const store = getDeepLockStore(db);
   res.json({
     type: 'deep_lock',
@@ -78,13 +116,38 @@ deepLockRouter.post(
       ? req.body.allowlistHosts
       : undefined;
     const db = openDb();
+    if (maxSecrecyEnabled(db) && action !== 'patch') {
+      // allow_net / end: two-person; other tighten actions: single reauth
+      if (action === 'allow_net' || action === 'end') {
+        const two = await verifyTwoPersonRule(db, {
+          userId: req.user?.id,
+          role: req.user?.role,
+          confirmPassword: req.body?.confirmPassword ?? req.body?.password,
+          secondPassword: req.body?.secondPassword,
+        });
+        if (!two.ok) {
+          res.status(403).json(twoPersonRequiredResponse(two.detail));
+          return;
+        }
+      } else {
+        const ok = await verifyActorReauth(db, {
+          userId: req.user?.id,
+          role: req.user?.role,
+          password: req.body?.confirmPassword ?? req.body?.password,
+        });
+        if (!ok) {
+          res.status(403).json(reauthRequiredResponse());
+          return;
+        }
+      }
+    }
     const actor = {
       actorUserId: req.user?.id,
       actorRole: req.user?.role,
       clientIp: req.ip,
     };
     try {
-      const { store, state } = await applyDeepLockAction(
+      const { store, state, shieldPush } = await applyDeepLockAction(
         db,
         {
           action,
@@ -120,6 +183,11 @@ deepLockRouter.post(
         shield: {
           id: getShieldConnector().id,
           displayName: getShieldConnector().displayName,
+          push: shieldPush,
+          gatewayCut:
+            getShieldConnector().id !== 'off' && shieldPush.failed === 0
+              ? true
+              : false,
         },
       });
     } catch (e) {

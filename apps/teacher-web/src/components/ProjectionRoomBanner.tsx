@@ -13,6 +13,33 @@ export function ProjectionRoomBanner({ classId }: { classId: string }) {
   const [openedAt, setOpenedAt] = useState('');
   const [ttlMinutes, setTtlMinutes] = useState(0);
   const [remainSec, setRemainSec] = useState<number | null>(null);
+  const [shieldActive, setShieldActive] = useState('off');
+  const [pendingCount, setPendingCount] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadNetTruth() {
+      try {
+        const [live, pend] = await Promise.all([
+          api<{ shield?: { active?: string } }>('/api/v1/gateway/allowlist-live').catch(() => null),
+          api<{ items?: unknown[] }>('/api/v1/classroom/join/pending-devices').catch(() => ({
+            items: [],
+          })),
+        ]);
+        if (cancelled) return;
+        setShieldActive(String(live?.shield?.active ?? 'off'));
+        setPendingCount(Array.isArray(pend.items) ? pend.items.length : 0);
+      } catch {
+        /* ignore */
+      }
+    }
+    void loadNetTruth();
+    const id = window.setInterval(() => void loadNetTruth(), 8_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [classId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -91,13 +118,26 @@ export function ProjectionRoomBanner({ classId }: { classId: string }) {
     return roomCode ? `${base}/ready` : '';
   }, [roomCode]);
 
-  if (!roomCode && !displayName && !roomId) return null;
+  const shieldOff = !shieldActive || shieldActive === 'off';
+  // Always render when Shield is off or pending join exists (projection net truth).
+  if (!roomCode && !displayName && !roomId && !shieldOff && pendingCount === 0) return null;
 
   const mm = remainSec != null ? Math.floor(remainSec / 60) : 0;
   const ss = remainSec != null ? remainSec % 60 : 0;
 
   return (
     <section className="projection-room-banner" data-testid="projection-room-banner">
+      <p
+        className={shieldOff || pendingCount > 0 ? 'projection-net-truth warn' : 'projection-net-truth'}
+        data-testid="projection-net-truth"
+        role="status"
+      >
+        {shieldOff
+          ? t('网关未断 · Shield 未配置')
+          : t('Shield：{v0}', { v0: shieldActive })}
+        {' · '}
+        {t('待批准 {v0}', { v0: String(pendingCount) })}
+      </p>
       {displayName ? <p className="projection-room-name">{displayName}</p> : null}
       {roomId ? (
         <p className="hint">

@@ -2,7 +2,7 @@ import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:
 import fs from 'node:fs';
 import path from 'node:path';
 import { getDataDir, getDbPath, openDb } from '../db/client.js';
-import { getSetting } from '../db/migrate.js';
+import { getSecretSetting } from './secretAtRest.js';
 
 function backupDirPath(): string {
   return process.env.CLASSROOM_DESK_BACKUP_DIR
@@ -76,7 +76,7 @@ export function runDbBackup(): {
       const side = `${src}${suffix}`;
       if (fs.existsSync(side)) fs.copyFileSync(side, `${dest}${suffix}`);
     }
-    const passphrase = (getSetting(openDb(), 'backup_encrypt_passphrase') ?? '').trim();
+    const passphrase = getSecretSetting(openDb(), 'backup_encrypt_passphrase').trim();
     let encryptedPath: string | undefined;
     if (passphrase) {
       encryptedPath = encryptFileAesGcm(dest, `${dest}.enc`, passphrase);

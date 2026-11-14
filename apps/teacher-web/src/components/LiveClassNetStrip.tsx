@@ -21,23 +21,35 @@ type Live = {
   };
 };
 
+type ReconcileFinding = { code: string; severity: string; message: string };
+
 /** Sticky live-class strip: allowlist · Shield · heartbeat · pending approve. */
 export function LiveClassNetStrip({ classId }: { classId: string }) {
   const [live, setLive] = useState<Live | null>(null);
   const [pending, setPending] = useState<Pending[]>([]);
+  const [findings, setFindings] = useState<ReconcileFinding[]>([]);
+  const [failClosedOk, setFailClosedOk] = useState(true);
   const [msg, setMsg] = useState('');
   const [busy, setBusy] = useState(false);
   const readonly = isAssistant();
   const prevPendingRef = useRef(0);
 
   const refresh = useCallback(async () => {
-    const [body, pend] = await Promise.all([
+    const q = classId ? `?classId=${encodeURIComponent(classId)}` : '';
+    const [body, pend, recon] = await Promise.all([
       api<Live>('/api/v1/gateway/allowlist-live').catch(() => null),
       api<{ items: Pending[] }>('/api/v1/classroom/join/pending-devices').catch(() => ({
         items: [] as Pending[],
       })),
+      api<{ findings?: ReconcileFinding[]; failClosedOk?: boolean }>(
+        `/api/v1/compliance/net-reconcile${q}`,
+      ).catch(() => null),
     ]);
     if (body) setLive(body);
+    if (recon) {
+      setFindings(Array.isArray(recon.findings) ? recon.findings : []);
+      setFailClosedOk(recon.failClosedOk !== false);
+    }
     const items = pend.items ?? [];
     setPending(items);
     if (items.length > prevPendingRef.current && items.length > 0) {
@@ -127,6 +139,21 @@ export function LiveClassNetStrip({ classId }: { classId: string }) {
       ) : (
         <p className="hint">{t('无待批准设备')}</p>
       )}
+      {findings.length ? (
+        <div
+          className={failClosedOk ? 'hint' : 'error'}
+          data-testid="net-reconcile-findings"
+          role="status"
+          style={{ marginTop: 8 }}
+        >
+          {failClosedOk ? null : <strong>{t('网络对账未闭合')} · </strong>}
+          {findings
+            .filter((f) => f.severity === 'critical' || f.severity === 'warn')
+            .slice(0, 3)
+            .map((f) => f.message)
+            .join(' · ') || findings[0]?.message}
+        </div>
+      ) : null}
       {msg ? <p className="hint">{msg}</p> : null}
     </section>
   );

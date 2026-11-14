@@ -27,20 +27,29 @@ export async function verifyPassword(password: string, hash: string): Promise<bo
   return bcrypt.compare(password, hash);
 }
 
-export async function signToken(user: AuthUser): Promise<string> {
-  return new SignJWT({
+export type SignTokenOpts = {
+  expiresIn?: string | number;
+  bindIp?: string | null;
+};
+
+export type VerifiedToken = AuthUser & { bindIp?: string | null };
+
+export async function signToken(user: AuthUser, opts?: SignTokenOpts): Promise<string> {
+  const claims: Record<string, unknown> = {
     role: user.role,
     displayName: user.displayName,
     classId: user.classId,
-  })
+  };
+  if (opts?.bindIp) claims.bindIp = opts.bindIp;
+  return new SignJWT(claims)
     .setProtectedHeader({ alg: 'HS256' })
     .setSubject(user.id)
     .setIssuedAt()
-    .setExpirationTime(config.jwtExpiresIn)
+    .setExpirationTime(opts?.expiresIn ?? config.jwtExpiresIn)
     .sign(encoder.encode(config.jwtSecret));
 }
 
-export async function verifyToken(token: string): Promise<AuthUser | null> {
+export async function verifyToken(token: string): Promise<VerifiedToken | null> {
   try {
     const { payload } = await jwtVerify(token, encoder.encode(config.jwtSecret));
     if (!payload.sub || typeof payload.role !== 'string') return null;
@@ -51,6 +60,7 @@ export async function verifyToken(token: string): Promise<AuthUser | null> {
       username: null,
       classId: (payload.classId as string | null | undefined) ?? null,
       totalPoints: 0,
+      bindIp: payload.bindIp != null ? String(payload.bindIp) : null,
     };
   } catch {
     return null;

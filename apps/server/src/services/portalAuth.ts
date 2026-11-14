@@ -21,8 +21,46 @@ const encoder = new TextEncoder();
 const COOKIE = 'cd_portal_sess';
 const KEY_SHARED = 'portal_shared_code';
 const KEY_OTP_BUCKET = 'portal_otp_bucket';
+const KEY_BLOCK_ALERTS = 'portal_block_alerts';
 
 export { COOKIE as PORTAL_COOKIE_NAME };
+
+export type PortalBlockAlert = {
+  at: string;
+  reason: string;
+  ssid: string;
+  ipv4?: string;
+  studentId?: string;
+  studentNo?: string | null;
+  displayName?: string | null;
+  classId?: string | null;
+  message?: string;
+};
+
+/** Ring buffer of recent portal admit blocks (teacher banner). */
+export function pushPortalBlockAlert(db: DatabaseSync, row: PortalBlockAlert) {
+  let list: PortalBlockAlert[] = [];
+  try {
+    list = JSON.parse(String(getSetting(db, KEY_BLOCK_ALERTS) ?? '[]')) as PortalBlockAlert[];
+  } catch {
+    list = [];
+  }
+  if (!Array.isArray(list)) list = [];
+  list.push(row);
+  while (list.length > 40) list.shift();
+  upsertSetting(db, KEY_BLOCK_ALERTS, JSON.stringify(list));
+}
+
+export function listPortalBlockAlerts(db: DatabaseSync, limit = 8): PortalBlockAlert[] {
+  let list: PortalBlockAlert[] = [];
+  try {
+    list = JSON.parse(String(getSetting(db, KEY_BLOCK_ALERTS) ?? '[]')) as PortalBlockAlert[];
+  } catch {
+    list = [];
+  }
+  if (!Array.isArray(list)) return [];
+  return list.slice(-Math.max(1, limit)).reverse();
+}
 
 type OtpRow = {
   studentId: string;
@@ -289,12 +327,26 @@ export async function admitPortalClient(
   }
 
   // Unknown / unmatched zone: default hold (avoid silent SSID mix-up). Opt-in soft-allow:
-  // CLASSROOM_DESK_PORTAL_UNMAPPED=allow
+  // CLASSROOM_DESK_PORTAL_UNMAPPED=allow — forbidden under S-tier / production / CLASSROOM_DESK_STRICT=1
   const ever = getEverStudentZone(db, opts.session.studentId);
   if (!zone) {
-    const soft =
+    const { portalUnmappedSoftAllowForbidden } = await import('./securityTier.js');
+    const softRequested =
       process.env.CLASSROOM_DESK_PORTAL_UNMAPPED === 'allow' ||
       process.env.CLASSROOM_DESK_PORTAL_UNMAPPED === '1';
+    const soft = softRequested && !portalUnmappedSoftAllowForbidden(db);
+    if (softRequested && !soft) {
+      return {
+        decision: 'block',
+        reason: 'unmapped_zone',
+        zoneId: null,
+        zoneLabel: null,
+        everStudentZone: ever,
+        requirePortal: true,
+        message:
+          '已拦截：未映射 Zone。S 档/生产环境禁止 CLASSROOM_DESK_PORTAL_UNMAPPED 软放行；请补全网络档。',
+      };
+    }
     if (!soft) {
       return {
         decision: 'block',

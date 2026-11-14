@@ -1,3 +1,4 @@
+import './loadEnv.js';
 import { createApp } from './app.js';
 import { config } from './config.js';
 import { closeDb, getDbPath } from './db/client.js';
@@ -26,6 +27,8 @@ import {
 
 const db = migrate();
 await ensureBootstrap(db);
+const { maybeApplyCampusOnBoot } = await import('./services/campusMinimal.js');
+maybeApplyCampusOnBoot(db);
 reloadShieldConnectorFromEnv();
 
 const app = createApp();

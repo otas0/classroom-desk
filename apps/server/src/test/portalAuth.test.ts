@@ -119,6 +119,11 @@ assert.equal(unmappedHold.reason, 'unmapped_zone');
 
 const prevUnmapped = process.env.CLASSROOM_DESK_PORTAL_UNMAPPED;
 process.env.CLASSROOM_DESK_PORTAL_UNMAPPED = 'allow';
+// Soft-allow only when S-tier off (lab). S-tier / production forbids it.
+db.prepare(
+  `INSERT INTO settings (key, value) VALUES ('security_tier_s', '0')
+   ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+).run();
 const unmappedSoft = await admitPortalClient(db, {
   session: sess!,
   hint: { ssid: 'Unknown-Guest-Net' },
@@ -126,6 +131,16 @@ const unmappedSoft = await admitPortalClient(db, {
 });
 assert.equal(unmappedSoft.decision, 'allow');
 assert.equal(unmappedSoft.reason, 'unmapped_zone');
+db.prepare(
+  `INSERT INTO settings (key, value) VALUES ('security_tier_s', '1')
+   ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+).run();
+const unmappedStrict = await admitPortalClient(db, {
+  session: sess!,
+  hint: { ssid: 'Unknown-Guest-Net-2' },
+  clientKey: 'portal-unmapped-strict',
+});
+assert.equal(unmappedStrict.decision, 'block');
 if (prevUnmapped === undefined) delete process.env.CLASSROOM_DESK_PORTAL_UNMAPPED;
 else process.env.CLASSROOM_DESK_PORTAL_UNMAPPED = prevUnmapped;
 

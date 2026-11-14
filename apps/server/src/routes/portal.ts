@@ -15,6 +15,7 @@ import {
   portalSetCookieHeader,
   PORTAL_COOKIE_NAME,
   productCapabilities,
+  pushPortalBlockAlert,
   setPortalSharedCode,
   signPortalSession,
   verifyPortalOtp,
@@ -36,6 +37,7 @@ import {
 import { listShieldAdapterIds, getShieldConnector } from '../services/shield/registry.js';
 import { getSetting } from '../db/migrate.js';
 import { upsertSetting } from '../services/exitLock.js';
+import { applyCampusMinimalPreset } from '../services/campusMinimal.js';
 
 export const portalRouter = Router();
 
@@ -251,6 +253,19 @@ portalRouter.post('/api/v1/portal/admit', async (req, res) => {
   const clientKey =
     String(req.body?.clientKey ?? '').trim() || hint.ipv4 || `portal:${session.studentId}`;
   const decision = await admitPortalClient(db, { session, hint, clientKey });
+  if (decision.decision === 'block') {
+    pushPortalBlockAlert(db, {
+      at: new Date().toISOString(),
+      reason: String(decision.reason ?? 'block'),
+      ssid: hint.ssid || '（无 SSID）',
+      ipv4: hint.ipv4 || undefined,
+      studentId: session.studentId,
+      studentNo: session.studentNo ?? null,
+      displayName: session.displayName ?? null,
+      classId: session.classId ?? null,
+      message: decision.message,
+    });
+  }
   writeAudit(
     {
       action: `portal.admit.${decision.decision}`,
@@ -482,30 +497,40 @@ portalRouter.put(
   },
 );
 
-/** One-shot campus BYOD preset: private-device portal + forced SSID signature. */
+/**
+ * One-shot campus software preset (minimal school-net path).
+ * soft (default): private-device portal + zone templates; SSID sig OFF.
+ * hard: body.mode=hard → also force Captive SSID signature.
+ */
 portalRouter.put(
   '/api/v1/settings/campus-preset',
   requireAuth,
   requireRoles(...MANAGER_ROLES),
   (req: AuthedRequest, res) => {
     const db = openDb();
-    upsertSetting(db, 'private_device_portal_only', '1');
-    upsertSetting(db, KEY_PORTAL_SSID_REQUIRE_SIG, '1');
-    writeAudit(
-      {
-        action: 'settings.campus_preset',
+    const mode =
+      req.body?.mode === 'hard' ||
+      req.body?.mode === 'strict' ||
+      req.body?.hard === true
+        ? 'hard'
+        : 'soft';
+    const result = applyCampusMinimalPreset(db, {
+      mode,
+      replaceZones: req.body?.replaceZones !== false,
+      actor: {
         actorUserId: req.user?.id,
         actorRole: req.user?.role,
-        classId: null,
-        detail: 'private_device_portal_only=1;portal_ssid_require_sig=1',
         clientIp: req.ip,
       },
-      db,
-    );
+    });
     res.json({
       ok: true,
-      privateDevicePortalOnly: true,
+      ...result,
       portalSsidRequireSig: portalSsidRequireSig(db),
+      tip:
+        mode === 'soft'
+          ? '校园网软件预设已应用（宽松）。改 Zones 里 SSID 关键字即可；真断网再填网关三项。'
+          : '校园网严格预设：已强制 SSID 签名（需 Captive 注入 ssid_sig）。',
     });
   },
 );

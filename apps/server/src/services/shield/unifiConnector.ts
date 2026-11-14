@@ -179,6 +179,61 @@ export class UnifiShieldConnector implements ShieldConnector {
     };
   }
 
+  /**
+   * UniFi has no simple allow-alias list; block membership is best-effort from controller
+   * `stat/sta` (blocked clients) when readable, else local intent mirror.
+   */
+  async listFirewallMembers(kind: 'allow' | 'block') {
+    if (kind === 'allow') {
+      return {
+        ok: true,
+        members: [],
+        detail: 'unifi_no_allow_alias',
+        remoteReadable: false,
+      };
+    }
+    if (!this.baseUrl || !this.user) {
+      return { ok: false, members: [], detail: 'unifi_unconfigured', remoteReadable: false };
+    }
+    if (!this.cookie) await this.login();
+    const paths = [
+      `/api/s/${this.site}/stat/sta`,
+      `/proxy/network/api/s/${this.site}/stat/sta`,
+    ];
+    for (const p of paths) {
+      try {
+        const headers: Record<string, string> = { Cookie: this.cookie, Accept: 'application/json' };
+        if (this.csrf) headers['X-CSRF-Token'] = this.csrf;
+        const res = await fetch(`${this.baseUrl}${p}`, {
+          method: 'GET',
+          headers,
+          signal: AbortSignal.timeout(8_000),
+        });
+        if (!res.ok) continue;
+        const body = (await res.json()) as { data?: Array<{ mac?: string; blocked?: boolean }> };
+        const members = (body.data ?? [])
+          .filter((row) => row.blocked)
+          .map((row) => String(row.mac ?? '').trim().toLowerCase())
+          .filter(Boolean);
+        return {
+          ok: true,
+          members: [...new Set(members)],
+          detail: `unifi_stat_sta:${p};n=${members.length}`,
+          remoteReadable: true,
+        };
+      } catch {
+        /* try next */
+      }
+    }
+    // Honest fallback: local intent only (not a live gateway read).
+    return {
+      ok: true,
+      members: [...this.blocked],
+      detail: 'unifi_local_mirror_only',
+      remoteReadable: false,
+    };
+  }
+
   /** Test helper */
   getLoginPathUsed() {
     return this.loginPathUsed;

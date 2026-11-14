@@ -134,6 +134,36 @@ const DEFAULT_SETTINGS: Record<string, string> = {
   private_device_portal_only: '1',
   /** Reject unsigned portal SSID (setup wizard / NetworkZones can flip). Env can still force on. */
   portal_ssid_require_sig: '0',
+  /** Recent portal admit blocks for teacher banner (JSON array). */
+  portal_block_alerts: '[]',
+  /**
+   * Teacher audit log retention (days). Separate from recycle soft-delete retention.
+   * Default 180 for 等保/密评-oriented evidence packs (clamped 30–730 in purge).
+   */
+  audit_retention_days: '180',
+  /** When 1: deep-lock tighten forces DeskDNS profile=exam; release restores stash. */
+  deskdns_follow_deeplock: '1',
+  deskdns_profile_before_lock: '',
+  /**
+   * S-tier school maximum hardening (default on). Not national classified systems.
+   * Enables audit hash-chain expectations, strict net fail-closed, blocks unmapped soft-allow.
+   */
+  security_tier_s: '1',
+  /** When 1 with S-tier: freeze/exam_net/kick require Shield≠off OR DeskDNS running. */
+  strict_net_fail_closed: '1',
+  /**
+   * Max-secrecy (school highest product controls; opt-in). NOT national 绝密.
+   * Enable when BOTH Shield and DeskDNS are armed. Default off so DeskDNS-only Pilot deploys;
+   * S-tier (`security_tier_s`) stays default on for fail-closed OR-path.
+   */
+  max_secrecy_mode: '0',
+  max_secrecy_heartbeat_stale_sec: '60',
+  max_secrecy_jwt_ttl_sec: '900',
+  max_secrecy_airgap: '1',
+  max_secrecy_bind_ip: '1',
+  max_secrecy_require_tls: '0',
+  max_secrecy_lockdown: '0',
+  max_secrecy_lockdown_reason: '',
 };
 
 export function migrate(database?: DatabaseSync): DatabaseSync {
@@ -185,6 +215,8 @@ export function migrate(database?: DatabaseSync): DatabaseSync {
   ensureColumn(conn, 'seat_map', 'hostname', `TEXT NOT NULL DEFAULT ''`);
   ensureColumn(conn, 'attendance_schedules', 'deep_lock_profile', `TEXT NOT NULL DEFAULT ''`);
   ensureColumn(conn, 'presence_heartbeats', 'net_dns_servers', `TEXT NOT NULL DEFAULT ''`);
+  ensureColumn(conn, 'teacher_audit_log', 'prev_hash', `TEXT NOT NULL DEFAULT ''`);
+  ensureColumn(conn, 'teacher_audit_log', 'row_hash', `TEXT NOT NULL DEFAULT ''`);
   conn.exec(`CREATE INDEX IF NOT EXISTS idx_seat_map_class ON seat_map(class_id)`);
   // One student → at most one seat per class (NULLs allowed multiple times).
   conn.exec(

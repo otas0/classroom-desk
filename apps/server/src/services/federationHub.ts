@@ -10,6 +10,8 @@ import { encodeRoomCode } from '@classroom-desk/shared';
 import { config } from '../config.js';
 import { getDataDir, openDb } from '../db/client.js';
 import { getSetting } from '../db/migrate.js';
+import { maxSecrecyEnabled } from './maxSecrecy.js';
+import { decryptSecretStored } from './secretAtRest.js';
 
 export type FederationPeer = {
   apiBase: string;
@@ -117,7 +119,9 @@ let announceTimer: ReturnType<typeof setInterval> | null = null;
 export function resolveFederationHubIngest(db = openDb()): { hub: string; token: string } {
   const hubSetting = String(getSetting(db, 'federation_hub_url') ?? '').trim();
   const hub = hubSetting || String(process.env.CLASSROOM_DESK_FEDERATION_HUB ?? '').trim();
-  const tokenSetting = String(getSetting(db, 'federation_hub_token') ?? '').trim();
+  const tokenSetting = decryptSecretStored(
+    String(getSetting(db, 'federation_hub_token') ?? '').trim(),
+  );
   const token =
     tokenSetting ||
     String(
@@ -130,9 +134,11 @@ export function startFederationAnnounce(): void {
   if (announceTimer) return;
   const tick = () => {
     try {
+      const db = openDb();
+      // Max-secrecy: do not announce room identity to LAN/hub.
+      if (maxSecrecyEnabled(db)) return;
       const self = buildLocalAnnouncePayload();
       upsertFederationPeer(self);
-      const db = openDb();
       const { hub, token } = resolveFederationHubIngest(db);
       if (hub && /^https?:\/\//i.test(hub)) {
         const headers: Record<string, string> = { 'content-type': 'application/json' };

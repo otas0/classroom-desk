@@ -5,6 +5,11 @@ import { applyDeepLockAction } from '../services/deepLock.js';
 import { clearEasyJoin } from '../services/easyJoin.js';
 import { upsertSetting } from '../services/exitLock.js';
 import { getPortalSessionEpoch } from '../services/portalSessionRevoke.js';
+import { maxSecrecyEnabled } from '../services/maxSecrecy.js';
+import {
+  twoPersonRequiredResponse,
+  verifyTwoPersonRule,
+} from '../services/reauth.js';
 
 export const endOfLessonRouter = Router();
 
@@ -24,6 +29,18 @@ endOfLessonRouter.post(
       return;
     }
     const db = openDb();
+    if (maxSecrecyEnabled(db)) {
+      const two = await verifyTwoPersonRule(db, {
+        userId: req.user?.id,
+        role: req.user?.role,
+        confirmPassword: req.body?.confirmPassword ?? req.body?.password,
+        secondPassword: req.body?.secondPassword,
+      });
+      if (!two.ok) {
+        res.status(403).json(twoPersonRequiredResponse(two.detail));
+        return;
+      }
+    }
     const actor = {
       actorUserId: req.user?.id,
       actorRole: req.user?.role,

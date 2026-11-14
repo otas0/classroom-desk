@@ -39,4 +39,5 @@
 
 - 销售一页：[`SKU_CAPABILITIES.md`](./SKU_CAPABILITIES.md)  
 - Exam Box：[`EXAM_BOX.md`](./EXAM_BOX.md)  
-- 网关验收：[`OPNSENSE_ACCEPTANCE.md`](./OPNSENSE_ACCEPTANCE.md) / [`UNIFI_ACCEPTANCE.md`](./UNIFI_ACCEPTANCE.md) / [`OPENNDS_BINAUTH.md`](./OPENNDS_BINAUTH.md)
+- 网关验收：[`OPNSENSE_ACCEPTANCE.md`](./OPNSENSE_ACCEPTANCE.md) / [`UNIFI_ACCEPTANCE.md`](./UNIFI_ACCEPTANCE.md) / [`OPENNDS_BINAUTH.md`](./OPENNDS_BINAUTH.md)  
+- 等保/密评材料（校园网包 + DeskDNS 双线）：[`COMPLIANCE_MLPS.md`](./COMPLIANCE_MLPS.md) · `npm run export:compliance-evidence`

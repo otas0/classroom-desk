@@ -38,6 +38,7 @@ import { gatewayLiveRouter } from './routes/gatewayLive.js';
 import { deskDnsRouter } from './routes/deskDns.js';
 import { shieldWizardRouter } from './routes/shieldWizard.js';
 import { versionForceReportRouter } from './routes/versionForceReport.js';
+import { complianceRouter } from './routes/compliance.js';
 
 function resolveTeacherDist(): string | null {
   const here = path.dirname(fileURLToPath(import.meta.url));
@@ -79,6 +80,7 @@ export function createApp() {
   app.use(gatewayLiveRouter);
   app.use(deskDnsRouter);
   app.use(shieldWizardRouter);
+  app.use(complianceRouter);
   app.use(versionForceReportRouter);
   app.use(authRouter);
   app.use(assistantGrantsRouter);

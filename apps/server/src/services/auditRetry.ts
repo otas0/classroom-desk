@@ -3,6 +3,7 @@ import path from 'node:path';
 import { getDataDir, openDb } from '../db/client.js';
 import { newId, nowIso } from '../utils/id.js';
 import { clearAuditWriteFailure, recordAuditWriteFailure } from './auditFail.js';
+import { persistHashedAuditRow } from './auditPersist.js';
 
 type QueuedAudit = {
   id: string;
@@ -62,23 +63,18 @@ export function flushAuditRetryQueue(): { flushed: number; remaining: number; fa
   const kept: QueuedAudit[] = [];
   let flushed = 0;
   let failed = 0;
-  const insert = db.prepare(
-    `INSERT INTO teacher_audit_log
-       (id, actor_user_id, actor_role, action, class_id, detail, client_ip, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-  );
   for (const item of items) {
     try {
-      insert.run(
-        item.id,
-        item.actorUserId,
-        item.actorRole,
-        item.action,
-        item.classId,
-        item.detail,
-        item.clientIp,
-        item.createdAt,
-      );
+      persistHashedAuditRow(db, {
+        id: item.id,
+        actorUserId: item.actorUserId,
+        actorRole: item.actorRole,
+        action: item.action,
+        classId: item.classId,
+        detail: item.detail,
+        clientIp: item.clientIp,
+        createdAt: item.createdAt,
+      });
       flushed += 1;
     } catch {
       const next = { ...item, attempts: item.attempts + 1 };

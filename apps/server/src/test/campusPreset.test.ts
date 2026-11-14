@@ -47,31 +47,45 @@ assert.equal(login.status, 200, loginText);
 const { token } = JSON.parse(loginText) as { token: string };
 assert.ok(token);
 
-const apply = await fetch(`${base}/api/v1/settings/campus-preset`, {
+const applySoft = await fetch(`${base}/api/v1/settings/campus-preset`, {
   method: 'PUT',
   headers: {
     authorization: `Bearer ${token}`,
     'content-type': 'application/json',
   },
-  body: '{}',
+  body: JSON.stringify({ mode: 'soft' }),
 });
-const applyText = await apply.text();
-assert.equal(apply.status, 200, applyText);
-const body = JSON.parse(applyText) as {
+const softText = await applySoft.text();
+assert.equal(applySoft.status, 200, softText);
+const softBody = JSON.parse(softText) as {
   privateDevicePortalOnly?: boolean;
   portalSsidRequireSig?: boolean;
+  zones?: number;
+  mode?: string;
 };
-assert.equal(body.privateDevicePortalOnly, true);
-assert.equal(body.portalSsidRequireSig, true);
+assert.equal(softBody.privateDevicePortalOnly, true);
+assert.equal(softBody.portalSsidRequireSig, false);
+assert.equal(softBody.mode, 'soft');
+assert.ok((softBody.zones ?? 0) >= 2);
 
 const liveDb = openDb();
 assert.equal(getSetting(liveDb, 'private_device_portal_only'), '1');
-assert.equal(portalSsidRequireSig(liveDb), true);
+assert.equal(portalSsidRequireSig(liveDb), false);
+
+const applyHard = await fetch(`${base}/api/v1/settings/campus-preset`, {
+  method: 'PUT',
+  headers: {
+    authorization: `Bearer ${token}`,
+    'content-type': 'application/json',
+  },
+  body: JSON.stringify({ mode: 'hard', replaceZones: false }),
+});
+assert.equal(applyHard.status, 200);
+assert.equal(portalSsidRequireSig(openDb()), true);
 
 const audits = listAudit({ action: 'settings.campus_preset', limit: 5 });
 assert.ok(audits.length >= 1);
 assert.equal(audits[0]?.action, 'settings.campus_preset');
-assert.match(String(audits[0]?.detail ?? ''), /portal_ssid_require_sig=1/);
 
 // Round-trip off via private-device-mode + portal settings
 const offDevice = await fetch(`${base}/api/v1/settings/private-device-mode`, {

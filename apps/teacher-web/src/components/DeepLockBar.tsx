@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { t, te } from '@classroom-desk/i18n';
 import type { DeepLockState } from '@classroom-desk/shared';
-import { API_BASE, api } from '../api';
+import { API_BASE, api, getToken } from '../api';
 import { isAssistant } from '../authRole';
 
 type Violation = { studentId: string; classId: string; count: number; lastAt: string };
@@ -29,6 +29,7 @@ export function DeepLockBar({ classId }: { classId: string }) {
   const [shieldLabel, setShieldLabel] = useState('');
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
+  const [maxSecrecy, setMaxSecrecy] = useState(false);
   const readonly = isAssistant();
 
   const refresh = useCallback(async () => {
@@ -50,7 +51,12 @@ export function DeepLockBar({ classId }: { classId: string }) {
 
   useEffect(() => {
     void refresh().catch(() => undefined);
-    const es = new EventSource(`${API_BASE}/api/v1/deep-lock/stream`);
+    void api<{ maxSecrecyMode?: boolean }>('/api/v1/compliance/audit-retention')
+      .then((r) => setMaxSecrecy(r.maxSecrecyMode === true))
+      .catch(() => setMaxSecrecy(false));
+    const tok = getToken();
+    const qs = tok ? `?token=${encodeURIComponent(tok)}` : '';
+    const es = new EventSource(`${API_BASE}/api/v1/deep-lock/stream${qs}`);
     es.addEventListener('deep_lock', () => {
       void refresh().catch(() => undefined);
     });
@@ -67,6 +73,30 @@ export function DeepLockBar({ classId }: { classId: string }) {
   function run(action: string, confirmText?: string) {
     if (readonly) return;
     if (confirmText && !window.confirm(confirmText)) return;
+    let confirmPassword: string | undefined;
+    let secondPassword: string | undefined;
+    if (maxSecrecy) {
+      const pwd = window.prompt(
+        t('最高保密档：请输入当前账号密码以确认深锁操作'),
+        '',
+      );
+      if (pwd == null || !String(pwd).trim()) {
+        setMsg(t('已取消：须密码再认证'));
+        return;
+      }
+      confirmPassword = String(pwd).trim();
+      if (action === 'allow_net' || action === 'end') {
+        const second = window.prompt(
+          t('双人规则：请输入另一特权账号密码（教师操作须管理员；管理员操作须教师）'),
+          '',
+        );
+        if (second == null || !String(second).trim()) {
+          setMsg(t('已取消：须双人密码'));
+          return;
+        }
+        secondPassword = String(second).trim();
+      }
+    }
     setBusy(true);
     const allowlistHosts = hosts
       .split(/[,;\s]+/)
@@ -79,6 +109,8 @@ export function DeepLockBar({ classId }: { classId: string }) {
         classId: classId.trim() || undefined,
         examUrl: examUrl.trim() || undefined,
         allowlistHosts,
+        confirmPassword,
+        secondPassword,
       }),
     })
       .then(async (r) => {

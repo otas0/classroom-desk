@@ -13,6 +13,10 @@ process.env.CLASSROOM_DESK_DATA_DIR = dir;
 
 const db = new DatabaseSync(path.join(dir, 'test.sqlite'));
 migrate(db);
+db.prepare(`INSERT INTO settings (key, value) VALUES ('max_secrecy_mode', '0')
+  ON CONFLICT(key) DO UPDATE SET value = excluded.value`).run();
+db.prepare(`INSERT INTO settings (key, value) VALUES ('strict_net_fail_closed', '0')
+  ON CONFLICT(key) DO UPDATE SET value = excluded.value`).run();
 
 const classId = newId();
 const teacherId = newId();

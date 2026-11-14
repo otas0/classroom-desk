@@ -2,9 +2,16 @@ import type { NextFunction, Request, Response } from 'express';
 import { openDb } from '../db/client.js';
 import { findUserById, mapUser, verifyToken } from '../services/auth.js';
 import { hasSessionKick } from '../services/sessionKick.js';
+import { maxSecrecyBindIp, maxSecrecyEnabled } from '../services/maxSecrecy.js';
 import type { AuthUser, Role } from '../types.js';
 
 export type AuthedRequest = Request & { user?: AuthUser };
+
+function normalizeIp(ip: string | undefined): string {
+  const s = String(ip ?? '').trim();
+  if (s.startsWith('::ffff:')) return s.slice(7);
+  return s;
+}
 
 export async function requireAuth(req: AuthedRequest, res: Response, next: NextFunction) {
   const header = req.headers.authorization;
@@ -45,6 +52,23 @@ export async function requireAuth(req: AuthedRequest, res: Response, next: NextF
   ) {
     res.status(401).json({ error: 'account_disabled', message: '账号已停用' });
     return;
+  }
+  // Max-secrecy: staff JWT IP bind (tokens issued with bindIp).
+  if (
+    maxSecrecyEnabled(db) &&
+    maxSecrecyBindIp(db) &&
+    (dbUser.role === 'teacher' || dbUser.role === 'admin' || dbUser.role === 'assistant') &&
+    payload.bindIp
+  ) {
+    const nowIp = normalizeIp(req.ip);
+    const bound = normalizeIp(payload.bindIp);
+    if (bound && nowIp && bound !== nowIp) {
+      res.status(401).json({
+        error: 'ip_bind_mismatch',
+        message: '最高保密档：会话已绑定登录 IP，请在原终端重新登录',
+      });
+      return;
+    }
   }
   req.user = mapUser(dbUser);
   next();

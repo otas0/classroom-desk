@@ -49,6 +49,7 @@ import { NetworkZonesPanel } from './components/NetworkZonesPanel';
 import { SettingsSkuFold } from './components/SettingsSkuFold';
 import { ShieldAllowlistLive } from './components/ShieldAllowlistLive';
 import { DeskDnsControls } from './components/DeskDnsControls';
+import { ComplianceSettingsPanel } from './components/ComplianceSettingsPanel';
 
 export function RosterPanel({
   classId,
@@ -6575,6 +6576,7 @@ export function SettingsPanel({
           <SettingsSkuFold pack="campus" title={t('校园网包')}>
             <NetworkZonesPanel />
             <ShieldAllowlistLive />
+            <ComplianceSettingsPanel />
           </SettingsSkuFold>
           <SettingsSkuFold pack="dns" title={t('单网校包 · DeskDNS')}>
             <DeskDnsControls />

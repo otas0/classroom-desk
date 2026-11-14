@@ -48,6 +48,11 @@ export function ShieldSetupWizard() {
   return (
     <section data-testid="shield-setup-wizard">
       <h3>{t('Shield 首次配置向导')}</h3>
+      <p className="hint">
+        {t(
+          '校园网最小：.env 只填 URL+密钥三选一（OPNsense / UniFi / HTTP）。不配则界面显示网关未断。见 docs/CAMPUS_MINIMAL.md',
+        )}
+      </p>
       <label>
         {t('适配器')}
         <select value={adapter} onChange={(e) => setAdapter(e.target.value as 'opnsense' | 'unifi')}>
