@@ -28,7 +28,7 @@
 ## 打包建议（Pilot 报价须带学校侧前置）
 
 1. **机房包**：labAgent + deepLock（Windows 机房；考试锁建议 AA + Intune）  
-2. **校园网包**：netPortal + networkZones + gatewayAllowlist + Shield（需网关 API）  
+2. **校园网包**：`npm run start:campus` — 门户+Zones；Shield 网关三项可选（[`CAMPUS_MINIMAL.md`](./CAMPUS_MINIMAL.md)）  
 3. **单网校包**：DeskDNS（DHCP 指教师机；可选门户）  
 4. **考场 compose 包**：`examBox` 文档 + GHCR/compose（**不含**量产硬件）  
 5. **企业包**：802.1X 白皮书 + 强制签名 SSID  

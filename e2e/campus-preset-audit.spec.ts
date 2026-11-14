@@ -33,7 +33,7 @@ test.describe('campus preset audit', () => {
     await apply.click();
     await expect(
       page.getByText(
-        /已应用校园网预设|Applied campus preset|已套用校園網預設|学内プリセット適用済み|캠퍼스 프리셋 적용됨/,
+        /已应用校园网预设|校园网软件预设|Applied campus preset|已套用校園網預設|学内プリセット適用済み|캠퍼스 프리셋 적용됨/,
       ),
     ).toBeVisible({
       timeout: 15_000,
@@ -46,6 +46,9 @@ test.describe('campus preset audit', () => {
     const body = (await audit.json()) as { items?: Array<{ action?: string; detail?: string }> };
     const hit = (body.items ?? []).find((x) => x.action === 'settings.campus_preset');
     expect(hit).toBeTruthy();
-    expect(String(hit?.detail ?? '')).toMatch(/portal_ssid_require_sig=1/);
+    // Soft campus default: private portal on, SSID sig off (JSON or legacy string).
+    expect(String(hit?.detail ?? '')).toMatch(
+      /private_device_portal_only|"mode"\s*:\s*"soft"|portal_ssid_require_sig":0/,
+    );
   });
 });

@@ -27,7 +27,7 @@ export function SettingsSkuFold({
         {pack === 'lab'
           ? t('机房包：labAgent + 深锁。勿与私人设备门户开关混淆。')
           : pack === 'campus'
-            ? t('校园网包：门户 / Zones / Shield。需网关凭据。')
+            ? t('校园网包：门户 / Zones；网关三项可选。见 docs/CAMPUS_MINIMAL.md')
             : pack === 'dns'
               ? t('单网校包：DeskDNS。DHCP 指向本机。')
               : pack === 'exam'

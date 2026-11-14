@@ -190,17 +190,23 @@ export function NetworkZonesPanel() {
         data-testid="campus-preset-apply"
         onClick={() => {
           setBusy(true);
-          void api<{ ok?: boolean }>('/api/v1/settings/campus-preset', { method: 'PUT', body: '{}' })
-            .then(async () => {
+          void api<{ ok?: boolean; tip?: string; mode?: string }>(
+            '/api/v1/settings/campus-preset',
+            { method: 'PUT', body: JSON.stringify({ mode: 'soft' }) },
+          )
+            .then(async (r) => {
               setPrivatePortalOnly(true);
-              setMsg(t('已应用校园网预设：私人设备门户 + 强制签名 SSID'));
+              setMsg(
+                r.tip ||
+                  t('已应用校园网预设：私人设备门户 + Zones 模板（SSID 签名默认关）'),
+              );
               await refresh();
             })
             .catch((e) => setMsg(te(e, '保存失败')))
             .finally(() => setBusy(false));
         }}
       >
-        {t('一键校园网预设（私人设备门户 + 强制签名）')}
+        {t('一键校园网预设（门户 + Zones，宽松）')}
       </button>
       {zones.map((z, i) => (
         <div key={z.id} className="network-zone-card" data-testid={`network-zone-${z.id}`}>

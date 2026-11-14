@@ -47,7 +47,7 @@ Windows 教师机若学生连不上：管理员跑一次 `scripts/windows-teache
 
 | 需求 | 再做什么 |
 |---|---|
-| 校园网真断网 | `CLASSROOM_DESK_SHIELD=opnsense\|unifi\|http` + 凭据 · [`NETWORK.md`](./NETWORK.md) |
+| 校园网包 | `npm run start:campus` · 网关三项可选 · [`CAMPUS_MINIMAL.md`](./CAMPUS_MINIMAL.md) |
 | 单网校 DNS 拦 | `CLASSROOM_DESK_DNS=1` · DHCP 指教师机 |
 | 校内 HTTPS | [`TLS_REVERSE_PROXY.md`](./TLS_REVERSE_PROXY.md) |
 | 最高保密档 | 双线齐备后设置里手开 · [`COMPLIANCE_MLPS.md`](./COMPLIANCE_MLPS.md) |

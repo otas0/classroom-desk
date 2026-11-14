@@ -2,33 +2,29 @@
 
 > **默认走最小部署。** 禁止对外写「GA」「绝密」「安全局最高机密」。
 
-## 默认：最小教室（推荐）
-
-不配网关 / TLS / DeskDNS，本机 HTTP 即可：
+## 默认两条命令
 
 ```bash
 npm install
-npm run start:minimal
+npm run start:minimal   # 机房包：客户端深锁
+# 或
+npm run start:campus    # 校园网包：门户+Zones；网关三项可选
 ```
 
-说明：[`MINIMAL_DEPLOY.md`](./MINIMAL_DEPLOY.md)
-
-自检（Shield=off 不算失败）：
+- 机房：[`MINIMAL_DEPLOY.md`](./MINIMAL_DEPLOY.md)  
+- 校园网：[`CAMPUS_MINIMAL.md`](./CAMPUS_MINIMAL.md)
 
 ```bash
 npm run check:pilot-go-live -- --minimal
 ```
 
-## 可选：校园网 / HTTPS / 最高保密档
-
-仅合同需要时再配：
+## 再进阶（少用）
 
 | 能力 | 文档 |
 |---|---|
-| OPNsense / UniFi / HTTP Shield | [`NETWORK.md`](./NETWORK.md) |
-| DeskDNS | [`DESKDNS_PORT53.md`](./DESKDNS_PORT53.md) |
+| DeskDNS 单网校 | [`DESKDNS_PORT53.md`](./DESKDNS_PORT53.md) |
 | HTTPS 反代 | [`TLS_REVERSE_PROXY.md`](./TLS_REVERSE_PROXY.md) |
-| 最高保密档（双线齐备后手开） | [`COMPLIANCE_MLPS.md`](./COMPLIANCE_MLPS.md) |
+| 最高保密档 | [`COMPLIANCE_MLPS.md`](./COMPLIANCE_MLPS.md) |
 | systemd / NAS | [`DEPLOY.md`](./DEPLOY.md) |
 
 进阶自检（会要求强密钥；Shield/DeskDNS 按 SKU 警告）：

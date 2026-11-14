@@ -27,6 +27,8 @@ import {
 
 const db = migrate();
 await ensureBootstrap(db);
+const { maybeApplyCampusOnBoot } = await import('./services/campusMinimal.js');
+maybeApplyCampusOnBoot(db);
 reloadShieldConnectorFromEnv();
 
 const app = createApp();

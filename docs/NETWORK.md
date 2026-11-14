@@ -63,15 +63,18 @@ curl http://192.168.1.50:8787/health
 
 ## Shield（网关断网）
 
-默认 **未配置**（`off`）：深锁/踢网不会假装成功。要真断网：
+**校园网最小路径：** [`CAMPUS_MINIMAL.md`](./CAMPUS_MINIMAL.md)（`npm run start:campus`，`.env` 三选一）。
 
-- **教师设置 → Shield**：选 `opnsense` / `unifi` / `http`（写入 DB，保存即 reload）；或  
-- 环境变量（优先于设置）：
+默认 **未配置**（`off`）：深锁/踢网不会假装成功。要真断网只填一组：
 
 ```bash
-export CLASSROOM_DESK_SHIELD=opnsense   # 或 unifi / http
-# http 时另设 CLASSROOM_DESK_SHIELD_URL + CLASSROOM_DESK_SHIELD_TOKEN
+CLASSROOM_DESK_SHIELD=opnsense   # 或 unifi / http
+# OPNsense: OPNSENSE_URL + API_KEY + API_SECRET
+# UniFi: UNIFI_URL + USER + PASS
+# http: CLASSROOM_DESK_SHIELD_URL + TOKEN
 ```
+
+也可在教师设置 → Shield 保存适配器。
 
 本地联调（可部署 lab 程序，无进程内假成功）：
 

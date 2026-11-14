@@ -20,6 +20,8 @@
     "start:classroom": "node scripts/start-classroom.mjs",
     "ensure:minimal-env": "node scripts/ensure-minimal-env.mjs",
     "start:minimal": "node scripts/start-minimal.mjs",
+    "ensure:campus-env": "node scripts/ensure-campus-env.mjs",
+    "start:campus": "node scripts/start-campus.mjs",
     "test:server": "npm run test --workspace=@classroom-desk/server",
     "sync:permissions": "node scripts/sync-permissions-md.mjs",
     "test:e2e": "playwright test",
