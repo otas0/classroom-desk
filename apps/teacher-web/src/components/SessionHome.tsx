@@ -1,15 +1,20 @@
 import { useEffect, useRef, useState } from 'react';
 import { API_BASE, api, getToken } from '../api';
 import { POINT_REASON_CHIPS } from '../types';
-import { ClassroomLockBar } from './ClassroomLockBar';
-import { DeepLockBar } from './DeepLockBar';
+import { ExamLockPanel } from './ExamLockPanel';
 import { ScheduleDeepLockPanel } from './ScheduleDeepLockPanel';
 import { DeviceControlBar } from './DeviceControlBar';
 import { NetworkZonesPanel } from './NetworkZonesPanel';
 import { PrincipalDashboard } from './PrincipalDashboard';
+import { ClassPresenceMatrix } from './ClassPresenceMatrix';
+import { EndOfClassChecklist } from './EndOfClassChecklist';
+import { LiveClassNetStrip } from './LiveClassNetStrip';
+import { ShieldAllowlistLive } from './ShieldAllowlistLive';
+import { ShieldSetupWizard } from './ShieldSetupWizard';
+import { DeskDnsControls } from './DeskDnsControls';
 import { HealthNetCard } from './HealthNetCard';
 import { DeskDnsDeployPanel } from './DeskDnsDeployPanel';
-import { CapabilityGate } from './CapabilityGates';
+import { CapabilityGate, useProductCapabilities } from './CapabilityGates';
 import { LiveBoard } from './LiveBoard';
 import { FleetDriftNudge } from './FleetDriftNudge';
 import { PresenceClients } from './PresenceClients';
@@ -139,6 +144,8 @@ export function SessionHome({
   const [awardMsg, setAwardMsg] = useState('');
   const [sessionMsg, setSessionMsg] = useState('');
   const [enterprise8021xRequired, setEnterprise8021xRequired] = useState<boolean | null>(null);
+  const caps = useProductCapabilities();
+  const examBoxHardwareOn = caps.examBoxHardware === true;
   const [buzzRound, setBuzzRound] = useState<{ id: string; reason: string; status: string } | null>(null);
   const [buzzHits, setBuzzHits] = useState<
     Array<{ studentId: string; displayName: string; studentNo: string | null; hitAt: string }>
@@ -503,8 +510,11 @@ export function SessionHome({
         onOpenPresence={onOpenPresence ? () => onOpenPresence(classId) : undefined}
       />
       <LessonPackBar classId={classId} />
+      <LiveClassNetStrip classId={classId} />
       <PresenceClients classId={classId} />
       <ClassroomLockBar classId={classId} onOpenAdvanced={onOpenLockAdvanced} />
+      <ExamLockPanel classId={classId} onOpenAdvanced={onOpenLockAdvanced} />
+      <EndOfClassChecklist classId={classId} />
       <DeviceControlBar
         classId={classId}
         securityBureauAllowed={labGate.readyForMaxSecrecy}
@@ -536,36 +546,25 @@ export function SessionHome({
         <ScheduleDeepLockPanel classId={classId} />
       </details>
       <details className="session-more-net" data-testid="campus-pack-panel">
-        <summary>{t('校园网包（Portal · Shield · Zones）')}</summary>
+        <summary>{t('校园网包进阶（Zones · 放行表 · 向导）')}</summary>
         <p className="hint">
           {t(
             '推荐组合：零安装门户 + 网络档 + Shield（OPNsense/UniFi）。先配 Zones，再开 Portal，最后选 Shield 适配器。',
           )}
         </p>
         <NetworkZonesPanel />
+        <ShieldAllowlistLive />
+        <ShieldSetupWizard />
       </details>
-      <CapabilityGate flag="examBox" label={t('Exam Box')}>
-        <p className="hint" data-testid="exam-box-hint">
-          {t('Exam Box 文档/compose 已交付；不会在应用内假装考场小盒在线。')}{' '}
-          <a
-            href="https://github.com/otas0/classroom-desk/blob/main/docs/EXAM_BOX.md"
-            target="_blank"
-            rel="noreferrer"
-          >
-            docs/EXAM_BOX.md
-          </a>
+      {examBoxHardwareOn ? (
+        <p className="hint" data-testid="exam-box-hardware-on">
+          {t('量产硬件已验收亮起（序列号 + 镜像 tag）。合同可含对应硬件条款。')}
         </p>
-        <p className="hint" data-testid="exam-box-hardware-scaffold">
-          {t('量产：BOM + install-appliance.sh + 设置里登记序列号/镜像 tag 验收。')}{' '}
-          <a
-            href="https://github.com/otas0/classroom-desk/blob/main/deploy/exam-box/HARDWARE.md"
-            target="_blank"
-            rel="noreferrer"
-          >
-            deploy/exam-box/HARDWARE.md
-          </a>
+      ) : (
+        <p className="hint" data-testid="exam-box-session-one-liner">
+          {t('本校未部署考场小盒 · 用 Shield/深锁。合同灰显见设置。')}
         </p>
-      </CapabilityGate>
+      )}
       <CapabilityGate flag="enterprise8021x" label={t('802.1X')}>
         <p className="hint" data-testid="enterprise-8021x-hint">
           {enterprise8021xRequired === null
@@ -594,6 +593,7 @@ export function SessionHome({
         <p className="hint" data-testid="desk-dns-hint">
           {t('DeskDNS：请用上方「部署 DeskDNS」启用与检测；设置页为进阶项。生产绑 53 见 docs/DESKDNS_PORT53.md。')}
         </p>
+        <DeskDnsControls />
       </CapabilityGate>
       <HealthNetCard />
       <PrincipalDashboard onOpenPresence={onOpenPresence} />

@@ -7,6 +7,7 @@ import {
 } from '@classroom-desk/shared';
 import { API_BASE, api, getToken } from '../api';
 import { t } from '@classroom-desk/i18n';
+import { ClassPresenceMatrix } from './ClassPresenceMatrix';
 
 type ClientRow = {
   studentId: string;
@@ -200,6 +201,7 @@ export function PresenceClients({ classId }: { classId: string }) {
 
   return (
     <section data-testid="presence-clients">
+      <ClassPresenceMatrix classId={classId} />
       <h2>{t('在线机位')}</h2>
       <p className="hint">
         {t('按最近心跳列出本班学生桌面端（约 90 秒内）')}

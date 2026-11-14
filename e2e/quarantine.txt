@@ -1,3 +1,4 @@
+# When adding entries: nightly Issue must keep canary:* labels + an assignee/owner.
 # Paths relative to Playwright testDir (./e2e). One file per line.
 # Skipped only when CD_E2E_USE_QUARANTINE=1 (nightly). Smoke gates omit that env.
 #

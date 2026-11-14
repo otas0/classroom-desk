@@ -46,6 +46,9 @@ import {
 import { ClassroomLockBar } from './components/ClassroomLockBar';
 import { DeepLockBar } from './components/DeepLockBar';
 import { NetworkZonesPanel } from './components/NetworkZonesPanel';
+import { SettingsSkuFold } from './components/SettingsSkuFold';
+import { ShieldAllowlistLive } from './components/ShieldAllowlistLive';
+import { DeskDnsControls } from './components/DeskDnsControls';
 
 export function RosterPanel({
   classId,
@@ -5697,6 +5700,7 @@ export function SettingsPanel({
             {t(
               '默认未配置（off）。选 OPNsense / UniFi / HTTP 后才会真断网。mock/off 不能当生产；最高保密级武装要求真网关。',
             )}{' '}
+            {t('默认未配置（off）。选 OPNsense / UniFi / HTTP 后才会真断网；本地联调先 npm run lab:shield。')}{' '}
             <a
               href="https://github.com/otas0/classroom-desk/blob/main/docs/NETWORK.md"
               target="_blank"
@@ -5725,7 +5729,8 @@ export function SettingsPanel({
                 <option value="off">off</option>
                 <option value="opnsense">opnsense</option>
                 <option value="unifi">unifi</option>
-                <option value="http">http</option>
+                <option value="http">http（含本地 lab:shield）</option>
+                <option value="lab">lab</option>
                 <option value="mock">mock（{t('禁止生产 · 须 ALLOW_SHIELD_MOCK')}）</option>
               </select>
             </label>
@@ -5770,6 +5775,42 @@ export function SettingsPanel({
               }}
             >
               {t('保存 Shield')}
+            </button>
+            <button
+              type="button"
+              className="secondary"
+              data-testid="shield-ping-btn"
+              onClick={() => {
+                const adapter = shieldAdapter || 'active';
+                void api<{
+                  ok?: boolean;
+                  adapter?: string;
+                  detail?: string;
+                  hint?: string;
+                  displayName?: string;
+                }>('/api/v1/shield/wizard/ping', {
+                  method: 'POST',
+                  body: JSON.stringify({
+                    adapter,
+                    httpUrl: shieldHttpUrl || undefined,
+                  }),
+                })
+                  .then((r) => {
+                    const line = [
+                      r.ok ? t('连通正常') : t('连通失败'),
+                      r.adapter || adapter,
+                      r.displayName,
+                      r.detail,
+                      r.hint,
+                    ]
+                      .filter(Boolean)
+                      .join(' · ');
+                    setUpgradeMsg(line);
+                  })
+                  .catch((err) => setUpgradeMsg(te(err, '测连通失败')));
+              }}
+            >
+              {t('测连通')}
             </button>
           </div>
 
@@ -6607,9 +6648,22 @@ export function SettingsPanel({
               docs/EXIT_LOCK_MDM.md
             </a>
           </p>
-          <ClassroomLockBar classId={currentTeacherClassId()} />
-          <DeepLockBar classId={currentTeacherClassId()} />
-          <NetworkZonesPanel />
+          <SettingsSkuFold pack="lab" title={t('机房包')} defaultOpen>
+            <ClassroomLockBar classId={currentTeacherClassId()} />
+            <DeepLockBar classId={currentTeacherClassId()} />
+          </SettingsSkuFold>
+          <SettingsSkuFold pack="campus" title={t('校园网包')}>
+            <NetworkZonesPanel />
+            <ShieldAllowlistLive />
+          </SettingsSkuFold>
+          <SettingsSkuFold pack="dns" title={t('单网校包 · DeskDNS')}>
+            <DeskDnsControls />
+          </SettingsSkuFold>
+          <SettingsSkuFold pack="exam" title={t('考场 compose 包')}>
+            <p className="hint" data-testid="settings-exam-hardware-mutex">
+              {t('examBoxHardware=false：量产硬件灰显；已有 Shield 时默认不推小盒。')}
+            </p>
+          </SettingsSkuFold>
           {isAssistant() ? (
             <div data-testid="input-lock-readonly">
               <p className="hint">
@@ -6641,15 +6695,15 @@ export function SettingsPanel({
                 ) : null}
               </p>
               <p className="hint" data-testid="input-lock-expires-readonly">
-                课次自动到期：
+                {t('课次自动到期')}：
                 {inputLockExpiresAt
                   ? new Date(inputLockExpiresAt).toLocaleString()
-                  : '未绑定'}
+                  : t('未绑定')}
                 {inputLockSsePolling ? (
                   <>
                     {' '}
                     <span className="badge" data-testid="input-lock-sse-polling-badge">
-                      轮询中
+                      {t('轮询中')}
                     </span>
                   </>
                 ) : null}

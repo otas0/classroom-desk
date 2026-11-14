@@ -9,5 +9,8 @@
   "otpSent": "コード送信済み",
   "mailtoReady": "メール準備完了",
   "offline": "オフライン",
-  "ssidRequired": "ゲートウェイ経由で開いてください（署名 SSID 必須）"
+  "ssidRequired": "ゲートウェイ経由で開いてください（署名 SSID 必須）",
+  "epochExpired": "このクラスのポータルセッションは期限切れです。QR を再スキャンするかポータルを開き直してください。",
+  "epochExpiredEn": "This class portal session expired. Scan the class QR or open the portal again.",
+  "rescanHint": "教師投影のクラス QR を再スキャンしてください。"
 }

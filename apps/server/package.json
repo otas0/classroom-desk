@@ -7,8 +7,9 @@
     "dev": "tsx watch src/index.ts",
     "start": "tsx src/index.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "tsx src/test/schema.integration.test.ts && tsx src/test/points.cleanup.integration.test.ts && tsx src/test/recycleRetention.test.ts && tsx src/test/exportXlsxStream.test.ts && tsx src/test/auditRetry.test.ts && tsx src/test/qRecycleVirtual.test.ts && tsx src/test/purgeAllStress.test.ts && tsx src/test/recycleRetentionMigrate.test.ts && tsx src/test/notifyEmail.test.ts && tsx src/test/inputLockTtl.test.ts && tsx src/test/deepLock.test.ts && tsx src/test/networkZones.test.ts && tsx src/test/portalAuth.test.ts && tsx src/test/portalSsidSign.test.ts && tsx src/test/rosterParse.test.ts && tsx src/test/campusPreset.test.ts && tsx src/test/deskDnsProbe.test.ts && tsx src/test/deskDnsResolveProbe.test.ts && tsx src/test/shieldReleaseFail.test.ts && tsx src/test/roomCode.test.ts && tsx src/test/easyJoinClear.test.ts && tsx src/test/classroomMdnsSmoke.test.ts && tsx src/test/upgradesLatest.test.ts && tsx src/test/scheduleDeepLock.test.ts && tsx src/test/sisRosterDryRun.test.ts && tsx src/test/labGoLive.test.ts && tsx src/test/labGoLive.enforce.test.ts",
-    "test:opnsense-acceptance": "tsx ../../scripts/opnsense-alias-acceptance.mjs"
+    "test": "tsx src/test/schema.integration.test.ts && tsx src/test/points.cleanup.integration.test.ts && tsx src/test/recycleRetention.test.ts && tsx src/test/exportXlsxStream.test.ts && tsx src/test/auditRetry.test.ts && tsx src/test/qRecycleVirtual.test.ts && tsx src/test/purgeAllStress.test.ts && tsx src/test/recycleRetentionMigrate.test.ts && tsx src/test/notifyEmail.test.ts && tsx src/test/inputLockTtl.test.ts && tsx src/test/deepLock.test.ts && tsx src/test/networkZones.test.ts && tsx src/test/portalAuth.test.ts && tsx src/test/portalSsidSign.test.ts && tsx src/test/rosterParse.test.ts && tsx src/test/campusPreset.test.ts && tsx src/test/deskDnsProbe.test.ts && tsx src/test/deskDnsResolveProbe.test.ts && tsx src/test/shieldReleaseFail.test.ts && tsx src/test/roomCode.test.ts && tsx src/test/easyJoinClear.test.ts && tsx src/test/classroomMdnsSmoke.test.ts && tsx src/test/upgradesLatest.test.ts && tsx src/test/scheduleDeepLock.test.ts && tsx src/test/sisRosterDryRun.test.ts && tsx src/test/labGoLive.test.ts && tsx src/test/labGoLive.enforce.test.ts && tsx ../../scripts/opnsense-alias-acceptance.mjs && tsx ../../scripts/unifi-auth-acceptance.mjs",
+    "test:opnsense-acceptance": "tsx ../../scripts/opnsense-alias-acceptance.mjs",
+    "test:unifi-acceptance": "tsx ../../scripts/unifi-auth-acceptance.mjs"
   },
   "dependencies": {
     "@classroom-desk/i18n": "*",
@@ -20,6 +21,7 @@
     "multer": "^2.5.0",
     "multicast-dns": "^7.2.5",
     "pdf-lib": "^1.17.1",
+    "qrcode": "^1.5.4",
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
@@ -28,6 +30,7 @@
     "@types/express": "^5.0.0",
     "@types/multer": "^2.3.0",
     "@types/node": "^22.10.5",
+    "@types/qrcode": "^1.5.6",
     "tsx": "^4.19.2",
     "typescript": "^5.7.3"
   }

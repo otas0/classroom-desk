@@ -3,7 +3,7 @@ import { OffShieldConnector } from '../services/shield/offConnector.js';
 import {
   getShieldConnector,
   reloadShieldConnectorFromEnv,
-  resetShieldConnectorToMock,
+  resetShieldConnectorToOff,
   setShieldConnector,
 } from '../services/shield/registry.js';
 import { productCapabilities } from '../services/portalAuth.js';
@@ -28,11 +28,13 @@ assert.equal(caps.netShieldActive, 'off');
 assert.equal(caps.netShieldEnforcing, false);
 assert.ok(caps.netShieldAdapters.includes('off'));
 assert.ok(caps.netShieldAdapters.includes('opnsense'));
+assert.ok(!caps.netShieldAdapters.includes('mock'));
 
-process.env.CLASSROOM_DESK_ALLOW_SHIELD_MOCK = '1';
+// Legacy mock env is rejected → honest off (use npm run lab:shield + http)
 process.env.CLASSROOM_DESK_SHIELD = 'mock';
+delete process.env.CLASSROOM_DESK_SHIELD_URL;
 reloadShieldConnectorFromEnv();
-assert.equal(getShieldConnector().id, 'mock');
+assert.equal(getShieldConnector().id, 'off');
 
 process.env.NODE_ENV = 'production';
 delete process.env.CLASSROOM_DESK_ALLOW_SHIELD_MOCK;
@@ -45,12 +47,12 @@ assert.equal(
 
 process.env.CLASSROOM_DESK_ALLOW_SHIELD_MOCK = '1';
 reloadShieldConnectorFromEnv();
-assert.equal(getShieldConnector().id, 'mock');
+assert.equal(getShieldConnector().id, 'off', 'mock connector removed — always off');
 
 setShieldConnector(new OffShieldConnector());
 assert.equal(getShieldConnector().id, 'off');
-resetShieldConnectorToMock();
-assert.equal(getShieldConnector().id, 'mock');
+resetShieldConnectorToOff();
+assert.equal(getShieldConnector().id, 'off');
 
 if (prev === undefined) delete process.env.CLASSROOM_DESK_SHIELD;
 else process.env.CLASSROOM_DESK_SHIELD = prev;

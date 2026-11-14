@@ -81,6 +81,24 @@ portalRouter.get('/api/v1/portal/i18n/:locale', (req, res) => {
   res.json({ locale, messages: catalog, requireSsidSig: portalSsidRequireSig(db) });
 });
 
+/** Hosted class QR (PNG) — no third-party CDN; works on locked exam nets. */
+portalRouter.get('/api/v1/portal/class-qr', async (req, res) => {
+  const classId = String(req.query.classId ?? '').trim();
+  if (!classId) {
+    res.status(400).type('text/plain').send('classId required');
+    return;
+  }
+  const target = `${req.protocol}://${req.get('host') || 'localhost'}/portal?classId=${encodeURIComponent(classId)}`;
+  try {
+    const QRCode = (await import('qrcode')).default;
+    const png = await QRCode.toBuffer(target, { type: 'png', width: 148, margin: 1 });
+    res.setHeader('Cache-Control', 'no-store');
+    res.type('image/png').send(png);
+  } catch (e) {
+    res.status(500).type('text/plain').send(e instanceof Error ? e.message : 'qr_failed');
+  }
+});
+
 portalRouter.get('/api/v1/portal/bootstrap', async (req, res) => {
   const db = openDb();
   const cookies = parseCookies(req.headers.cookie);

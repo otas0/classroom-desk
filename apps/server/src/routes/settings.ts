@@ -863,11 +863,11 @@ settingsRouter.patch('/api/v1/settings', requireAuth, requireRoles('teacher', 'a
     const raw = String(req.body.shieldAdapter ?? '')
       .trim()
       .toLowerCase();
-    const allowed = new Set(['', 'off', 'http', 'opnsense', 'unifi', 'mock']);
+    const allowed = new Set(['', 'off', 'http', 'opnsense', 'unifi', 'lab']);
     if (!allowed.has(raw)) {
       res.status(400).json({
         error: 'invalid_shield_adapter',
-        message: 'shieldAdapter 须为 off|http|opnsense|unifi|mock 或空',
+        message: 'shieldAdapter 须为 off|http|opnsense|unifi|lab 或空（本地联调：npm run lab:shield）',
       });
       return;
     }
@@ -882,7 +882,14 @@ settingsRouter.patch('/api/v1/settings', requireAuth, requireRoles('teacher', 'a
         return;
       }
     }
-    upsertSettingKey('shield_adapter', raw);
+    if (raw === 'lab') {
+      // Alias to http lab gateway program.
+      upsertSettingKey('shield_adapter', 'http');
+      const curUrl = String(getSetting(db, 'shield_http_url') ?? '').trim();
+      if (!curUrl) upsertSettingKey('shield_http_url', 'http://127.0.0.1:8791');
+    } else {
+      upsertSettingKey('shield_adapter', raw);
+    }
     const { reloadShieldConnectorFromEnv } = await import('../services/shield/registry.js');
     reloadShieldConnectorFromEnv();
   }

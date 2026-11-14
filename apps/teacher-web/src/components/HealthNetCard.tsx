@@ -262,9 +262,9 @@ export function HealthNetCard() {
         {!shield?.active || shield.active === 'off'
           ? t('未配置（需 OPNsense / UniFi / HTTP）')
           : `${shield.displayName ?? '—'}（${shield.active}）`}
-        {shield?.active === 'mock' ? ` · ${t('仅联调，非生产')}` : ''}
+        {shield?.active === 'http' ? ` · ${t('HTTP/lab 网关')}` : ''}
         {shield?.adapters?.length
-          ? ` · ${t('可选')}：${shield.adapters.filter((a) => a !== 'mock').join(' / ')}`
+          ? ` · ${t('可选')}：${shield.adapters.join(' / ')}`
           : ''}
         {shield?.lastError?.message
           ? ` · lastError：${shield.lastError.message}${

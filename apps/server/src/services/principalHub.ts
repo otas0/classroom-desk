@@ -8,6 +8,7 @@ import { listZoneViolations } from './networkZones.js';
 import { listPresenceClients } from './presenceHub.js';
 import { getDeskDnsStatus } from './deskDns.js';
 import { getShieldConnector } from './shield/registry.js';
+import { getClientExitLockState } from './exitLock.js';
 
 type Client = { send: (data: string) => void };
 
@@ -63,6 +64,38 @@ export function buildPrincipalStatsPayload() {
   const shield = getShieldConnector();
   const deskDns = getDeskDnsStatus();
 
+  // Aggregate ops metrics without student PII (counts only).
+  const today = new Date().toISOString().slice(0, 10);
+  let deepLockSessionsToday = 0;
+  let portalAdmitsToday = 0;
+  try {
+    deepLockSessionsToday = Number(
+      (
+        db
+          .prepare(
+            `SELECT COUNT(*) AS n FROM teacher_audit_log
+             WHERE action LIKE 'deep_lock.%'
+               AND substr(created_at, 1, 10) = ?`,
+          )
+          .get(today) as { n: number }
+      ).n,
+    );
+    portalAdmitsToday = Number(
+      (
+        db
+          .prepare(
+            `SELECT COUNT(*) AS n FROM teacher_audit_log
+             WHERE action LIKE 'portal.%'
+               AND substr(created_at, 1, 10) = ?`,
+          )
+          .get(today) as { n: number }
+      ).n,
+    );
+  } catch {
+    /* audit table unavailable in some tests */
+  }
+  const unlockRotationDue = Boolean(getClientExitLockState(db).exitUnlockCodeRotationDue);
+
   return {
     type: 'principal' as const,
     ok: true,
@@ -73,6 +106,9 @@ export function buildPrincipalStatsPayload() {
     focusViolationEvents: focusViolations.reduce((s, v) => s + (v.count || 1), 0),
     focusViolationStudents: focusViolations.length,
     zoneViolationEvents: zoneViolations.length,
+    deepLockSessionsToday,
+    portalAdmitsToday,
+    unlockCodeOverdueClasses: unlockRotationDue ? 1 : 0,
     byClass,
     deskDns,
     shield: { active: shield.id, displayName: shield.displayName },

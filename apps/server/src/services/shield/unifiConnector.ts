@@ -95,7 +95,7 @@ export class UnifiShieldConnector implements ShieldConnector {
   }
 
   private async cmd(path: string, body: unknown): Promise<{ ok: boolean; detail: string }> {
-    if (!this.baseUrl) return { ok: true, detail: 'unifi_unconfigured_local_only' };
+    if (!this.baseUrl) return { ok: false, detail: 'unifi_unconfigured' };
     if (!this.cookie) await this.login();
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
@@ -139,24 +139,20 @@ export class UnifiShieldConnector implements ShieldConnector {
     const mac = /([0-9a-f]{2}[:-]){5}[0-9a-f]{2}/i.test(key) ? key : '';
     if (opts.mode === 'deny') {
       this.blocked.add(key);
-      if (mac) {
-        const r = await this.cmd(`/api/s/${this.site}/cmd/stamgr`, {
-          cmd: 'block-sta',
-          mac,
-        });
-        return { ok: true, detail: `deny:${r.detail}` };
-      }
-      return { ok: true, detail: 'deny:local_no_mac' };
-    }
-    this.blocked.delete(key);
-    if (mac) {
+      if (!mac) return { ok: false, detail: 'deny:mac_required' };
       const r = await this.cmd(`/api/s/${this.site}/cmd/stamgr`, {
-        cmd: 'unblock-sta',
+        cmd: 'block-sta',
         mac,
       });
-      return { ok: true, detail: `${opts.mode}:${r.detail}` };
+      return { ok: r.ok, detail: `deny:${r.detail}` };
     }
-    return { ok: true, detail: `${opts.mode}:local_no_mac` };
+    this.blocked.delete(key);
+    if (!mac) return { ok: false, detail: `${opts.mode}:mac_required` };
+    const r = await this.cmd(`/api/s/${this.site}/cmd/stamgr`, {
+      cmd: 'unblock-sta',
+      mac,
+    });
+    return { ok: r.ok, detail: `${opts.mode}:${r.detail}` };
   }
 
   async revokeClient(opts: ShieldClientRef) {
@@ -173,7 +169,7 @@ export class UnifiShieldConnector implements ShieldConnector {
   }
 
   async health() {
-    if (!this.baseUrl) return { ok: true, detail: 'unifi_local_mirror' };
+    if (!this.baseUrl || !this.user) return { ok: false, detail: 'unifi_unconfigured' };
     const ok = await this.login();
     return {
       ok,

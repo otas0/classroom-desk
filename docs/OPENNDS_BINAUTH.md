@@ -52,6 +52,17 @@ export CD_API_BASE=http://教师机:8787
 - [ ] BinAuth `cd-opennds-binauth.sh` exit 0/1 与 allowlist 一致  
 - [ ] 下课后天网再次封锁  
 
+## 本地 lab 证据（无学校凭据也可）
+
+先起可运行的 lab 网关，再归档 deny/allow/FAS 三张图：
+
+```bash
+npm run archive:opennds-lab
+# → tmp/live-evidence/<日>/screenshots/opennds-lab-{deny,allow,fas,ui}.png
+```
+
+`npm run archive:live-shield` 会自动跑上述 lab 归档；学校 OPNsense/UniFi 仍需凭据。
+
 ## 真机联调截图归档
 
 将截图放入（勿提交密钥/公网 IP）：

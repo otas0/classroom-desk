@@ -200,7 +200,10 @@ test.describe('hardening health panel', () => {
     expect(created.ok()).toBeTruthy();
 
     await loginStaffWeb(page, user, pass);
-    await page.locator('aside').getByRole('button', { name: '设置', exact: true }).click();
+    await page
+      .locator('aside')
+      .getByRole('button', { name: /^(设置|Settings|設定|설정)$/ })
+      .click();
     await expect(page.getByTestId('input-lock-readonly')).toBeVisible({ timeout: 15_000 });
     // Re-bind after login (parallel clearAll) — avoid reload wipe race; wait via SSE/poll.
     const bind = await request.patch(`${API}/api/v1/settings`, {
@@ -216,9 +219,10 @@ test.describe('hardening health panel', () => {
     const bindBody = (await bind.json()) as { inputLockExpiresAt?: string | null };
     expect(bindBody.inputLockExpiresAt).toBeTruthy();
     await expect(page.getByTestId('input-lock-expires-readonly')).toBeVisible({ timeout: 15_000 });
-    await expect(page.getByTestId('input-lock-expires-readonly')).not.toContainText('未绑定', {
-      timeout: 15_000,
-    });
+    await expect(page.getByTestId('input-lock-expires-readonly')).not.toContainText(
+      /未绑定|Not bound|未綁定|未バインド|미바인딩/,
+      { timeout: 15_000 },
+    );
     await expect(page.getByTestId('input-lock-expires-readonly')).toContainText(/\d/);
   });
 
@@ -265,9 +269,14 @@ test.describe('hardening health panel', () => {
     });
 
     await loginStaffWeb(page, user, pass);
-    await page.locator('aside').getByRole('button', { name: '设置', exact: true }).click();
+    await page
+      .locator('aside')
+      .getByRole('button', { name: /^(设置|Settings|設定|설정)$/ })
+      .click();
     await expect(page.getByTestId('input-lock-expires-readonly')).toBeVisible({ timeout: 15_000 });
-    await expect(page.getByTestId('input-lock-expires-readonly')).toContainText('未绑定');
+    await expect(page.getByTestId('input-lock-expires-readonly')).toContainText(
+      /未绑定|Not bound|未綁定|未バインド|미바인딩/,
+    );
 
     const bind = await request.patch(`${API}/api/v1/settings`, {
       headers: auth,
@@ -281,9 +290,10 @@ test.describe('hardening health panel', () => {
     expect(bind.ok()).toBeTruthy();
     expect(((await bind.json()) as { inputLockExpiresAt?: string | null }).inputLockExpiresAt).toBeTruthy();
 
-    await expect(page.getByTestId('input-lock-expires-readonly')).not.toContainText('未绑定', {
-      timeout: 15_000,
-    });
+    await expect(page.getByTestId('input-lock-expires-readonly')).not.toContainText(
+      /未绑定|Not bound|未綁定|未バインド|미바인딩/,
+      { timeout: 15_000 },
+    );
   });
 
   test('assistant SSE force-fallback still updates expiresAt via poll', async ({ page, request }) => {
@@ -329,9 +339,14 @@ test.describe('hardening health panel', () => {
     });
 
     await loginStaffWeb(page, user, pass);
-    await page.locator('aside').getByRole('button', { name: '设置', exact: true }).click();
+    await page
+      .locator('aside')
+      .getByRole('button', { name: /^(设置|Settings|設定|설정)$/ })
+      .click();
     await expect(page.getByTestId('input-lock-expires-readonly')).toBeVisible({ timeout: 15_000 });
-    await expect(page.getByTestId('input-lock-expires-readonly')).toContainText('未绑定');
+    await expect(page.getByTestId('input-lock-expires-readonly')).toContainText(
+      /未绑定|Not bound|未綁定|未バインド|미바인딩/,
+    );
 
     await page.waitForFunction(
       () =>
@@ -343,7 +358,9 @@ test.describe('hardening health panel', () => {
       (window as unknown as { __cdForceAssistantInputLockSseFallback: () => void }).__cdForceAssistantInputLockSseFallback();
     });
     await expect(page.getByTestId('input-lock-sse-polling-badge')).toBeVisible({ timeout: 8_000 });
-    await expect(page.getByTestId('input-lock-sse-polling-badge')).toHaveText('轮询中');
+    await expect(page.getByTestId('input-lock-sse-polling-badge')).toHaveText(
+      /轮询中|Polling|輪詢中|ポーリング中|폴링 중/,
+    );
 
     const bind = await request.patch(`${API}/api/v1/settings`, {
       headers: auth,
@@ -363,8 +380,9 @@ test.describe('hardening health panel', () => {
       (window as unknown as { __cdForceAssistantInputLockSseFallback: () => void }).__cdForceAssistantInputLockSseFallback();
     });
 
-    await expect(page.getByTestId('input-lock-expires-readonly')).not.toContainText('未绑定', {
-      timeout: 15_000,
-    });
+    await expect(page.getByTestId('input-lock-expires-readonly')).not.toContainText(
+      /未绑定|Not bound|未綁定|未バインド|미바인딩/,
+      { timeout: 15_000 },
+    );
   });
 });

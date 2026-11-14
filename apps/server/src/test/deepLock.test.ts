@@ -11,8 +11,8 @@ import {
   recordFocusViolation,
   listFocusViolations,
 } from '../services/deepLock.js';
-import { MockShieldConnector } from '../services/shield/mockConnector.js';
-import { resetShieldConnectorToMock, setShieldConnector } from '../services/shield/registry.js';
+import { resetShieldConnectorToOff } from '../services/shield/registry.js';
+import { startLabShieldHttp } from './helpers/labShieldHttp.js';
 
 const dir = mkdtempSync(path.join(tmpdir(), 'cd-deeplock-'));
 process.env.CLASSROOM_DESK_DATA_DIR = dir;
@@ -35,8 +35,15 @@ db.prepare(
    VALUES (?, ?, ?, ?)`,
 ).run(studentId, classId, new Date().toISOString(), 'client-1');
 
-const mock = new MockShieldConnector();
-setShieldConnector(mock);
+const lab = await startLabShieldHttp();
+
+async function snap() {
+  const r = await fetch(`${lab.base}/snapshot`);
+  return (await r.json()) as {
+    clients: Record<string, { mode: string }>;
+    kicks: string[];
+  };
+}
 
 {
   const { state } = await applyDeepLockAction(db, { action: 'freeze', classId });
@@ -44,7 +51,7 @@ setShieldConnector(mock);
   assert.equal(state.netMode, 'deny');
   assert.equal(state.killForeignBrowsers, true);
   assert.ok(deepLockAggressive(state));
-  assert.equal(mock.clients.get('client-1')?.mode, 'deny');
+  assert.equal((await snap()).clients['client-1']?.mode, 'deny');
 }
 
 {
@@ -56,12 +63,12 @@ setShieldConnector(mock);
   });
   assert.equal(state.netMode, 'allowlist');
   assert.ok(state.allowlistHosts.includes('exam.example.edu'));
-  assert.equal(mock.clients.get('client-1')?.mode, 'allowlist');
+  assert.equal((await snap()).clients['client-1']?.mode, 'allowlist');
 }
 
 {
   await applyDeepLockAction(db, { action: 'kick_class', classId });
-  assert.ok(mock.kicks.includes('client-1'));
+  assert.ok((await snap()).kicks.includes('client-1'));
 }
 
 {
@@ -79,7 +86,8 @@ setShieldConnector(mock);
   assert.equal(resolveDeepLockState(store, classId).netMode, 'allow');
 }
 
-resetShieldConnectorToMock();
+lab.stop();
+resetShieldConnectorToOff();
 db.close();
 rmSync(dir, { recursive: true, force: true });
 console.log('deepLock.test.ts ok');

@@ -288,8 +288,44 @@ export async function admitPortalClient(
     }
   }
 
-  // Unknown zone: allow portal session but warn (school should map zones).
+  // Unknown / unmatched zone: default hold (avoid silent SSID mix-up). Opt-in soft-allow:
+  // CLASSROOM_DESK_PORTAL_UNMAPPED=allow
   const ever = getEverStudentZone(db, opts.session.studentId);
+  if (!zone) {
+    const soft =
+      process.env.CLASSROOM_DESK_PORTAL_UNMAPPED === 'allow' ||
+      process.env.CLASSROOM_DESK_PORTAL_UNMAPPED === '1';
+    if (!soft) {
+      return {
+        decision: 'block',
+        reason: 'unmapped_zone',
+        zoneId: null,
+        zoneLabel: null,
+        everStudentZone: ever,
+        requirePortal: true,
+        message:
+          '已拦截：当前网未匹配任何网络配置档（SSID/CIDR）。请学校在「网络档」补全后再认证，或设 CLASSROOM_DESK_PORTAL_UNMAPPED=allow 临时软放行。',
+      };
+    }
+    const { grantGatewayAccess } = await import('./gatewayAllowlist.js');
+    grantGatewayAccess(db, {
+      clientKey: clientId,
+      studentId: opts.session.studentId,
+      classId: opts.session.classId,
+      ip: String(opts.hint.ipv4 ?? '').trim() || undefined,
+      ttlSec: 12 * 3600,
+    });
+    return {
+      decision: 'allow',
+      reason: 'unmapped_zone',
+      zoneId: null,
+      zoneLabel: null,
+      everStudentZone: ever,
+      requirePortal: false,
+      message: '已认证（软放行）：当前网未映射 Zone — 请尽快补全 SSID/CIDR。',
+    };
+  }
+
   const { grantGatewayAccess } = await import('./gatewayAllowlist.js');
   grantGatewayAccess(db, {
     clientKey: clientId,
@@ -300,14 +336,12 @@ export async function admitPortalClient(
   });
   return {
     decision: 'allow',
-    reason: zone ? null : 'unmapped_zone',
-    zoneId: zone?.id ?? null,
-    zoneLabel: zone?.label ?? null,
+    reason: null,
+    zoneId: zone.id,
+    zoneLabel: zone.label,
     everStudentZone: ever,
-    requirePortal: zone?.requirePortal ?? false,
-    message: zone
-      ? '已认证'
-      : '已认证，但当前网未匹配任何网络配置档（请学校补全 SSID/CIDR）。',
+    requirePortal: zone.requirePortal ?? false,
+    message: '已认证',
   };
 }
 
@@ -329,13 +363,21 @@ function examBoxHardwareAccepted(): boolean {
   }
 }
 
-/** Product capability flags for UI / open-api. */
+/**
+ * Product capability flags for UI / open-api.
+ * salesPhase stays `pilot` and gaReady stays false until PILOT_SKU.md GA gates are met
+ * (live-shield evidence, contract page rename, optional hardware SKU). Do not bump to GA here.
+ */
 export function productCapabilities() {
   const deskDns = getDeskDnsStatus();
   const shieldId = getShieldConnector().id;
   const shieldProd =
     shieldId === 'http' || shieldId === 'opnsense' || shieldId === 'unifi';
   return {
+    /** Contract track: Pilot 可售；不是 1.0 GA（见 docs/PILOT_SKU.md）. */
+    salesPhase: 'pilot' as const,
+    /** Always false on Pilot track — flip only when GA checklist is done in docs + Release. */
+    gaReady: false,
     labAgent: true,
     deepLock: true,
     networkZones: true,
@@ -349,7 +391,10 @@ export function productCapabilities() {
     netShieldAdapters: listShieldAdapterIds(),
     netShieldActive: shieldId,
     examBox: true, // SKU docs + compose shipped; hardware optional
-    /** True only after first-unit acceptance (settings or CLASSROOM_DESK_EXAM_BOX_HARDWARE=1). */
+    /**
+     * Default false（灰显）. True only after BOM/镜像验收登记
+     * （序列号+镜像 tag+勾选，或 CLASSROOM_DESK_EXAM_BOX_HARDWARE=1）. 见 deploy/exam-box/HARDWARE.md.
+     */
     examBoxHardware: examBoxHardwareAccepted(),
     enterprise8021x: true,
     deviceFingerprinting: false,

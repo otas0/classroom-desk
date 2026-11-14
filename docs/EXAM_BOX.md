@@ -1,6 +1,8 @@
-# Exam Box 小盒 SKU
+# Exam Box 小盒 SKU（Pilot · 非量产硬件发售）
 
-可选硬件/镜像产品线：考场插电即用的「气泡网」，**不改全校核心交换**。与 Classroom Desk 教师主机配对后，本场考试 SSID 仅放行试卷域 + 门户/API。
+可选**旁路 compose/镜像**产品线：考场插电试点的「气泡网」，**不改全校核心交换**。与 Classroom Desk 教师主机配对后，本场考试 SSID 仅放行试卷域 + 门户/API。
+
+**销售边界：** `examBox=true`（文档 + GHCR/compose 可试点交付）；`examBoxHardware=false`（量产刷机硬件**未发售**、教师 UI 灰显）。合同与报价见 [`PILOT_SKU.md`](./PILOT_SKU.md)。已有全校 OPNsense/UniFi 时默认推 Shield，不重复推销小盒。
 
 ## 交付物
 
@@ -46,11 +48,18 @@ cosign verify \
   ghcr.io/otas0/classroom-desk-exam-box:sha-e5e8c31ea0d9
 ```
 
-## 能力旗标
+## 能力旗标与报价
 
-`productCapabilities().examBox = true`（文档与 compose 已交付）。  
-`examBoxHardware = true` **仅当** 首台硬件验收登记完成（设置里序列号+镜像 tag+勾选，或 `CLASSROOM_DESK_EXAM_BOX_HARDWARE=1`）。  
+| 旗标 | 值 | 可报价 |
+|---|---|---|
+| `examBox` | `true` | Pilot：compose + 签名镜像 + 联调文档 |
+| `examBoxHardware` | 默认 **`false`**；登记后可 `true` | 未登记前 **否** — UI 须灰显「仅试点镜像」；首台硬件验收（设置里序列号+镜像 tag+勾选，或 `CLASSROOM_DESK_EXAM_BOX_HARDWARE=1`）后可开 |
+
 量产包：[`deploy/exam-box/BOM.md`](../deploy/exam-box/BOM.md)、[`install-appliance.sh`](../deploy/exam-box/install-appliance.sh)；CI 推 `linux/amd64`+`linux/arm64`。
+
+## 开机自检（小盒侧）
+
+镜像入口应展示：API 可达、镜像 digest、cosign 验签、SSID 名；任一项失败则红灯且**不广播**考场 SSID（见 `deploy/exam-box/selfcheck.html`）。
 
 ## 试点装盒（compose · 真机旁路）
 

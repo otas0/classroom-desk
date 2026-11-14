@@ -2,7 +2,7 @@ import type { ShieldClientRef, ShieldConnector, ShieldAuthorizeOpts } from './ty
 
 /**
  * Default when no real gateway is configured.
- * Does not pretend authorize/kick succeeded (unlike lab-only MockShieldConnector).
+ * Does not pretend authorize/kick succeeded. Use deploy/lab-*-api or real controllers.
  */
 export class OffShieldConnector implements ShieldConnector {
   readonly id = 'off';

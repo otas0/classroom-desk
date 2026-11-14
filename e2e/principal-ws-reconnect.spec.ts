@@ -3,7 +3,7 @@ import { LIVE_CLASS_NAV } from './helpers/navPrep';
 import { loginTeacherWeb } from './helpers/teacherWebLogin';
 
 /**
- * Inject a mock WebSocket: first connection opens as live, then closes once;
+ * Inject a test harness WebSocket: first connection opens as live, then closes once;
  * second connection opens again → principal-ws-live should recover.
  */
 test.describe('principal WS reconnect', () => {
@@ -20,7 +20,7 @@ test.describe('principal WS reconnect', () => {
       };
       let n = 0;
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (window as any).WebSocket = class MockWS {
+      (window as any).WebSocket = class HarnessWS {
         onopen: Sock['onopen'] = null;
         onclose: Sock['onclose'] = null;
         onerror: Sock['onerror'] = null;

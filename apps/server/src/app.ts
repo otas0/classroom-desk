@@ -34,6 +34,12 @@ import { portalRouter } from './routes/portal.js';
 import { principalRouter } from './routes/principal.js';
 import { federationRouter } from './routes/federation.js';
 import { c2EvidenceRouter } from './routes/c2Evidence.js';
+import { usbClassPackRouter } from './routes/usbClassPack.js';
+import { endOfLessonRouter } from './routes/endOfLesson.js';
+import { gatewayLiveRouter } from './routes/gatewayLive.js';
+import { deskDnsRouter } from './routes/deskDns.js';
+import { shieldWizardRouter } from './routes/shieldWizard.js';
+import { versionForceReportRouter } from './routes/versionForceReport.js';
 
 function resolveTeacherDist(): string | null {
   const here = path.dirname(fileURLToPath(import.meta.url));
@@ -72,6 +78,12 @@ export function createApp() {
   app.use(principalRouter);
   app.use(federationRouter);
   app.use(c2EvidenceRouter);
+  app.use(usbClassPackRouter);
+  app.use(endOfLessonRouter);
+  app.use(gatewayLiveRouter);
+  app.use(deskDnsRouter);
+  app.use(shieldWizardRouter);
+  app.use(versionForceReportRouter);
   app.use(authRouter);
   app.use(assistantGrantsRouter);
   app.use(auditRouter);

@@ -15,10 +15,13 @@ import {
   verifyPortalSession,
 } from '../services/portalAuth.js';
 import { saveNetworkZones } from '../services/networkZones.js';
-import { MockShieldConnector } from '../services/shield/mockConnector.js';
-import { resetShieldConnectorToMock, setShieldConnector } from '../services/shield/registry.js';
+import { OffShieldConnector } from '../services/shield/offConnector.js';
+import { resetShieldConnectorToOff, setShieldConnector } from '../services/shield/registry.js';
 
 const caps = productCapabilities();
+assert.equal(caps.salesPhase, 'pilot');
+assert.equal(caps.gaReady, false);
+assert.equal(caps.examBoxHardware, false);
 assert.equal(caps.netPortal, true);
 assert.equal(caps.deviceFingerprinting, false);
 assert.equal(caps.neverStudentNetBlock, true);
@@ -90,8 +93,7 @@ saveNetworkZones(db, [
   },
 ]);
 
-const mock = new MockShieldConnector();
-setShieldConnector(mock);
+setShieldConnector(new OffShieldConnector());
 
 const blocked = await admitPortalClient(db, {
   session: sess!,
@@ -109,7 +111,27 @@ const allowed = await admitPortalClient(db, {
 assert.equal(allowed.decision, 'allow');
 assert.equal(allowed.everStudentZone, true);
 
-resetShieldConnectorToMock();
+const unmappedHold = await admitPortalClient(db, {
+  session: sess!,
+  hint: { ssid: 'Unknown-Guest-Net' },
+  clientKey: 'portal-unmapped',
+});
+assert.equal(unmappedHold.decision, 'block');
+assert.equal(unmappedHold.reason, 'unmapped_zone');
+
+const prevUnmapped = process.env.CLASSROOM_DESK_PORTAL_UNMAPPED;
+process.env.CLASSROOM_DESK_PORTAL_UNMAPPED = 'allow';
+const unmappedSoft = await admitPortalClient(db, {
+  session: sess!,
+  hint: { ssid: 'Unknown-Guest-Net' },
+  clientKey: 'portal-unmapped-soft',
+});
+assert.equal(unmappedSoft.decision, 'allow');
+assert.equal(unmappedSoft.reason, 'unmapped_zone');
+if (prevUnmapped === undefined) delete process.env.CLASSROOM_DESK_PORTAL_UNMAPPED;
+else process.env.CLASSROOM_DESK_PORTAL_UNMAPPED = prevUnmapped;
+
+resetShieldConnectorToOff();
 db.close();
 rmSync(dir, { recursive: true, force: true });
 console.log('portalAuth.test.ts ok');

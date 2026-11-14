@@ -22,6 +22,8 @@ Get-FileHash -Algorithm SHA256 .\ClassroomDesk-Setup-0.1.7.exe
 
 版本↔tag 对照见 [ARTIFACTS.md](./ARTIFACTS.md)。C2 勾选见下文「C2」。
 
+**本班专用一键打包（教师端）：**「上课前指派学生机」→「本班专用一键打包（U 盘 zip）」→ 下载含 `classroom-desk-config.json` + `CLASS-CARD.txt` + C2 勾选（及本机缓存的 Setup.exe/sha）的 zip。API：`GET /api/v1/usb-class-pack?classId=`。
+
 一键组装 U 盘源目录（exe + sha + C2 清单 → `releases/<IP>/`）：
 
 ```bash

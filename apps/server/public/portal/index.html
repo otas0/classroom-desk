@@ -38,6 +38,9 @@
       .msg.ok { color:var(--ok); } .msg.err { color:var(--danger); }
       .banner { display:none; margin-bottom:14px; padding:12px; border-radius:10px; background:#f8e8e8; color:var(--danger); font-weight:600; }
       .banner.show { display:block; }
+      .epoch { display:none; margin-bottom:14px; padding:12px; border-radius:10px; background:#fff6e5; color:#6a4a00; }
+      .epoch.show { display:block; }
+      .epoch img { display:block; margin:10px auto 0; width:148px; height:148px; background:#fff; }
       .caps { margin-top:18px; font-size:.75rem; color:#777; }
       .langs { margin:0 0 8px; text-align:right; font-size:12px; }
     </style>
@@ -52,6 +55,11 @@
         <a href="#" data-lang="ko">한</a>
       </p>
       <div id="blockBanner" class="banner" role="alert"></div>
+      <div id="epochBanner" class="epoch" role="status" data-testid="portal-epoch-expired">
+        <span data-i18n="epochExpired">本班门户会话已过期。请扫码重新进入。</span>
+        <p class="hint" data-i18n="rescanHint">用手机扫教师投影的班码 / QR 重新进入即可。</p>
+        <img id="classQr" alt="class QR" hidden />
+      </div>
       <h1 data-i18n="title">校园网认证</h1>
       <p class="hint" data-i18n="hint">学校部署的上网认证（零安装）。</p>
       <form id="form">
@@ -173,6 +181,17 @@
           if (b.ssidTrust === 'ssid_unsigned_rejected') {
             banner.textContent = L.ssidRequired || '';
             banner.classList.add('show');
+          }
+          if (b.sessionExpired || b.epochExpired) {
+            const eb = document.getElementById('epochBanner');
+            eb.classList.add('show');
+            const qr = document.getElementById('classQr');
+            const classId = b.classId || params.get('classId') || '';
+            if (classId && qr) {
+              qr.hidden = false;
+              // Self-hosted PNG (exam nets often block external QR CDNs).
+              qr.src = '/api/v1/portal/class-qr?classId=' + encodeURIComponent(classId);
+            }
           }
           if (b.authenticated) admit();
         } catch (_) { setMsg(L.offline || 'offline', false); }
