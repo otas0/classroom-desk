@@ -39,10 +39,13 @@ const { reconcileGatewayAliases } = await import('../services/gatewayAliasReconc
 const { applyDeepLockAction } = await import('../services/deepLock.js');
 const { getSetting } = await import('../db/migrate.js');
 const { getShieldConnector } = await import('../services/shield/registry.js');
+const { upsertSetting } = await import('../services/exitLock.js');
 
 migrate();
 reloadShieldConnectorFromEnv();
 const db = openDb();
+upsertSetting(db, 'max_secrecy_mode', '0');
+upsertSetting(db, 'strict_net_fail_closed', '0');
 
 const connector = getShieldConnector();
 assert.equal(connector.id, 'opnsense');

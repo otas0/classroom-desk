@@ -24,6 +24,7 @@ const { resetShieldConnectorToOff } = await import('../services/shield/registry.
 migrate();
 resetShieldConnectorToOff();
 const db = openDb();
+upsertSetting(db, 'max_secrecy_mode', '0');
 
 assert.equal(resolveAuditRetentionDays(db), AUDIT_RETENTION_DAYS_DEFAULT);
 

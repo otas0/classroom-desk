@@ -3,7 +3,8 @@
 > **范围：** 校园网包（Shield + 门户 + Zones + 放行表）与单网校包（DeskDNS）**双线并行**。  
 > **定位：** 在「校安运维级」（失败闭合、无假成功、可审计）之上，补控制矩阵、日志留存、账号分权与证据包，供学校信息中心 / 密评材料引用。  
 > **非承诺：** 本文不替代正式等保测评报告；不宣称产品已通过某级等保认证。材料由学校 IT 结合本校拓扑填证。  
-> **S 档声明：** `security_tier_s=1`（默认）是**学校部署最高硬化档**（审计哈希链、双线武装门闩、禁未映射软放行、admin 敏感闸）。**不是**国家秘密 / 绝密信息系统，禁止对外宣传「安全局最高机密」或等同密级。
+> **S 档声明：** `security_tier_s=1`（默认）是学校硬化档（审计链、OR 双线门闩、禁未映射软放行）。  
+> **最高保密档：** `max_secrecy_mode=1`（默认）是**产品内最严机制**（双线 **AND**、HMAC 密钥审计链 + `data/audit-seal/` 只追加镜像、深锁/合规 **密码再认证**、考试态心跳失败自动收紧、禁一键连班、禁联邦广播、合规包 `packHmac`）。**不是**国家秘密 / 绝密信息系统，禁止对外宣传「安全局最高机密」或等同密级。单网校仅 DeskDNS 时须关闭最高保密档、保留 S 档。
 
 相关：[`SECURITY.md`](./SECURITY.md) · [`PERMISSIONS.md`](./PERMISSIONS.md) · [`NETWORK.md`](./NETWORK.md) · [`PILOT_SKU.md`](./PILOT_SKU.md) · [`CLASSROOM_JOIN_SECURITY.md`](./CLASSROOM_JOIN_SECURITY.md)
 
@@ -68,28 +69,30 @@ flowchart TB
 
 助教：**只读**网络态势与审计，**不可**改断网面。与 [`PERMISSIONS.md`](./PERMISSIONS.md) 同步。
 
-## 4. 日志留存与防篡改（S 档）
+## 4. 日志留存与防篡改（最高保密档）
 
 | 项 | 默认 | 说明 |
 |---|---|---|
-| `audit_retention_days` | **180** | 教师审计表按日滚动删除（调度器）；可 30–730；**改留存 / 清理 = admin** |
-| 哈希链 | `prev_hash` / `row_hash` | SHA-256 追加链；`GET /api/v1/compliance/audit-chain` |
-| 回收站软删 | 7 天 | 与审计留存分离，勿混用 |
-| 合规证据包 | JSON + `.sha256` | `contentSha256`；一键导出可教师/admin |
+| `audit_retention_days` | **180** | 教师审计表按日滚动删除（调度器）；可 30–730；**改留存 / 清理 = admin + 再认证** |
+| 哈希链 | `prev_hash` / `row_hash` | **HMAC-SHA256**（`hmac1:` + `AUDIT_HMAC_KEY`/`JWT_SECRET`）；兼容旧纯 SHA-256；`GET /api/v1/compliance/audit-chain` |
+| 密封镜像 | `data/audit-seal/audit.jsonl` | 只追加；**SQLite purge 不删** |
+| 合规证据包 | JSON + `.sha256` + `.hmac` | `contentSha256` + `packHmac`；`X-Pack-HMAC` |
 | live 归档 | admin | 无学校 LIVE 仍写 SKIPPED；**不升 GA** |
 
-**不可篡改声明：** 哈希链可检出应用层改写；**不**防物理拷贝改库或替换整文件。密评应另做 NAS 只读快照 / WORM / SIEM。
+**不可篡改声明：** HMAC 链 + 密封镜像可检出应用层改写；**不**防物理磁盘级攻击或密钥失窃。密评应另做 NAS 只读快照 / WORM / SIEM，并保管 `AUDIT_HMAC_KEY`。
 
-## 5. 失败闭合（双线 · S 档加严）
+## 5. 失败闭合（双线 · 最高保密档加严）
 
 | 场景 | 期望行为 |
 |---|---|
-| Shield 未配置且 DeskDNS 未运行 | **拒绝** freeze/exam_net/kick（`strict_net_fail_closed`）；审计 `deep_lock.strict_refuse` |
-| 仅客户端冻、无断网面 | 须先武装 Shield **或** DeskDNS |
+| 最高保密档：Shield 或 DeskDNS 缺一 | **拒绝** freeze/exam_net/kick（`max_secrecy_dual_path`）；审计 `deep_lock.maxsec_dual_refuse` |
+| S 档且关闭最高保密：双线皆未武装 | **拒绝**（`strict_net_fail_closed`）；须 Shield **或** DeskDNS |
+| 深锁敏感动作无 `confirmPassword` | **403** `reauth_required` |
+| 考试态 Shield 心跳过期或 DeskDNS 宕 | 调度器 `maxsec.heartbeat_fail_lockdown`；**禁止 allow_net** |
 | Shield API 失败 | `ok:false` + 审计 + 顶栏错误；客户端仍按深锁收紧 |
-| 未映射 SSID | 默认 **block**；S 档/生产/`CLASSROOM_DESK_STRICT=1` **禁止** `PORTAL_UNMAPPED` 软放行 |
-| DeskDNS 未运行而 profile=exam | 对账 critical；UI 警告 |
-| 下课收工 | 确认后清 epoch / 放行表 / 连班 / 深锁；Shield release 失败仍记审计 |
+| 未映射 SSID | 默认 **block**；S/最高保密/生产 **禁止** 软放行 |
+| 一键连班 / 联邦广播 | 最高保密档 **禁止开启 / 不广播** |
+| 下课收工 | 确认 + 再认证后清 epoch / 放行表 / 连班 / 深锁 |
 
 ## 6. 证据包清单
 

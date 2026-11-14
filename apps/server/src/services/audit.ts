@@ -8,16 +8,17 @@ import { enqueueAuditRetry } from './auditRetry.js';
 import {
   auditGenesisHash,
   computeAuditRowHash,
+  expectAuditRowHash,
   persistHashedAuditRow,
 } from './auditPersist.js';
 
 export { RECYCLE_RETENTION_DAYS, computeAuditRowHash };
 
-/** Verify append-only hash chain (S-tier tamper evidence). Legacy empty hashes are skipped. */
+/** Verify append-only HMAC/hash chain (max-secrecy tamper evidence). Legacy empty hashes are skipped. */
 export function verifyAuditHashChain(
   db: DatabaseSync = openDb(),
   limit = 5_000,
-): { ok: boolean; checked: number; brokenAt: string | null; tip: string } {
+): { ok: boolean; checked: number; brokenAt: string | null; tip: string; keyed: boolean } {
   const GENESIS = auditGenesisHash();
   const rows = db
     .prepare(
@@ -42,14 +43,16 @@ export function verifyAuditHashChain(
   }>;
   let prev = GENESIS;
   let checked = 0;
+  let keyed = false;
   for (const r of rows) {
     const rowHash = String(r.rowHash ?? '');
     if (!rowHash) {
       prev = GENESIS;
       continue;
     }
+    if (rowHash.startsWith('hmac1:')) keyed = true;
     const claimedPrev = String(r.prevHash ?? '') || GENESIS;
-    const expect = computeAuditRowHash({
+    const parts = {
       prevHash: claimedPrev,
       id: r.id,
       actorUserId: r.actorUserId,
@@ -59,21 +62,23 @@ export function verifyAuditHashChain(
       detail: String(r.detail ?? ''),
       clientIp: r.clientIp,
       createdAt: r.createdAt,
-    });
+    };
     if (claimedPrev !== prev && prev !== GENESIS) {
       return {
         ok: false,
         checked,
         brokenAt: r.id,
         tip: 'prev_hash discontinuity — possible insert/reorder',
+        keyed,
       };
     }
-    if (expect !== rowHash) {
+    if (!expectAuditRowHash(parts, rowHash)) {
       return {
         ok: false,
         checked,
         brokenAt: r.id,
         tip: 'row_hash mismatch — possible tamper',
+        keyed,
       };
     }
     prev = rowHash;
@@ -83,7 +88,8 @@ export function verifyAuditHashChain(
     ok: true,
     checked,
     brokenAt: null,
-    tip: checked ? 'chain_ok' : 'no_hashed_rows_yet',
+    tip: checked ? (keyed ? 'hmac_chain_ok' : 'chain_ok_legacy') : 'no_hashed_rows_yet',
+    keyed,
   };
 }
 

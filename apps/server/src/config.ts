@@ -15,10 +15,17 @@ function requireOrDevSecret(name: string, ephemeralLabel: string): string {
   return generated;
 }
 
+const jwtSecret = requireOrDevSecret('JWT_SECRET', 'JWT secret');
+
 export const config = {
   port: Number(process.env.PORT ?? 8787),
   host: process.env.HOST ?? '0.0.0.0',
-  jwtSecret: requireOrDevSecret('JWT_SECRET', 'JWT secret'),
+  jwtSecret,
+  /**
+   * Key for audit HMAC chain + compliance pack seal.
+   * Prefer AUDIT_HMAC_KEY; falls back to JWT_SECRET (same process lifetime in dev).
+   */
+  auditHmacKey: process.env.AUDIT_HMAC_KEY?.trim() || jwtSecret,
   jwtExpiresIn: process.env.JWT_EXPIRES_IN ?? '7d',
   defaultPointRequestTtlMinutes: 60,
   minPointRequestTtlMinutes: 1,

@@ -67,6 +67,14 @@ export function DeepLockBar({ classId }: { classId: string }) {
   function run(action: string, confirmText?: string) {
     if (readonly) return;
     if (confirmText && !window.confirm(confirmText)) return;
+    const confirmPassword = window.prompt(
+      t('最高保密档：请输入当前账号密码以确认深锁操作'),
+      '',
+    );
+    if (confirmPassword == null || !String(confirmPassword).trim()) {
+      setMsg(t('已取消：须密码再认证'));
+      return;
+    }
     setBusy(true);
     const allowlistHosts = hosts
       .split(/[,;\s]+/)
@@ -79,6 +87,7 @@ export function DeepLockBar({ classId }: { classId: string }) {
         classId: classId.trim() || undefined,
         examUrl: examUrl.trim() || undefined,
         allowlistHosts,
+        confirmPassword: String(confirmPassword).trim(),
       }),
     })
       .then(async (r) => {

@@ -5,6 +5,8 @@ import { applyDeepLockAction } from '../services/deepLock.js';
 import { clearEasyJoin } from '../services/easyJoin.js';
 import { upsertSetting } from '../services/exitLock.js';
 import { getPortalSessionEpoch } from '../services/portalSessionRevoke.js';
+import { maxSecrecyEnabled } from '../services/maxSecrecy.js';
+import { reauthRequiredResponse, verifyActorReauth } from '../services/reauth.js';
 
 export const endOfLessonRouter = Router();
 
@@ -24,6 +26,17 @@ endOfLessonRouter.post(
       return;
     }
     const db = openDb();
+    if (maxSecrecyEnabled(db)) {
+      const ok = await verifyActorReauth(db, {
+        userId: req.user?.id,
+        role: req.user?.role,
+        password: req.body?.confirmPassword ?? req.body?.password,
+      });
+      if (!ok) {
+        res.status(403).json(reauthRequiredResponse());
+        return;
+      }
+    }
     const actor = {
       actorUserId: req.user?.id,
       actorRole: req.user?.role,

@@ -44,6 +44,7 @@ import {
 import { addExitLockSseClient, broadcastExitLockPayload } from '../services/exitLockHub.js';
 import { addInputLockSseClient, broadcastInputLock, buildInputLockPayload } from '../services/inputLockHub.js';
 import { previewPurgeExpiredSoftDeletes, purgeExpiredSoftDeletes, writeAudit } from '../services/audit.js';
+import { maxSecrecyEnabled } from '../services/maxSecrecy.js';
 import { toCsv } from '../utils/csv.js';
 import {
   decryptFileAesGcm,
@@ -609,6 +610,13 @@ settingsRouter.patch('/api/v1/settings', requireAuth, requireRoles('teacher', 'a
       req.body.studentEasyJoinClassId !== undefined
         ? String(req.body.studentEasyJoinClassId ?? '').trim()
         : String(getSetting(db, 'student_easy_join_class_id') ?? '').trim();
+    if (on && maxSecrecyEnabled(db)) {
+      res.status(403).json({
+        error: 'max_secrecy_blocks_easy_join',
+        message: '最高保密档禁止一键连班；请先关闭 max_secrecy_mode',
+      });
+      return;
+    }
     if (on && !classId) {
       res.status(400).json({
         error: 'easy_join_class_required',

@@ -22,6 +22,14 @@ export function EndOfClassChecklist({ classId }: { classId: string }) {
       `${t('确认下课收工？将立即：')}\n\n• ${END_PREVIEW()}\n\n${t('误触后学生须重新认证 / 重新连班。')}`,
     );
     if (!ok) return;
+    const confirmPassword = window.prompt(
+      t('最高保密档：请输入当前账号密码以确认下课收工'),
+      '',
+    );
+    if (confirmPassword == null || !String(confirmPassword).trim()) {
+      setMsg(t('已取消：须密码再认证'));
+      return;
+    }
     setBusy(true);
     setMsg('');
     try {
@@ -33,7 +41,10 @@ export function EndOfClassChecklist({ classId }: { classId: string }) {
         easyJoinCleared?: boolean;
       }>('/api/v1/classes/end-of-lesson', {
         method: 'POST',
-        body: JSON.stringify({ classId }),
+        body: JSON.stringify({
+          classId,
+          confirmPassword: String(confirmPassword).trim(),
+        }),
       });
       setMsg(
         t('下课清单完成：epoch={v0} · 放行表已清 · DNS={v1} · 一键连班={v2}', {

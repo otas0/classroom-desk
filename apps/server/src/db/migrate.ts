@@ -151,6 +151,15 @@ const DEFAULT_SETTINGS: Record<string, string> = {
   security_tier_s: '1',
   /** When 1 with S-tier: freeze/exam_net/kick require Shield≠off OR DeskDNS running. */
   strict_net_fail_closed: '1',
+  /**
+   * Max-secrecy (school highest product controls; default on). NOT national 绝密.
+   * Dual-path AND, HMAC audit + seal mirror, reauth on deep-lock, heartbeat lockdown,
+   * forces portal sig / private-device / easy-join off / DeskDNS follow.
+   */
+  max_secrecy_mode: '1',
+  max_secrecy_heartbeat_stale_sec: '120',
+  max_secrecy_lockdown: '0',
+  max_secrecy_lockdown_reason: '',
 };
 
 export function migrate(database?: DatabaseSync): DatabaseSync {

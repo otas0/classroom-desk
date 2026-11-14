@@ -32,6 +32,11 @@ import {
   evaluateNetPathsArmed,
   strictNetFailClosed,
 } from './securityTier.js';
+import {
+  evaluateDualPathRequired,
+  maxSecrecyEnabled,
+  maxSecrecyLockdownActive,
+} from './maxSecrecy.js';
 
 export const KEY_DEEP_LOCK = 'deep_lock_store';
 export const KEY_DEEP_LOCK_VIOLATIONS = 'deep_lock_violations';
@@ -280,13 +285,37 @@ export async function applyDeepLockAction(
   let restoreExamInput = false;
   let kick = false;
 
-  // S-tier: refuse to pretend cut-net when neither Shield nor DeskDNS is armed.
+  // Max-secrecy: BOTH Shield and DeskDNS must be armed for tighten.
   if (
+    (opts.action === 'freeze' ||
+      opts.action === 'exam_net' ||
+      opts.action === 'kick_class') &&
+    maxSecrecyEnabled(db)
+  ) {
+    const dual = evaluateDualPathRequired(db);
+    if (!dual.ok) {
+      writeAudit(
+        {
+          action: 'deep_lock.maxsec_dual_refuse',
+          actorUserId: actor?.actorUserId,
+          actorRole: actor?.actorRole,
+          classId,
+          detail: { action: opts.action, ...dual },
+          clientIp: actor?.clientIp,
+        },
+        db,
+      );
+      throw new Error(
+        `max_secrecy_dual_path: 最高保密档要求 Shield≠off 且 DeskDNS 同时运行后再深锁收紧。(${dual.detail})`,
+      );
+    }
+  } else if (
     (opts.action === 'freeze' ||
       opts.action === 'exam_net' ||
       opts.action === 'kick_class') &&
     strictNetFailClosed(db)
   ) {
+    // S-tier (max secrecy off): at least one path armed.
     const paths = evaluateNetPathsArmed();
     if (!paths.anyArmed) {
       writeAudit(
@@ -304,6 +333,24 @@ export async function applyDeepLockAction(
         `strict_net_fail_closed: 双线皆未武装（Shield=off 且 DeskDNS 未运行）。配置 OPNsense/UniFi/HTTP 或启用 DeskDNS 后再深锁收紧。(${paths.detail})`,
       );
     }
+  }
+
+  // Heartbeat-fail lockdown: refuse allow_net until paths recover (end still needs reauth at route).
+  if (opts.action === 'allow_net' && maxSecrecyLockdownActive(db)) {
+    writeAudit(
+      {
+        action: 'deep_lock.maxsec_lockdown_refuse',
+        actorUserId: actor?.actorUserId,
+        actorRole: actor?.actorRole,
+        classId,
+        detail: { action: opts.action },
+        clientIp: actor?.clientIp,
+      },
+      db,
+    );
+    throw new Error(
+      'max_secrecy_lockdown: 考试态心跳失败已自动收紧，禁止放行上网直至 Shield 心跳恢复且 DeskDNS 运行（或管理员关闭最高保密档）',
+    );
   }
 
   switch (opts.action) {

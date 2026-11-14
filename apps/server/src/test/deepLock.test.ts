@@ -11,6 +11,7 @@ import {
   recordFocusViolation,
   listFocusViolations,
 } from '../services/deepLock.js';
+import { upsertSetting } from '../services/exitLock.js';
 import { resetShieldConnectorToOff } from '../services/shield/registry.js';
 import { startLabShieldHttp } from './helpers/labShieldHttp.js';
 
@@ -19,6 +20,8 @@ process.env.CLASSROOM_DESK_DATA_DIR = dir;
 
 const db = new DatabaseSync(path.join(dir, 'test.sqlite'));
 migrate(db);
+upsertSetting(db, 'max_secrecy_mode', '0');
+upsertSetting(db, 'strict_net_fail_closed', '0');
 
 const classId = 'class-a';
 const studentId = 'stu-1';

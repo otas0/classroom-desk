@@ -25,6 +25,8 @@ const {
 migrate();
 resetShieldConnectorToOff();
 const db = openDb();
+// Isolate S-tier OR-path from max-secrecy AND-path
+upsertSetting(db, 'max_secrecy_mode', '0');
 
 assert.equal(securityTierSEnabled(db), true);
 assert.equal(strictNetFailClosed(db), true);

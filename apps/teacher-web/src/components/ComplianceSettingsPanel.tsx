@@ -9,6 +9,11 @@ type Retention = {
   minDays: number;
   maxDays: number;
   deskDnsFollowDeepLock?: boolean;
+  maxSecrecyMode?: boolean;
+  maxSecrecyLockdown?: boolean;
+  maxSecrecyLockdownReason?: string | null;
+  dualPath?: { required?: boolean; ok?: boolean; detail?: string };
+  auditSealExists?: boolean;
 };
 
 type AliasReport = {
@@ -20,17 +25,23 @@ type AliasReport = {
   detail: string;
 };
 
-/** Settings: audit retention, DeskDNS follow deep-lock, compliance export, live archive. */
+/** Settings: max-secrecy, audit retention, DeskDNS follow, compliance export, live archive. */
 export function ComplianceSettingsPanel() {
   const readonly = isAssistant();
   const admin = isAdmin();
   const [ret, setRet] = useState<Retention | null>(null);
   const [days, setDays] = useState(180);
   const [follow, setFollow] = useState(true);
+  const [maxSec, setMaxSec] = useState(true);
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [alias, setAlias] = useState<AliasReport | null>(null);
-  const [chain, setChain] = useState<{ ok?: boolean; checked?: number; tip?: string } | null>(
-    null,
-  );
+  const [chain, setChain] = useState<{
+    ok?: boolean;
+    checked?: number;
+    tip?: string;
+    keyed?: boolean;
+    maxSecrecyMode?: boolean;
+  } | null>(null);
   const [msg, setMsg] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -38,13 +49,18 @@ export function ComplianceSettingsPanel() {
     const [r, a, c] = await Promise.all([
       api<Retention>('/api/v1/compliance/audit-retention'),
       api<AliasReport>('/api/v1/compliance/alias-reconcile').catch(() => null),
-      api<{ ok?: boolean; checked?: number; tip?: string }>(
-        '/api/v1/compliance/audit-chain',
-      ).catch(() => null),
+      api<{
+        ok?: boolean;
+        checked?: number;
+        tip?: string;
+        keyed?: boolean;
+        maxSecrecyMode?: boolean;
+      }>('/api/v1/compliance/audit-chain').catch(() => null),
     ]);
     setRet(r);
     setDays(r.retentionDays);
     setFollow(r.deskDnsFollowDeepLock !== false);
+    setMaxSec(r.maxSecrecyMode !== false);
     if (a) setAlias(a);
     if (c) setChain(c);
   }
@@ -63,13 +79,53 @@ export function ComplianceSettingsPanel() {
     try {
       const body = await api<Retention>('/api/v1/compliance/audit-retention', {
         method: 'PATCH',
-        body: JSON.stringify({ retentionDays: days, deskDnsFollowDeepLock: follow }),
+        body: JSON.stringify({
+          retentionDays: days,
+          deskDnsFollowDeepLock: follow,
+          confirmPassword: confirmPassword || undefined,
+        }),
       });
       setRet(body);
       setMsg(t('已保存合规留存与 DeskDNS 联动'));
-      await load();
+      setConfirmPassword('');
     } catch (e) {
       setMsg(e instanceof Error ? e.message : t('保存失败'));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function saveMaxSec() {
+    if (!admin) {
+      setMsg(t('最高保密档仅管理员可改'));
+      return;
+    }
+    if (!confirmPassword.trim()) {
+      setMsg(t('请先输入管理员密码再切换最高保密档'));
+      return;
+    }
+    setBusy(true);
+    setMsg('');
+    try {
+      const body = await api<{
+        maxSecrecyMode?: boolean;
+        note?: string;
+      }>('/api/v1/compliance/max-secrecy', {
+        method: 'PATCH',
+        body: JSON.stringify({
+          maxSecrecyMode: maxSec,
+          confirmPassword: confirmPassword.trim(),
+        }),
+      });
+      setMsg(
+        body.maxSecrecyMode
+          ? t('已开启最高保密档（双线 AND · HMAC 审计 · 深锁再认证）')
+          : t('已关闭最高保密档（仍可用 S 档）'),
+      );
+      setConfirmPassword('');
+      await load();
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : t('切换失败'));
     } finally {
       setBusy(false);
     }
@@ -99,7 +155,12 @@ export function ComplianceSettingsPanel() {
       a.download = name;
       a.click();
       URL.revokeObjectURL(url);
-      setMsg(t('已下载合规证据包'));
+      const hmac = res.headers.get('X-Pack-HMAC');
+      setMsg(
+        hmac
+          ? `${t('已下载合规证据包')} · HMAC ${hmac.slice(0, 12)}…`
+          : t('已下载合规证据包'),
+      );
     } catch (e) {
       setMsg(e instanceof Error ? e.message : t('导出失败'));
     } finally {
@@ -156,7 +217,7 @@ export function ComplianceSettingsPanel() {
       <h3>{t('等保 / 密评材料（网络双线）')}</h3>
       <p className="hint">
         {t(
-          'S 档=学校最高硬化（非绝密）。控制矩阵见 docs/COMPLIANCE_MLPS.md。留存/live 归档仅管理员；教师可导出证据包与对账。GA 仍须学校真机 live。',
+          '最高保密档=学校产品内最严机制（双线 AND、HMAC 审计密封、深锁再认证、心跳失败收紧）。不是国家绝密。GA 仍须学校真机 live。',
         )}
       </p>
       {chain ? (
@@ -165,9 +226,51 @@ export function ComplianceSettingsPanel() {
           data-testid="compliance-audit-chain"
         >
           {t('审计哈希链')}：{chain.ok ? t('完好') : t('异常')}
+          {chain.keyed ? ` · HMAC` : ''}
           {chain.checked != null ? ` · ${chain.checked}` : ''}
           {chain.tip ? ` · ${chain.tip}` : ''}
+          {ret?.auditSealExists ? ` · ${t('密封镜像存在')}` : ''}
         </p>
+      ) : null}
+      {ret?.maxSecrecyLockdown ? (
+        <p className="error" data-testid="compliance-maxsec-lockdown">
+          {t('考试态心跳失败收紧中')}
+          {ret.maxSecrecyLockdownReason ? ` · ${ret.maxSecrecyLockdownReason}` : ''}
+        </p>
+      ) : null}
+      {ret?.dualPath?.required && !ret.dualPath.ok ? (
+        <p className="error" data-testid="compliance-dual-path">
+          {t('最高保密档要求 Shield 与 DeskDNS 同时武装')}
+          {ret.dualPath.detail ? ` · ${ret.dualPath.detail}` : ''}
+        </p>
+      ) : null}
+      {admin ? (
+        <>
+          <label className="row">
+            <input
+              type="checkbox"
+              checked={maxSec}
+              disabled={readonly || busy}
+              data-testid="compliance-max-secrecy"
+              onChange={(e) => setMaxSec(e.target.checked)}
+            />
+            <span>{t('最高保密档（max_secrecy_mode）')}</span>
+          </label>
+          <label className="row">
+            <span>{t('管理员再认证密码')}</span>
+            <input
+              type="password"
+              value={confirmPassword}
+              disabled={busy}
+              autoComplete="current-password"
+              data-testid="compliance-confirm-password"
+              onChange={(e) => setConfirmPassword(e.target.value)}
+            />
+          </label>
+          <button type="button" disabled={busy} onClick={() => void saveMaxSec()}>
+            {t('应用最高保密档')}
+          </button>
+        </>
       ) : null}
       <label className="row">
         <span>{t('审计留存（天）')}</span>

@@ -15,6 +15,7 @@ import {
   writeAudit,
   verifyAuditHashChain,
 } from '../services/audit.js';
+import { hmacSealBody, auditSealPath } from '../services/auditPersist.js';
 import { upsertSetting } from '../services/exitLock.js';
 import {
   deskDnsFollowDeepLock,
@@ -26,6 +27,15 @@ import {
   securityTierSEnabled,
   strictNetFailClosed,
 } from '../services/securityTier.js';
+import {
+  applyMaxSecrecyPosture,
+  evaluateDualPathRequired,
+  maxSecrecyEnabled,
+  maxSecrecyLockdownActive,
+  setMaxSecrecyMode,
+  tickMaxSecrecyWatchdog,
+} from '../services/maxSecrecy.js';
+import { reauthRequiredResponse, verifyActorReauth } from '../services/reauth.js';
 
 export const complianceRouter = Router();
 
@@ -58,6 +68,7 @@ complianceRouter.get(
   requireRoles('teacher', 'admin', 'assistant'),
   (_req: AuthedRequest, res) => {
     const db = openDb();
+    const wd = tickMaxSecrecyWatchdog(db);
     res.json({
       retentionDays: resolveAuditRetentionDays(db),
       rowCount: countAuditLog(db),
@@ -65,6 +76,13 @@ complianceRouter.get(
       maxDays: 730,
       defaultDays: 180,
       deskDnsFollowDeepLock: deskDnsFollowDeepLock(db),
+      maxSecrecyMode: maxSecrecyEnabled(db),
+      maxSecrecyLockdown: maxSecrecyLockdownActive(db),
+      maxSecrecyLockdownReason: getSetting(db, 'max_secrecy_lockdown_reason') || null,
+      dualPath: evaluateDualPathRequired(db),
+      watchdog: wd,
+      auditSealPath: auditSealPath(),
+      auditSealExists: fs.existsSync(auditSealPath()),
     });
   },
 );
@@ -79,7 +97,11 @@ complianceRouter.get(
       ...verifyAuditHashChain(db),
       securityTierS: securityTierSEnabled(db),
       strictNetFailClosed: strictNetFailClosed(db),
+      maxSecrecyMode: maxSecrecyEnabled(db),
+      maxSecrecyLockdown: maxSecrecyLockdownActive(db),
+      dualPath: evaluateDualPathRequired(db),
       netPaths: evaluateNetPathsArmed(),
+      auditSealExists: fs.existsSync(auditSealPath()),
     });
   },
 );
@@ -88,13 +110,24 @@ complianceRouter.patch(
   '/api/v1/compliance/audit-retention',
   requireAuth,
   requireRoles('admin'),
-  (req: AuthedRequest, res) => {
+  async (req: AuthedRequest, res) => {
+    const db = openDb();
+    if (maxSecrecyEnabled(db)) {
+      const ok = await verifyActorReauth(db, {
+        userId: req.user?.id,
+        role: req.user?.role,
+        password: req.body?.confirmPassword ?? req.body?.password,
+      });
+      if (!ok) {
+        res.status(403).json(reauthRequiredResponse());
+        return;
+      }
+    }
     const days = Math.trunc(Number(req.body?.retentionDays ?? req.body?.audit_retention_days));
     if (!Number.isFinite(days) || days < 30 || days > 730) {
       res.status(400).json({ error: 'invalid_retention', message: '留存须为 30–730 天' });
       return;
     }
-    const db = openDb();
     upsertSetting(db, 'audit_retention_days', String(days));
     if (req.body?.deskDnsFollowDeepLock != null) {
       const on =
@@ -118,6 +151,45 @@ complianceRouter.patch(
       retentionDays: resolveAuditRetentionDays(db),
       rowCount: countAuditLog(db),
       deskDnsFollowDeepLock: deskDnsFollowDeepLock(db),
+      maxSecrecyMode: maxSecrecyEnabled(db),
+    });
+  },
+);
+
+complianceRouter.patch(
+  '/api/v1/compliance/max-secrecy',
+  requireAuth,
+  requireRoles('admin'),
+  async (req: AuthedRequest, res) => {
+    const db = openDb();
+    const ok = await verifyActorReauth(db, {
+      userId: req.user?.id,
+      role: req.user?.role,
+      password: req.body?.confirmPassword ?? req.body?.password,
+    });
+    if (!ok) {
+      res.status(403).json(reauthRequiredResponse());
+      return;
+    }
+    const on =
+      req.body?.maxSecrecyMode === true ||
+      req.body?.maxSecrecyMode === 1 ||
+      req.body?.maxSecrecyMode === '1';
+    setMaxSecrecyMode(db, on);
+    const forced = on ? applyMaxSecrecyPosture(db) : {};
+    writeAudit({
+      actorUserId: req.user?.id,
+      actorRole: req.user?.role,
+      action: 'compliance.max_secrecy',
+      detail: { maxSecrecyMode: on, forced },
+      clientIp: req.ip,
+    });
+    res.json({
+      ok: true,
+      maxSecrecyMode: maxSecrecyEnabled(db),
+      dualPath: evaluateDualPathRequired(db),
+      forced,
+      note: 'School highest product controls — NOT national 绝密 / classified systems.',
     });
   },
 );
@@ -126,17 +198,36 @@ complianceRouter.post(
   '/api/v1/compliance/audit-purge',
   requireAuth,
   requireRoles('admin'),
-  (req: AuthedRequest, res) => {
+  async (req: AuthedRequest, res) => {
     const db = openDb();
+    if (maxSecrecyEnabled(db)) {
+      const ok = await verifyActorReauth(db, {
+        userId: req.user?.id,
+        role: req.user?.role,
+        password: req.body?.confirmPassword ?? req.body?.password,
+      });
+      if (!ok) {
+        res.status(403).json(reauthRequiredResponse());
+        return;
+      }
+    }
     const result = purgeExpiredAuditLog(db);
     writeAudit({
       actorUserId: req.user?.id,
       actorRole: req.user?.role,
       action: 'compliance.audit_purge',
-      detail: result,
+      detail: {
+        ...result,
+        sealNote: 'SQLite purge does not delete data/audit-seal/audit.jsonl',
+      },
       clientIp: req.ip,
     });
-    res.json({ ok: true, ...result, rowCount: countAuditLog(db) });
+    res.json({
+      ok: true,
+      ...result,
+      rowCount: countAuditLog(db),
+      auditSealIntact: fs.existsSync(auditSealPath()),
+    });
   },
 );
 
@@ -156,12 +247,16 @@ complianceRouter.post(
     const chain = verifyAuditHashChain(db);
     const packBody = {
       generatedAt: new Date().toISOString(),
-      purpose: 'classroom-desk S-tier compliance pack (Pilot; NOT national classified / 绝密)',
+      purpose:
+        'classroom-desk max-secrecy / S-tier compliance pack (Pilot; NOT national classified / 绝密)',
       gaNote:
         'School live OPNsense/UniFi evidence still required for GA; lab SKIPPED cannot replace it.',
       securityTier: {
         s: securityTierSEnabled(db),
         strictNetFailClosed: strictNetFailClosed(db),
+        maxSecrecyMode: maxSecrecyEnabled(db),
+        maxSecrecyLockdown: maxSecrecyLockdownActive(db),
+        dualPath: evaluateDualPathRequired(db),
         netPaths: evaluateNetPathsArmed(),
       },
       reconcile,
@@ -171,15 +266,18 @@ complianceRouter.post(
         retentionDays: resolveAuditRetentionDays(db),
         rowCount: countAuditLog(db),
         sample: listAudit({ limit: 80 }),
+        sealExists: fs.existsSync(auditSealPath()),
       },
       settings: {
         deskDnsFollowDeepLock: deskDnsFollowDeepLock(db),
         deskdnsProfile: getSetting(db, 'deskdns_profile') || 'normal',
+        maxSecrecyMode: maxSecrecyEnabled(db),
       },
     };
     const bodyText = JSON.stringify(packBody, null, 2);
     const sha256 = createHash('sha256').update(bodyText, 'utf8').digest('hex');
-    const pack = { ...packBody, contentSha256: sha256 };
+    const packHmac = hmacSealBody(bodyText);
+    const pack = { ...packBody, contentSha256: sha256, packHmac };
     const finalText = JSON.stringify(pack, null, 2);
     writeAudit({
       actorUserId: req.user?.id,
@@ -190,6 +288,7 @@ complianceRouter.post(
         failClosedOk: reconcile.failClosedOk,
         aliasOk: alias.ok,
         contentSha256: sha256,
+        packHmac,
         chainOk: chain.ok,
       },
       clientIp: req.ip,
@@ -200,9 +299,11 @@ complianceRouter.post(
     const filePath = path.join(dir, outName);
     fs.writeFileSync(filePath, finalText);
     fs.writeFileSync(`${filePath}.sha256`, `${sha256}  ${outName}\n`);
+    fs.writeFileSync(`${filePath}.hmac`, `${packHmac}  ${outName}\n`);
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="${outName}"`);
     res.setHeader('X-Content-SHA256', sha256);
+    res.setHeader('X-Pack-HMAC', packHmac);
     res.send(finalText);
   },
 );

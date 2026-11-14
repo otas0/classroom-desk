@@ -15,6 +15,7 @@ import { runDbBackup, shouldRunDailyBackup } from '../services/backup.js';
 import { takeFleetDriftSnapshot } from '../services/fleetDrift.js';
 import { purgeExpiredInputLocks } from '../services/inputLock.js';
 import { broadcastInputLock } from '../services/inputLockHub.js';
+import { tickMaxSecrecyWatchdog } from '../services/maxSecrecy.js';
 import { nowIso } from '../utils/id.js';
 
 let timer: NodeJS.Timeout | null = null;
@@ -130,6 +131,14 @@ export function startCleanupScheduler(): void {
         }
       } catch (e) {
         console.error('[scheduler] input-lock TTL purge failed', e);
+      }
+      try {
+        const wd = tickMaxSecrecyWatchdog(db);
+        if (wd.lockdown) {
+          console.warn(`[maxsec] heartbeat lockdown: ${wd.reason}`);
+        }
+      } catch (e) {
+        console.error('[scheduler] max-secrecy watchdog failed', e);
       }
       const auditFlush = flushAuditRetryQueue();
       if (auditFlush.flushed > 0 || auditFlush.remaining > 0 || auditFlush.failed > 0) {
