@@ -613,14 +613,18 @@ ipcMain.handle('config:get', () => loadConfig());
 ipcMain.handle('config:find-removable', () => {
   const names = ['classroom-desk-config.json', 'config.json'];
   const roots: string[] = [];
+  // Prefer Public + user Desktop (teacher install card drops config here) before USB letters.
   if (process.platform === 'win32') {
+    const pub = process.env.PUBLIC || 'C:\\Users\\Public';
+    roots.push(path.join(pub, 'Desktop'));
+    roots.push(path.join(os.homedir(), 'Desktop'));
     for (const letter of 'DEFGHIJKLMNOPQRSTUVWXYZ') {
       roots.push(`${letter}:\\`);
     }
   } else {
-    roots.push('/Volumes', '/media', path.join(os.homedir(), 'Desktop'));
+    roots.push(path.join(os.homedir(), 'Desktop'), '/Volumes', '/media');
   }
-  const hits: Array<{ path: string; apiBase: string; classId: string }> = [];
+  const hits: Array<{ path: string; apiBase: string; classId: string; className?: string }> = [];
   for (const root of roots) {
     try {
       if (!fs.existsSync(root)) continue;
@@ -631,6 +635,7 @@ ipcMain.handle('config:find-removable', () => {
           apiBase?: string;
           serverUrl?: string;
           classId?: string;
+          className?: string;
         };
         const apiBase = String(raw.apiBase ?? raw.serverUrl ?? '')
           .trim()
@@ -639,7 +644,12 @@ ipcMain.handle('config:find-removable', () => {
         if (!apiBase || !classId) continue;
         if (/127\.0\.0\.1|localhost/i.test(apiBase)) continue;
         if (!/^https?:\/\//i.test(apiBase)) continue;
-        hits.push({ path: p, apiBase, classId });
+        hits.push({
+          path: p,
+          apiBase,
+          classId,
+          className: String(raw.className ?? '').trim() || undefined,
+        });
       }
     } catch {
       /* skip unreadable drives */

@@ -61,7 +61,7 @@ const PREP_ITEMS: Array<[PrepTab, string]> = [
 
 export function App() {
   const [tokenReady, setTokenReady] = useState(Boolean(getToken()));
-  const [username, setUsername] = useState('');
+  const [username, setUsername] = useState('teacher');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [tab, setTab] = useState<Tab>(() => readStoredTab());
@@ -71,6 +71,7 @@ export function App() {
   const [mustChangePassword, setMustChangePassword] = useState(
     () => sessionStorage.getItem('cd_must_change_password') === '1',
   );
+  const [setupAutoLogin, setSetupAutoLogin] = useState(false);
   const [messagesEnabled, setMessagesEnabled] = useState(true);
   const [healthAlert, setHealthAlert] = useState('');
   const [driftExpectedVersion, setDriftExpectedVersion] = useState('');
@@ -87,6 +88,60 @@ export function App() {
   const [apiRestartTip, setApiRestartTip] = useState('');
   const healthWasDownRef = useRef(false);
   const prevClassIdRef = useRef(classId);
+
+  // Teacher-Setup opens /admin/?setup=<token> → one-shot loopback login → roster.
+  useEffect(() => {
+    if (tokenReady || getToken()) return;
+    let setupTok = '';
+    try {
+      const u = new URL(window.location.href);
+      setupTok = String(u.searchParams.get('setup') ?? '').trim();
+      if (setupTok) {
+        u.searchParams.delete('setup');
+        window.history.replaceState({}, '', `${u.pathname}${u.search}${u.hash}`);
+      }
+    } catch {
+      return;
+    }
+    if (!setupTok) return;
+    let cancelled = false;
+    setSetupAutoLogin(true);
+    setError('');
+    void api<{
+      token: string;
+      mustChangePassword?: boolean;
+      openRoster?: boolean;
+      user?: { role?: string };
+    }>('/api/v1/auth/bootstrap-login', {
+      method: 'POST',
+      body: JSON.stringify({ token: setupTok }),
+    })
+      .then((res) => {
+        if (cancelled) return;
+        setToken(res.token);
+        setStaffRole(res.user?.role);
+        setMustChangePassword(false);
+        sessionStorage.setItem('cd_must_change_password', '0');
+        if (res.openRoster !== false) {
+          sessionStorage.setItem('cd_open_roster', '1');
+          setPrepTab('roster');
+          setTab('prep');
+        } else {
+          setTab('session');
+        }
+        setTokenReady(true);
+      })
+      .catch((e) => {
+        if (cancelled) return;
+        setError(e instanceof Error ? e.message : 'setup_login_failed');
+      })
+      .finally(() => {
+        if (!cancelled) setSetupAutoLogin(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [tokenReady]);
 
   useEffect(() => {
     let cancelled = false;
@@ -498,12 +553,26 @@ export function App() {
         setTab('prep');
         setPrepTab('attendance');
       } else {
-        setTab('session');
+        // Empty roster → land on import; otherwise session (class already ready).
+        sessionStorage.setItem('cd_open_roster', '1');
+        setPrepTab('roster');
+        setTab('prep');
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'login_failed');
     }
   }
+
+  // After login: if roster already has students, leave prep→roster for session once.
+  useEffect(() => {
+    if (!tokenReady || mustChangePassword || isAssistant()) return;
+    if (sessionStorage.getItem('cd_open_roster') !== '1') return;
+    if (!classId) return;
+    if (studentCount > 0) {
+      sessionStorage.removeItem('cd_open_roster');
+      setTab('session');
+    }
+  }, [tokenReady, mustChangePassword, classId, studentCount]);
 
   function openDest(dest: SetupDest) {
     setProjectionMode(false);
@@ -538,7 +607,11 @@ export function App() {
         <div className="login-card">
           <p className="login-brand">{APP_NAME}</p>
           <h1>{t('教师后台')}</h1>
-          <p className="hint">{t('使用教师账号登录。若仍是联调口令，登录后须先改个人密码。')}</p>
+          <p className="hint">
+            {setupAutoLogin
+              ? t('正在自动登录…')
+              : t('使用教师账号登录。安装后通常已自动进入；若未登录，见桌面登录卡。')}
+          </p>
           {codeRotationBanner ? (
             <div className="banner-alert" role="status" aria-live="polite">
               <p>{codeRotationBanner}</p>
@@ -558,7 +631,12 @@ export function App() {
           ) : null}
           <label>
             {t('用户名')}
-            <input value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="username" />
+            <input
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              autoComplete="username"
+              disabled={setupAutoLogin}
+            />
           </label>
           <label>
             {t('密码')}
@@ -567,11 +645,12 @@ export function App() {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               autoComplete="current-password"
+              disabled={setupAutoLogin}
             />
           </label>
           {error ? <p className="error">{error}</p> : null}
-          <button type="button" onClick={() => void login()}>
-            {t('登录')}
+          <button type="button" onClick={() => void login()} disabled={setupAutoLogin}>
+            {setupAutoLogin ? t('正在自动登录…') : t('登录')}
           </button>
         </div>
       </div>

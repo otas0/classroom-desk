@@ -19,6 +19,10 @@ const DEFAULT_SETTINGS: Record<string, string> = {
   /** JSON string array of extra weak teacher passwords (merged with shared list). */
   weak_teacher_passwords_extra: '[]',
   teacher_password_ok: '0',
+  /** One-shot Teacher-Setup auto-login token (loopback). */
+  bootstrap_login_token: '',
+  /** When 1, bootstrap_login_token is spent. */
+  bootstrap_login_used: '0',
   last_auto_backup_at: '',
   server_bind: '0.0.0.0',
   schema_version: '1',

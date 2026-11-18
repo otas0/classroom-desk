@@ -282,6 +282,28 @@ function installWinDepsOfflineReady() {
   mkdirp(path.join(dataRoot, 'uploads'));
   if (fs.existsSync(path.join(desk, '.env'))) fs.rmSync(path.join(desk, '.env'), { force: true });
 
+  // Slim SFX/zip: drop Node zip if runtime extracted (~30MB+); drop test/CI trees.
+  const nodeExeSlim = path.join(desk, 'runtime', `node-v${nodeVer}-win-x64`, 'node.exe');
+  const nodeZipSlim = path.join(desk, 'downloads', nodeZipName);
+  if (fs.existsSync(nodeExeSlim) && fs.existsSync(nodeZipSlim)) {
+    fs.rmSync(nodeZipSlim, { force: true });
+    console.log('slim: removed downloads Node zip (runtime present)');
+  }
+  for (const rel of [
+    'e2e',
+    'artifacts',
+    '.github',
+    'apps/server/src/test',
+    'apps/teacher-web/src',
+    'docs/posters',
+  ]) {
+    const p = path.join(desk, rel);
+    if (fs.existsSync(p)) {
+      rmrf(p);
+      console.log('slim: removed', rel);
+    }
+  }
+
   const marker = {
     product: true,
     version,
@@ -384,6 +406,15 @@ function writeGiveToTeacher() {
   if (!srcSetup) throw new Error('Teacher Setup.exe missing — build-teacher-setup failed?');
   cpFile(srcSetup, path.join(give, 'Teacher-Setup.exe'));
 
+  const bootSetup = path.join(outRoot, 'ClassroomDesk-Teacher-Bootstrap-x64.exe');
+  const bootVersioned = path.join(outRoot, `ClassroomDesk-Teacher-Bootstrap-${version}-x64.exe`);
+  const srcBoot = fs.existsSync(bootSetup)
+    ? bootSetup
+    : fs.existsSync(bootVersioned)
+      ? bootVersioned
+      : null;
+  if (srcBoot) cpFile(srcBoot, path.join(give, 'Teacher-Bootstrap.exe'));
+
   const studentSrc = path.join(students, `ClassroomDesk-Setup-${version}-x64.exe`);
   if (fs.existsSync(studentSrc)) {
     cpFile(studentSrc, path.join(give, 'Student-Setup.exe'));
@@ -397,20 +428,23 @@ function writeGiveToTeacher() {
     console.log('SHA256', outName, hash.slice(0, 16) + '…');
   }
   writeSha256(path.join(give, 'Teacher-Setup.exe'), 'Teacher-Setup.exe.sha256');
+  writeSha256(path.join(give, 'Teacher-Bootstrap.exe'), 'Teacher-Bootstrap.exe.sha256');
   writeSha256(path.join(give, 'Student-Setup.exe'), 'Student-Setup.exe.sha256');
 
-  const start = `Classroom Desk — install (< 5 min · aim ~1–2 min)
+  const start = `Classroom Desk — install (< 5 min · aim ~1 min)
 
-BEFORE class: copy this folder by USB/LAN (do not rely on slow public download in the classroom).
+OFFLINE (USB/LAN — preferred):
+1. Double-click Teacher-Setup.exe → Admin logged in → import roster
+2. Students: Public Desktop install card → open app → tap your name
 
-1. Double-click Teacher-Setup.exe
-2. Desktop\\ClassroomDesk-Desk-Login.txt → log in (Admin opens)
-3. Import roster into 本教室 (class is pre-created; easy-join is on)
-4. Students: Desktop\\ClassroomDesk-Student-Install.txt → one link → Find classroom
+ONLINE (slow public link — small bootstrap):
+1. Double-click Teacher-Bootstrap.exe (few MB) — downloads product zip via mirrors (resumable)
+2. Same as above after install finishes
 
-SmartScreen? More info → Run anyway (unsigned — expected)
+Backup login: Desktop\\ClassroomDesk-Desk-Login.txt
+SmartScreen? More info → Run anyway
 
-Details: docs/TIME_TO_CLASS.md · Optional: SMOKE-CHECK.txt · LAB-GO-LIVE.txt (exam only)
+Details: docs/TIME_TO_CLASS.md
 `;
   const timeDoc = path.join(root, 'docs/TIME_TO_CLASS.md');
   if (fs.existsSync(timeDoc)) cpFile(timeDoc, path.join(desk, 'docs/TIME_TO_CLASS.md'));
@@ -419,10 +453,12 @@ Details: docs/TIME_TO_CLASS.md · Optional: SMOKE-CHECK.txt · LAB-GO-LIVE.txt (
 
   const smoke = `Classroom Desk — optional smoke (after Teacher-Setup)
 
-[ ] Admin opens and login works (Desktop login card)
-[ ] Student opens ClassroomDesk-Student-Install.txt link → Find classroom
+[ ] Admin opens already logged in on roster import
+[ ] Import a short roster
+[ ] Student: Public Desktop\\ClassroomDesk-Student-Install.txt → Find classroom
 [ ] Teacher sees the student online
 
+If auto-login failed: Desktop\\ClassroomDesk-Desk-Login.txt
 If Setup failed: Desktop\\ClassroomDesk-Install-Log.txt
 SmartScreen: More info → Run anyway (unsigned — expected)
 `;
@@ -521,6 +557,15 @@ execFileSync(process.execPath, [path.join(root, 'scripts/build-teacher-setup.mjs
   cwd: root,
   stdio: 'inherit',
 });
+console.log('build thin Teacher-Bootstrap.exe (public / slow links)…');
+try {
+  execFileSync(process.execPath, [path.join(root, 'scripts/build-teacher-bootstrap.mjs')], {
+    cwd: root,
+    stdio: 'inherit',
+  });
+} catch (e) {
+  console.warn('Teacher-Bootstrap build skipped:', e instanceof Error ? e.message : e);
+}
 writeGiveToTeacher();
 
 console.log('\nDone.');

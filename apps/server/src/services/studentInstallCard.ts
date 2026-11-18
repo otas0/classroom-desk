@@ -2,8 +2,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { getDataDir, openDb } from '../db/client.js';
+import { getSetting } from '../db/migrate.js';
 import { config } from '../config.js';
-import { joinPinRequired } from './joinAuth.js';
+import { joinAttachGateActive, joinPinRequired } from './joinAuth.js';
 import { orderedLanIpsForAdvertise } from './lanNetwork.js';
 
 function upgradesDir(): string {
@@ -38,7 +39,48 @@ function publicDesktopDirs(): string[] {
   }
   const home = os.homedir();
   if (home) dirs.push(path.join(home, 'Desktop'));
-  return [...new Set(dirs.filter((d) => d && fs.existsSync(d)))];
+  return [...new Set(dirs.filter((d) => d && fs.existsSync(path.dirname(d))))];
+}
+
+export type StudentClassroomConfigFile = {
+  format: 'classroom-desk-config';
+  version: 1;
+  apiBase: string;
+  classId: string;
+  className: string | null;
+  displayName: string | null;
+  easyJoin: true;
+  writtenAt: string;
+};
+
+/**
+ * Non-secret LAN join config for Public Desktop (skips Find + Confirm on student).
+ * Omitted when PIN/device-approval would hide classId.
+ */
+export function buildStudentClassroomConfig(): StudentClassroomConfigFile | null {
+  const db = openDb();
+  const enabled = (getSetting(db, 'student_easy_join') ?? '0') === '1';
+  const classId = String(getSetting(db, 'student_easy_join_class_id') ?? '').trim();
+  if (!enabled || !classId) return null;
+  if (joinAttachGateActive(db)) return null;
+  const ips = orderedLanIpsForAdvertise(db);
+  const ip = ips[0];
+  if (!ip) return null;
+  const apiBase = `http://${ip}:${config.port}`;
+  const row = db.prepare(`SELECT name FROM classes WHERE id = ?`).get(classId) as
+    | { name?: string }
+    | undefined;
+  const displayName = String(getSetting(db, 'classroom_display_name') ?? '').trim();
+  return {
+    format: 'classroom-desk-config',
+    version: 1,
+    apiBase,
+    classId,
+    className: String(row?.name ?? '').trim() || null,
+    displayName: displayName || null,
+    easyJoin: true,
+    writtenAt: new Date().toISOString(),
+  };
 }
 
 /** Non-secret student install tips — one preferred URL; safe for Public Desktop. */
@@ -69,7 +111,7 @@ export function buildStudentInstallCardText(): string {
   }
   lines.push('');
   lines.push('SmartScreen? More info → Run anyway');
-  lines.push('Then: Find classroom');
+  lines.push('Then: open the app → tap your name (auto-joins this classroom).');
   if (joinPinRequired(db)) {
     lines.push('(Join PIN required — ask teacher)');
   }
@@ -79,12 +121,25 @@ export function buildStudentInstallCardText(): string {
 
 export function refreshStudentInstallCardFiles(): { wrote: string[] } {
   const text = buildStudentInstallCardText();
+  const cfg = buildStudentClassroomConfig();
   const wrote: string[] = [];
   for (const d of publicDesktopDirs()) {
     try {
+      fs.mkdirSync(d, { recursive: true });
       const p = path.join(d, 'ClassroomDesk-Student-Install.txt');
       fs.writeFileSync(p, text, 'utf8');
       wrote.push(p);
+      const cfgPath = path.join(d, 'classroom-desk-config.json');
+      if (cfg) {
+        fs.writeFileSync(cfgPath, JSON.stringify(cfg, null, 2), 'utf8');
+        wrote.push(cfgPath);
+      } else if (fs.existsSync(cfgPath)) {
+        try {
+          fs.rmSync(cfgPath);
+        } catch {
+          /* ignore */
+        }
+      }
     } catch {
       /* SYSTEM may lack some desktops */
     }
@@ -159,7 +214,7 @@ export function buildLessonPack(classId: string): LessonPack {
     'Student install (open one):',
     ...(preferredUrls.length ? preferredUrls.map((u) => `  ${u}`) : ['  (no Setup / LAN IP yet)']),
     '',
-    'Then: Find classroom',
+    'Then: open app → tap your name (auto-joins)',
     `Exported: ${new Date().toISOString()}`,
   ].filter(Boolean);
 

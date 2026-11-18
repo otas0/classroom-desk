@@ -128,6 +128,71 @@ export async function ensureBootstrap(db: DatabaseSync): Promise<void> {
     upsertSetting(db, 'teacher_password_ok', '1');
     console.log(`[bootstrap] teacher "${username}" password hash aligned from TEACHER_PASSWORD env`);
   }
+
+  // Installer one-shot Admin auto-login (loopback only; see tryBootstrapLogin).
+  const bootTok = process.env.BOOTSTRAP_LOGIN_TOKEN?.trim() || '';
+  if (bootTok) {
+    const prev = getSetting(db, 'bootstrap_login_token') ?? '';
+    if (prev !== bootTok) {
+      upsertSetting(db, 'bootstrap_login_token', bootTok);
+      upsertSetting(db, 'bootstrap_login_used', '0');
+      console.log('[bootstrap] setup auto-login token registered (loopback, one-shot)');
+    }
+  }
+}
+
+/** True for IPv4/IPv6 loopback (installer opens Admin on the teacher PC only). */
+export function isLoopbackAddress(ip: string | null | undefined): boolean {
+  const raw = String(ip ?? '').trim().toLowerCase();
+  if (!raw) return false;
+  const s = raw.startsWith('::ffff:') ? raw.slice(7) : raw;
+  return s === '127.0.0.1' || s === '::1' || s === 'localhost';
+}
+
+/**
+ * Consume one-shot installer setup token → teacher JWT.
+ * Only from loopback; token must match settings and not yet used.
+ */
+export async function tryBootstrapLogin(
+  db: DatabaseSync,
+  token: string,
+  clientIp: string | null | undefined,
+): Promise<
+  | { ok: true; jwt: string; user: AuthUser }
+  | { ok: false; error: string; status: number }
+> {
+  if (!isLoopbackAddress(clientIp)) {
+    return { ok: false, error: 'loopback_only', status: 403 };
+  }
+  const want = String(token ?? '').trim();
+  if (!want || want.length < 16) {
+    return { ok: false, error: 'token_required', status: 400 };
+  }
+  const stored = getSetting(db, 'bootstrap_login_token') ?? '';
+  if (!stored || stored !== want) {
+    return { ok: false, error: 'invalid_token', status: 401 };
+  }
+  if ((getSetting(db, 'bootstrap_login_used') ?? '0') === '1') {
+    return { ok: false, error: 'token_used', status: 410 };
+  }
+
+  const username = process.env.TEACHER_USERNAME?.trim() || 'teacher';
+  const user =
+    findUserByUsername(db, username) ||
+    (db
+      .prepare(
+        `SELECT * FROM users WHERE role IN ('teacher', 'admin') ORDER BY created_at ASC LIMIT 1`,
+      )
+      .get() as DbUser | undefined);
+  if (!user || (user.role !== 'teacher' && user.role !== 'admin')) {
+    return { ok: false, error: 'teacher_missing', status: 404 };
+  }
+
+  upsertSetting(db, 'bootstrap_login_used', '1');
+  upsertSetting(db, 'teacher_password_ok', '1');
+  const authUser = mapUser(user);
+  const jwt = await signToken(authUser);
+  return { ok: true, jwt, user: authUser };
 }
 
 function randomTempPassword(): string {

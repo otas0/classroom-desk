@@ -1,19 +1,18 @@
 import { useEffect, useState } from 'react';
-import { API_BASE, api } from '../api';
+import { api } from '../api';
 import type { ClassItem } from '../types';
 import { t } from '@classroom-desk/i18n';
 
 export type SetupDest = 'prep' | 'assign' | 'session' | 'prep-roster' | 'prep-questions' | 'prep-presence';
 
 /**
- * First-run teacher path: roster → students online → first question.
- * Easy-join auto-follows the selected class; no SKU/lab-gate noise on day-1.
+ * Day-1: only roster. Class + easy-join already bootstrapped; students Find classroom.
  */
 export function SetupChecklist({
   classId,
   classes,
   studentCount,
-  hasApiBase,
+  hasApiBase: _hasApiBase,
   refreshTick = 0,
   onGo,
   onCreateClass,
@@ -26,245 +25,53 @@ export function SetupChecklist({
   onGo: (tab: SetupDest) => void;
   onCreateClass?: () => void;
 }) {
-  const [hasQuestion, setHasQuestion] = useState(false);
-  const [questionKnown, setQuestionKnown] = useState(false);
-  const [serverOk, setServerOk] = useState<boolean | null>(null);
-  const [connectedCount, setConnectedCount] = useState(0);
-  const [easyJoinOn, setEasyJoinOn] = useState<boolean | null>(null);
-  const [readyUrl, setReadyUrl] = useState('');
   const [joinPendingCount, setJoinPendingCount] = useState(0);
   const [joinRateLimitLive, setJoinRateLimitLive] = useState(0);
 
   useEffect(() => {
-    if (!classId) {
-      setHasQuestion(false);
-      setQuestionKnown(true);
-      return;
-    }
     let cancelled = false;
-    setQuestionKnown(false);
-    void api<{ items: unknown[] }>(`/api/v1/questions?classId=${encodeURIComponent(classId)}`)
-      .then((r) => {
+    void api<{
+      joinPendingDeviceCount?: number;
+      joinRateLimitedIpsLive?: number;
+    }>('/api/v1/settings')
+      .then((settings) => {
         if (cancelled) return;
-        setHasQuestion(r.items.length > 0);
-        setQuestionKnown(true);
+        setJoinPendingCount(Number(settings.joinPendingDeviceCount ?? 0));
+        setJoinRateLimitLive(Number(settings.joinRateLimitedIpsLive ?? 0));
       })
       .catch(() => {
         if (cancelled) return;
-        setHasQuestion(false);
-        setQuestionKnown(true);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [classId, refreshTick]);
-
-  useEffect(() => {
-    let cancelled = false;
-    void (async () => {
-      try {
-        const res = await fetch(`${API_BASE}/health`, { cache: 'no-store' });
-        const body = (await res.json()) as {
-          ok?: boolean;
-          studentReadyUrl?: string;
-          suggestedApiBase?: string;
-        };
-        if (cancelled) return;
-        setServerOk(Boolean(res.ok && body.ok));
-        setReadyUrl(
-          String(body.studentReadyUrl ?? '').trim() ||
-            `${String(body.suggestedApiBase ?? API_BASE).replace(/\/$/, '')}/ready`,
-        );
-      } catch {
-        if (cancelled) return;
-        setServerOk(false);
-      }
-
-      try {
-        const settings = await api<{
-          studentEasyJoin?: boolean;
-          studentEasyJoinClassId?: string;
-          joinPendingDeviceCount?: number;
-          joinRateLimitedIpsLive?: number;
-        }>('/api/v1/settings');
-        if (cancelled) return;
-        const on =
-          settings.studentEasyJoin === true &&
-          Boolean(settings.studentEasyJoinClassId) &&
-          settings.studentEasyJoinClassId === classId;
-        setEasyJoinOn(Boolean(classId) && on);
-        setJoinPendingCount(Number(settings.joinPendingDeviceCount ?? 0));
-        setJoinRateLimitLive(Number(settings.joinRateLimitedIpsLive ?? 0));
-      } catch {
-        if (cancelled) return;
-        setEasyJoinOn(null);
         setJoinPendingCount(0);
         setJoinRateLimitLive(0);
-      }
-
-      if (!classId) {
-        setConnectedCount(0);
-        return;
-      }
-      try {
-        const clients = await api<{ count: number }>(
-          `/api/v1/presence/clients?classId=${encodeURIComponent(classId)}`,
-        );
-        if (cancelled) return;
-        setConnectedCount(clients.count);
-      } catch {
-        if (cancelled) return;
-        setConnectedCount(0);
-      }
-    })();
+      });
     return () => {
       cancelled = true;
     };
   }, [refreshTick, classId]);
 
   const rosterDone = classes.length > 0 && Boolean(classId) && studentCount > 0;
-  const studentsOnline = Boolean(classId) && serverOk === true && connectedCount > 0;
-  const studentsPending = serverOk === null;
-  const questionDone = hasQuestion;
-  const coreDone = rosterDone && studentsOnline && (!questionKnown || questionDone);
-
   const joinPendingAlert = joinPendingCount > 0;
   const joinRateAlert = joinRateLimitLive > 0;
   const healthAlerts = joinPendingAlert || joinRateAlert;
 
-  type BlockerLight = { id: string; label: string; state: 'ok' | 'unknown' | 'bad' };
-  const blockerLights: BlockerLight[] = [
-    {
-      id: 'join-pending',
-      label: t('待批准设备'),
-      state: joinPendingCount > 0 ? 'bad' : 'ok',
-    },
-    {
-      id: 'join-rate',
-      label: t('连班限流'),
-      state: joinRateLimitLive > 0 ? 'bad' : 'ok',
-    },
-    {
-      id: 'easy-join',
-      label: t('一键连班'),
-      state: !classId ? 'unknown' : easyJoinOn === null ? 'unknown' : easyJoinOn ? 'ok' : 'unknown',
-    },
-  ];
-  if (coreDone && !healthAlerts) return null;
+  if (rosterDone && !healthAlerts) return null;
 
   function goCreateOrRoster() {
     if (classes.length === 0 && onCreateClass) onCreateClass();
     else onGo('prep-roster');
   }
 
-  function goAssignWithAudit(source: string) {
-    const at = Date.now();
-    try {
-      sessionStorage.setItem(`cd_assign_cta_at_${classId}`, String(at));
-    } catch {
-      /* ignore */
-    }
-    void api('/api/v1/audit/events', {
-      method: 'POST',
-      body: JSON.stringify({
-        action: 'setup.scan_assign_cta',
-        classId,
-        detail: { at: new Date(at).toISOString(), source },
-      }),
-    }).catch(() => undefined);
+  function goAssign() {
     onGo('assign');
-  }
-
-  type Step = {
-    n: number;
-    label: string;
-    done: boolean;
-    pending: boolean;
-    detail?: string;
-    actionLabel?: string;
-    action?: () => void;
-  };
-
-  const steps: Step[] = [
-    {
-      n: 1,
-      label: t('建班并导入名单'),
-      done: rosterDone,
-      pending: false,
-      actionLabel: classes.length === 0 ? t('去建班') : t('去导入名单'),
-      action: goCreateOrRoster,
-    },
-    {
-      n: 2,
-      label: t('学生机扫码连上'),
-      done: studentsOnline,
-      pending: studentsPending,
-      detail:
-        serverOk === null
-          ? t('检测中…')
-          : serverOk === false
-            ? t('服务器不可达，请先在教师机启动服务')
-            : connectedCount === 0
-              ? hasApiBase
-                ? t('服务已通 · 请扫码让学生机连上')
-                : t('服务已通 · 去指派页展示二维码（学生填局域网 IP）')
-              : t('已连 {v0} 台', { v0: String(connectedCount) }),
-      actionLabel: t('去指派'),
-      action: () => goAssignWithAudit('setup_step2'),
-    },
-    {
-      n: 3,
-      label: t('发第一题'),
-      done: questionDone,
-      pending: !questionKnown,
-      actionLabel: t('去发第一题'),
-      action: () => onGo('session'),
-    },
-  ];
-
-  let ctaLabel = t('去发第一题');
-  let cta = () => onGo('session');
-  if (!rosterDone) {
-    ctaLabel = classes.length === 0 ? t('创建班级') : t('去导入名单');
-    cta = goCreateOrRoster;
-  } else if (!studentsOnline) {
-    ctaLabel = serverOk === false ? t('检查服务器') : t('扫码指派学生机');
-    cta = () => goAssignWithAudit('setup_checklist_cta');
-  } else if (joinPendingAlert) {
-    ctaLabel = t('去批准设备');
-    cta = () => goAssignWithAudit('setup_join_pending');
   }
 
   return (
     <section className="setup-checklist" data-testid="setup-checklist-simple">
-      <h2>{coreDone ? t('开课健康') : t('开课准备')}</h2>
-      {!coreDone ? <p className="hint">{t('三步即可上课。做完会自动收起。')}</p> : null}
-
-      {readyUrl ? (
-        <p className="hint" data-testid="setup-ready-link">
-          {t('课前检测：')}{' '}
-          <a href={readyUrl} target="_blank" rel="noreferrer">
-            {readyUrl}
-          </a>
+      <h2>{rosterDone ? t('开课健康') : t('开课准备')}</h2>
+      {!rosterDone ? (
+        <p className="hint">
+          {t('导入名单即可上课。学生用公共桌面安装卡 → 查找教室。')}
         </p>
-      ) : null}
-      {coreDone || healthAlerts ? (
-        <div
-          className="setup-blockers-summary"
-          data-testid="setup-blockers-summary"
-          aria-label={t('开课阻塞项')}
-        >
-          {blockerLights.map((b) => (
-            <span
-              key={b.id}
-              className={`setup-blocker-light setup-blocker-light--${b.state}`}
-              data-testid={`setup-blocker-${b.id}`}
-              data-state={b.state}
-            >
-              {b.label}
-            </span>
-          ))}
-        </div>
       ) : null}
 
       {healthAlerts ? (
@@ -281,11 +88,7 @@ export function SetupChecklist({
               {t('有 {v0} 台设备待批准连班。请到指派页「连班鉴权」处理。', {
                 v0: String(joinPendingCount),
               })}{' '}
-              <button
-                type="button"
-                className="secondary setup-step-jump"
-                onClick={() => goAssignWithAudit('setup_join_pending')}
-              >
+              <button type="button" className="secondary setup-step-jump" onClick={goAssign}>
                 {t('去批准')}
               </button>
             </p>
@@ -293,33 +96,26 @@ export function SetupChecklist({
         </div>
       ) : null}
 
-      {!coreDone ? (
+      {!rosterDone ? (
         <>
           <ol className="setup-steps">
-            {steps.map((step) => (
-              <li key={step.n} className={step.done ? 'setup-step done' : 'setup-step'}>
-                <span>
-                  {step.n}. {step.label}
-                  {step.detail ? <span className="hint"> · {step.detail}</span> : null}
-                </span>
-                <span className="status">
-                  {step.done ? t('已完成') : step.pending ? t('检查中') : t('未完成')}
-                </span>
-                {!step.done && !step.pending && step.action && step.actionLabel ? (
-                  <button type="button" className="secondary setup-step-jump" onClick={step.action}>
-                    {step.actionLabel}
-                  </button>
-                ) : null}
-              </li>
-            ))}
+            <li className="setup-step" data-testid="setup-step-roster">
+              <span>
+                1. {classes.length === 0 ? t('建班并导入名单') : t('导入名单')}
+              </span>
+              <span className="status">{t('未完成')}</span>
+              <button type="button" className="secondary setup-step-jump" onClick={goCreateOrRoster}>
+                {classes.length === 0 ? t('去建班') : t('去导入名单')}
+              </button>
+            </li>
           </ol>
-          <button type="button" onClick={cta}>
-            {ctaLabel}
+          <button type="button" onClick={goCreateOrRoster} data-testid="setup-cta-roster">
+            {classes.length === 0 ? t('创建班级') : t('去导入名单')}
           </button>
         </>
       ) : healthAlerts ? (
-        <button type="button" onClick={cta}>
-          {ctaLabel}
+        <button type="button" onClick={goAssign}>
+          {joinPendingAlert ? t('去批准设备') : t('去指派')}
         </button>
       ) : null}
     </section>

@@ -35,7 +35,7 @@ export type StudentDesktopAPI = {
   setApiBase: (apiBase: string) => Promise<AppConfig>;
   findRemovableConfig: () => Promise<{
     ok: boolean;
-    hits: Array<{ path: string; apiBase: string; classId: string }>;
+    hits: Array<{ path: string; apiBase: string; classId: string; className?: string }>;
   }>;
   discoverLanClassroom: () => Promise<{
     ok: boolean;

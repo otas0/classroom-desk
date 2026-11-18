@@ -71,12 +71,7 @@ if not "%ERR%"=="0" (
 )
 
 echo.
-echo Done. Opening login card on your Desktop…
-rem Passwords are on the teacher user Desktop only — never Public Desktop.
-if exist "%USERPROFILE%\Desktop\ClassroomDesk-Desk-Login.txt" (
-  start "" notepad "%USERPROFILE%\Desktop\ClassroomDesk-Desk-Login.txt"
-) else (
-  echo Login card: Desktop\ClassroomDesk-Desk-Login.txt
-  echo ^(If missing, check the account that was logged in during Setup.^)
-)
+echo Done. Admin should open already logged in — import roster.
+echo Students: Public Desktop\ClassroomDesk-Student-Install.txt → Find classroom
+echo Backup passwords: Desktop\ClassroomDesk-Desk-Login.txt
 exit /b 0

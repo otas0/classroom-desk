@@ -20,6 +20,7 @@ param(
   [switch]$NoAutostart,
   [switch]$SkipSourceDownload,
   [switch]$ChinaMirrorsFirst,
+  [switch]$BootstrapOnline,
   [switch]$CheckOnly
 )
 
@@ -275,16 +276,15 @@ NETWORK MINIMUM (Classroom Desk)
 After a COMPLETE install, public internet required: NONE.
 Classroom needs only teacher↔student LAN.
 
-Easiest path: double-click Teacher-Setup.exe (or Install.bat as Administrator).
+Offline USB: double-click Teacher-Setup.exe (complete pack — ZERO public net).
+Slow public link: double-click Teacher-Bootstrap.exe (few MB) → one Dist zip via mirrors + resume.
 
-To finish install when auto-repair cannot fill gaps, you need ONE of:
-  A) One complete ClassroomDesk folder (from ClassroomDesk-*-win-x64.zip / Dist)
-     → then Teacher-Setup / Install.bat uses ZERO public network
-  B) Enough network to finish ONE resumable download:
-     ClassroomDesk-<version>-win-x64.zip (via GitHub mirrors)
-     → re-run Teacher-Setup.exe or Install.bat; curl -C - resumes per mirror
+To finish when auto-repair cannot fill gaps, you need ONE of:
+  A) Complete ClassroomDesk folder / Teacher-Setup.exe on USB
+  B) Teacher-Bootstrap.exe + network for ONE resumable Dist zip (GitHub mirrors)
+  C) ClassroomDesk-<version>-win-x64.zip already downloaded → re-run Setup
 
-Do NOT npm-install from scratch on a flaky school net if you can get the Dist zip once.
+Do NOT npm-install from scratch on a flaky school net.
 Log: your Desktop\ClassroomDesk-Install-Log.txt
 
 --- If install failed, check the LAST 30 lines of the log, then:
@@ -679,28 +679,35 @@ URL=$url
   Write-Log 'Wrote Desktop\ClassroomDesk-Health.url' 'Green'
 }
 
-function Write-LoginCard([string]$TeacherPass, [string]$AdminPass) {
+function Write-LoginCard([string]$TeacherPass, [string]$AdminPass, [string]$SetupToken = '') {
   $ips = @(Get-LanIPv4)
+  $adminUrl = if ($SetupToken) {
+    "http://127.0.0.1:8787/admin/?setup=$SetupToken"
+  } else {
+    'http://127.0.0.1:8787/admin/'
+  }
   $lines = @(
-    'Classroom Desk — login (keep private)',
+    'Classroom Desk — backup login (keep private)',
     '',
-    'Open:     http://127.0.0.1:8787/admin/',
+    'Setup usually opens Admin already logged in.',
+    'If not, open:',
+    "  $adminUrl",
     'Username: teacher',
     "Password: $TeacherPass",
     "Admin:    $AdminPass",
     ''
   )
   if ($ips.Count -gt 0) {
-    $lines += 'Students: Desktop\ClassroomDesk-Student-Install.txt (one link)'
+    $lines += 'Students: Public Desktop\ClassroomDesk-Student-Install.txt → Find classroom'
     $lines += "Teacher LAN: http://$($ips[0]):8787"
   } else {
     $lines += 'No LAN IP yet — plug Ethernet, then reopen this card / Admin.'
   }
   $lines += ''
-  $lines += 'Next: log in → import roster → students Find classroom'
+  $lines += 'You: import roster. Students: install card → Find classroom.'
   $lines += "Log: $script:LogPath"
   Write-PrivateDeskFile -FileName 'ClassroomDesk-Desk-Login.txt' -Content ($lines -join "`r`n")
-  Write-Log 'Wrote teacher Desktop\ClassroomDesk-Desk-Login.txt (not Public Desktop)' 'Green'
+  Write-Log 'Wrote teacher Desktop\ClassroomDesk-Desk-Login.txt (backup; not Public Desktop)' 'Green'
 }
 
 function Read-EnvValue([string]$EnvPath, [string]$Key) {
@@ -713,16 +720,35 @@ function Read-EnvValue([string]$EnvPath, [string]$Key) {
   return $null
 }
 
+function Set-EnvValue([string]$EnvPath, [string]$Key, [string]$Value) {
+  $lines = @()
+  $found = $false
+  if (Test-Path $EnvPath) {
+    foreach ($line in Get-Content -LiteralPath $EnvPath -Encoding UTF8) {
+      if ($line -match ("^\s*{0}=" -f [regex]::Escape($Key))) {
+        $lines += "$Key=$Value"
+        $found = $true
+      } else {
+        $lines += $line
+      }
+    }
+  }
+  if (-not $found) { $lines += "$Key=$Value" }
+  Set-Content -Path $EnvPath -Value ($lines -join "`r`n") -Encoding UTF8
+}
+
 function Ensure-EnvFile([string]$Root) {
   $envPath = Join-Path $Root '.env'
+  $setupToken = New-Secret 24
   if (Test-Path $envPath) {
-    Write-Log '.env exists — keeping passwords; refreshing Desktop login card.' 'Yellow'
+    Write-Log '.env exists — keeping passwords; refreshing setup auto-login + Desktop card.' 'Yellow'
+    Set-EnvValue -EnvPath $envPath -Key 'BOOTSTRAP_LOGIN_TOKEN' -Value $setupToken
     $teacherPass = Read-EnvValue -EnvPath $envPath -Key 'TEACHER_PASSWORD'
     $adminPass = Read-EnvValue -EnvPath $envPath -Key 'ADMIN_PASSWORD'
     if ($teacherPass -and $adminPass) {
-      Write-LoginCard -TeacherPass $teacherPass -AdminPass $adminPass
+      Write-LoginCard -TeacherPass $teacherPass -AdminPass $adminPass -SetupToken $setupToken
     }
-    return $false
+    return @{ WroteNew = $false; SetupToken = $setupToken }
   }
 
   $teacherPass = New-Password
@@ -732,12 +758,13 @@ JWT_SECRET=$(New-Secret 32)
 TEACHER_USERNAME=teacher
 TEACHER_PASSWORD=$teacherPass
 ADMIN_PASSWORD=$adminPass
+BOOTSTRAP_LOGIN_TOKEN=$setupToken
 HOST=0.0.0.0
 PORT=8787
 "@ | Set-Content -Path $envPath -Encoding UTF8
 
-  Write-LoginCard -TeacherPass $teacherPass -AdminPass $adminPass
-  return $true
+  Write-LoginCard -TeacherPass $teacherPass -AdminPass $adminPass -SetupToken $setupToken
+  return @{ WroteNew = $true; SetupToken = $setupToken }
 }
 
 function Unblock-Tree([string]$Path) {
@@ -810,9 +837,9 @@ function Write-StudentInstallCard([string]$Root, [string[]]$SetupNames) {
   $lines = @(
     'Classroom Desk — student install',
     '',
-    '1) On the student PC open one of these links (same LAN as teacher).',
-    '   If several IPs appear, try the one you can ping from the student PC',
-    '   (often the lab switch IP, not the campus Wi-Fi IP).',
+    'Open one link below (same LAN as teacher) → install → open app → tap your name.',
+    'App auto-joins this classroom (Public Desktop also has classroom-desk-config.json).',
+    'Several IPs? Use the one students can ping (lab switch, not campus Wi-Fi).',
     ''
   )
   if ($SetupNames.Count -gt 0 -and $ips.Count -gt 0) {
@@ -828,10 +855,8 @@ function Write-StudentInstallCard([string]$Root, [string[]]$SetupNames) {
     $lines += '  No Setup on teacher yet — copy Student-Setup.exe from Give-To-Teacher.'
   }
   $lines += ''
-  $lines += '2) If SmartScreen blocks: More info → Run anyway (unsigned — expected)'
-  $lines += '3) Install → Find classroom'
-  $lines += ''
-  $lines += 'Do not use a teacher laptop hotspot for class (IP changes / sleep).'
+  $lines += 'SmartScreen? More info → Run anyway (unsigned — expected)'
+  $lines += 'Do not use a teacher laptop hotspot (IP changes / sleep).'
   Write-PublicDeskFile -FileName 'ClassroomDesk-Student-Install.txt' -Content ($lines -join "`r`n")
   Write-Log 'Wrote Desktop\ClassroomDesk-Student-Install.txt' 'Green'
 }
@@ -997,6 +1022,10 @@ try {
   Write-Log "Folder: $InstallRoot"
   Write-Log "Log:    $script:LogPath"
   if ($ChinaMirrorsFirst) { Write-Log 'Mirror preference: China-friendly (npmmirror + GitHub proxies)' 'Cyan' }
+  if ($BootstrapOnline) {
+    Write-Log 'Online bootstrap: will fetch one product zip (mirrors + resume) if pack incomplete.' 'Cyan'
+    $SkipSourceDownload = $false
+  }
 
   New-Item -ItemType Directory -Path $InstallRoot -Force | Out-Null
   Set-ChinaNpmEnv
@@ -1009,10 +1038,16 @@ try {
   }
   Write-Log "Version: $Tag (no GitHub API)"
 
-  if (Test-ProductReady -Root $InstallRoot) {
+  if ((Test-ProductReady -Root $InstallRoot) -and -not $BootstrapOnline) {
     Write-Log 'Product pack complete — ZERO public network needed for install.' 'Green'
+  } elseif ((Test-ProductReady -Root $InstallRoot) -and $BootstrapOnline) {
+    Write-Log 'Product pack already complete — skipping zip download.' 'Green'
   } else {
-    Write-Log 'Pack incomplete — trying minimum-network repair (1 Dist zip, resumable)…' 'Yellow'
+    if ($SkipSourceDownload -and -not $BootstrapOnline) {
+      Write-NetworkMinimumCard
+      throw "Pack incomplete and -SkipSourceDownload set. Use USB Teacher-Setup.exe or Teacher-Bootstrap.exe (online)."
+    }
+    Write-Log 'Fetching product zip (one file, resumable mirrors)…' 'Yellow'
     try {
       $Tag = Repair-ProductPack -Root $InstallRoot -Repository $Repo -ReleaseTag $Tag -NodeVer $NodeVersion
     } catch {
@@ -1038,7 +1073,14 @@ try {
 
   Ensure-PortableNode -Root $InstallRoot -Version $NodeVersion
   Assert-ProductLayout -Root $InstallRoot
-  $wroteLogin = Ensure-EnvFile -Root $InstallRoot
+  $envInfo = Ensure-EnvFile -Root $InstallRoot
+  $wroteLogin = [bool]$envInfo.WroteNew
+  $setupToken = [string]$envInfo.SetupToken
+  $adminUrl = if ($setupToken) {
+    "http://127.0.0.1:8787/admin/?setup=$setupToken"
+  } else {
+    'http://127.0.0.1:8787/admin/'
+  }
   Write-HealthShortcut
   $setupNames = @(Publish-StudentSetupToLan -Root $InstallRoot)
   if (-not $setupNames.Count) {
@@ -1065,20 +1107,22 @@ try {
       $startArg = "/c cd /d `"$InstallRoot`" && $bundledPrefix`"$($script:NpmCmd)`" run start:classroom"
     }
     Start-Process -FilePath 'cmd.exe' -ArgumentList $startArg -WindowStyle Minimized
-    # Open Admin immediately; health poll continues in parallel-ish (user can refresh).
-    try { Start-Process 'http://127.0.0.1:8787/admin/' } catch {}
     $healthy = Wait-Health -Port 8787 -Attempts 40
+    # Open after health so bootstrap token is registered and auto-login works.
+    try { Start-Process $adminUrl } catch {}
     if (-not $healthy) {
       Write-Log 'Files installed, but /health not ready yet. Re-run Teacher-Setup.exe / Install.bat later.' 'Yellow'
+      Write-Log "Manual open: $adminUrl" 'Yellow'
     }
   }
 
   Write-Log '=== Done ===' 'Green'
   Write-Log "Folder:  $InstallRoot"
-  Write-Log 'Admin:   http://127.0.0.1:8787/admin/'
-  if ($wroteLogin) { Write-Log 'Login:   Desktop\ClassroomDesk-Desk-Login.txt' 'Yellow' }
-  Write-Log 'Students: Desktop\ClassroomDesk-Student-Install.txt'
-  Write-Log 'Time target: USB/local Setup → under 5 min to first class (often ~1–2 min).'
+  Write-Log "Admin:   $adminUrl"
+  Write-Log 'Backup:  Desktop\ClassroomDesk-Desk-Login.txt (only if auto-login failed)'
+  if ($wroteLogin) { Write-Log 'First install: passwords on Desktop login card.' 'Yellow' }
+  Write-Log 'Next: import roster. Students: Public Desktop install card → Find classroom.'
+  Write-Log 'Time target: Setup → auto-login → roster (often ~1 min).'
   Write-Log "Log:     $script:LogPath"
   exit 0
 } catch {

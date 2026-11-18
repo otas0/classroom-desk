@@ -1427,6 +1427,11 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
       setPendingIdentity(null);
       setSwitchIdentity(false);
       setGateAdmin(false);
+      try {
+        localStorage.setItem(`cd_last_student_${classId}`, row.id);
+      } catch {
+        /* ignore */
+      }
       showToast(t('已选择 {v0}', { v0: res.user.displayName }));
       let openCount = 0;
       try {
@@ -1966,7 +1971,10 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
               pending={pendingIdentity}
               selecting={selecting}
               switching={switchIdentity}
-              onPick={setPendingIdentity}
+              onPick={(row) => {
+                // One tap = enter class (no separate「确认是我」).
+                void selectStudent(row);
+              }}
               onConfirm={() => {
                 if (pendingIdentity) void selectStudent(pendingIdentity);
               }}
@@ -2300,6 +2308,8 @@ function FirstRunSetup({
   function joinKey(c: JoinCandidate): string {
     return `${c.apiBase}::${c.classId ?? ''}`;
   }
+
+  const autoJoinAttempted = useRef(false);
 
   useEffect(() => {
     void (async () => {
@@ -2697,8 +2707,9 @@ function FirstRunSetup({
     }
   }
 
-  /** Phase 1: discover only — never auto-connect; student must confirm. */
-  async function findClassrooms() {
+  /** Discover LAN classrooms; auto-connect when exactly one easy-join hit. */
+  async function findClassrooms(opts?: { autoConnectSingle?: boolean }) {
+    const autoConnectSingle = opts?.autoConnectSingle !== false;
     setMsg('');
     setJoinCandidates([]);
     setSelectedJoinKey('');
@@ -2730,8 +2741,23 @@ function FirstRunSetup({
       }
       setJoinCandidates(show);
       setSelectedJoinKey(joinKey(show[0]));
+      if (autoConnectSingle && joinable.length === 1 && joinable[0]?.apiBase) {
+        const hit = joinable[0];
+        setMsg(t('正在连接本教室…'));
+        await connectToClassroom({
+          apiBase: hit.apiBase,
+          classId: hit.classId,
+          className: hit.className,
+          displayName: hit.displayName,
+          hostName: hit.hostName,
+          label: hit.label,
+        });
+        return;
+      }
       setMsg(
-        t('找到 {v0} 台教师机，请选择后点「确认连接」', { v0: String(show.length) }),
+        joinable.length > 1
+          ? t('找到 {v0} 台教师机，请点选后连接', { v0: String(show.length) })
+          : t('找到教室，请点「确认连接」'),
       );
     } catch (e) {
       setMsg(
@@ -2746,7 +2772,7 @@ function FirstRunSetup({
     }
   }
 
-  /** Phase 2: connect only the student-confirmed teacher. */
+  /** Connect selected teacher (multi-lab fallback). */
   async function confirmJoinSelected() {
     setMsg('');
     const hit = joinCandidates.find((c) => joinKey(c) === selectedJoinKey);
@@ -2780,39 +2806,68 @@ function FirstRunSetup({
     }
   }
 
-  async function importFromRemovable() {
+  async function importFromRemovable(opts?: { autoConnect?: boolean }) {
     setMsg('');
     setBusy(true);
     try {
       const desk = window.classroomDesk;
       if (!desk?.findRemovableConfig) {
         setMsg(t('当前环境不支持 U 盘导入'));
-        return;
+        return false;
       }
       const r = await desk.findRemovableConfig();
       const hit = r.hits?.[0];
       if (!hit) {
-        setMsg(
-          t(
-            t('未找到 classroom-desk-config.json。请把教师下载的 config 放到 U 盘/共享盘根目录并改名。'),
-          ),
-        );
-        return;
+        if (!opts?.autoConnect) {
+          setMsg(
+            t(
+              t('未找到 classroom-desk-config.json。请把教师下载的 config 放到 U 盘/共享盘根目录并改名。'),
+            ),
+          );
+        }
+        return false;
+      }
+      if (opts?.autoConnect !== false) {
+        setMsg(t('正在连接本教室…'));
+        await connectToClassroom({
+          apiBase: hit.apiBase,
+          classId: hit.classId,
+          className: hit.className,
+        });
+        return true;
       }
       applyPayload(hit.apiBase, hit.classId);
       setMsg(t('已从 {v0} 读入，请点「保存并检测 /health」', { v0: hit.path }));
+      return true;
     } catch (e) {
       setMsg(e instanceof Error ? e.message : t('导入失败'));
+      return false;
     } finally {
       setBusy(false);
     }
   }
 
+  // Day-1 one-shot: Public Desktop config → else LAN discover + auto-join single classroom.
+  useEffect(() => {
+    if (autoJoinAttempted.current) return;
+    autoJoinAttempted.current = true;
+    void (async () => {
+      try {
+        const imported = await importFromRemovable({ autoConnect: true });
+        if (imported) return;
+        await findClassrooms({ autoConnectSingle: true });
+      } catch {
+        /* keep manual UI */
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount once for first-run auto-join
+  }, []);
+
   return (
     <section className="panel">
       <h1>{t('首次配置本机')}</h1>
       <p className="lead">
-        {t('优先重连本班 / 查找教室 / 房间码 → 确认连接。也可用 U 盘 / 扫码。')}
+        {t('正在自动连班。若未连上，点「查找教室」或用房间码 / U 盘。')}
       </p>
       {lastClassroom ? (
         <p className="hint" data-testid="first-run-last-classroom">
@@ -3130,6 +3185,17 @@ function IdentityGate({
   onCancelSwitch: () => void;
 }) {
   const [q, setQ] = useState('');
+  const lastId = useMemo(() => {
+    try {
+      return classId ? String(localStorage.getItem(`cd_last_student_${classId}`) ?? '') : '';
+    } catch {
+      return '';
+    }
+  }, [classId, roster.length]);
+  const lastRow = useMemo(
+    () => (lastId ? roster.find((r) => r.id === lastId) ?? null : null),
+    [roster, lastId],
+  );
   const filtered = useMemo(() => {
     const key = q.trim().toLowerCase();
     const list = [...roster].sort((a, b) =>
@@ -3150,9 +3216,9 @@ function IdentityGate({
       <h1>{switching ? t('更换身份') : t('你是谁？')}</h1>
       <p className="hint">
         {className
-          ? t('{v0} · 点自己的姓名，再点确认', { v0: className })
+          ? t('{v0} · 点自己的姓名即可进班', { v0: className })
           : classId
-            ? t('点自己的姓名，再点确认')
+            ? t('点自己的姓名即可进班')
             : t('本机还没有班级，请老师先配置')}
       </p>
       {sessionEndedBanner ? (
@@ -3169,8 +3235,27 @@ function IdentityGate({
         </div>
       ) : null}
       {error ? <p className="error">{error}</p> : null}
+      {lastRow && !switching ? (
+        <div className="confirm-bar" data-testid="identity-resume-last">
+          <button
+            type="button"
+            className="primary"
+            disabled={selecting}
+            onClick={() => onPick(lastRow)}
+          >
+            {selecting
+              ? t('确认中…')
+              : lastRow.studentNo
+                ? t('继续：{v0}（{v1}）', {
+                    v0: lastRow.displayName,
+                    v1: lastRow.studentNo,
+                  })
+                : t('继续：{v0}', { v0: lastRow.displayName })}
+          </button>
+        </div>
+      ) : null}
       <input value={q} onChange={(e) => setQ(e.target.value)} placeholder={t('搜索姓名或学号')} />
-      {pending ? (
+      {pending && switching ? (
         <div className="confirm-bar">
           <p>
             {pending.studentNo
@@ -3199,6 +3284,7 @@ function IdentityGate({
             type="button"
             className={pending?.id === row.id ? 'identity-btn selected' : 'identity-btn'}
             onClick={() => onPick(row)}
+            disabled={selecting}
             aria-pressed={pending?.id === row.id}
           >
             <span>{row.displayName}</span>
