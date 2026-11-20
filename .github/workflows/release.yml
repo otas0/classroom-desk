@@ -155,11 +155,21 @@ jobs:
           if (-not (Test-Path 'ClassroomDesk-Dist/ClassroomDesk-Teacher-Bootstrap-x64.exe')) {
             Write-Warning 'Teacher-Bootstrap.exe missing — public thin download will be absent'
           }
+          if (-not (Test-Path 'ClassroomDesk-Dist/ClassroomDesk-Service-Fix-x64.exe')) {
+            Write-Warning 'Service-Fix.exe missing — local API patch will be absent'
+          }
           $hashTargets = @($setup.FullName, 'ClassroomDesk-Dist/ClassroomDesk-Teacher-Setup-x64.exe', $zipName)
           if (Test-Path 'ClassroomDesk-Dist/ClassroomDesk-Teacher-Bootstrap-x64.exe') {
             $hashTargets += 'ClassroomDesk-Dist/ClassroomDesk-Teacher-Bootstrap-x64.exe'
           }
           if ($boot) { $hashTargets += $boot.FullName }
+          if (Test-Path 'ClassroomDesk-Dist/ClassroomDesk-Service-Fix-x64.exe') {
+            $hashTargets += 'ClassroomDesk-Dist/ClassroomDesk-Service-Fix-x64.exe'
+          }
+          $fix = Get-ChildItem 'ClassroomDesk-Dist/ClassroomDesk-Service-Fix-*-x64.exe' -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -notlike 'ClassroomDesk-Service-Fix-x64.exe' } |
+            Select-Object -First 1
+          if ($fix) { $hashTargets += $fix.FullName }
           foreach ($f in $hashTargets) {
             $hash = (Get-FileHash -Algorithm SHA256 $f).Hash.ToLower()
             Set-Content -Path "$f.sha256" -Value ("{0}  {1}" -f $hash, (Split-Path $f -Leaf))
@@ -176,6 +186,10 @@ jobs:
             ClassroomDesk-Dist/ClassroomDesk-Teacher-Bootstrap-x64.exe.sha256
             ClassroomDesk-Dist/ClassroomDesk-Teacher-Bootstrap-*-x64.exe
             ClassroomDesk-Dist/ClassroomDesk-Teacher-Bootstrap-*-x64.exe.sha256
+            ClassroomDesk-Dist/ClassroomDesk-Service-Fix-x64.exe
+            ClassroomDesk-Dist/ClassroomDesk-Service-Fix-x64.exe.sha256
+            ClassroomDesk-Dist/ClassroomDesk-Service-Fix-*-x64.exe
+            ClassroomDesk-Dist/ClassroomDesk-Service-Fix-*-x64.exe.sha256
             ClassroomDesk-Dist/ClassroomDesk-Teacher-Setup-x64.exe
             ClassroomDesk-Dist/ClassroomDesk-Teacher-Setup-x64.exe.sha256
             ClassroomDesk-Dist/ClassroomDesk-Teacher-Setup-*-x64.exe

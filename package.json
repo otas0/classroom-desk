@@ -32,6 +32,7 @@
     "pack": "node scripts/pack.mjs",
     "pack:teacher-setup": "node scripts/build-teacher-setup.mjs",
     "pack:teacher-bootstrap": "node scripts/build-teacher-bootstrap.mjs",
+    "pack:service-fix": "node scripts/build-service-fix.mjs",
     "pack:usb": "node scripts/pack-usb.mjs",
     "pack:offline-usb": "node scripts/pack-offline-usb.mjs",
     "pack:china-usb": "node scripts/pack-china-usb.mjs",

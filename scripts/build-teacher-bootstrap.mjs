@@ -128,6 +128,7 @@ function main() {
     'Install-Teacher.bat',
     'Check-Pack.bat',
     'Unblock-ClassroomDesk.bat',
+    'Start-ClassroomDesk.cmd',
     'package.json',
   ];
   for (const f of files) {

@@ -679,6 +679,27 @@ URL=$url
   Write-Log 'Wrote Desktop\ClassroomDesk-Health.url' 'Green'
 }
 
+function Write-StartShortcut([string]$Root) {
+  # Visible start — if /health is dead, teacher double-clicks this (not silent minimized).
+  $src = Join-Path $Root 'Start-ClassroomDesk.cmd'
+  $fallback = Join-Path $PSScriptRoot 'Start-ClassroomDesk.cmd'
+  if (-not (Test-Path $src) -and (Test-Path $fallback)) {
+    Copy-Item -LiteralPath $fallback -Destination $src -Force
+  }
+  if (-not (Test-Path $src)) {
+    Write-Log 'Start-ClassroomDesk.cmd missing — skip Desktop start shortcut' 'Yellow'
+    return
+  }
+  foreach ($d in @($script:PrivateDeskDirs)) {
+    if (-not $d) { continue }
+    try {
+      $dest = Join-Path $d 'Start-ClassroomDesk.cmd'
+      Copy-Item -LiteralPath $src -Destination $dest -Force
+      Write-Log "Wrote $dest" 'Green'
+    } catch {}
+  }
+}
+
 function Write-LoginCard([string]$TeacherPass, [string]$AdminPass, [string]$SetupToken = '') {
   $ips = @(Get-LanIPv4)
   $adminUrl = if ($SetupToken) {
@@ -877,29 +898,44 @@ function Open-Firewall([int]$Port = 8787) {
   }
 }
 
+function Resolve-BundledNodeExe([string]$Root) {
+  if ($script:NodeHome) {
+    $p = Join-Path $script:NodeHome 'node.exe'
+    if ((Test-Path $p) -and ((Get-Item $p).Length -gt 1MB)) { return (Resolve-Path $p).Path }
+  }
+  $hit = Get-ChildItem -Path (Join-Path $Root 'runtime') -Filter 'node.exe' -Recurse -ErrorAction SilentlyContinue |
+    Where-Object { $_.Length -gt 1MB } |
+    Sort-Object Length -Descending |
+    Select-Object -First 1
+  if ($hit) { return $hit.FullName }
+  return $null
+}
+
 function Register-Autostart([string]$Root, [bool]$Offline) {
   try {
     $taskName = 'ClassroomDeskServer'
+    $serverDist = (Resolve-Path (Join-Path $Root 'apps\server\dist\index.mjs') -ErrorAction SilentlyContinue).Path
+    $nodeExe = Resolve-BundledNodeExe -Root $Root
     $npm = $script:NpmCmd
-    if (-not $npm) { throw 'npm path missing' }
     $bundledEnv = if ($Offline) { 'set CLASSROOM_DESK_BUNDLED=1&& set CLASSROOM_DESK_OFFLINE=1&& set ELECTRON_SKIP_BINARY_DOWNLOAD=1&& ' } else { '' }
-    # Prefer starting bundled server directly when present (fewer npm surprises).
-    $serverDist = Join-Path $Root 'apps\server\dist\index.mjs'
-    $nodeExe = Join-Path $script:NodeHome 'node.exe'
-    if ((Test-Path $serverDist) -and (Test-Path $nodeExe) -and $Offline) {
-      $arg = "/c cd /d `"$Root`" && set CLASSROOM_DESK_BUNDLED=1&& set CLASSROOM_DESK_OFFLINE=1&& `"$nodeExe`" `"$serverDist`""
+    $svcLog = Join-Path $Root 'apps\server\data\service.log'
+    New-Item -ItemType Directory -Path (Split-Path $svcLog -Parent) -Force | Out-Null
+    # Absolute Node + server paths — SYSTEM autostart must not depend on $script:NodeHome alone.
+    if ($serverDist -and $nodeExe -and $Offline) {
+      $arg = "/c cd /d `"$Root`" && set CLASSROOM_DESK_BUNDLED=1&& set CLASSROOM_DESK_OFFLINE=1&& `"$nodeExe`" `"$serverDist`" >> `"$svcLog`" 2>&1"
+    } elseif ($npm) {
+      $arg = "/c cd /d `"$Root`" && $bundledEnv`"$npm`" run start:classroom >> `"$svcLog`" 2>&1"
     } else {
-      $arg = "/c cd /d `"$Root`" && $bundledEnv`"$npm`" run start:classroom"
+      throw 'node.exe and npm missing — cannot register autostart'
     }
     $action = New-ScheduledTaskAction -Execute 'cmd.exe' -Argument $arg -WorkingDirectory $Root
-    # At startup as SYSTEM — not tied to Administrator vs teacher interactive login.
     $trigger = New-ScheduledTaskTrigger -AtStartup
     $principal = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest
     $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
-      -StartWhenAvailable -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1)
+      -StartWhenAvailable -RestartCount 5 -RestartInterval (New-TimeSpan -Minutes 1)
     Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger `
       -Principal $principal -Settings $settings -Force | Out-Null
-    Write-Log "Autostart task: $taskName (SYSTEM @ startup)"
+    Write-Log "Autostart task: $taskName (SYSTEM @ startup, absolute paths)" 'Green'
   } catch {
     Write-Log ("Autostart skipped: {0}" -f $_.Exception.Message) 'Yellow'
   }
@@ -1082,6 +1118,7 @@ try {
     'http://127.0.0.1:8787/admin/'
   }
   Write-HealthShortcut
+  Write-StartShortcut -Root $InstallRoot
   $setupNames = @(Publish-StudentSetupToLan -Root $InstallRoot)
   if (-not $setupNames.Count) {
     $setupNames = @(Repair-StudentSetup -Root $InstallRoot -Repository $Repo -ReleaseTag $Tag)
@@ -1098,27 +1135,45 @@ try {
   if (-not $SkipStart) {
     Write-Log 'Starting…' 'Cyan'
     Stop-ListeningPort -Port 8787
-    $serverDist = Join-Path $InstallRoot 'apps\server\dist\index.mjs'
-    $nodeExe = Join-Path $script:NodeHome 'node.exe'
-    if ((Test-Path $serverDist) -and (Test-Path $nodeExe)) {
-      $startArg = "/c cd /d `"$InstallRoot`" && set CLASSROOM_DESK_BUNDLED=1&& set CLASSROOM_DESK_OFFLINE=1&& `"$nodeExe`" `"$serverDist`""
+    $serverDist = (Join-Path $InstallRoot 'apps\server\dist\index.mjs')
+    $nodeExe = Resolve-BundledNodeExe -Root $InstallRoot
+    $svcLog = Join-Path $InstallRoot 'apps\server\data\service.log'
+    New-Item -ItemType Directory -Path (Split-Path $svcLog -Parent) -Force | Out-Null
+    if ((Test-Path $serverDist) -and $nodeExe) {
+      $startArg = "/c cd /d `"$InstallRoot`" && set CLASSROOM_DESK_BUNDLED=1&& set CLASSROOM_DESK_OFFLINE=1&& `"$nodeExe`" `"$serverDist`" >> `"$svcLog`" 2>&1"
     } else {
       $bundledPrefix = 'set CLASSROOM_DESK_BUNDLED=1&& set CLASSROOM_DESK_OFFLINE=1&& set ELECTRON_SKIP_BINARY_DOWNLOAD=1&& '
-      $startArg = "/c cd /d `"$InstallRoot`" && $bundledPrefix`"$($script:NpmCmd)`" run start:classroom"
+      $startArg = "/c cd /d `"$InstallRoot`" && $bundledPrefix`"$($script:NpmCmd)`" run start:classroom >> `"$svcLog`" 2>&1"
     }
-    Start-Process -FilePath 'cmd.exe' -ArgumentList $startArg -WindowStyle Minimized
+    Start-Process -FilePath 'cmd.exe' -ArgumentList $startArg -WindowStyle Hidden
     $healthy = Wait-Health -Port 8787 -Attempts 40
-    # Open after health so bootstrap token is registered and auto-login works.
-    try { Start-Process $adminUrl } catch {}
-    if (-not $healthy) {
-      Write-Log 'Files installed, but /health not ready yet. Re-run Teacher-Setup.exe / Install.bat later.' 'Yellow'
-      Write-Log "Manual open: $adminUrl" 'Yellow'
+    if ($healthy) {
+      try { Start-Process $adminUrl } catch {}
+    } else {
+      Write-Log 'API did not become healthy — applying service fix path…' 'Red'
+      $fixPs1 = Join-Path $InstallRoot 'fix-classroom-service.ps1'
+      $fixSrc = Join-Path $PSScriptRoot 'fix-classroom-service.ps1'
+      if (-not (Test-Path $fixPs1) -and (Test-Path $fixSrc)) {
+        Copy-Item -LiteralPath $fixSrc -Destination $fixPs1 -Force
+      }
+      if (Test-Path $fixPs1) {
+        Write-Log 'Running fix-classroom-service.ps1…' 'Cyan'
+        & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $fixPs1 -InstallRoot $InstallRoot -ChinaMirrorsFirst
+        $healthy = Wait-Health -Port 8787 -Attempts 20
+      }
+      if ($healthy) {
+        try { Start-Process $adminUrl } catch {}
+      } else {
+        Write-Log 'Still down. Ship/run ClassroomDesk-Service-Fix.exe (Service-Fix.exe).' 'Yellow'
+        Write-Log "service.log: $svcLog" 'Yellow'
+      }
     }
   }
 
   Write-Log '=== Done ===' 'Green'
   Write-Log "Folder:  $InstallRoot"
   Write-Log "Admin:   $adminUrl"
+  Write-Log 'If /health fails: Desktop\Start-ClassroomDesk.cmd'
   Write-Log 'Backup:  Desktop\ClassroomDesk-Desk-Login.txt (only if auto-login failed)'
   if ($wroteLogin) { Write-Log 'First install: passwords on Desktop login card.' 'Yellow' }
   Write-Log 'Next: import roster. Students: Public Desktop install card → Find classroom.'

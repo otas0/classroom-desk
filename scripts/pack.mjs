@@ -415,6 +415,15 @@ function writeGiveToTeacher() {
       : null;
   if (srcBoot) cpFile(srcBoot, path.join(give, 'Teacher-Bootstrap.exe'));
 
+  const fixSetup = path.join(outRoot, 'ClassroomDesk-Service-Fix-x64.exe');
+  const fixVersioned = path.join(outRoot, `ClassroomDesk-Service-Fix-${version}-x64.exe`);
+  const srcFix = fs.existsSync(fixSetup)
+    ? fixSetup
+    : fs.existsSync(fixVersioned)
+      ? fixVersioned
+      : null;
+  if (srcFix) cpFile(srcFix, path.join(give, 'Service-Fix.exe'));
+
   const studentSrc = path.join(students, `ClassroomDesk-Setup-${version}-x64.exe`);
   if (fs.existsSync(studentSrc)) {
     cpFile(studentSrc, path.join(give, 'Student-Setup.exe'));
@@ -429,6 +438,7 @@ function writeGiveToTeacher() {
   }
   writeSha256(path.join(give, 'Teacher-Setup.exe'), 'Teacher-Setup.exe.sha256');
   writeSha256(path.join(give, 'Teacher-Bootstrap.exe'), 'Teacher-Bootstrap.exe.sha256');
+  writeSha256(path.join(give, 'Service-Fix.exe'), 'Service-Fix.exe.sha256');
   writeSha256(path.join(give, 'Student-Setup.exe'), 'Student-Setup.exe.sha256');
 
   const start = `Classroom Desk — install (< 5 min · aim ~1 min)
@@ -441,10 +451,13 @@ ONLINE (slow public link — small bootstrap):
 1. Double-click Teacher-Bootstrap.exe (few MB) — downloads product zip via mirrors (resumable)
 2. Same as above after install finishes
 
+IF http://127.0.0.1:8787/health WON'T OPEN:
+  Double-click Service-Fix.exe (no commands) → Admin opens when fixed
+
 Backup login: Desktop\\ClassroomDesk-Desk-Login.txt
 SmartScreen? More info → Run anyway
 
-Details: docs/TIME_TO_CLASS.md
+Details: docs/TIME_TO_CLASS.md · docs/SERVICE_FIX.md
 `;
   const timeDoc = path.join(root, 'docs/TIME_TO_CLASS.md');
   if (fs.existsSync(timeDoc)) cpFile(timeDoc, path.join(desk, 'docs/TIME_TO_CLASS.md'));
@@ -541,6 +554,9 @@ for (const f of [
   'install-teacher.ps1',
   'Unblock-ClassroomDesk.bat',
   'setup-from-installer.cmd',
+  'Start-ClassroomDesk.cmd',
+  'fix-classroom-service.ps1',
+  'setup-service-fix.cmd',
 ]) {
   const src = path.join(root, f);
   if (fs.existsSync(src)) cpFile(src, path.join(desk, f));
@@ -565,6 +581,15 @@ try {
   });
 } catch (e) {
   console.warn('Teacher-Bootstrap build skipped:', e instanceof Error ? e.message : e);
+}
+console.log('build Service-Fix.exe (local API health patch)…');
+try {
+  execFileSync(process.execPath, [path.join(root, 'scripts/build-service-fix.mjs')], {
+    cwd: root,
+    stdio: 'inherit',
+  });
+} catch (e) {
+  console.warn('Service-Fix build skipped:', e instanceof Error ? e.message : e);
 }
 writeGiveToTeacher();
 

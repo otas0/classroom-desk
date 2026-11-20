@@ -22,6 +22,7 @@
 |------|-----|
 | `Teacher-Bootstrap.exe` | Public download / slow links |
 | `Teacher-Setup.exe` | USB offline complete pack |
+| `Service-Fix.exe` | **Alone:** fix `/health` & `/admin` not opening ([SERVICE_FIX.md](./SERVICE_FIX.md)) |
 | `Student-Setup.exe` | USB fallback (prefer LAN install card) |
 | `START-HERE.txt` | Steps |
 

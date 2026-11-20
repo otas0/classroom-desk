@@ -33,7 +33,26 @@ export function listDetectedLanIpv4s(): string[] {
 }
 
 /**
- * Teacher-selected advertise IP (`advertise_lan_ip`), else first detected LAN IPv4.
+ * Prefer wired/lab NIC over campus Wi‑Fi when auto-picking advertise IP
+ * (students on lab VLAN often cannot reach teacher Wi‑Fi IP).
+ */
+export function preferLabLanIpv4(): string {
+  const ifaces = listLanIpv4Interfaces().filter((i) => !i.internal);
+  if (!ifaces.length) return '';
+  const scored = ifaces.map((i) => {
+    const n = `${i.name}`.toLowerCase();
+    let score = 0;
+    if (/eth|enp|eno|ens|局域网|以太网|local area|lan\b/.test(n)) score += 20;
+    if (/wi-?fi|wlan|wlp|wireless|无线|wwan/.test(n)) score -= 15;
+    if (/^10\.|^192\.168\.|^172\.(1[6-9]|2\d|3[01])\./.test(i.address)) score += 2;
+    return { address: i.address, score };
+  });
+  scored.sort((a, b) => b.score - a.score);
+  return scored[0]?.address ?? '';
+}
+
+/**
+ * Teacher-selected advertise IP (`advertise_lan_ip`), else wired-preferring LAN IPv4.
  */
 export function resolveAdvertiseLanIp(db?: DatabaseSync): string {
   const detected = listDetectedLanIpv4s();
@@ -44,6 +63,8 @@ export function resolveAdvertiseLanIp(db?: DatabaseSync): string {
       if (/^\d{1,3}(\.\d{1,3}){3}$/.test(configured)) return configured;
     }
   }
+  const preferred = preferLabLanIpv4();
+  if (preferred) return preferred;
   return detected[0] ?? '';
 }
 
