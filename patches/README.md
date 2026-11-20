@@ -7,6 +7,7 @@ Do not ship a “partial” teacher zip or student Setup that omits older patche
 | --- | --- | --- |
 | Local API /health | `Service-Fix.exe` (`ClassroomDesk-Service-Fix-*-x64.exe`) | Teacher PC API not listening; also rejects Mac Node and re-downloads win-x64 |
 | Windows Node only | Embedded in `install-teacher.ps1`, `fix-classroom-service.ps1`, `Start-ClassroomDesk.cmd`, `scripts/pack.mjs` | Never ship host Mac/Linux `node.exe` into teacher packs |
+| Win deps / no Mac esbuild | `pack:teacher-host` + Dist `npm install --os=win32 --cpu=x64`; server starts from `dist/index.mjs` (no `tsx`) | Mac-packed `node_modules` crashed Windows with missing `@esbuild/win32-x64` |
 
 ## Pack guarantees
 
