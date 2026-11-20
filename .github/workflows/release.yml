@@ -148,7 +148,18 @@ jobs:
           $ver = (Get-Content package.json -Raw | ConvertFrom-Json).version
           $zipName = "ClassroomDesk-$ver-win-x64.zip"
           if (Test-Path $zipName) { Remove-Item $zipName -Force }
-          Compress-Archive -Path 'ClassroomDesk-Dist\*' -DestinationPath $zipName -CompressionLevel Optimal
+          # Bootstrap/Install expect a top-level ClassroomDesk/ folder. Do NOT zip the
+          # whole Dist (duplicate Teacher-Setup SFXes blow past GitHub's 2GB asset limit).
+          if (-not (Test-Path 'ClassroomDesk-Dist\ClassroomDesk\package.json')) {
+            Write-Error 'ClassroomDesk-Dist/ClassroomDesk missing for release zip'
+            exit 1
+          }
+          Compress-Archive -Path 'ClassroomDesk-Dist\ClassroomDesk' -DestinationPath $zipName -CompressionLevel Optimal
+          $zipBytes = (Get-Item $zipName).Length
+          if ($zipBytes -ge 2147483648) {
+            Write-Error ("Release zip too large for GitHub ({0:N0} bytes). Slim ClassroomDesk/ before upload." -f $zipBytes)
+            exit 1
+          }
           $boot = Get-ChildItem 'ClassroomDesk-Dist/ClassroomDesk-Teacher-Bootstrap-*-x64.exe' -ErrorAction SilentlyContinue |
             Where-Object { $_.Name -notlike 'ClassroomDesk-Teacher-Bootstrap-x64.exe' } |
             Select-Object -First 1
