@@ -108,13 +108,45 @@ function Save-UrlFirstOk([string[]]$Urls, [string]$OutFile, [int64]$MinBytes = 1
   throw ("All downloads failed:`n  {0}" -f ($errs -join "`n  "))
 }
 
+function Test-IsWindowsNodeExe([string]$Path) {
+  # Reject Mac Mach-O / ELF accidentally shipped into Windows packs.
+  if (-not (Test-Path -LiteralPath $Path)) { return $false }
+  try {
+    $fs = [IO.File]::OpenRead($Path)
+    try {
+      $buf = New-Object byte[] 4
+      if ($fs.Read($buf, 0, 4) -lt 2) { return $false }
+      # PE MZ
+      if ($buf[0] -eq 0x4D -and $buf[1] -eq 0x5A) { return $true }
+      # Mach-O 64-bit / fat (common when Mac host node is copied)
+      if ($buf[0] -eq 0xCF -and $buf[1] -eq 0xFA) { return $false }
+      if ($buf[0] -eq 0xFE -and $buf[1] -eq 0xED) { return $false }
+      if ($buf[0] -eq 0xCA -and $buf[1] -eq 0xFE) { return $false }
+      return $false
+    } finally { $fs.Close() }
+  } catch { return $false }
+}
+
 function Ensure-PortableNode([string]$Root, [string]$Version) {
   $existing = Find-NodeExe -Root $Root -Version $Version
-  if ($existing) {
-    Write-FixLog "Portable Node OK: $existing" 'Green'
+  if ($existing -and (Test-IsWindowsNodeExe $existing)) {
+    Write-FixLog "Portable Windows Node OK: $existing" 'Green'
     return $existing
   }
-  $arch = if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { 'win-arm64' } else { 'win-x64' }
+  if ($existing) {
+    Write-FixLog "REJECTED non-Windows node (likely Mac Mach-O): $existing — re-downloading win build" 'Yellow'
+    try {
+      $badDir = Split-Path $existing -Parent
+      if ($badDir -and $badDir -match 'node-v') {
+        Remove-Item -LiteralPath $badDir -Recurse -Force -ErrorAction SilentlyContinue
+      } else {
+        Remove-Item -LiteralPath $existing -Force -ErrorAction SilentlyContinue
+      }
+    } catch {}
+  }
+  # Always win-x64 for Classroom Desk teacher host (Intel/AMD lab PCs). ARM64 rare.
+  $arch = 'win-x64'
+  if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { $arch = 'win-arm64' }
   $dirName = "node-v$Version-$arch"
   $zipPath = Join-Path $env:TEMP "$dirName.zip"
   $urls = @(
@@ -122,7 +154,7 @@ function Ensure-PortableNode([string]$Root, [string]$Version) {
     "https://cdn.npmmirror.com/binaries/node/v$Version/$dirName.zip",
     "https://nodejs.org/dist/v$Version/$dirName.zip"
   )
-  Write-FixLog "Downloading portable Node $Version…" 'Cyan'
+  Write-FixLog "Downloading official $dirName.zip (Windows only)…" 'Cyan'
   Save-UrlFirstOk -Urls $urls -OutFile $zipPath -MinBytes 1MB
   $runtime = Join-Path $Root 'runtime'
   New-Item -ItemType Directory -Path $runtime -Force | Out-Null
@@ -130,7 +162,10 @@ function Ensure-PortableNode([string]$Root, [string]$Version) {
   Remove-Item $zipPath -Force -ErrorAction SilentlyContinue
   $node = Find-NodeExe -Root $Root -Version $Version
   if (-not $node) { throw "Node missing after extract under $runtime" }
-  Write-FixLog "Portable Node installed: $node" 'Green'
+  if (-not (Test-IsWindowsNodeExe $node)) {
+    throw "Downloaded node.exe is still not a Windows PE binary: $node"
+  }
+  Write-FixLog "Portable Windows Node installed: $node" 'Green'
   return $node
 }
 

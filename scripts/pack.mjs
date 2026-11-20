@@ -57,6 +57,8 @@ function shouldSkip(rel) {
     'test-results',
     '.turbo',
     'e2e',
+    // Never copy host runtime (Mac/Linux Node) into the Windows product pack.
+    'runtime',
   ]);
   if (parts.some((p) => skipDirs.has(p))) return true;
   const norm = rel.replace(/\\/g, '/');
@@ -119,15 +121,49 @@ function ensureNodeZip() {
   throw last || new Error('node zip download failed');
 }
 
+function assertWindowsNodeExe(exePath) {
+  if (!fs.existsSync(exePath)) throw new Error(`Windows node.exe missing: ${exePath}`);
+  const fd = fs.openSync(exePath, 'r');
+  const buf = Buffer.alloc(4);
+  try {
+    fs.readSync(fd, buf, 0, 4, 0);
+  } finally {
+    fs.closeSync(fd);
+  }
+  // PE MZ — never ship Mach-O from a Mac pack host
+  if (buf[0] === 0x4d && buf[1] === 0x5a) return;
+  const magic = buf.toString('hex');
+  throw new Error(
+    `FATAL: runtime node.exe is not a Windows PE (magic=${magic}). ` +
+      `Mac Node must never enter Teacher-Setup. Delete runtime/ and re-pack.`,
+  );
+}
+
 function extractNode(zipPath) {
   const runtime = path.join(desk, 'runtime');
   mkdirp(runtime);
   const target = path.join(runtime, `node-v${nodeVer}-win-x64`);
-  if (fs.existsSync(path.join(target, 'node.exe'))) {
-    console.log('runtime Node already extracted');
-    return;
+  const exe = path.join(target, 'node.exe');
+  // Always wipe non-Windows leftovers (e.g. accidental host runtime copy via copyTree).
+  if (fs.existsSync(exe)) {
+    try {
+      assertWindowsNodeExe(exe);
+      console.log('runtime Windows Node already extracted');
+      return;
+    } catch {
+      console.warn('removing invalid/non-Windows node.exe before re-extract…');
+      rmrf(target);
+    }
   }
-  console.log('extract Node →', runtime);
+  // Also remove any darwin/linux node dirs that copyTree may have pulled in.
+  for (const ent of fs.readdirSync(runtime, { withFileTypes: true })) {
+    if (!ent.isDirectory()) continue;
+    if (/darwin|linux|arm64|macos/i.test(ent.name) && !/win-/i.test(ent.name)) {
+      console.warn('slim: remove non-Windows runtime', ent.name);
+      rmrf(path.join(runtime, ent.name));
+    }
+  }
+  console.log('extract Windows Node →', runtime);
   if (process.platform === 'darwin' || process.platform === 'linux') {
     execFileSync('unzip', ['-qo', zipPath, '-d', runtime], { stdio: 'inherit' });
   } else {
@@ -137,6 +173,7 @@ function extractNode(zipPath) {
       { stdio: 'inherit' },
     );
   }
+  assertWindowsNodeExe(exe);
 }
 
 function runNpm(cwd, args, extraEnv = {}) {
@@ -327,6 +364,7 @@ function installWinDepsOfflineReady() {
   ];
   const nodeExe = path.join(desk, 'runtime', `node-v${nodeVer}-win-x64`, 'node.exe');
   if (fs.existsSync(nodeExe)) {
+    assertWindowsNodeExe(nodeExe);
     files.push({ path: `runtime/node-v${nodeVer}-win-x64/node.exe`, minBytes: 1_000_000 });
   } else {
     files.push({ path: `downloads/${nodeZipName}`, minBytes: 1_000_000 });

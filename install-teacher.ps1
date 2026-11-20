@@ -223,6 +223,19 @@ function Find-BundledNodeZip([string]$Root, [string]$DirName) {
   return $null
 }
 
+function Test-IsWindowsNodeExe([string]$Path) {
+  if (-not (Test-Path -LiteralPath $Path)) { return $false }
+  try {
+    $fs = [IO.File]::OpenRead($Path)
+    try {
+      $buf = New-Object byte[] 4
+      if ($fs.Read($buf, 0, 4) -lt 2) { return $false }
+      if ($buf[0] -eq 0x4D -and $buf[1] -eq 0x5A) { return $true }
+      return $false
+    } finally { $fs.Close() }
+  } catch { return $false }
+}
+
 function Ensure-PortableNode([string]$Root, [string]$Version) {
   $arch = Get-NodeArch
   $dirName = "node-v$Version-$arch"
@@ -232,12 +245,18 @@ function Ensure-PortableNode([string]$Root, [string]$Version) {
 
   if (
     (Test-Path $nodeExe) -and ((Get-Item $nodeExe).Length -gt 1MB) -and
-    (Test-Path $npmCmd)
+    (Test-Path $npmCmd) -and
+    (Test-IsWindowsNodeExe $nodeExe)
   ) {
     $script:NodeHome = $nodeRoot
     $script:NpmCmd = $npmCmd
-    Write-Log ("Portable Node ready: {0}" -f (& $nodeExe -v)) 'Green'
+    Write-Log ("Portable Windows Node ready: {0}" -f (& $nodeExe -v)) 'Green'
     return
+  }
+
+  if ((Test-Path $nodeExe) -and -not (Test-IsWindowsNodeExe $nodeExe)) {
+    Write-Log "REJECTED non-Windows node.exe (likely Mac) — re-downloading $dirName" 'Yellow'
+    Remove-Item -LiteralPath $nodeRoot -Recurse -Force -ErrorAction SilentlyContinue
   }
 
   $extractTo = Join-Path $Root 'runtime'
@@ -264,9 +283,12 @@ function Ensure-PortableNode([string]$Root, [string]$Version) {
   }
 
   if (-not (Test-Path $nodeExe)) { throw "Portable Node missing after extract: $nodeExe" }
+  if (-not (Test-IsWindowsNodeExe $nodeExe)) {
+    throw "node.exe is not a Windows PE binary (Mac/Linux binary rejected): $nodeExe"
+  }
   $script:NodeHome = $nodeRoot
   $script:NpmCmd = $npmCmd
-  Write-Log ("Portable Node installed: {0}" -f (& $nodeExe -v)) 'Green'
+  Write-Log ("Portable Windows Node installed: {0}" -f (& $nodeExe -v)) 'Green'
 }
 
 function Get-NetworkMinimumHelp {

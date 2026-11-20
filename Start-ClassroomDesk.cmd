@@ -26,14 +26,19 @@ set "NODE="
 for /d %%D in ("%ROOT%\runtime\node-v*-win-*") do (
   if exist "%%~D\node.exe" set "NODE=%%~D\node.exe"
 )
+rem Never fall back to PATH node — Mac/host Node has broken many classrooms.
 if not defined NODE (
-  where node >nul 2>&1 && for /f "delims=" %%N in ('where node') do set "NODE=%%N"
-)
-if not defined NODE (
-  echo ERROR: node.exe not found under %ROOT%\runtime\
-  echo Re-run Teacher-Setup.exe (needs portable Node).
+  echo ERROR: Windows portable node.exe missing under %ROOT%\runtime\node-v*-win-*\
+  echo Double-click Service-Fix.exe / Desktop\ClassroomDesk-Fix-Service.cmd
+  echo Do NOT copy Mac Node into this folder.
   pause
   exit /b 1
+)
+powershell -NoProfile -ExecutionPolicy Bypass -Command ^
+  "$b=[IO.File]::ReadAllBytes('%NODE%')[0..1]; if(-not($b[0]-eq0x4D -and $b[1]-eq0x5A)){ Write-Host 'ERROR: node.exe is not a Windows PE (MZ). Likely a Mac binary.'; Write-Host 'Run Service-Fix.exe to re-download win-x64 Node.'; exit 2 }; exit 0"
+if errorlevel 1 (
+  pause
+  exit /b 2
 )
 
 echo  Node: %NODE%
