@@ -14,13 +14,15 @@ npm run check:release-bundle -- --tag v0.1.11
 
 | 资产 | 用途 | v0.1.11 实测 |
 |---|---|---|
-| `ClassroomDesk-Setup-<ver>-x64.exe` (+ `.sha256`) | 学生端 | 有（别名 `Student-Setup.exe`） |
-| `ClassroomDesk-Setup-<ver>-arm64.exe` (+ `.sha256`) | 学生端 ARM | **缺** |
-| `ClassroomDesk-Teacher-Setup-<ver>-x64.exe` (+ 稳定别名) | 优盘/离线教师一键 | 有 |
-| `ClassroomDesk-Teacher-Bootstrap-<ver>-x64.exe` | 公网小引导下载整包 | **缺** |
-| `ClassroomDesk-Service-Fix-<ver>-x64.exe` (+ 别名) | Node/服务修复 | 有 |
-| `ClassroomDesk-<ver>-win-x64.zip` | 完整产品树（Install.bat） | **缺**（workflow 应出） |
-| `config.example.json` | 学生配置样例 | **缺** |
+| `ClassroomDesk-Setup-<ver>-x64.exe` (+ `.sha256`) | 学生端 | **有**（别名 `Student-Setup.exe`） |
+| `ClassroomDesk-Setup-<ver>-arm64.exe` (+ `.sha256`) | 学生端 ARM | **有**（2026-11-20 补挂） |
+| `ClassroomDesk-Teacher-Setup-<ver>-x64.exe` (+ 稳定别名) | 优盘/离线教师一键 | **有** |
+| `ClassroomDesk-Teacher-Bootstrap-<ver>-x64.exe` | 公网小引导下载整包 | **有**（2026-11-20 补挂） |
+| `ClassroomDesk-Service-Fix-<ver>-x64.exe` (+ 别名) | Node/服务修复 | **有** |
+| `ClassroomDesk-<ver>-win-x64.zip` | 完整产品树（Install.bat） | **有** |
+| `config.example.json` | 学生配置样例 | **有**（2026-11-20 补挂） |
+
+> `npm run check:release-bundle -- --tag v0.1.11` 现应全绿。下一 tag 仍须走完整 `release.yml`（已修 `pack.mjs` Windows `npm.cmd` spawn）。
 
 可选但推荐：
 

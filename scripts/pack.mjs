@@ -192,7 +192,16 @@ function runNpm(cwd, args, extraEnv = {}) {
     };
     console.log('npm', args.join(' '), `(cwd=${cwd}, registry=${registry})`);
     try {
-      execFileSync(npmBin, args, { cwd, stdio: 'inherit', env });
+      // Node 24 on Windows: execFileSync('npm.cmd', …) → EINVAL; use cmd /c.
+      if (process.platform === 'win32') {
+        execFileSync(process.env.ComSpec || 'cmd.exe', ['/d', '/s', '/c', ['npm', ...args].join(' ')], {
+          cwd,
+          stdio: 'inherit',
+          env,
+        });
+      } else {
+        execFileSync(npmBin, args, { cwd, stdio: 'inherit', env });
+      }
       return;
     } catch (e) {
       last = e;
