@@ -460,11 +460,18 @@ function writeGiveToTeacher() {
     : fs.existsSync(fixVersioned)
       ? fixVersioned
       : null;
-  if (srcFix) cpFile(srcFix, path.join(give, 'Service-Fix.exe'));
+  if (!srcFix) {
+    throw new Error('Service-Fix.exe missing — every teacher pack must include all patches (see patches/README.md)');
+  }
+  cpFile(srcFix, path.join(give, 'Service-Fix.exe'));
 
   const studentSrc = path.join(students, `ClassroomDesk-Setup-${version}-x64.exe`);
   if (fs.existsSync(studentSrc)) {
     cpFile(studentSrc, path.join(give, 'Student-Setup.exe'));
+  } else {
+    console.warn(
+      `WARN: Student-Setup for ${version} missing — rebuild with npm run dist:win before release`,
+    );
   }
 
   function writeSha256(filePath, outName) {
@@ -575,6 +582,50 @@ Details: docs/SEMESTER_RESET.md
   console.log('Give-To-Teacher →', give);
 }
 
+/** Patches that must exist in every latest teacher Dist / Teacher-Setup / Give-To-Teacher. */
+const REQUIRED_PATCHES = [
+  {
+    id: 'service-fix',
+    rel: 'patches/Service-Fix.exe',
+    minBytes: 50_000,
+    note: 'Local API /health + reject Mac Node (win-x64 reinstall)',
+  },
+];
+
+function resolveServiceFixExe() {
+  const fixSetup = path.join(outRoot, 'ClassroomDesk-Service-Fix-x64.exe');
+  const fixVersioned = path.join(outRoot, `ClassroomDesk-Service-Fix-${version}-x64.exe`);
+  if (fs.existsSync(fixSetup)) return fixSetup;
+  if (fs.existsSync(fixVersioned)) return fixVersioned;
+  return null;
+}
+
+function buildAndEmbedRequiredPatches() {
+  console.log('build Service-Fix.exe (required patch — every release)…');
+  execFileSync(process.execPath, [path.join(root, 'scripts/build-service-fix.mjs')], {
+    cwd: root,
+    stdio: 'inherit',
+  });
+  const srcFix = resolveServiceFixExe();
+  if (!srcFix) throw new Error('Service-Fix.exe missing after build');
+
+  const patchesDir = path.join(desk, 'patches');
+  mkdirp(patchesDir);
+  const readmeSrc = path.join(root, 'patches/README.md');
+  if (fs.existsSync(readmeSrc)) cpFile(readmeSrc, path.join(patchesDir, 'README.md'));
+  cpFile(srcFix, path.join(patchesDir, 'Service-Fix.exe'));
+  // Also at pack root so Install / Service-Fix discovery is obvious on disk.
+  cpFile(srcFix, path.join(desk, 'Service-Fix.exe'));
+  console.log('embedded Service-Fix → ClassroomDesk/patches/ + ClassroomDesk/');
+
+  for (const p of REQUIRED_PATCHES) {
+    const full = path.join(desk, p.rel);
+    if (!fs.existsSync(full) || fs.statSync(full).size < p.minBytes) {
+      throw new Error(`Required patch missing or too small: ${p.rel} (${p.note})`);
+    }
+  }
+}
+
 console.log('pack →', outRoot);
 prepareHostArtifacts();
 
@@ -606,6 +657,9 @@ extractNode(zip);
 installWinDepsOfflineReady();
 copyStudentSetup();
 
+// Patches first so Teacher-Setup SFX + Dist zip always contain them.
+buildAndEmbedRequiredPatches();
+
 console.log('build one-click teacher Setup.exe…');
 execFileSync(process.execPath, [path.join(root, 'scripts/build-teacher-setup.mjs')], {
   cwd: root,
@@ -620,18 +674,9 @@ try {
 } catch (e) {
   console.warn('Teacher-Bootstrap build skipped:', e instanceof Error ? e.message : e);
 }
-console.log('build Service-Fix.exe (local API health patch)…');
-try {
-  execFileSync(process.execPath, [path.join(root, 'scripts/build-service-fix.mjs')], {
-    cwd: root,
-    stdio: 'inherit',
-  });
-} catch (e) {
-  console.warn('Service-Fix build skipped:', e instanceof Error ? e.message : e);
-}
 writeGiveToTeacher();
 
 console.log('\nDone.');
 console.log('Hand teachers this folder only:');
 console.log(path.join(root, 'Give-To-Teacher'));
-console.log('  → double-click Teacher-Setup.exe');
+console.log('  → Teacher-Setup.exe (+ Service-Fix.exe always included)');

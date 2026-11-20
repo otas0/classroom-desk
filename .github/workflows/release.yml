@@ -156,7 +156,16 @@ jobs:
             Write-Warning 'Teacher-Bootstrap.exe missing — public thin download will be absent'
           }
           if (-not (Test-Path 'ClassroomDesk-Dist/ClassroomDesk-Service-Fix-x64.exe')) {
-            Write-Warning 'Service-Fix.exe missing — local API patch will be absent'
+            Write-Error 'Service-Fix.exe missing — every release must include all patches (patches/README.md)'
+            exit 1
+          }
+          if (-not (Test-Path 'ClassroomDesk-Dist/ClassroomDesk/patches/Service-Fix.exe')) {
+            Write-Error 'ClassroomDesk/patches/Service-Fix.exe missing inside Dist — Teacher-Setup would omit the patch'
+            exit 1
+          }
+          if (-not (Test-Path 'Give-To-Teacher/Service-Fix.exe')) {
+            Write-Error 'Give-To-Teacher/Service-Fix.exe missing after pack'
+            exit 1
           }
           $hashTargets = @($setup.FullName, 'ClassroomDesk-Dist/ClassroomDesk-Teacher-Setup-x64.exe', $zipName)
           if (Test-Path 'ClassroomDesk-Dist/ClassroomDesk-Teacher-Bootstrap-x64.exe') {

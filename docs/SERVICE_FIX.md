@@ -3,7 +3,17 @@
 **症状：** 教师机浏览器打不开 `http://127.0.0.1:8787/health` 或 `/admin/`。  
 **不是防火墙绕过问题**——本机服务未在听。
 
-## 单独安装（给已装过教室的学校）
+## 最新包已内置
+
+从 **v0.1.11** 起，每次 `npm run pack` / Release 都会把本补丁打进：
+
+- `Give-To-Teacher/Service-Fix.exe`
+- 教师 Dist zip → `ClassroomDesk/patches/Service-Fix.exe`（也在 `Teacher-Setup.exe` 载荷里）
+- 安装后教师桌面 → `ClassroomDesk-Service-Fix.exe`
+
+不要只发旧主包 + 漏补丁；见 `patches/README.md`。
+
+## 单独安装（给已装过旧版的学校）
 
 1. 从 GitHub Release / `Give-To-Teacher` 下载 **`Service-Fix.exe`**（即 `ClassroomDesk-Service-Fix-x64.exe`）
 2. 教师机上**双击**（SmartScreen → More info → Run anyway）

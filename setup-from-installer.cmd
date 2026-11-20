@@ -73,5 +73,5 @@ if not "%ERR%"=="0" (
 echo.
 echo Done. Admin should open already logged in — import roster.
 echo Students: Public Desktop\ClassroomDesk-Student-Install.txt → Find classroom
-echo Backup passwords: Desktop\ClassroomDesk-Desk-Login.txt
+echo Backup passwords: %USERPROFILE%\Desktop\ClassroomDesk-Desk-Login.txt
 exit /b 0

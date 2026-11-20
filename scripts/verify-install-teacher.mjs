@@ -150,12 +150,18 @@ if (
   !packScript.includes('Give-To-Teacher') ||
   !packScript.includes('Teacher-Setup.exe') ||
   !packScript.includes('SMOKE-CHECK.txt') ||
-  !packScript.includes('LAB-GO-LIVE.txt')
+  !packScript.includes('LAB-GO-LIVE.txt') ||
+  !packScript.includes('REQUIRED_PATCHES') ||
+  !packScript.includes('buildAndEmbedRequiredPatches') ||
+  !packScript.includes('Service-Fix.exe')
 ) {
-  fail('pack.mjs must build Give-To-Teacher / Teacher-Setup / SMOKE-CHECK / LAB-GO-LIVE');
+  fail('pack.mjs must build Give-To-Teacher / Teacher-Setup / required patches (Service-Fix)');
 } else {
-  ok('pack.mjs Give-To-Teacher');
+  ok('pack.mjs Give-To-Teacher + required patches');
 }
+mustExist('patches/README.md');
+mustExist('scripts/build-service-fix.mjs');
+ok('patches inventory');
 
 mustExist('docs/LAB_GO_LIVE.md');
 mustExist('docs/SEMESTER_RESET.md');

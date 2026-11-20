@@ -1141,6 +1141,22 @@ try {
   }
   Write-HealthShortcut
   Write-StartShortcut -Root $InstallRoot
+  # Ship accumulated patches onto teacher Desktop (Service-Fix for /health + Mac Node).
+  $patchCandidates = @(
+    (Join-Path $InstallRoot 'patches\Service-Fix.exe'),
+    (Join-Path $InstallRoot 'Service-Fix.exe'),
+    (Join-Path $PSScriptRoot 'patches\Service-Fix.exe'),
+    (Join-Path $PSScriptRoot 'Service-Fix.exe')
+  )
+  $patchSrc = $patchCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+  if ($patchSrc) {
+    foreach ($deskDir in $script:PrivateDeskDirs) {
+      if (-not $deskDir) { continue }
+      $dest = Join-Path $deskDir 'ClassroomDesk-Service-Fix.exe'
+      Copy-Item -LiteralPath $patchSrc -Destination $dest -Force
+    }
+    Write-Log 'Wrote Desktop\ClassroomDesk-Service-Fix.exe (all patches stay in latest install)' 'Green'
+  }
   $setupNames = @(Publish-StudentSetupToLan -Root $InstallRoot)
   if (-not $setupNames.Count) {
     $setupNames = @(Repair-StudentSetup -Root $InstallRoot -Repository $Repo -ReleaseTag $Tag)
