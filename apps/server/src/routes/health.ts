@@ -178,6 +178,7 @@ function buildHealthPayload() {
     suggestedApiBase,
     studentHealthUrl: `${suggestedApiBase}/health`,
     studentReadyUrl: `${suggestedApiBase}/ready`,
+    studentGetUrl: `${suggestedApiBase}/get`,
     db: {
       ok: dbOk,
       path: getDbPath(),

@@ -143,7 +143,95 @@ upgradesRouter.get('/api/v1/upgrades/latest', (req: AuthedRequest, res) => {
     tipTemplate: info.tipTemplate,
     releaseUpdateAvailable: release.updateAvailable,
     releaseLatestTag: release.latest?.tag ?? null,
+    studentGetUrl: `${publicBase(req)}/get`,
   });
+});
+
+function escapeHtml(s: string): string {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+/** Extreme-simple student download page (no login). One big button + apiBase. */
+function buildStudentGetHtml(req: AuthedRequest): string {
+  const info = listUpgradeFiles(req);
+  const base = publicBase(req);
+  const x64 = info.byArch.x64;
+  const arm64 = info.byArch.arm64;
+  const primary = x64 ?? arm64 ?? null;
+  const ver = escapeHtml(info.expectedVersion);
+  const apiBase = escapeHtml(base);
+  const gh = escapeHtml(info.githubReleaseUrl);
+  const primaryHref = primary?.url ? escapeHtml(primary.url) : gh;
+  const primaryLabel = primary
+    ? `下载学生端（${escapeHtml(primary.arch)}）`
+    : '打开 GitHub 下载（教室暂无局域网包）';
+  const x64Btn = x64
+    ? `<a class="btn" href="${escapeHtml(x64.url)}">下载 x64</a>`
+    : '';
+  const armBtn = arm64
+    ? `<a class="btn secondary" href="${escapeHtml(arm64.url)}">下载 ARM64</a>`
+    : '';
+  const lanHint = primary
+    ? `<p class="meta">教室局域网包已就绪 · v${ver}</p>`
+    : `<p class="meta">教师机联网后会自动拉包；也可打开 <a href="${gh}">GitHub Release</a></p>`;
+  return `<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>下载学生端 · Classroom Desk</title>
+  <style>
+    :root { color-scheme: light; font-family: "PingFang SC", "Microsoft YaHei", sans-serif; }
+    body { margin: 0; min-height: 100vh; display: grid; place-items: center;
+      background: linear-gradient(160deg, #e8f1ff 0%, #f7fafc 45%, #eef6f0 100%); color: #111; }
+    main { width: min(28rem, 92vw); padding: 2rem 1.75rem; border-radius: 1.1rem;
+      background: #fff; box-shadow: 0 12px 40px rgba(15,40,80,.1); text-align: center; }
+    h1 { margin: 0 0 .35rem; font-size: 1.55rem; letter-spacing: -.02em; }
+    .lead { margin: 0 0 1.25rem; color: #444; line-height: 1.45; font-size: .98rem; }
+    .btn { display: inline-block; margin: .35rem .25rem; padding: .85rem 1.35rem; font-size: 1.05rem;
+      font-weight: 600; text-decoration: none; color: #fff; background: #1a5fb4; border-radius: .65rem; }
+    .btn.secondary { background: #3d4f5f; }
+    .btn.ghost { background: transparent; color: #1a5fb4; border: 1px solid #b6c7db; }
+    .api { margin: 1.25rem 0 .4rem; padding: .65rem .75rem; background: #f4f6f8; border-radius: .5rem;
+      font-family: ui-monospace, Consolas, monospace; font-size: .92rem; word-break: break-all; }
+    .meta { color: #666; font-size: .9rem; margin: .5rem 0; line-height: 1.4; }
+    .steps { text-align: left; margin: 1.1rem 0 0; padding: 0 0 0 1.1rem; color: #333; font-size: .92rem; }
+    .steps li { margin: .35rem 0; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>下载学生端</h1>
+    <p class="lead">装完后打开客户端，会自动找教室。无需改设置。</p>
+    <p><a class="btn" data-testid="get-primary-dl" href="${primaryHref}">${primaryLabel}</a></p>
+    <p>${x64Btn}${armBtn}</p>
+    ${lanHint}
+    <p class="api" data-testid="get-apibase">${apiBase}</p>
+    <p class="meta">上面是教室地址（apiBase）。学生端「找教室」一般不用手填。</p>
+    <ol class="steps">
+      <li>点上方按钮安装（勿关 Defender）</li>
+      <li>打开 Classroom Desk → 找教室 / 扫码</li>
+      <li>有新版本时会自动从教室更新</li>
+    </ol>
+    <p style="margin-top:1.25rem">
+      <a class="btn ghost" href="/ready">课前连通检测</a>
+    </p>
+  </main>
+</body>
+</html>`;
+}
+
+/** Public student download — zero settings. */
+upgradesRouter.get('/get', (req: AuthedRequest, res) => {
+  res.type('html').send(buildStudentGetHtml(req));
+});
+
+upgradesRouter.get('/download', (_req, res) => {
+  res.redirect(302, '/get');
 });
 
 /** Cached / live GitHub latest release (teacher). */

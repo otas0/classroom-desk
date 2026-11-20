@@ -1,0 +1,132 @@
+:root {
+  --bg: #11160f;
+  --panel: #1c2418;
+  --line: #33402c;
+  --text: #eef3e8;
+  --muted: #93a08a;
+  --accent: #c4e07a;
+  --accent-ink: #1a240c;
+  --font: "IBM Plex Sans", "Source Han Sans SC", "Noto Sans SC", sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  min-height: 100%;
+}
+
+body {
+  font-family: var(--font);
+  color: var(--text);
+  background:
+    linear-gradient(160deg, #1a2a14 0%, transparent 40%),
+    radial-gradient(800px 500px at 80% -10%, #2a3a20 0%, transparent 55%),
+    var(--bg);
+}
+
+button,
+input {
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--text);
+  border-radius: 8px;
+  padding: 0.85rem 1rem;
+  font-weight: 600;
+}
+
+button.primary {
+  background: var(--accent);
+  color: var(--accent-ink);
+  border-color: transparent;
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+input {
+  width: 100%;
+  background: #0e130c;
+  border: 1px solid var(--line);
+  color: var(--text);
+  border-radius: 8px;
+  padding: 0.7rem 0.8rem;
+}
+
+label {
+  display: grid;
+  gap: 0.35rem;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.shell {
+  max-width: 420px;
+  margin: 0 auto;
+  padding: 2rem 1.25rem 3rem;
+}
+
+.brand {
+  margin: 0;
+  font-size: 1.85rem;
+  font-weight: 700;
+}
+
+.sub {
+  color: var(--muted);
+  line-height: 1.45;
+  margin: 0.5rem 0 0;
+}
+
+.panel {
+  margin-top: 1.4rem;
+  border: 1px solid var(--line);
+  background: color-mix(in srgb, var(--panel) 90%, transparent);
+  border-radius: 12px;
+  padding: 1.1rem;
+  display: grid;
+  gap: 0.85rem;
+}
+
+.stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+}
+
+.stat {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0.75rem;
+}
+
+.stat b {
+  display: block;
+  font-size: 1.25rem;
+  margin-top: 0.25rem;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.error {
+  color: #e08a8a;
+  margin: 0;
+}
+
+.actions {
+  display: grid;
+  gap: 0.6rem;
+}

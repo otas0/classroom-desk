@@ -2,6 +2,8 @@
 
 学校课堂答题（正确率/错误率）、名单积分请求、留言工具。学生端 Electron 小窗；教师端 Web；教师机跑 Express + SQLite。无班级码进入：上课前教师把班级 `classId` 指派到每台学生机，学生在名单点自己的名字。
 
+**本仓 = 产品家族 monorepo：** Classroom Desk（根）+ [`products/work-desk`](./products/work-desk/) + [`products/brand-family`](./products/brand-family/)。见 [`docs/PRODUCT_FAMILY.md`](./docs/PRODUCT_FAMILY.md)。下一版全面 Release 附件清单：[`docs/RELEASE_BUNDLE.md`](./docs/RELEASE_BUNDLE.md)（`npm run check:release-bundle`）。
+
 [![Release](https://img.shields.io/github/v/release/otas0/classroom-desk?display_name=tag&label=release)](https://github.com/otas0/classroom-desk/releases/latest)
 [![CI](https://img.shields.io/github/actions/workflow/status/otas0/classroom-desk/ci.yml?branch=main&label=CI)](https://github.com/otas0/classroom-desk/actions/workflows/ci.yml)
 [![Nightly](https://img.shields.io/github/actions/workflow/status/otas0/classroom-desk/e2e-nightly.yml?branch=main&label=nightly)](https://github.com/otas0/classroom-desk/actions/workflows/e2e-nightly.yml)
@@ -18,9 +20,9 @@
 
 | Role | Install |
 |---|---|
-| Teacher | **Recommended:** `Install-Teacher.bat` / `install-teacher.ps1` (portable Node, no git). Or `git clone` → `npm run start:classroom` |
-| Student | [Releases](https://github.com/otas0/classroom-desk/releases) `ClassroomDesk-Setup-*.exe` → Find classroom |
-| Release | `git tag vX.Y.Z && git push origin vX.Y.Z` → Actions builds dual-arch Setup |
+| Teacher | **Recommended:** `Give-To-Teacher/Teacher-Setup.exe`（&lt;5 min）或 Release 里 `ClassroomDesk-*-win-x64.zip` / Bootstrap |
+| Student | 教室 `http://教师机IP:8787/get`，或 Release `ClassroomDesk-Setup-*.exe` |
+| Release | `git tag vX.Y.Z && git push origin vX.Y.Z` → Actions 全面 bundle（见 RELEASE_BUNDLE.md） |
 
 - 需求：[docs/REQUIREMENTS.md](docs/REQUIREMENTS.md)
 - API：[docs/API.md](docs/API.md)

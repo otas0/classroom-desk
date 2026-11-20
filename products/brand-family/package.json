@@ -1,0 +1,20 @@
+{
+  "name": "brand-family",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Parent controls for child devices, web browsing, and apps (brand name TBD)",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "npm run dev -w @brand-family/server",
+    "dev:parent": "npm run dev -w @brand-family/parent-web",
+    "build": "npm run build -w @brand-family/shared && npm run build -w @brand-family/server && npm run build -w @brand-family/parent-web",
+    "start": "npm run start -w @brand-family/server",
+    "typecheck": "npm run typecheck --workspaces --if-present"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
