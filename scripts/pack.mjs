@@ -164,14 +164,32 @@ function extractNode(zipPath) {
     }
   }
   console.log('extract Windows Node →', runtime);
-  if (process.platform === 'darwin' || process.platform === 'linux') {
-    execFileSync('unzip', ['-qo', zipPath, '-d', runtime], { stdio: 'inherit' });
-  } else {
-    execFileSync(
-      'powershell',
-      ['-NoProfile', '-Command', `Expand-Archive -LiteralPath '${zipPath}' -DestinationPath '${runtime}' -Force`],
-      { stdio: 'inherit' },
-    );
+  // Prefer tar (Windows 10+ ships bsdtar; macOS/Linux too). Avoid Expand-Archive —
+  // PowerShell 7 + ZipFileExtensions 3-arg ExtractToDirectory breaks on CI runners.
+  let extracted = false;
+  for (const [cmd, args] of [
+    ['tar', ['-xf', zipPath, '-C', runtime]],
+    ['unzip', ['-qo', zipPath, '-d', runtime]],
+  ]) {
+    try {
+      execFileSync(cmd, args, { stdio: 'inherit' });
+      extracted = true;
+      break;
+    } catch (e) {
+      console.warn(`extract via ${cmd} failed:`, e instanceof Error ? e.message : e);
+    }
+  }
+  if (!extracted) {
+    // Last resort: .NET 2-arg ExtractToDirectory (no overwrite flag).
+    const ps = [
+      "Add-Type -AssemblyName System.IO.Compression.FileSystem",
+      `$z = '${zipPath.replace(/'/g, "''")}'`,
+      `$d = '${runtime.replace(/'/g, "''")}'`,
+      'if (Test-Path -LiteralPath $d) { Get-ChildItem -LiteralPath $d -Force | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue }',
+      'New-Item -ItemType Directory -Path $d -Force | Out-Null',
+      '[System.IO.Compression.ZipFile]::ExtractToDirectory($z, $d)',
+    ].join('; ');
+    execFileSync('powershell', ['-NoProfile', '-Command', ps], { stdio: 'inherit' });
   }
   assertWindowsNodeExe(exe);
 }
