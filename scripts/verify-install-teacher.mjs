@@ -38,10 +38,15 @@ mustExist('Install-Offline.bat');
 mustExist('Install-Teacher.bat');
 mustExist('Unblock-ClassroomDesk.bat');
 mustExist('ensure-windows-node.ps1');
+mustExist('Reset-Teacher-Login.bat');
+mustExist('reset-teacher-login.ps1');
+mustExist('reset-teacher-login.mjs');
+mustExist('docs/RESET_TEACHER_LOGIN.md');
 const bat = mustExist('install-teacher.ps1');
 assertEnglishName('Install.bat');
 assertEnglishName('Check-Pack.bat');
 assertEnglishName('install-teacher.ps1');
+assertEnglishName('Reset-Teacher-Login.bat');
 
 const installBat = fs.readFileSync(path.join(root, 'Install.bat'), 'utf8');
 const checkBat = fs.readFileSync(path.join(root, 'Check-Pack.bat'), 'utf8');
@@ -160,6 +165,7 @@ if (
   !packScript.includes('REQUIRED_PATCHES') ||
   !packScript.includes('buildAndEmbedRequiredPatches') ||
   !packScript.includes('Service-Fix.exe') ||
+  !packScript.includes('Reset-Teacher-Login') ||
   !packScript.includes('stripNodeFromDistTree')
 ) {
   fail('pack.mjs must build Give-To-Teacher / Teacher-Setup / required patches / strip Node from Dist zip');
@@ -168,6 +174,14 @@ if (
 }
 mustExist('patches/README.md');
 mustExist('scripts/build-service-fix.mjs');
+if (!fs.readFileSync(path.join(root, 'patches/README.md'), 'utf8').includes('Reset-Teacher-Login')) {
+  fail('patches/README.md must list Reset-Teacher-Login');
+}
+if (!ps1Text.includes("teacherPass = 'admin'") || !ps1Text.includes("adminPass = 'admin'")) {
+  fail('install-teacher.ps1 must default teacher/admin passwords to admin');
+} else {
+  ok('install-teacher.ps1 default password admin');
+}
 ok('patches inventory');
 
 mustExist('docs/LAB_GO_LIVE.md');

@@ -26,7 +26,9 @@
 | `Student-Setup.exe` | USB fallback (prefer LAN install card) |
 | `START-HERE.txt` | Steps |
 
-Backup passwords: Desktop **`ClassroomDesk-Desk-Login.txt`**
+Default login (new install): **`teacher` / `admin`** — change in Admin → **设置**.  
+Forgot / old install: copy **`Reset-Teacher-Login`** into `C:\ClassroomDesk` → double-click the bat ([RESET_TEACHER_LOGIN.md](./RESET_TEACHER_LOGIN.md)).  
+Backup card: Desktop **`ClassroomDesk-Desk-Login.txt`**
 
 ## Hot update
 

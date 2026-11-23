@@ -1,6 +1,7 @@
 import bcrypt from 'bcryptjs';
 import { SignJWT, jwtVerify } from 'jose';
 import type { DatabaseSync } from 'node:sqlite';
+import { isWeakTeacherPassword } from '@classroom-desk/shared';
 import { config } from '../config.js';
 import type { AuthUser, DbUser, Role } from '../types.js';
 import { newClassCode, newId, nowIso } from '../utils/id.js';
@@ -114,18 +115,24 @@ export async function ensureBootstrap(db: DatabaseSync): Promise<void> {
       `INSERT INTO users (id, role, display_name, username, password_hash, class_id, total_points, created_at)
        VALUES (?, 'teacher', ?, ?, ?, NULL, 0, ?)`,
     ).run(teacherId, '默认教师', username, hash, createdAt);
-    // Installer-generated TEACHER_PASSWORD is strong — skip forced password-change gate (~30–60s).
-    if (envTeacherPassword) {
+    // Strong installer passwords skip the change gate; default "admin" stays weak → force settings change.
+    if (envTeacherPassword && !isWeakTeacherPassword(envTeacherPassword)) {
       upsertSetting(db, 'teacher_password_ok', '1');
+    } else if (envTeacherPassword) {
+      upsertSetting(db, 'teacher_password_ok', '0');
     }
     console.warn(
       `[bootstrap] created teacher "${username}". Teacher password (env TEACHER_PASSWORD or generated): ${password}`,
     );
   } else if (envTeacherPassword) {
-    // CI / lab: force-align named teacher password when TEACHER_PASSWORD is set.
+    // CI / lab / Reset-Teacher-Login: force-align named teacher password when TEACHER_PASSWORD is set.
     const hash = await hashPassword(envTeacherPassword);
     db.prepare(`UPDATE users SET password_hash = ? WHERE id = ?`).run(hash, existingNamed.id);
-    upsertSetting(db, 'teacher_password_ok', '1');
+    upsertSetting(
+      db,
+      'teacher_password_ok',
+      isWeakTeacherPassword(envTeacherPassword) ? '0' : '1',
+    );
     console.log(`[bootstrap] teacher "${username}" password hash aligned from TEACHER_PASSWORD env`);
   }
 

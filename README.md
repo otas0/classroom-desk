@@ -15,6 +15,7 @@
 开源自托管：任意教室一台教师机跑 API，学生机装客户端并写入**本教室**的 `apiBase` + `classId`。不绑定固定示范 IP。
 
 **Teacher PC (easiest):** [docs/TEACHER_EASY_SETUP.md](docs/TEACHER_EASY_SETUP.md) · double-click **`Install-Teacher.bat`** · [one-pager](docs/CLASSROOM_DEPLOY_ONEPAGE.md)  
+**Default login:** `teacher` / `admin` → change in Admin → 设置；忘密或旧安装见 [docs/RESET_TEACHER_LOGIN.md](docs/RESET_TEACHER_LOGIN.md)  
 **Full manual (fixed IP / firewall / SmartScreen / acceptance):**  
 → **[docs/SETUP_FROM_GITHUB.md](docs/SETUP_FROM_GITHUB.md)**
 

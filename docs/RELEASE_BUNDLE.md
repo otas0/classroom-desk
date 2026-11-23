@@ -19,6 +19,7 @@ npm run check:release-bundle -- --tag v0.1.11
 | `ClassroomDesk-Teacher-Setup-<ver>-x64.exe` (+ 稳定别名) | 优盘/离线教师一键 | **有** |
 | `ClassroomDesk-Teacher-Bootstrap-<ver>-x64.exe` | 公网小引导下载整包 | **有**（2026-11-20 补挂） |
 | `ClassroomDesk-Service-Fix-<ver>-x64.exe` (+ 别名) | Node/服务修复 | **有** |
+| `Reset-Teacher-Login`（bat/ps1/mjs，嵌在安装树 + Give-To-Teacher） | 重置为 teacher/admin | **下一 tag 起必带** |
 | `ClassroomDesk-<ver>-win-x64.zip` | 完整产品树（Install.bat） | **有** |
 | `config.example.json` | 学生配置样例 | **有**（2026-11-20 补挂） |
 

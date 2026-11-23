@@ -722,6 +722,8 @@ function Write-LoginCard([string]$TeacherPass, [string]$AdminPass, [string]$Setu
     'Username: teacher',
     "Password: $TeacherPass",
     "Admin:    $AdminPass",
+    'Change the password in Admin → 设置 after first login.',
+    'Forgot login? Double-click C:\ClassroomDesk\Reset-Teacher-Login.bat',
     ''
   )
   if ($ips.Count -gt 0) {
@@ -778,8 +780,9 @@ function Ensure-EnvFile([string]$Root) {
     return @{ WroteNew = $false; SetupToken = $setupToken }
   }
 
-  $teacherPass = New-Password
-  $adminPass = New-Password
+  # Fixed day-1 defaults — teacher must change in Admin → 设置 (weak-password gate).
+  $teacherPass = 'admin'
+  $adminPass = 'admin'
   @"
 JWT_SECRET=$(New-Secret 32)
 TEACHER_USERNAME=teacher

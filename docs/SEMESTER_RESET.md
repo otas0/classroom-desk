@@ -11,6 +11,7 @@ Do this **before** the next term treats the teacher PC as a fresh classroom.
 
 3. **Rotate passwords**  
    Change teacher / admin passwords in Admin settings (or replace `.env` and restart).  
+   To force back to day-1 defaults (`teacher` / `admin`) then change again in 设置: double-click `C:\ClassroomDesk\Reset-Teacher-Login.bat` (see [RESET_TEACHER_LOGIN.md](./RESET_TEACHER_LOGIN.md)).  
    Delete old `Desktop\ClassroomDesk-Desk-Login.txt` and re-open Admin so a new card is not assumed current.
 
 4. **Student Setup**  

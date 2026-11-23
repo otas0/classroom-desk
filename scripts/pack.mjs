@@ -462,6 +462,11 @@ function writeGiveToTeacher() {
     throw new Error('Service-Fix.exe missing — every teacher pack must include all patches (see patches/README.md)');
   }
   cpFile(srcFix, path.join(give, 'Service-Fix.exe'));
+  embedResetTeacherLogin(path.join(give, 'Reset-Teacher-Login'));
+  const resetDoc = path.join(root, 'docs/RESET_TEACHER_LOGIN.md');
+  if (fs.existsSync(resetDoc)) {
+    cpFile(resetDoc, path.join(give, 'Reset-Teacher-Login', 'README.md'));
+  }
 
   const studentSrc = path.join(students, `ClassroomDesk-Setup-${version}-x64.exe`);
   if (fs.existsSync(studentSrc)) {
@@ -497,10 +502,14 @@ ONLINE (slow public link — small bootstrap):
 IF http://127.0.0.1:8787/health WON'T OPEN:
   Double-click Service-Fix.exe (no commands) → Admin opens when fixed
 
+DEFAULT LOGIN (new install): teacher / admin
+  Change password in Admin → 设置 after first login.
+FORGOT / OLD INSTALL: copy Reset-Teacher-Login\\* into C:\\ClassroomDesk → double-click Reset-Teacher-Login.bat
+
 Backup login: Desktop\\ClassroomDesk-Desk-Login.txt
 SmartScreen? More info → Run anyway
 
-Details: docs/TIME_TO_CLASS.md · docs/SERVICE_FIX.md
+Details: docs/TIME_TO_CLASS.md · docs/SERVICE_FIX.md · docs/RESET_TEACHER_LOGIN.md
 `;
   const timeDoc = path.join(root, 'docs/TIME_TO_CLASS.md');
   if (fs.existsSync(timeDoc)) cpFile(timeDoc, path.join(desk, 'docs/TIME_TO_CLASS.md'));
@@ -588,6 +597,18 @@ const REQUIRED_PATCHES = [
     minBytes: 50_000,
     note: 'Local API /health + reject Mac Node (win-x64 reinstall)',
   },
+  {
+    id: 'reset-teacher-login',
+    rel: 'patches/Reset-Teacher-Login.bat',
+    minBytes: 200,
+    note: 'Reset login to teacher/admin; change password in Admin settings',
+  },
+];
+
+const RESET_LOGIN_FILES = [
+  'Reset-Teacher-Login.bat',
+  'reset-teacher-login.ps1',
+  'reset-teacher-login.mjs',
 ];
 
 function resolveServiceFixExe() {
@@ -596,6 +617,15 @@ function resolveServiceFixExe() {
   if (fs.existsSync(fixSetup)) return fixSetup;
   if (fs.existsSync(fixVersioned)) return fixVersioned;
   return null;
+}
+
+function embedResetTeacherLogin(targetDir) {
+  mkdirp(targetDir);
+  for (const name of RESET_LOGIN_FILES) {
+    const src = path.join(root, name);
+    if (!fs.existsSync(src)) throw new Error(`Missing ${name} — required reset-teacher-login patch`);
+    cpFile(src, path.join(targetDir, name));
+  }
 }
 
 function buildAndEmbedRequiredPatches() {
@@ -615,6 +645,10 @@ function buildAndEmbedRequiredPatches() {
   // Also at pack root so Install / Service-Fix discovery is obvious on disk.
   cpFile(srcFix, path.join(desk, 'Service-Fix.exe'));
   console.log('embedded Service-Fix → ClassroomDesk/patches/ + ClassroomDesk/');
+
+  embedResetTeacherLogin(desk);
+  embedResetTeacherLogin(patchesDir);
+  console.log('embedded Reset-Teacher-Login → ClassroomDesk/ + ClassroomDesk/patches/');
 
   for (const p of REQUIRED_PATCHES) {
     const full = path.join(desk, p.rel);
@@ -645,6 +679,7 @@ for (const f of [
   'fix-classroom-service.ps1',
   'setup-service-fix.cmd',
   'ensure-windows-node.ps1',
+  ...RESET_LOGIN_FILES,
 ]) {
   const src = path.join(root, f);
   if (fs.existsSync(src)) cpFile(src, path.join(desk, f));
