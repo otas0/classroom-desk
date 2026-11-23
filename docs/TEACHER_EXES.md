@@ -37,16 +37,19 @@ Release 附件全名：`ClassroomDesk-Teacher-Setup-<ver>-x64.exe`（Give-To-Tea
 | `ClassroomDesk-Setup-*.exe` / `Student-Setup.exe` | **学生机** |
 | 教室 `http://教师机IP:8787/get` | 优先：装完教师端后用 LAN，不必人手发学生 Setup |
 
-## IT / 高级（一般教师不用下）
+## GitHub Release 页面
 
-这些仍会出现在 GitHub Release / `Give-To-Teacher/Advanced/`，给机房老师做兜底，**不是日常必需**：
+**只会出现教师 Setup + 学生 Setup**（+ `.sha256`）。不会再挂 Bootstrap / Service-Fix / Dist zip，避免下错。
+
+## IT / 高级（一般教师不用）
+
+`npm run pack` 后在本机 `Give-To-Teacher/Advanced/`；**不进 GitHub Release**：
 
 | 文件 | 何时 |
 | --- | --- |
-| `Teacher-Bootstrap.exe` | 公网很慢、只有小包时（先下再装，效果等同 Setup） |
-| `Service-Fix.exe` | 已安装但 `/health` 死透、快捷方式也不行 |
-| `Teacher-Fix.exe` / `ClassroomDesk.exe` | 与桌面 Fix / 启动相同；已嵌在 Setup 里 |
-| Dist zip | 完整目录树；高级修复 |
+| `Teacher-Bootstrap.exe` | 公网很慢时的小引导 |
+| `Service-Fix.exe` | `/health` 死透时的单独修复包 |
+| `Teacher-Fix.exe` / `ClassroomDesk.exe` | 与桌面快捷方式相同；已嵌在 Teacher-Setup 里 |
 
 ## 相关文档
 

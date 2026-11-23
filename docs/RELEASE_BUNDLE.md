@@ -1,4 +1,4 @@
-# 下一版全面 Release Bundle
+# Release 附件（只两个 Setup）
 
 目标 tag：**v0.1.12**（或下一日历版；勿跳到 1.0.0，除非 [`PILOT_SKU.md`](./PILOT_SKU.md) GA 门槛全过）。
 
@@ -6,53 +6,41 @@
 
 ```bash
 npm run check:release-bundle              # 对照最新 GitHub Release
-npm run check:release-bundle -- --local   # 对照本机 Dist / Give-To-Teacher
+npm run check:release-bundle -- --local   # 对照本机产物
 npm run check:release-bundle -- --tag v0.1.11
 ```
 
-## Classroom Desk — 必须附件（全面 bundle）
-
-| 资产 | 用途 | v0.1.11 实测 |
-|---|---|---|
-| `ClassroomDesk-Setup-<ver>-x64.exe` (+ `.sha256`) | 学生端 | **有**（别名 `Student-Setup.exe`） |
-| `ClassroomDesk-Setup-<ver>-arm64.exe` (+ `.sha256`) | 学生端 ARM | **有**（2026-11-20 补挂） |
-| `ClassroomDesk-Teacher-Setup-<ver>-x64.exe`（**对外主推 / 教师只要这个**） | 一键安装 + 桌面快捷方式 | **有** |
-| `ClassroomDesk-Setup-<ver>-x64.exe` | **学生** Setup（与教师分开） | **有** |
-| `ClassroomDesk-Teacher-Bootstrap-<ver>-x64.exe` | IT：公网小引导 | **有**（放 Give-To-Teacher/`Advanced/`） |
-| `ClassroomDesk-Service-Fix-<ver>-x64.exe` | IT：`/health` 修复 | **有**（Advanced + 嵌进 Setup） |
-| `ClassroomDesk-Launcher-<ver>-x64.exe` | 嵌进 Setup → 桌面「Classroom Desk」 | **下一 tag 起必带** |
-| `ClassroomDesk-Teacher-Fix-<ver>-x64.exe` | 嵌进 Setup → 桌面「Classroom Desk Fix」 | **下一 tag 起必带** |
-| `ClassroomDesk-<ver>-win-x64.zip` | 完整产品树 | **有** |
-| `config.example.json` | 学生配置样例 | **有** |
-
-教师对外说明（一 Setup）：[`TEACHER_EXES.md`](./TEACHER_EXES.md)。
-
-> `npm run check:release-bundle -- --tag v0.1.11` 现应全绿。下一 tag 仍须走完整 `release.yml`（已修 `pack.mjs` Windows `npm.cmd` spawn）。
-
-可选但推荐：
+## GitHub Release 必须附件（仅此）
 
 | 资产 | 用途 |
 |---|---|
-| `ClassroomDesk-TeacherHost-<ver>-win-x64.zip` | 极简教师包（`npm run pack:teacher-host`）；与 Dist zip 二选一主推时以 Dist 为准 |
-| Give-To-Teacher/* 稳定文件名 | 给教师的薄文件夹 |
+| `ClassroomDesk-Teacher-Setup-<ver>-x64.exe` (+ `.sha256`) | **教师**一键安装（内含日常启动 / Fix / Service-Fix） |
+| `ClassroomDesk-Setup-<ver>-x64.exe` (+ `.sha256`) | **学生** Setup |
+| `ClassroomDesk-Setup-<ver>-arm64.exe` (+ `.sha256`) | **学生** ARM Setup |
+
+说明：[TEACHER_EXES.md](./TEACHER_EXES.md)。教师装完后用桌面快捷方式，不必再下别的教师 exe。
+
+## 不再上传到 Release（避免误解）
+
+| 资产 | 去向 |
+|---|---|
+| `Teacher-Bootstrap.exe` / `Service-Fix.exe` / `Teacher-Fix.exe` / `ClassroomDesk.exe` | 打进 **Teacher-Setup**；或本机 `Give-To-Teacher/Advanced/`（IT） |
+| `ClassroomDesk-*-win-x64.zip` | 不进 Release；IT 本地 `npm run pack` |
+| `config.example.json` | 学生包内 / 仓库 `apps/student-desktop/resources/` |
+
+> 旧 tag（如 v0.1.11）Release 页可能仍有多余附件；**下一 tag 起**按上表收敛。
 
 ## 产品门禁（meet / not）
 
 | 门禁 | 状态 |
 |---|---|
-| 全球教师冷装 **&lt; 5 min**（优盘 Teacher-Setup / Dist zip） | **设计达标**（见 TIME_TO_CLASS）；依赖完整 zip 上架 |
-| 学生 **一个链接** `/get` | **代码已合本分支**；须随下一 tag 发布 |
-| `gaReady` / 1.0 GA | **未 meet** — 缺真实学校 live 证据 |
-| Exam Box 量产硬件 | **未 meet** — `examBoxHardware=false` |
-| Authenticode 签名 | **视 secrets**；未配则 SmartScreen 摩擦 |
-| Work Desk / Brand Family 进同一 Release 附件 | **未要求** — 源码已在 `products/` |
+| 教师冷装 **&lt; 5 min**（Teacher-Setup） | **设计达标**（见 TIME_TO_CLASS） |
+| 学生 **一个链接** `/get` | **代码已合**；须随下一 tag 发布 |
+| `gaReady` / 1.0 GA | **未 meet** |
+| Authenticode 签名 | **视 secrets** |
 
 ## 发版步骤（维护者）
 
-1. 合并本分支 → `main`；`package.json` version bump。  
-2. `npm run pack`（Windows CI 在 `release.yml` 已跑）；本地可选 `npm run pack:teacher-host`。  
-3. `npm run check:release-bundle -- --local` 全绿。  
-4. `git tag vX.Y.Z && git push origin vX.Y.Z` → 等 Actions 上传。  
-5. `npm run check:release-bundle -- --tag vX.Y.Z` 全绿后再对外喊「全面 bundle」。
-
-Sibling 产品只随 git tag 进仓，不默认塞进机房 zip。
+1. 合并 → `main`；`package.json` version bump。  
+2. `git tag vX.Y.Z && git push origin vX.Y.Z` → Actions `release.yml` 只上传 Setup。  
+3. `npm run check:release-bundle -- --tag vX.Y.Z` 全绿后再对外喊发版。

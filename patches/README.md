@@ -16,12 +16,12 @@ Teacher-facing EXE guide (GitHub): [`docs/TEACHER_EXES.md`](../docs/TEACHER_EXES
 
 ## Pack guarantees
 
-1. `Service-Fix.exe` is built **before** Teacher-Setup and copied into:
-   - `ClassroomDesk/patches/Service-Fix.exe` (inside Teacher-Setup + Dist zip)
-   - `Give-To-Teacher/Service-Fix.exe`
-   - `ClassroomDesk-Dist/ClassroomDesk-Service-Fix-*.exe`
-2. Pack **fails** if Service-Fix is missing (no warn-and-skip).
-3. Student `ClassroomDesk-Setup-*.exe` version matches root `package.json` when rebuilt for the same release.
+1. `Service-Fix.exe` / `ClassroomDesk.exe` / `Teacher-Fix.exe` are built **before** Teacher-Setup and copied into:
+   - `ClassroomDesk/patches/` (inside Teacher-Setup payload)
+   - `Give-To-Teacher/Advanced/` (IT only — **not** uploaded to GitHub Release)
+2. Pack **fails** if required patches are missing (no warn-and-skip).
+3. GitHub Release publishes **only** Teacher-Setup + Student-Setup (see `docs/RELEASE_BUNDLE.md`).
+4. Student `ClassroomDesk-Setup-*.exe` version matches root `package.json` when rebuilt for the same release.
 
 When you add a new fix: put a row here, wire it into `scripts/pack.mjs` `REQUIRED_PATCHES`, and rebuild teacher + student for that version.
 

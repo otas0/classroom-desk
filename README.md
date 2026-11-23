@@ -22,7 +22,7 @@
 |---|---|
 | Teacher | **只要** `Teacher-Setup.exe`（Release / Give-To-Teacher） |
 | Student | 教室 `/get`，或 `ClassroomDesk-Setup-*.exe` |
-| Release | `git tag vX.Y.Z && git push origin vX.Y.Z` → [RELEASE_BUNDLE.md](docs/RELEASE_BUNDLE.md) |
+| Release | 只挂教师+学生 Setup；`git tag vX.Y.Z && git push` → [RELEASE_BUNDLE.md](docs/RELEASE_BUNDLE.md) |
 
 - 需求：[docs/REQUIREMENTS.md](docs/REQUIREMENTS.md)
 - API：[docs/API.md](docs/API.md)

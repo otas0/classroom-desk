@@ -22,14 +22,12 @@ const tagIdx = args.indexOf('--tag');
 const tagArg = tagIdx >= 0 ? args[tagIdx + 1] : '';
 
 function requiredPatterns(ver) {
+  // GitHub Release publishes ONLY teacher + student Setup.exe (+ .sha256).
+  // Fix / Bootstrap / Dist zip stay out of the Release page to avoid confusion.
   return [
-    { id: 'student-x64', re: new RegExp(`^ClassroomDesk-Setup-${escapeRe(ver)}-x64\\.exe$`, 'i'), also: [/^ClassroomDesk-Setup-.*-x64\.exe$/i, /^Student-Setup\.exe$/i] },
+    { id: 'student-x64', re: new RegExp(`^ClassroomDesk-Setup-${escapeRe(ver)}-x64\\.exe$`, 'i'), also: [/^ClassroomDesk-Setup-.*-x64\.exe$/i] },
     { id: 'student-arm64', re: new RegExp(`^ClassroomDesk-Setup-${escapeRe(ver)}-arm64\\.exe$`, 'i'), also: [/^ClassroomDesk-Setup-.*-arm64\.exe$/i] },
-    { id: 'teacher-setup', re: new RegExp(`^ClassroomDesk-Teacher-Setup-${escapeRe(ver)}-x64\\.exe$`, 'i'), also: [/^ClassroomDesk-Teacher-Setup-x64\.exe$/i, /^Teacher-Setup\.exe$/i] },
-    { id: 'teacher-bootstrap', re: new RegExp(`^ClassroomDesk-Teacher-Bootstrap-${escapeRe(ver)}-x64\\.exe$`, 'i'), also: [/^ClassroomDesk-Teacher-Bootstrap-x64\.exe$/i, /^Teacher-Bootstrap\.exe$/i] },
-    { id: 'service-fix', re: new RegExp(`^ClassroomDesk-Service-Fix-${escapeRe(ver)}-x64\\.exe$`, 'i'), also: [/^ClassroomDesk-Service-Fix-x64\.exe$/i, /^Service-Fix\.exe$/i] },
-    { id: 'product-zip', re: new RegExp(`^ClassroomDesk-${escapeRe(ver)}-win-x64\\.zip$`, 'i'), also: [/^ClassroomDesk-.*-win-x64\.zip$/i] },
-    { id: 'config-example', re: /^config\.example\.json$/i, also: [] },
+    { id: 'teacher-setup', re: new RegExp(`^ClassroomDesk-Teacher-Setup-${escapeRe(ver)}-x64\\.exe$`, 'i'), also: [/^ClassroomDesk-Teacher-Setup-.*-x64\.exe$/i, /^Teacher-Setup\.exe$/i] },
   ];
 }
 
@@ -145,7 +143,7 @@ const assetRows = specs.map((spec) => {
     id: spec.id,
     ok: Boolean(found),
     found: found || null,
-    sha256: spec.id === 'config-example' ? null : Boolean(sha),
+    sha256: Boolean(sha),
   };
 });
 
@@ -159,7 +157,7 @@ const report = {
   meetFullBundle: missing.length === 0,
   nextReleaseHint: missing.length
     ? `Next full bundle must still publish: ${missing.map((m) => m.id).join(', ')}`
-    : 'Asset set complete for full Classroom Desk bundle',
+    : 'Asset set complete (teacher + student Setup only)',
 };
 
 if (wantJson) {
