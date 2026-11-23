@@ -246,37 +246,19 @@ function bundleServerForOffline() {
   const outFile = path.join(desk, 'apps/server/dist/index.mjs');
   mkdirp(path.dirname(outFile));
   console.log('bundle server →', outFile);
-  let last;
-  for (const registry of NPM_REGISTRIES) {
-    try {
-      execFileSync(
-        npmBin,
-        [
-          'exec',
-          '--yes',
-          '--',
-          'esbuild',
-          entry,
-          '--bundle',
-          '--platform=node',
-          '--format=esm',
-          '--packages=external',
-          `--outfile=${outFile}`,
-        ],
-        {
-          cwd: root,
-          stdio: 'inherit',
-          env: { ...process.env, npm_config_registry: registry },
-        },
-      );
-      last = null;
-      break;
-    } catch (e) {
-      last = e;
-      console.warn(`esbuild via ${registry} failed: ${e.message || e}`);
-    }
-  }
-  if (last) throw last;
+  // Must go through runNpm (cmd /c on Windows) — bare npm.cmd → EINVAL on Node 24 CI.
+  runNpm(root, [
+    'exec',
+    '--yes',
+    '--',
+    'esbuild',
+    entry,
+    '--bundle',
+    '--platform=node',
+    '--format=esm',
+    '--packages=external',
+    `--outfile=${outFile}`,
+  ]);
   if (!fs.existsSync(outFile)) throw new Error('server bundle missing');
 }
 
