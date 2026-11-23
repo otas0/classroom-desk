@@ -18,10 +18,14 @@ npm run check:release-bundle -- --tag v0.1.11
 | `ClassroomDesk-Setup-<ver>-arm64.exe` (+ `.sha256`) | 学生端 ARM | **有**（2026-11-20 补挂） |
 | `ClassroomDesk-Teacher-Setup-<ver>-x64.exe` (+ 稳定别名) | 优盘/离线教师一键 | **有** |
 | `ClassroomDesk-Teacher-Bootstrap-<ver>-x64.exe` | 公网小引导下载整包 | **有**（2026-11-20 补挂） |
-| `ClassroomDesk-Service-Fix-<ver>-x64.exe` (+ 别名) | Node/服务修复 | **有** |
-| `Reset-Teacher-Login`（bat/ps1/mjs，嵌在安装树 + Give-To-Teacher） | 重置为 teacher/admin | **下一 tag 起必带** |
+| `ClassroomDesk-Service-Fix-<ver>-x64.exe` (+ 别名 `Service-Fix.exe`) | `/health` 修复 | **有** |
+| `ClassroomDesk-Launcher-<ver>-x64.exe` (+ 别名 `ClassroomDesk.exe`) | 日常一键启动 | **下一 tag 起必带** |
+| `ClassroomDesk-Teacher-Fix-<ver>-x64.exe` (+ 别名 `Teacher-Fix.exe`) | Node + 重置 teacher/admin | **下一 tag 起必带** |
+| `Reset-Teacher-Login`（bat 兜底；优先用 Teacher-Fix.exe） | 旧教室投放 | **下一 tag 起必带** |
 | `ClassroomDesk-<ver>-win-x64.zip` | 完整产品树（Install.bat） | **有** |
 | `config.example.json` | 学生配置样例 | **有**（2026-11-20 补挂） |
+
+教师 exe 对照表（对外说明）：[`TEACHER_EXES.md`](./TEACHER_EXES.md)。
 
 > `npm run check:release-bundle -- --tag v0.1.11` 现应全绿。下一 tag 仍须走完整 `release.yml`（已修 `pack.mjs` Windows `npm.cmd` spawn）。
 

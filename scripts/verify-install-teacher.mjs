@@ -42,6 +42,12 @@ mustExist('Reset-Teacher-Login.bat');
 mustExist('reset-teacher-login.ps1');
 mustExist('reset-teacher-login.mjs');
 mustExist('docs/RESET_TEACHER_LOGIN.md');
+mustExist('docs/TEACHER_EXES.md');
+if (!fs.readFileSync(path.join(root, 'docs/TEACHER_EXES.md'), 'utf8').includes('Classroom Desk.lnk')) {
+  fail('TEACHER_EXES.md must document Desktop shortcuts after Setup');
+} else {
+  ok('TEACHER_EXES.md desktop shortcuts');
+}
 const bat = mustExist('install-teacher.ps1');
 assertEnglishName('Install.bat');
 assertEnglishName('Check-Pack.bat');
@@ -51,6 +57,11 @@ assertEnglishName('Reset-Teacher-Login.bat');
 const installBat = fs.readFileSync(path.join(root, 'Install.bat'), 'utf8');
 const checkBat = fs.readFileSync(path.join(root, 'Check-Pack.bat'), 'utf8');
 const ps1Text = fs.readFileSync(bat, 'utf8');
+if (!ps1Text.includes('New-DesktopLnk') || !ps1Text.includes('Classroom Desk.lnk')) {
+  fail('install-teacher.ps1 must create Desktop Classroom Desk.lnk after setup');
+} else {
+  ok('install-teacher.ps1 Desktop .lnk shortcuts');
+}
 
 if (
   !installBat.includes('install-teacher.ps1') ||

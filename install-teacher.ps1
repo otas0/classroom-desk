@@ -669,6 +669,38 @@ function Get-LanIPv4 {
   }
 }
 
+function New-DesktopLnk {
+  param(
+    [Parameter(Mandatory = $true)][string]$DeskDir,
+    [Parameter(Mandatory = $true)][string]$LinkName,
+    [Parameter(Mandatory = $true)][string]$TargetPath,
+    [string]$Arguments = '',
+    [string]$WorkingDirectory = '',
+    [string]$Description = '',
+    [string]$IconLocation = ''
+  )
+  if (-not $DeskDir -or -not (Test-Path -LiteralPath $DeskDir)) { return $false }
+  if (-not (Test-Path -LiteralPath $TargetPath) -and $TargetPath -notmatch '^[a-z]+://') { return $false }
+  try {
+    $w = New-Object -ComObject WScript.Shell
+    $lnkPath = Join-Path $DeskDir $LinkName
+    if (-not $lnkPath.EndsWith('.lnk')) { $lnkPath = "$lnkPath.lnk" }
+    $s = $w.CreateShortcut($lnkPath)
+    $s.TargetPath = $TargetPath
+    if ($Arguments) { $s.Arguments = $Arguments }
+    if ($WorkingDirectory) { $s.WorkingDirectory = $WorkingDirectory }
+    if ($Description) { $s.Description = $Description }
+    if ($IconLocation) { $s.IconLocation = $IconLocation }
+    elseif (Test-Path -LiteralPath $TargetPath) { $s.IconLocation = "$TargetPath,0" }
+    $s.Save()
+    Write-Log "Desktop shortcut: $lnkPath" 'Green'
+    return $true
+  } catch {
+    Write-Log ("Shortcut failed ($LinkName): {0}" -f $_.Exception.Message) 'Yellow'
+    return $false
+  }
+}
+
 function Write-HealthShortcut {
   # One-click “is the service alive?” — opens /health in the default browser.
   $targets = @($script:PrivateDeskDirs) + @($script:PublicDesk) | Where-Object { $_ } | Select-Object -Unique
@@ -685,44 +717,78 @@ URL=$url
   Write-Log 'Wrote Desktop\ClassroomDesk-Health.url' 'Green'
 }
 
-function Write-StartShortcut([string]$Root) {
-  # Prefer one-click ClassroomDesk.exe on Desktop; keep .cmd as fallback.
-  $exeCandidates = @(
-    (Join-Path $Root 'ClassroomDesk.exe'),
-    (Join-Path $Root 'patches\ClassroomDesk.exe'),
-    (Join-Path $PSScriptRoot 'ClassroomDesk.exe'),
-    (Join-Path $PSScriptRoot 'patches\ClassroomDesk.exe')
+function Install-TeacherExesIntoRoot([string]$Root) {
+  # Keep stable targets under C:\ClassroomDesk so Desktop .lnk never points at TEMP SFX extract.
+  $pairs = @(
+    @{ Name = 'ClassroomDesk.exe'; Cands = @(
+        (Join-Path $Root 'ClassroomDesk.exe'),
+        (Join-Path $Root 'patches\ClassroomDesk.exe'),
+        (Join-Path $PSScriptRoot 'ClassroomDesk.exe'),
+        (Join-Path $PSScriptRoot 'patches\ClassroomDesk.exe')
+      ) },
+    @{ Name = 'Teacher-Fix.exe'; Cands = @(
+        (Join-Path $Root 'Teacher-Fix.exe'),
+        (Join-Path $Root 'patches\Teacher-Fix.exe'),
+        (Join-Path $PSScriptRoot 'Teacher-Fix.exe'),
+        (Join-Path $PSScriptRoot 'patches\Teacher-Fix.exe')
+      ) },
+    @{ Name = 'Service-Fix.exe'; Cands = @(
+        (Join-Path $Root 'Service-Fix.exe'),
+        (Join-Path $Root 'patches\Service-Fix.exe'),
+        (Join-Path $PSScriptRoot 'Service-Fix.exe')
+      ) }
   )
-  $exeSrc = $exeCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
-  if ($exeSrc) {
-    foreach ($d in @($script:PrivateDeskDirs)) {
-      if (-not $d) { continue }
-      try {
-        $dest = Join-Path $d 'ClassroomDesk.exe'
-        Copy-Item -LiteralPath $exeSrc -Destination $dest -Force
-        Write-Log "Wrote $dest" 'Green'
-      } catch {}
+  $patches = Join-Path $Root 'patches'
+  New-Item -ItemType Directory -Path $patches -Force | Out-Null
+  foreach ($p in $pairs) {
+    $src = $p.Cands | Where-Object { Test-Path $_ } | Select-Object -First 1
+    if (-not $src) { continue }
+    $dest = Join-Path $Root $p.Name
+    if ((Resolve-Path -LiteralPath $src).Path -ne (Join-Path $Root $p.Name)) {
+      Copy-Item -LiteralPath $src -Destination $dest -Force
+    }
+    Copy-Item -LiteralPath $dest -Destination (Join-Path $patches $p.Name) -Force -ErrorAction SilentlyContinue
+  }
+}
+
+function Write-StartShortcut([string]$Root) {
+  # After full Setup: real Windows shortcuts on the teacher's Desktop (not a pile of loose exes).
+  Install-TeacherExesIntoRoot -Root $Root
+
+  $launchExe = Join-Path $Root 'ClassroomDesk.exe'
+  $fixExe = Join-Path $Root 'Teacher-Fix.exe'
+  $cmd = Join-Path $Root 'Start-ClassroomDesk.cmd'
+  $fallbackCmd = Join-Path $PSScriptRoot 'Start-ClassroomDesk.cmd'
+  if (-not (Test-Path $cmd) -and (Test-Path $fallbackCmd)) {
+    Copy-Item -LiteralPath $fallbackCmd -Destination $cmd -Force
+  }
+
+  $startTarget = $null
+  if (Test-Path -LiteralPath $launchExe) { $startTarget = $launchExe }
+  elseif (Test-Path -LiteralPath $cmd) { $startTarget = $cmd }
+
+  foreach ($d in @($script:PrivateDeskDirs)) {
+    if (-not $d) { continue }
+    if ($startTarget) {
+      New-DesktopLnk -DeskDir $d -LinkName 'Classroom Desk.lnk' -TargetPath $startTarget `
+        -WorkingDirectory $Root -Description 'Start Classroom Desk (Node + Admin)' | Out-Null
+    }
+    try {
+      $adminUrlPath = Join-Path $d 'Classroom Desk Admin.url'
+      Set-Content -Path $adminUrlPath -Value @"
+[InternetShortcut]
+URL=http://127.0.0.1:8787/admin/
+"@ -Encoding ASCII
+      Write-Log "Desktop shortcut: $adminUrlPath" 'Green'
+    } catch {}
+    if (Test-Path -LiteralPath $fixExe) {
+      New-DesktopLnk -DeskDir $d -LinkName 'Classroom Desk Fix.lnk' -TargetPath $fixExe `
+        -WorkingDirectory $Root -Description 'Repair Windows Node + reset teacher/admin login' | Out-Null
     }
   }
 
-  $src = Join-Path $Root 'Start-ClassroomDesk.cmd'
-  $fallback = Join-Path $PSScriptRoot 'Start-ClassroomDesk.cmd'
-  if (-not (Test-Path $src) -and (Test-Path $fallback)) {
-    Copy-Item -LiteralPath $fallback -Destination $src -Force
-  }
-  if (-not (Test-Path $src)) {
-    if (-not $exeSrc) {
-      Write-Log 'ClassroomDesk.exe / Start-ClassroomDesk.cmd missing — skip Desktop start' 'Yellow'
-    }
-    return
-  }
-  foreach ($d in @($script:PrivateDeskDirs)) {
-    if (-not $d) { continue }
-    try {
-      $dest = Join-Path $d 'Start-ClassroomDesk.cmd'
-      Copy-Item -LiteralPath $src -Destination $dest -Force
-      if (-not $exeSrc) { Write-Log "Wrote $dest" 'Green' }
-    } catch {}
+  if (-not $startTarget) {
+    Write-Log 'ClassroomDesk.exe / Start-ClassroomDesk.cmd missing — Desktop start shortcut skipped' 'Yellow'
   }
 }
 
@@ -743,7 +809,8 @@ function Write-LoginCard([string]$TeacherPass, [string]$AdminPass, [string]$Setu
     "Password: $TeacherPass",
     "Admin:    $AdminPass",
     'Change the password in Admin → 设置 after first login.',
-    'Forgot login? Double-click C:\ClassroomDesk\Reset-Teacher-Login.bat',
+    'Desktop shortcuts: Classroom Desk · Classroom Desk Admin · Classroom Desk Fix',
+    'Forgot login? Double-click Desktop\Classroom Desk Fix  (or C:\ClassroomDesk\Teacher-Fix.exe)',
     ''
   )
   if ($ips.Count -gt 0) {
@@ -1148,28 +1215,8 @@ try {
   }
   Write-HealthShortcut
   Write-StartShortcut -Root $InstallRoot
-  # Ship accumulated patches onto teacher Desktop (exe only — no bat hunting).
-  $patchPairs = @(
-    @{ Name = 'ClassroomDesk-Service-Fix.exe'; Cands = @(
-        (Join-Path $InstallRoot 'patches\Service-Fix.exe'),
-        (Join-Path $InstallRoot 'Service-Fix.exe'),
-        (Join-Path $PSScriptRoot 'Service-Fix.exe')
-      ) },
-    @{ Name = 'Teacher-Fix.exe'; Cands = @(
-        (Join-Path $InstallRoot 'patches\Teacher-Fix.exe'),
-        (Join-Path $InstallRoot 'Teacher-Fix.exe'),
-        (Join-Path $PSScriptRoot 'Teacher-Fix.exe')
-      ) }
-  )
-  foreach ($pair in $patchPairs) {
-    $src = $pair.Cands | Where-Object { Test-Path $_ } | Select-Object -First 1
-    if (-not $src) { continue }
-    foreach ($deskDir in $script:PrivateDeskDirs) {
-      if (-not $deskDir) { continue }
-      Copy-Item -LiteralPath $src -Destination (Join-Path $deskDir $pair.Name) -Force
-    }
-    Write-Log ("Wrote Desktop\{0}" -f $pair.Name) 'Green'
-  }
+  # Exes live under C:\ClassroomDesk; Desktop gets .lnk shortcuts only (see Write-StartShortcut).
+  Install-TeacherExesIntoRoot -Root $InstallRoot
   $setupNames = @(Publish-StudentSetupToLan -Root $InstallRoot)
   if (-not $setupNames.Count) {
     $setupNames = @(Repair-StudentSetup -Root $InstallRoot -Repository $Repo -ReleaseTag $Tag)
@@ -1224,8 +1271,9 @@ try {
   Write-Log '=== Done ===' 'Green'
   Write-Log "Folder:  $InstallRoot"
   Write-Log "Admin:   $adminUrl"
-  Write-Log 'If /health fails: Desktop\Start-ClassroomDesk.cmd'
-  Write-Log 'Backup:  Desktop\ClassroomDesk-Desk-Login.txt (only if auto-login failed)'
+  Write-Log 'Daily: Desktop\Classroom Desk.lnk'
+  Write-Log 'Fix:   Desktop\Classroom Desk Fix.lnk'
+  Write-Log 'Backup: Desktop\ClassroomDesk-Desk-Login.txt (only if auto-login failed)'
   if ($wroteLogin) { Write-Log 'First install: passwords on Desktop login card.' 'Yellow' }
   Write-Log 'Next: import roster. Students: Public Desktop install card → Find classroom.'
   Write-Log 'Time target: Setup → auto-login → roster (often ~1 min).'

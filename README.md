@@ -14,17 +14,16 @@
 
 开源自托管：任意教室一台教师机跑 API，学生机装客户端并写入**本教室**的 `apiBase` + `classId`。不绑定固定示范 IP。
 
-**Teacher PC (easiest):** [docs/TEACHER_EASY_SETUP.md](docs/TEACHER_EASY_SETUP.md) · double-click **`Install-Teacher.bat`** · [one-pager](docs/CLASSROOM_DEPLOY_ONEPAGE.md)  
-**教师只用 exe：** `Teacher-Setup.exe`（装一次）→ 日常 `ClassroomDesk.exe` → 坏了用 `Teacher-Fix.exe`  
-**Default login:** `teacher` / `admin` → change in Admin → 设置；见 [docs/RESET_TEACHER_LOGIN.md](docs/RESET_TEACHER_LOGIN.md)  
-**Full manual (fixed IP / firewall / SmartScreen / acceptance):**  
-→ **[docs/SETUP_FROM_GITHUB.md](docs/SETUP_FROM_GITHUB.md)**
+**Teacher PC：** [docs/TEACHER_EASY_SETUP.md](docs/TEACHER_EASY_SETUP.md) · **[教师 EXE 一览](docs/TEACHER_EXES.md)** · [one-pager](docs/CLASSROOM_DEPLOY_ONEPAGE.md)  
+**只用三个 exe：** `Teacher-Setup.exe`（装一次，桌面自动建快捷方式）→ 日常桌面 **Classroom Desk** → 坏了 **Classroom Desk Fix** / `Teacher-Fix.exe`  
+**Default login:** `teacher` / `admin` → Admin → 设置改密；[RESET_TEACHER_LOGIN.md](docs/RESET_TEACHER_LOGIN.md)  
+**Full manual：** [docs/SETUP_FROM_GITHUB.md](docs/SETUP_FROM_GITHUB.md)
 
 | Role | Install |
 |---|---|
-| Teacher | **Recommended:** `Give-To-Teacher/Teacher-Setup.exe`（&lt;5 min）或 Release 里 `ClassroomDesk-*-win-x64.zip` / Bootstrap |
-| Student | 教室 `http://教师机IP:8787/get`，或 Release `ClassroomDesk-Setup-*.exe` |
-| Release | `git tag vX.Y.Z && git push origin vX.Y.Z` → Actions 全面 bundle（见 RELEASE_BUNDLE.md） |
+| Teacher | Release / `Give-To-Teacher`：**`Teacher-Setup.exe`**（见 [TEACHER_EXES.md](docs/TEACHER_EXES.md)） |
+| Student | 教室 `http://教师机IP:8787/get`，或 `ClassroomDesk-Setup-*.exe` |
+| Release | `git tag vX.Y.Z && git push origin vX.Y.Z` → Actions bundle（[RELEASE_BUNDLE.md](docs/RELEASE_BUNDLE.md)） |
 
 - 需求：[docs/REQUIREMENTS.md](docs/REQUIREMENTS.md)
 - API：[docs/API.md](docs/API.md)

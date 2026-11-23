@@ -2,6 +2,8 @@
 
 `npm run pack` → folder **`Give-To-Teacher`**
 
+**Which exe is which?** → **[TEACHER_EXES.md](./TEACHER_EXES.md)**（GitHub 说明用这一页）
+
 ## Time SLA
 
 **Under 5 minutes.** See [TIME_TO_CLASS.md](./TIME_TO_CLASS.md).
@@ -11,26 +13,19 @@
 ### Offline (USB / LAN — preferred)
 
 1. Double-click **`Teacher-Setup.exe`** → Admin logged in → import roster  
-2. Every day: double-click Desktop **`ClassroomDesk.exe`**  
-3. Students: Public Desktop install card → open app → **tap your name**
+2. Setup finishes → Desktop gets shortcuts: **Classroom Desk** · **Classroom Desk Admin** · **Classroom Desk Fix**  
+3. Every day: double-click Desktop **Classroom Desk**  
+4. Students: Public Desktop install card → open app → **tap your name**
 
 ### Online (slow public network)
 
 1. Double-click **`Teacher-Bootstrap.exe`** (few MB) — downloads product zip via mirrors (resumable)  
 2. Same student path as above
 
-| File | Who |
-|------|-----|
-| `Teacher-Setup.exe` | USB offline complete pack (first install) |
-| `ClassroomDesk.exe` | **Daily start** (Node + API + Admin) |
-| `Teacher-Fix.exe` | Broken Node / forgot password → `teacher`/`admin` |
-| `Service-Fix.exe` | `/health` & `/admin` not opening ([SERVICE_FIX.md](./SERVICE_FIX.md)) |
-| `Teacher-Bootstrap.exe` | Public download / slow links |
-| `Student-Setup.exe` | USB fallback (prefer LAN install card) |
-| `START-HERE.txt` | Steps |
+Full table: [TEACHER_EXES.md](./TEACHER_EXES.md).
 
 Default login (new install): **`teacher` / `admin`** — change in Admin → **设置**.  
-Forgot password / Mac Node: double-click **`Teacher-Fix.exe`** ([RESET_TEACHER_LOGIN.md](./RESET_TEACHER_LOGIN.md)).  
+Forgot password / Mac Node: Desktop **Classroom Desk Fix** / **`Teacher-Fix.exe`**.  
 Backup card: Desktop **`ClassroomDesk-Desk-Login.txt`**
 
 ## Hot update

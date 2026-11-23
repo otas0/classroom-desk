@@ -497,22 +497,21 @@ function writeGiveToTeacher() {
 
   const start = `Classroom Desk — install (< 5 min · aim ~1 min)
 
-TEACHER — only use .exe (no bat folders):
+TEACHER EXEs (full table: docs/TEACHER_EXES.md on GitHub)
 
-1. First time: double-click Teacher-Setup.exe → Admin opens → import roster
-2. Every day:     Desktop\\ClassroomDesk.exe  (also in this folder)
-3. Broken Node / forgot password: Teacher-Fix.exe
-4. /health dead only: Service-Fix.exe
+1. FIRST TIME: Teacher-Setup.exe
+   → full install + Desktop shortcuts:
+      Classroom Desk / Classroom Desk Admin / Classroom Desk Fix
+2. EVERY DAY: Desktop → "Classroom Desk"
+3. BROKEN Node/password: Desktop → "Classroom Desk Fix"  (= Teacher-Fix.exe)
+4. Only /health dead: Service-Fix.exe
 
 Students: Public Desktop install card → open app → tap your name
+DEFAULT LOGIN: teacher / admin → change in Admin → Settings
+ONLINE thin: Teacher-Bootstrap.exe
 
-DEFAULT LOGIN: teacher / admin → change in Admin → 设置
-ONLINE thin install: Teacher-Bootstrap.exe (slow links)
-
-Backup login: Desktop\\ClassroomDesk-Desk-Login.txt
+Backup: Desktop\\ClassroomDesk-Desk-Login.txt
 SmartScreen? More info → Run anyway
-
-Details: docs/TIME_TO_CLASS.md · docs/SERVICE_FIX.md · docs/RESET_TEACHER_LOGIN.md
 `;
   const timeDoc = path.join(root, 'docs/TIME_TO_CLASS.md');
   if (fs.existsSync(timeDoc)) cpFile(timeDoc, path.join(desk, 'docs/TIME_TO_CLASS.md'));
