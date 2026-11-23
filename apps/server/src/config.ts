@@ -1,4 +1,8 @@
 import { randomBytes } from 'node:crypto';
+import { loadDotEnv } from './loadDotEnv.js';
+
+// Teacher-Setup writes secrets to InstallRoot/.env — load before reading JWT/etc.
+loadDotEnv();
 
 function requireOrDevSecret(name: string, ephemeralLabel: string): string {
   const value = process.env[name]?.trim();

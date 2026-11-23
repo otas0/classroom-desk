@@ -7,6 +7,7 @@ import {
   hashPassword,
   mapUser,
   signToken,
+  tryBootstrapLogin,
   verifyAdminPassword,
   verifyPassword,
   verifyToken,
@@ -24,6 +25,33 @@ import { newId, nowIso } from '../utils/id.js';
 import { reconcileClientExitLockCache } from '../services/exitLock.js';
 
 export const authRouter = Router();
+
+/**
+ * One-shot day-1 login from Teacher-Setup (`?setup=` on /admin/).
+ * Loopback only; token from BOOTSTRAP_LOGIN_TOKEN / settings.
+ */
+authRouter.post('/api/v1/auth/bootstrap-login', async (req, res) => {
+  const token = String(req.body?.token ?? '').trim();
+  const db = openDb();
+  const clientIp = String(req.ip ?? req.socket.remoteAddress ?? '');
+  const result = await tryBootstrapLogin(db, token, clientIp);
+  if (!result.ok) {
+    res.status(result.status).json({ error: result.error });
+    return;
+  }
+  writeAudit(
+    {
+      action: 'auth.bootstrap_login',
+      actorUserId: result.user.id,
+      actorRole: result.user.role,
+      classId: null,
+      detail: { source: 'setup' },
+      clientIp: req.ip ?? null,
+    },
+    db,
+  );
+  res.json({ token: result.jwt, user: result.user, mustChangePassword: false, openRoster: true });
+});
 
 authRouter.post('/api/v1/auth/login', async (req, res) => {
   const username = String(req.body?.username ?? '').trim();

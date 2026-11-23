@@ -44,11 +44,10 @@ test('teacher checklist path and classId copy when student web is absent', async
   const checklist = page.getByRole('heading', { name: /开课准备|开课清单/ });
   if ((await checklist.count()) > 0) {
     await expect(checklist).toBeVisible();
-    await expect(page.getByText(/建班并导入名单/)).toBeVisible();
-    await expect(page.getByText(/学生机扫码连上|指派学生机/).first()).toBeVisible();
-    await expect(page.getByText(/发第一题/).first()).toBeVisible();
+    await expect(page.getByText(/建班并导入名单|导入名单/)).toBeVisible();
+    await expect(page.getByText(/查找教室|安装卡/)).toBeVisible();
     await expect(
-      page.getByRole('button', { name: /创建班级|去导入名单|扫码指派学生机|去发第一题|去指派|去建班|检查服务器/ }).first(),
+      page.getByRole('button', { name: /创建班级|去导入名单|去建班/ }).first(),
     ).toBeVisible();
   }
 

@@ -53,15 +53,19 @@ if (start < 0) {
 const install = `
 ---
 
-## Install
+## Install (Release 只附两个 Setup)
 
-**Teacher:** download \`ClassroomDesk-Teacher-Setup-x64.exe\` → double-click → Desktop \`ClassroomDesk-Desk-Login.txt\`
+**Teacher:** \`ClassroomDesk-Teacher-Setup-*-x64.exe\` → double-click once → Desktop shortcuts (**Classroom Desk** / Admin / Fix)
 
-**Students:** after teacher is up, use LAN \`/upgrades/\` link (or \`ClassroomDesk-Setup-*.exe\`) → Find classroom
+**Student:** \`ClassroomDesk-Setup-*-x64.exe\` (or arm64) → or after teacher is up, LAN \`/get\` / install card → Find classroom
+
+Do **not** look for Bootstrap / Service-Fix / Dist zip on this Release — those are embedded or IT-only. See [TEACHER_EXES.md](https://github.com/otas0/classroom-desk/blob/${tag}/docs/TEACHER_EXES.md).
+
+Default login: \`teacher\` / \`admin\` → change in Admin Settings.
 
 SmartScreen (unsigned): More info → Run anyway — [SMARTSCREEN.md](https://github.com/otas0/classroom-desk/blob/${tag}/docs/SMARTSCREEN.md)
 
-[CLASSROOM_DEPLOY_ONEPAGE.md](https://github.com/otas0/classroom-desk/blob/${tag}/docs/CLASSROOM_DEPLOY_ONEPAGE.md) · [ARTIFACTS.md](https://github.com/otas0/classroom-desk/blob/${tag}/docs/ARTIFACTS.md)
+[CLASSROOM_DEPLOY_ONEPAGE.md](https://github.com/otas0/classroom-desk/blob/${tag}/docs/CLASSROOM_DEPLOY_ONEPAGE.md)
 `.trim();
 
 fs.writeFileSync(outPath, `${body.trim()}\n\n${install}\n`, 'utf8');

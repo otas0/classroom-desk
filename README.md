@@ -2,6 +2,8 @@
 
 学校课堂答题（正确率/错误率）、名单积分请求、留言工具。学生端 Electron 小窗；教师端 Web；教师机跑 Express + SQLite。无班级码进入：上课前教师把班级 `classId` 指派到每台学生机，学生在名单点自己的名字。
 
+**本仓 = 产品家族 monorepo：** Classroom Desk（根）+ [`products/work-desk`](./products/work-desk/) + [`products/brand-family`](./products/brand-family/)。见 [`docs/PRODUCT_FAMILY.md`](./docs/PRODUCT_FAMILY.md)。下一版全面 Release 附件清单：[`docs/RELEASE_BUNDLE.md`](./docs/RELEASE_BUNDLE.md)（`npm run check:release-bundle`）。
+
 [![Release](https://img.shields.io/github/v/release/otas0/classroom-desk?display_name=tag&label=release)](https://github.com/otas0/classroom-desk/releases/latest)
 [![CI](https://img.shields.io/github/actions/workflow/status/otas0/classroom-desk/ci.yml?branch=main&label=CI)](https://github.com/otas0/classroom-desk/actions/workflows/ci.yml)
 [![Nightly](https://img.shields.io/github/actions/workflow/status/otas0/classroom-desk/e2e-nightly.yml?branch=main&label=nightly)](https://github.com/otas0/classroom-desk/actions/workflows/e2e-nightly.yml)
@@ -12,15 +14,15 @@
 
 开源自托管：任意教室一台教师机跑 API，学生机装客户端并写入**本教室**的 `apiBase` + `classId`。不绑定固定示范 IP。
 
-**Teacher PC (easiest):** [docs/TEACHER_EASY_SETUP.md](docs/TEACHER_EASY_SETUP.md) · double-click **`Install-Teacher.bat`** · [one-pager](docs/CLASSROOM_DEPLOY_ONEPAGE.md)  
-**Full manual (fixed IP / firewall / SmartScreen / acceptance):**  
-→ **[docs/SETUP_FROM_GITHUB.md](docs/SETUP_FROM_GITHUB.md)**
+**Teacher / Student 一样只下 Setup：** 教师 **`Teacher-Setup.exe`** · 学生 **`ClassroomDesk-Setup-*.exe`**（说明：[TEACHER_EXES.md](docs/TEACHER_EXES.md)）  
+装完教师端 → 桌面快捷方式 **Classroom Desk**（日常）/ **Fix**（坏了）；不必再下别的教师 exe。  
+**Default login:** `teacher` / `admin` → 设置改密 · [TEACHER_EASY_SETUP.md](docs/TEACHER_EASY_SETUP.md) · [one-pager](docs/CLASSROOM_DEPLOY_ONEPAGE.md)
 
 | Role | Install |
 |---|---|
-| Teacher | **Recommended:** `Install-Teacher.bat` / `install-teacher.ps1` (portable Node, no git). Or `git clone` → `npm run start:classroom` |
-| Student | [Releases](https://github.com/otas0/classroom-desk/releases) `ClassroomDesk-Setup-*.exe` → Find classroom |
-| Release | `git tag vX.Y.Z && git push origin vX.Y.Z` → Actions builds dual-arch Setup |
+| Teacher | **只要** `Teacher-Setup.exe`（Release / Give-To-Teacher） |
+| Student | 教室 `/get`，或 `ClassroomDesk-Setup-*.exe` |
+| Release | 只挂教师+学生 Setup；`git tag vX.Y.Z && git push` → [RELEASE_BUNDLE.md](docs/RELEASE_BUNDLE.md) |
 
 - 需求：[docs/REQUIREMENTS.md](docs/REQUIREMENTS.md)
 - API：[docs/API.md](docs/API.md)

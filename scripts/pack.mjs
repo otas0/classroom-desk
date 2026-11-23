@@ -57,6 +57,8 @@ function shouldSkip(rel) {
     'test-results',
     '.turbo',
     'e2e',
+    // Never copy host runtime (Mac/Linux Node) into the Windows product pack.
+    'runtime',
   ]);
   if (parts.some((p) => skipDirs.has(p))) return true;
   const norm = rel.replace(/\\/g, '/');
@@ -119,15 +121,49 @@ function ensureNodeZip() {
   throw last || new Error('node zip download failed');
 }
 
+function assertWindowsNodeExe(exePath) {
+  if (!fs.existsSync(exePath)) throw new Error(`Windows node.exe missing: ${exePath}`);
+  const fd = fs.openSync(exePath, 'r');
+  const buf = Buffer.alloc(4);
+  try {
+    fs.readSync(fd, buf, 0, 4, 0);
+  } finally {
+    fs.closeSync(fd);
+  }
+  // PE MZ — never ship Mach-O from a Mac pack host
+  if (buf[0] === 0x4d && buf[1] === 0x5a) return;
+  const magic = buf.toString('hex');
+  throw new Error(
+    `FATAL: runtime node.exe is not a Windows PE (magic=${magic}). ` +
+      `Mac Node must never enter Teacher-Setup. Delete runtime/ and re-pack.`,
+  );
+}
+
 function extractNode(zipPath) {
   const runtime = path.join(desk, 'runtime');
   mkdirp(runtime);
   const target = path.join(runtime, `node-v${nodeVer}-win-x64`);
-  if (fs.existsSync(path.join(target, 'node.exe'))) {
-    console.log('runtime Node already extracted');
-    return;
+  const exe = path.join(target, 'node.exe');
+  // Always wipe non-Windows leftovers (e.g. accidental host runtime copy via copyTree).
+  if (fs.existsSync(exe)) {
+    try {
+      assertWindowsNodeExe(exe);
+      console.log('runtime Windows Node already extracted');
+      return;
+    } catch {
+      console.warn('removing invalid/non-Windows node.exe before re-extract…');
+      rmrf(target);
+    }
   }
-  console.log('extract Node →', runtime);
+  // Also remove any darwin/linux node dirs that copyTree may have pulled in.
+  for (const ent of fs.readdirSync(runtime, { withFileTypes: true })) {
+    if (!ent.isDirectory()) continue;
+    if (/darwin|linux|arm64|macos/i.test(ent.name) && !/win-/i.test(ent.name)) {
+      console.warn('slim: remove non-Windows runtime', ent.name);
+      rmrf(path.join(runtime, ent.name));
+    }
+  }
+  console.log('extract Windows Node →', runtime);
   if (process.platform === 'darwin' || process.platform === 'linux') {
     execFileSync('unzip', ['-qo', zipPath, '-d', runtime], { stdio: 'inherit' });
   } else {
@@ -137,6 +173,7 @@ function extractNode(zipPath) {
       { stdio: 'inherit' },
     );
   }
+  assertWindowsNodeExe(exe);
 }
 
 function runNpm(cwd, args, extraEnv = {}) {
@@ -155,7 +192,16 @@ function runNpm(cwd, args, extraEnv = {}) {
     };
     console.log('npm', args.join(' '), `(cwd=${cwd}, registry=${registry})`);
     try {
-      execFileSync(npmBin, args, { cwd, stdio: 'inherit', env });
+      // Node 24 on Windows: execFileSync('npm.cmd', …) → EINVAL; use cmd /c.
+      if (process.platform === 'win32') {
+        execFileSync(process.env.ComSpec || 'cmd.exe', ['/d', '/s', '/c', ['npm', ...args].join(' ')], {
+          cwd,
+          stdio: 'inherit',
+          env,
+        });
+      } else {
+        execFileSync(npmBin, args, { cwd, stdio: 'inherit', env });
+      }
       return;
     } catch (e) {
       last = e;
@@ -282,13 +328,30 @@ function installWinDepsOfflineReady() {
   mkdirp(path.join(dataRoot, 'uploads'));
   if (fs.existsSync(path.join(desk, '.env'))) fs.rmSync(path.join(desk, '.env'), { force: true });
 
+  // Drop test/CI trees from product Dist.
+  for (const rel of [
+    'e2e',
+    'artifacts',
+    '.github',
+    'apps/server/src/test',
+    'apps/teacher-web/src',
+    'docs/posters',
+  ]) {
+    const p = path.join(desk, rel);
+    if (fs.existsSync(p)) {
+      rmrf(p);
+      console.log('slim: removed', rel);
+    }
+  }
+
   const marker = {
     product: true,
     version,
     packedAt: new Date().toISOString(),
     platform: 'win32-x64',
     serverEntry: 'apps/server/dist/index.mjs',
-    note: 'Official product distribution. Install.bat only — no npm on classroom PCs.',
+    note:
+      'Official product distribution. Windows Node is NOT in the Dist zip — Teacher-Setup.exe embeds win-x64 Node; Bootstrap/Install downloads official win-x64 Node if missing.',
   };
   const markerJson = JSON.stringify(marker, null, 2);
   fs.writeFileSync(path.join(desk, '.classroom-desk-ready'), markerJson, 'utf8');
@@ -303,12 +366,7 @@ function installWinDepsOfflineReady() {
     { path: 'install-teacher.ps1', minBytes: 1000 },
     { path: 'Install.bat', minBytes: 200 },
   ];
-  const nodeExe = path.join(desk, 'runtime', `node-v${nodeVer}-win-x64`, 'node.exe');
-  if (fs.existsSync(nodeExe)) {
-    files.push({ path: `runtime/node-v${nodeVer}-win-x64/node.exe`, minBytes: 1_000_000 });
-  } else {
-    files.push({ path: `downloads/${nodeZipName}`, minBytes: 1_000_000 });
-  }
+  // Node is intentionally absent from Dist zip; Teacher-Setup embeds it. Optional local runtime/zip for pack-time SFX only.
   const nm = path.join(desk, 'node_modules');
   if (fs.existsSync(nm)) {
     // Directory presence checked by install; record a sentinel package.
@@ -382,35 +440,96 @@ function writeGiveToTeacher() {
       ? teacherVersioned
       : null;
   if (!srcSetup) throw new Error('Teacher Setup.exe missing — build-teacher-setup failed?');
+  // Teacher-facing folder: ONE setup exe (same UX as student Setup.exe).
+  // Launcher / Fix / Service-Fix are embedded inside Teacher-Setup → Desktop shortcuts after install.
   cpFile(srcSetup, path.join(give, 'Teacher-Setup.exe'));
+
+  const advanced = path.join(give, 'Advanced');
+  mkdirp(advanced);
+
+  const bootSetup = path.join(outRoot, 'ClassroomDesk-Teacher-Bootstrap-x64.exe');
+  const bootVersioned = path.join(outRoot, `ClassroomDesk-Teacher-Bootstrap-${version}-x64.exe`);
+  const srcBoot = fs.existsSync(bootSetup)
+    ? bootSetup
+    : fs.existsSync(bootVersioned)
+      ? bootVersioned
+      : null;
+  if (srcBoot) cpFile(srcBoot, path.join(advanced, 'Teacher-Bootstrap.exe'));
+
+  const fixSetup = path.join(outRoot, 'ClassroomDesk-Service-Fix-x64.exe');
+  const fixVersioned = path.join(outRoot, `ClassroomDesk-Service-Fix-${version}-x64.exe`);
+  const srcFix = fs.existsSync(fixSetup)
+    ? fixSetup
+    : fs.existsSync(fixVersioned)
+      ? fixVersioned
+      : null;
+  if (!srcFix) {
+    throw new Error('Service-Fix.exe missing — every teacher pack must include all patches (see patches/README.md)');
+  }
+  cpFile(srcFix, path.join(advanced, 'Service-Fix.exe'));
+  const launcherGive = path.join(outRoot, 'ClassroomDesk.exe');
+  if (fs.existsSync(launcherGive)) cpFile(launcherGive, path.join(advanced, 'ClassroomDesk.exe'));
+  const teacherFixGive = path.join(outRoot, 'ClassroomDesk-Teacher-Fix-x64.exe');
+  if (fs.existsSync(teacherFixGive)) cpFile(teacherFixGive, path.join(advanced, 'Teacher-Fix.exe'));
+  embedResetTeacherLogin(path.join(advanced, 'Reset-Teacher-Login'));
+  const resetDoc = path.join(root, 'docs/RESET_TEACHER_LOGIN.md');
+  if (fs.existsSync(resetDoc)) {
+    cpFile(resetDoc, path.join(advanced, 'Reset-Teacher-Login', 'README.md'));
+  }
+  const exesDoc = path.join(root, 'docs/TEACHER_EXES.md');
+  if (fs.existsSync(exesDoc)) cpFile(exesDoc, path.join(advanced, 'TEACHER_EXES.md'));
+  fs.writeFileSync(
+    path.join(advanced, 'README.txt'),
+    [
+      'IT / advanced only — teachers do NOT need this folder.',
+      'Normal path: double-click ../Teacher-Setup.exe once, then use Desktop shortcuts.',
+      'See TEACHER_EXES.md',
+      '',
+    ].join('\n'),
+    'utf8',
+  );
 
   const studentSrc = path.join(students, `ClassroomDesk-Setup-${version}-x64.exe`);
   if (fs.existsSync(studentSrc)) {
-    cpFile(studentSrc, path.join(give, 'Student-Setup.exe'));
+    // Optional USB copy for rooms without LAN /get — not part of the teacher "one Setup" story.
+    cpFile(studentSrc, path.join(advanced, 'Student-Setup.exe'));
+  } else {
+    console.warn(
+      `WARN: Student-Setup for ${version} missing — rebuild with npm run dist:win before release`,
+    );
   }
 
   function writeSha256(filePath, outName) {
     if (!fs.existsSync(filePath)) return;
     const hash = crypto.createHash('sha256').update(fs.readFileSync(filePath)).digest('hex');
-    fs.writeFileSync(path.join(give, outName), `${hash}  ${path.basename(filePath)}\n`, 'utf8');
+    const dir = path.dirname(filePath);
+    fs.writeFileSync(path.join(dir, outName), `${hash}  ${path.basename(filePath)}\n`, 'utf8');
     fs.writeFileSync(path.join(outRoot, outName), `${hash}  ${path.basename(filePath)}\n`, 'utf8');
     console.log('SHA256', outName, hash.slice(0, 16) + '…');
   }
   writeSha256(path.join(give, 'Teacher-Setup.exe'), 'Teacher-Setup.exe.sha256');
-  writeSha256(path.join(give, 'Student-Setup.exe'), 'Student-Setup.exe.sha256');
+  writeSha256(path.join(advanced, 'Teacher-Bootstrap.exe'), 'Teacher-Bootstrap.exe.sha256');
+  writeSha256(path.join(advanced, 'Service-Fix.exe'), 'Service-Fix.exe.sha256');
+  writeSha256(path.join(advanced, 'Teacher-Fix.exe'), 'Teacher-Fix.exe.sha256');
+  writeSha256(path.join(advanced, 'ClassroomDesk.exe'), 'ClassroomDesk.exe.sha256');
+  writeSha256(path.join(advanced, 'Student-Setup.exe'), 'Student-Setup.exe.sha256');
 
-  const start = `Classroom Desk — install (< 5 min · aim ~1–2 min)
+  const start = `Classroom Desk — teacher install (same idea as student Setup.exe)
 
-BEFORE class: copy this folder by USB/LAN (do not rely on slow public download in the classroom).
+ONLY FILE YOU NEED:  Teacher-Setup.exe
 
-1. Double-click Teacher-Setup.exe
-2. Desktop\\ClassroomDesk-Desk-Login.txt → log in (Admin opens)
-3. Import roster into 本教室 (class is pre-created; easy-join is on)
-4. Students: Desktop\\ClassroomDesk-Student-Install.txt → one link → Find classroom
+1. Double-click Teacher-Setup.exe  (SmartScreen → More info → Run anyway)
+2. Wait until Admin opens → import roster
+3. Desktop shortcuts appear automatically:
+      Classroom Desk          = every day
+      Classroom Desk Admin    = open Admin
+      Classroom Desk Fix      = repair Node / reset password
 
-SmartScreen? More info → Run anyway (unsigned — expected)
+DEFAULT LOGIN: teacher / admin → change in Admin → Settings
+Students: Public Desktop install card → Find classroom
+(Advanced\\ is for IT only — ignore it)
 
-Details: docs/TIME_TO_CLASS.md · Optional: SMOKE-CHECK.txt · LAB-GO-LIVE.txt (exam only)
+GitHub: docs/TEACHER_EXES.md
 `;
   const timeDoc = path.join(root, 'docs/TIME_TO_CLASS.md');
   if (fs.existsSync(timeDoc)) cpFile(timeDoc, path.join(desk, 'docs/TIME_TO_CLASS.md'));
@@ -419,10 +538,12 @@ Details: docs/TIME_TO_CLASS.md · Optional: SMOKE-CHECK.txt · LAB-GO-LIVE.txt (
 
   const smoke = `Classroom Desk — optional smoke (after Teacher-Setup)
 
-[ ] Admin opens and login works (Desktop login card)
-[ ] Student opens ClassroomDesk-Student-Install.txt link → Find classroom
+[ ] Admin opens already logged in on roster import
+[ ] Import a short roster
+[ ] Student: Public Desktop\\ClassroomDesk-Student-Install.txt → Find classroom
 [ ] Teacher sees the student online
 
+If auto-login failed: Desktop\\ClassroomDesk-Desk-Login.txt
 If Setup failed: Desktop\\ClassroomDesk-Install-Log.txt
 SmartScreen: More info → Run anyway (unsigned — expected)
 `;
@@ -488,6 +609,112 @@ Details: docs/SEMESTER_RESET.md
   console.log('Give-To-Teacher →', give);
 }
 
+/** Patches that must exist in every latest teacher Dist / Teacher-Setup / Give-To-Teacher. */
+const REQUIRED_PATCHES = [
+  {
+    id: 'service-fix',
+    rel: 'patches/Service-Fix.exe',
+    minBytes: 50_000,
+    note: 'Local API /health + reject Mac Node (win-x64 reinstall)',
+  },
+  {
+    id: 'reset-teacher-login',
+    rel: 'patches/Reset-Teacher-Login.bat',
+    minBytes: 200,
+    note: 'Reset login to teacher/admin; change password in Admin settings',
+  },
+  {
+    id: 'teacher-launcher',
+    rel: 'patches/ClassroomDesk.exe',
+    minBytes: 50_000,
+    note: 'Daily one-click start (force Windows Node + API + Admin)',
+  },
+  {
+    id: 'teacher-fix',
+    rel: 'patches/Teacher-Fix.exe',
+    minBytes: 50_000,
+    note: 'One-click Node repair + reset teacher/admin login',
+  },
+];
+
+const RESET_LOGIN_FILES = [
+  'Reset-Teacher-Login.bat',
+  'reset-teacher-login.ps1',
+  'reset-teacher-login.mjs',
+  'Force-Windows-Node.bat',
+  'Fix-Teacher-PC.bat',
+  'ensure-windows-node.ps1',
+  'Start-ClassroomDesk.cmd',
+];
+
+function resolveServiceFixExe() {
+  const fixSetup = path.join(outRoot, 'ClassroomDesk-Service-Fix-x64.exe');
+  const fixVersioned = path.join(outRoot, `ClassroomDesk-Service-Fix-${version}-x64.exe`);
+  if (fs.existsSync(fixSetup)) return fixSetup;
+  if (fs.existsSync(fixVersioned)) return fixVersioned;
+  return null;
+}
+
+function embedResetTeacherLogin(targetDir) {
+  mkdirp(targetDir);
+  for (const name of RESET_LOGIN_FILES) {
+    const src = path.join(root, name);
+    if (!fs.existsSync(src)) throw new Error(`Missing ${name} — required reset-teacher-login patch`);
+    cpFile(src, path.join(targetDir, name));
+  }
+}
+
+function buildAndEmbedRequiredPatches() {
+  console.log('build Service-Fix.exe (required patch — every release)…');
+  execFileSync(process.execPath, [path.join(root, 'scripts/build-service-fix.mjs')], {
+    cwd: root,
+    stdio: 'inherit',
+  });
+  const srcFix = resolveServiceFixExe();
+  if (!srcFix) throw new Error('Service-Fix.exe missing after build');
+
+  console.log('build ClassroomDesk.exe (daily launcher)…');
+  execFileSync(process.execPath, [path.join(root, 'scripts/build-teacher-launcher.mjs')], {
+    cwd: root,
+    stdio: 'inherit',
+  });
+  console.log('build Teacher-Fix.exe (Node + login reset)…');
+  execFileSync(process.execPath, [path.join(root, 'scripts/build-teacher-fix.mjs')], {
+    cwd: root,
+    stdio: 'inherit',
+  });
+
+  const patchesDir = path.join(desk, 'patches');
+  mkdirp(patchesDir);
+  const readmeSrc = path.join(root, 'patches/README.md');
+  if (fs.existsSync(readmeSrc)) cpFile(readmeSrc, path.join(patchesDir, 'README.md'));
+  cpFile(srcFix, path.join(patchesDir, 'Service-Fix.exe'));
+  // Also at pack root so Install / Service-Fix discovery is obvious on disk.
+  cpFile(srcFix, path.join(desk, 'Service-Fix.exe'));
+  console.log('embedded Service-Fix → ClassroomDesk/patches/ + ClassroomDesk/');
+
+  embedResetTeacherLogin(desk);
+  embedResetTeacherLogin(patchesDir);
+  console.log('embedded Reset-Teacher-Login → ClassroomDesk/ + ClassroomDesk/patches/');
+
+  const launcher = path.join(outRoot, 'ClassroomDesk.exe');
+  const teacherFix = path.join(outRoot, 'ClassroomDesk-Teacher-Fix-x64.exe');
+  if (!fs.existsSync(launcher)) throw new Error('ClassroomDesk.exe missing after launcher build');
+  if (!fs.existsSync(teacherFix)) throw new Error('Teacher-Fix.exe missing after fix build');
+  cpFile(launcher, path.join(desk, 'ClassroomDesk.exe'));
+  cpFile(launcher, path.join(patchesDir, 'ClassroomDesk.exe'));
+  cpFile(teacherFix, path.join(desk, 'Teacher-Fix.exe'));
+  cpFile(teacherFix, path.join(patchesDir, 'Teacher-Fix.exe'));
+  console.log('embedded ClassroomDesk.exe + Teacher-Fix.exe → pack + patches/');
+
+  for (const p of REQUIRED_PATCHES) {
+    const full = path.join(desk, p.rel);
+    if (!fs.existsSync(full) || fs.statSync(full).size < p.minBytes) {
+      throw new Error(`Required patch missing or too small: ${p.rel} (${p.note})`);
+    }
+  }
+}
+
 console.log('pack →', outRoot);
 prepareHostArtifacts();
 
@@ -505,25 +732,74 @@ for (const f of [
   'install-teacher.ps1',
   'Unblock-ClassroomDesk.bat',
   'setup-from-installer.cmd',
+  'Start-ClassroomDesk.cmd',
+  'fix-classroom-service.ps1',
+  'setup-service-fix.cmd',
+  'ensure-windows-node.ps1',
+  ...RESET_LOGIN_FILES,
 ]) {
   const src = path.join(root, f);
   if (fs.existsSync(src)) cpFile(src, path.join(desk, f));
 }
 
+// Win-x64 Node for Teacher-Setup.exe only (assert PE). Dist zip must NOT ship Node.
 const zip = ensureNodeZip();
 cpFile(zip, path.join(desk, 'downloads', nodeZipName));
 extractNode(zip);
+assertWindowsNodeExe(path.join(desk, 'runtime', `node-v${nodeVer}-win-x64`, 'node.exe'));
 installWinDepsOfflineReady();
 copyStudentSetup();
 
-console.log('build one-click teacher Setup.exe…');
+// Patches first so Teacher-Setup SFX always contains them.
+buildAndEmbedRequiredPatches();
+
+console.log('build one-click teacher Setup.exe (embeds Windows win-x64 Node)…');
 execFileSync(process.execPath, [path.join(root, 'scripts/build-teacher-setup.mjs')], {
   cwd: root,
   stdio: 'inherit',
 });
+
+// After Teacher-Setup is baked: strip Node from Dist tree so ClassroomDesk-*-win-x64.zip stays Node-free.
+// Install/Bootstrap will download official win-x64 Node; Teacher-Setup already carries it.
+function stripNodeFromDistTree() {
+  const runtime = path.join(desk, 'runtime');
+  if (fs.existsSync(runtime)) {
+    rmrf(runtime);
+    console.log('strip Dist: removed runtime/ (Node stays inside Teacher-Setup.exe only)');
+  }
+  const dlNode = path.join(desk, 'downloads', nodeZipName);
+  if (fs.existsSync(dlNode)) {
+    fs.rmSync(dlNode, { force: true });
+    console.log('strip Dist: removed downloads/', nodeZipName);
+  }
+  // Keep an empty downloads/ for install scripts that mkdir into it.
+  mkdirp(path.join(desk, 'downloads'));
+  fs.writeFileSync(
+    path.join(desk, 'downloads', 'README-NODE.txt'),
+    [
+      'Portable Node is NOT shipped in ClassroomDesk-*-win-x64.zip.',
+      'Teacher-Setup.exe embeds official Windows win-x64 Node.',
+      'Bootstrap / Install.bat download win-x64 Node from nodejs.org / npmmirror when missing.',
+      '',
+    ].join('\n'),
+    'utf8',
+  );
+}
+stripNodeFromDistTree();
+
+console.log('build thin Teacher-Bootstrap.exe (public / slow links)…');
+try {
+  execFileSync(process.execPath, [path.join(root, 'scripts/build-teacher-bootstrap.mjs')], {
+    cwd: root,
+    stdio: 'inherit',
+  });
+} catch (e) {
+  console.warn('Teacher-Bootstrap build skipped:', e instanceof Error ? e.message : e);
+}
 writeGiveToTeacher();
 
 console.log('\nDone.');
 console.log('Hand teachers this folder only:');
 console.log(path.join(root, 'Give-To-Teacher'));
-console.log('  → double-click Teacher-Setup.exe');
+console.log('  → Teacher-Setup.exe (includes Windows Node) + Service-Fix.exe');
+console.log('  Dist zip has NO Node — Install downloads win-x64 Node if needed');

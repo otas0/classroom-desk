@@ -20,10 +20,32 @@ if not exist "%~dp0install-teacher.ps1" (
   exit /b 1
 )
 
-powershell -NoProfile -ExecutionPolicy Bypass -Command ^
+set "PS=%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe"
+if not exist "%PS%" set "PS=%SystemRoot%\SysWOW64\WindowsPowerShell\v1.0\powershell.exe"
+if not exist "%PS%" (
+  echo ERROR: Windows PowerShell not found.
+  pause
+  exit /b 90
+)
+
+"%PS%" -NoLogo -NoProfile -ExecutionPolicy Bypass -Command ^
   "Get-ChildItem -LiteralPath '%~dp0' -Recurse -Force -ErrorAction SilentlyContinue | Unblock-File -ErrorAction SilentlyContinue" >nul 2>&1
 
-powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0install-teacher.ps1" -SkipSourceDownload -ChinaMirrorsFirst
+set "ROOT=C:\ClassroomDesk"
+echo  Ensuring Windows Node into %ROOT% (auto-download CN + overseas mirrors)…
+if not exist "%~dp0ensure-windows-node.ps1" (
+  echo ERROR: ensure-windows-node.ps1 missing next to Install.bat
+  pause
+  exit /b 1
+)
+"%PS%" -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%~dp0ensure-windows-node.ps1" -InstallRoot "%ROOT%" -ChinaMirrorsFirst -Force
+if errorlevel 1 (
+  echo NODE AUTO-INSTALL FAILED — try again or check npmmirror.com / nodejs.org
+  pause
+  exit /b 1
+)
+
+"%PS%" -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%~dp0install-teacher.ps1" -InstallRoot "%ROOT%" -SkipSourceDownload -ChinaMirrorsFirst -ForceNodeReinstall
 set ERR=%ERRORLEVEL%
 
 echo.
@@ -33,7 +55,7 @@ if not "%ERR%"=="0" (
   set "LOG=%USERPROFILE%\Desktop\ClassroomDesk-Install-Log.txt"
   if not exist "%LOG%" set "LOG=%PUBLIC%\Desktop\ClassroomDesk-Install-Log.txt"
   if exist "%LOG%" (
-    powershell -NoProfile -Command "Get-Content -LiteralPath '%LOG%' -Tail 30 -ErrorAction SilentlyContinue"
+    "%PS%" -NoLogo -NoProfile -Command "Get-Content -LiteralPath '%LOG%' -Tail 30 -ErrorAction SilentlyContinue"
   )
   set "HELP=%USERPROFILE%\Desktop\ClassroomDesk-Network-Minimum.txt"
   if not exist "%HELP%" set "HELP=%PUBLIC%\Desktop\ClassroomDesk-Network-Minimum.txt"

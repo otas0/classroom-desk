@@ -2,32 +2,30 @@
 
 `npm run pack` → folder **`Give-To-Teacher`**
 
+对外和学生一样：**教师只给 / 只下 `Teacher-Setup.exe`**。  
+细节：[TEACHER_EXES.md](./TEACHER_EXES.md)
+
 ## Time SLA
 
-**Under 5 minutes** to first class after Setup is on the teacher PC; **~1–2 minutes** typical on SSD.  
-See [TIME_TO_CLASS.md](./TIME_TO_CLASS.md). Worldwide classrooms: distribute by **USB/LAN** — do not download ~300 MB Teacher-Setup on a slow school link during the lesson.
+**Under 5 minutes.** See [TIME_TO_CLASS.md](./TIME_TO_CLASS.md).
 
 ## Day-1
 
-1. Double-click **`Teacher-Setup.exe`**
-2. Desktop **`ClassroomDesk-Desk-Login.txt`** → log in (Admin opens)
-3. Import roster into pre-created **本教室** (easy-join already on)
-4. Students: Public Desktop **`ClassroomDesk-Student-Install.txt`** → Find classroom
+1. Double-click **`Teacher-Setup.exe`** → Admin logged in → import roster  
+2. Desktop shortcuts appear: **Classroom Desk** · **Classroom Desk Admin** · **Classroom Desk Fix**  
+3. Every day: Desktop **Classroom Desk**  
+4. Students: Public Desktop install card → open app → **tap your name**
 
-| File | Who |
-|------|-----|
-| `Teacher-Setup.exe` | Teacher PC |
-| `Student-Setup.exe` | USB fallback (prefer install-card LAN link) |
-| `START-HERE.txt` | Steps above |
-| `SMOKE-CHECK.txt` | Optional check |
-| `LAB-GO-LIVE.txt` | Exam / max-secrecy only |
-| `SEMESTER-RESET.txt` | End of term |
+Default login: **`teacher` / `admin`** → change in Admin → **设置**.  
+Broken: Desktop **Classroom Desk Fix**.  
+Backup card: Desktop **`ClassroomDesk-Desk-Login.txt`**
+
+`Give-To-Teacher/Advanced/` is IT-only (Bootstrap / Service-Fix / …). Teachers ignore it.
 
 ## Hot update
 
-- Students auto-follow teacher `/upgrades/` (force same version on)
-- New build: Admin → sync/upload Setup (offline: USB Setup.exe)
+Students auto-follow teacher `/upgrades/`. New build: Admin sync/upload Setup.
 
 ## Code signing
 
-Unsigned Setup may show SmartScreen → **More info → Run anyway**. Do **not** turn off Defender.
+Unsigned → SmartScreen → **More info → Run anyway**. Do not turn off Defender.

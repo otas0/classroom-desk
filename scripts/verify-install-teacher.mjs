@@ -37,19 +37,44 @@ mustExist('Check-Pack.bat');
 mustExist('Install-Offline.bat');
 mustExist('Install-Teacher.bat');
 mustExist('Unblock-ClassroomDesk.bat');
+mustExist('ensure-windows-node.ps1');
+mustExist('Reset-Teacher-Login.bat');
+mustExist('reset-teacher-login.ps1');
+mustExist('reset-teacher-login.mjs');
+mustExist('docs/RESET_TEACHER_LOGIN.md');
+mustExist('docs/TEACHER_EXES.md');
+{
+  const exesDoc = fs.readFileSync(path.join(root, 'docs/TEACHER_EXES.md'), 'utf8');
+  if (!exesDoc.includes('Classroom Desk.lnk') || !exesDoc.includes('只下一个')) {
+    fail('TEACHER_EXES.md must say teachers download only Teacher-Setup + document Desktop shortcuts');
+  } else {
+    ok('TEACHER_EXES.md one-Setup + desktop shortcuts');
+  }
+}
 const bat = mustExist('install-teacher.ps1');
 assertEnglishName('Install.bat');
 assertEnglishName('Check-Pack.bat');
 assertEnglishName('install-teacher.ps1');
+assertEnglishName('Reset-Teacher-Login.bat');
 
 const installBat = fs.readFileSync(path.join(root, 'Install.bat'), 'utf8');
 const checkBat = fs.readFileSync(path.join(root, 'Check-Pack.bat'), 'utf8');
 const ps1Text = fs.readFileSync(bat, 'utf8');
-
-if (!installBat.includes('install-teacher.ps1') || !installBat.includes('ChinaMirrorsFirst')) {
-  fail('Install.bat must call install-teacher.ps1 -ChinaMirrorsFirst');
+if (!ps1Text.includes('New-DesktopLnk') || !ps1Text.includes('Classroom Desk.lnk')) {
+  fail('install-teacher.ps1 must create Desktop Classroom Desk.lnk after setup');
 } else {
-  ok('Install.bat → ps1 mirrors');
+  ok('install-teacher.ps1 Desktop .lnk shortcuts');
+}
+
+if (
+  !installBat.includes('install-teacher.ps1') ||
+  !installBat.includes('ChinaMirrorsFirst') ||
+  !installBat.includes('ensure-windows-node.ps1') ||
+  !installBat.includes('ForceNodeReinstall')
+) {
+  fail('Install.bat must force ensure-windows-node.ps1 + install-teacher.ps1 -ChinaMirrorsFirst');
+} else {
+  ok('Install.bat → Node auto-install + ps1 mirrors');
 }
 if (/[\u4e00-\u9fff]/.test(installBat)) fail('Install.bat must be English-only');
 else ok('Install.bat English-only');
@@ -150,12 +175,30 @@ if (
   !packScript.includes('Give-To-Teacher') ||
   !packScript.includes('Teacher-Setup.exe') ||
   !packScript.includes('SMOKE-CHECK.txt') ||
-  !packScript.includes('LAB-GO-LIVE.txt')
+  !packScript.includes('LAB-GO-LIVE.txt') ||
+  !packScript.includes('REQUIRED_PATCHES') ||
+  !packScript.includes('buildAndEmbedRequiredPatches') ||
+  !packScript.includes('Service-Fix.exe') ||
+  !packScript.includes('Reset-Teacher-Login') ||
+  !packScript.includes('stripNodeFromDistTree') ||
+  !packScript.includes('ONLY FILE YOU NEED') ||
+  !packScript.includes("path.join(give, 'Advanced')")
 ) {
-  fail('pack.mjs must build Give-To-Teacher / Teacher-Setup / SMOKE-CHECK / LAB-GO-LIVE');
+  fail('pack.mjs must build one-Setup Give-To-Teacher + Advanced/ + required patches / strip Node from Dist zip');
 } else {
-  ok('pack.mjs Give-To-Teacher');
+  ok('pack.mjs one-Setup Give-To-Teacher + Advanced/ + Dist Node strip');
 }
+mustExist('patches/README.md');
+mustExist('scripts/build-service-fix.mjs');
+if (!fs.readFileSync(path.join(root, 'patches/README.md'), 'utf8').includes('Reset-Teacher-Login')) {
+  fail('patches/README.md must list Reset-Teacher-Login');
+}
+if (!ps1Text.includes("teacherPass = 'admin'") || !ps1Text.includes("adminPass = 'admin'")) {
+  fail('install-teacher.ps1 must default teacher/admin passwords to admin');
+} else {
+  ok('install-teacher.ps1 default password admin');
+}
+ok('patches inventory');
 
 mustExist('docs/LAB_GO_LIVE.md');
 mustExist('docs/SEMESTER_RESET.md');

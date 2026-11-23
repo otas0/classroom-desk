@@ -1,6 +1,7 @@
 import bcrypt from 'bcryptjs';
 import { SignJWT, jwtVerify } from 'jose';
 import type { DatabaseSync } from 'node:sqlite';
+import { isWeakTeacherPassword } from '@classroom-desk/shared';
 import { config } from '../config.js';
 import type { AuthUser, DbUser, Role } from '../types.js';
 import { newClassCode, newId, nowIso } from '../utils/id.js';
@@ -114,20 +115,91 @@ export async function ensureBootstrap(db: DatabaseSync): Promise<void> {
       `INSERT INTO users (id, role, display_name, username, password_hash, class_id, total_points, created_at)
        VALUES (?, 'teacher', ?, ?, ?, NULL, 0, ?)`,
     ).run(teacherId, '默认教师', username, hash, createdAt);
-    // Installer-generated TEACHER_PASSWORD is strong — skip forced password-change gate (~30–60s).
-    if (envTeacherPassword) {
+    // Strong installer passwords skip the change gate; default "admin" stays weak → force settings change.
+    if (envTeacherPassword && !isWeakTeacherPassword(envTeacherPassword)) {
       upsertSetting(db, 'teacher_password_ok', '1');
+    } else if (envTeacherPassword) {
+      upsertSetting(db, 'teacher_password_ok', '0');
     }
     console.warn(
       `[bootstrap] created teacher "${username}". Teacher password (env TEACHER_PASSWORD or generated): ${password}`,
     );
   } else if (envTeacherPassword) {
-    // CI / lab: force-align named teacher password when TEACHER_PASSWORD is set.
+    // CI / lab / Reset-Teacher-Login: force-align named teacher password when TEACHER_PASSWORD is set.
     const hash = await hashPassword(envTeacherPassword);
     db.prepare(`UPDATE users SET password_hash = ? WHERE id = ?`).run(hash, existingNamed.id);
-    upsertSetting(db, 'teacher_password_ok', '1');
+    upsertSetting(
+      db,
+      'teacher_password_ok',
+      isWeakTeacherPassword(envTeacherPassword) ? '0' : '1',
+    );
     console.log(`[bootstrap] teacher "${username}" password hash aligned from TEACHER_PASSWORD env`);
   }
+
+  // Installer one-shot Admin auto-login (loopback only; see tryBootstrapLogin).
+  const bootTok = process.env.BOOTSTRAP_LOGIN_TOKEN?.trim() || '';
+  if (bootTok) {
+    const prev = getSetting(db, 'bootstrap_login_token') ?? '';
+    if (prev !== bootTok) {
+      upsertSetting(db, 'bootstrap_login_token', bootTok);
+      upsertSetting(db, 'bootstrap_login_used', '0');
+      console.log('[bootstrap] setup auto-login token registered (loopback, one-shot)');
+    }
+  }
+}
+
+/** True for IPv4/IPv6 loopback (installer opens Admin on the teacher PC only). */
+export function isLoopbackAddress(ip: string | null | undefined): boolean {
+  const raw = String(ip ?? '').trim().toLowerCase();
+  if (!raw) return false;
+  const s = raw.startsWith('::ffff:') ? raw.slice(7) : raw;
+  return s === '127.0.0.1' || s === '::1' || s === 'localhost';
+}
+
+/**
+ * Consume one-shot installer setup token → teacher JWT.
+ * Only from loopback; token must match settings and not yet used.
+ */
+export async function tryBootstrapLogin(
+  db: DatabaseSync,
+  token: string,
+  clientIp: string | null | undefined,
+): Promise<
+  | { ok: true; jwt: string; user: AuthUser }
+  | { ok: false; error: string; status: number }
+> {
+  if (!isLoopbackAddress(clientIp)) {
+    return { ok: false, error: 'loopback_only', status: 403 };
+  }
+  const want = String(token ?? '').trim();
+  if (!want || want.length < 16) {
+    return { ok: false, error: 'token_required', status: 400 };
+  }
+  const stored = getSetting(db, 'bootstrap_login_token') ?? '';
+  if (!stored || stored !== want) {
+    return { ok: false, error: 'invalid_token', status: 401 };
+  }
+  if ((getSetting(db, 'bootstrap_login_used') ?? '0') === '1') {
+    return { ok: false, error: 'token_used', status: 410 };
+  }
+
+  const username = process.env.TEACHER_USERNAME?.trim() || 'teacher';
+  const user =
+    findUserByUsername(db, username) ||
+    (db
+      .prepare(
+        `SELECT * FROM users WHERE role IN ('teacher', 'admin') ORDER BY created_at ASC LIMIT 1`,
+      )
+      .get() as DbUser | undefined);
+  if (!user || (user.role !== 'teacher' && user.role !== 'admin')) {
+    return { ok: false, error: 'teacher_missing', status: 404 };
+  }
+
+  upsertSetting(db, 'bootstrap_login_used', '1');
+  upsertSetting(db, 'teacher_password_ok', '1');
+  const authUser = mapUser(user);
+  const jwt = await signToken(authUser);
+  return { ok: true, jwt, user: authUser };
 }
 
 function randomTempPassword(): string {

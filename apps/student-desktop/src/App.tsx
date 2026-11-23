@@ -23,7 +23,7 @@ import {
   readExitLockCache,
   writeExitLockCache,
 } from './exitLockCache';
-import { isTeacherBonded, markTeacherBonded } from './teacherBond';
+import { isTeacherBonded, markTeacherBonded, syncTeacherBondedFromMain } from './teacherBond';
 import {
   EMPTY_INPUT_LOCK,
   anyInputLocked,
@@ -233,20 +233,30 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
     [],
   );
 
-  const syncExitLock = useCallback(async (allowed: boolean, until: string | null = null) => {
-    // Never bonded / first setup: always allow exit even if caller asks to lock.
-    const bonded = isTeacherBonded();
-    const grant = bonded ? allowed : true;
-    const nextUntil = grant && bonded ? until : null;
-    setExitUnlockUntil(nextUntil);
-    writeExitLockCache(grant, nextUntil);
-    if (window.classroomDesk?.setExitAllowed) {
-      const st = await window.classroomDesk.setExitAllowed(bonded ? allowed : true);
-      setExitAllowed(Boolean(st.exitAllowed));
-    } else {
-      setExitAllowed(grant);
-    }
-  }, []);
+  const syncExitLock = useCallback(
+    async (
+      allowed: boolean,
+      until: string | null = null,
+      opts?: { persistCache?: boolean },
+    ) => {
+      // Never bonded / first setup: always allow exit even if caller asks to lock.
+      const bonded = isTeacherBonded();
+      const grant = bonded ? allowed : true;
+      const nextUntil = grant && bonded ? until : null;
+      setExitUnlockUntil(nextUntil);
+      // Do not persist transient first-setup grants as offline "forever unlock".
+      if (opts?.persistCache !== false && bonded) {
+        writeExitLockCache(grant, nextUntil);
+      }
+      if (window.classroomDesk?.setExitAllowed) {
+        const st = await window.classroomDesk.setExitAllowed(bonded ? allowed : true);
+        setExitAllowed(Boolean(st.exitAllowed));
+      } else {
+        setExitAllowed(grant);
+      }
+    },
+    [],
+  );
 
   const bondToTeacher = useCallback(async () => {
     markTeacherBonded();
@@ -426,7 +436,8 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
   // Real-time exit-lock: WebSocket first; on close/error → SSE + toast; poll remains backup.
   // Input-lock uses a dedicated SSE channel (not piggybacked on exit-lock payloads).
   useEffect(() => {
-    if (!ready || healthOk === false) return;
+    // Skip during first setup / 换教室 so server lock does not fight setup quit chrome.
+    if (!ready || needsFirstRun || healthOk === false) return;
     const base = getApiBase().replace(/\/$/, '');
     if (!base) return;
     let closed = false;
@@ -570,7 +581,7 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
       inputEs?.close();
       deepEs?.close();
     };
-  }, [ready, healthOk, applyServerExitLock, applyResolvedInputLock, showToast, classId]);
+  }, [ready, needsFirstRun, healthOk, applyServerExitLock, applyResolvedInputLock, showToast, classId]);
 
   // Focus freeze / custody: blur → report violation + re-assert lock (visible policy; no screenshots).
   useEffect(() => {
@@ -1171,16 +1182,32 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
   }, [bondToTeacher, syncWindowChromeFromServer]);
 
   useEffect(() => {
+    let cancelled = false;
     void (async () => {
       await initApiBase();
+      if (cancelled) return;
+      // Reconcile renderer bond with main process (teacher-bond.json).
+      try {
+        const st = await window.classroomDesk?.getExitLockState?.();
+        if (st && typeof st.teacherBonded === 'boolean') {
+          syncTeacherBondedFromMain(Boolean(st.teacherBonded));
+        }
+      } catch {
+        /* browser preview */
+      }
+      if (cancelled) return;
       // Restore exit policy before UI: unbound → free; bonded → cache / locked.
       if (!isTeacherBonded()) {
-        await syncExitLock(true, null);
+        await syncExitLock(true, null, { persistCache: false });
         await syncWindowChromeFromServer(false, false, true);
       } else {
         const cache = readExitLockCache();
         await syncExitLock(isCachedExitStillAllowed(cache), cache?.until ?? null);
+        if (window.classroomDesk?.setFirstSetupMode) {
+          await window.classroomDesk.setFirstSetupMode(false);
+        }
       }
+      if (cancelled) return;
       let cid = '';
       let firstRun = false;
       try {
@@ -1196,17 +1223,22 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
       } catch {
         /* browser preview: skip first-run gate */
       }
+      if (cancelled) return;
       setNeedsFirstRun(firstRun);
       if (firstRun) {
-        await syncExitLock(true, null);
+        if (window.classroomDesk?.setFirstSetupMode) {
+          await window.classroomDesk.setFirstSetupMode(true);
+        }
+        await syncExitLock(true, null, { persistCache: false });
         await syncWindowChromeFromServer(false, false, true);
         const sys = detectSystemUiLocale();
         onUiLocale?.(sys);
         window.dispatchEvent(new CustomEvent('cd-ui-locale', { detail: { uiLocale: sys } }));
-        setReady(true);
+        if (!cancelled) setReady(true);
         return;
       }
       const ok = await probeHealth();
+      if (cancelled) return;
       if (ok) {
         if (cid) {
           try {
@@ -1221,8 +1253,11 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
         const cache = readExitLockCache();
         await syncExitLock(isCachedExitStillAllowed(cache), cache?.until ?? null);
       }
-      setReady(true);
+      if (!cancelled) setReady(true);
     })();
+    return () => {
+      cancelled = true;
+    };
   }, [loadRoster, refreshMe, probeHealth, syncExitLock, syncWindowChromeFromServer, onUiLocale]);
 
   useEffect(() => {
@@ -1427,6 +1462,11 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
       setPendingIdentity(null);
       setSwitchIdentity(false);
       setGateAdmin(false);
+      try {
+        localStorage.setItem(`cd_last_student_${classId}`, row.id);
+      } catch {
+        /* ignore */
+      }
       showToast(t('已选择 {v0}', { v0: res.user.displayName }));
       let openCount = 0;
       try {
@@ -1565,6 +1605,27 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
     };
   }, [versionDrift, studentAutoUpdate, lanUpgradeUrl, expectedClientVersion, openUpgradeUrl, classId]);
 
+  // First setup only: resizable + quit; max = bottom-right region (never full screen).
+  // Must stay above any early return — Rules of Hooks.
+  useEffect(() => {
+    if (!ready || !window.classroomDesk?.setFirstSetupMode) return;
+    void (async () => {
+      if (needsFirstRun) {
+        await window.classroomDesk.setFirstSetupMode(true);
+        // Transient grant — do not write forever-unlock into exit-lock cache.
+        await syncExitLock(true, null, { persistCache: false });
+        await applyWindowChromePolicy(true, true);
+      } else {
+        await window.classroomDesk.setFirstSetupMode(false);
+        // After setup: bonded machines re-lock until teacher unlock / server says otherwise.
+        if (isTeacherBonded()) {
+          const cache = readExitLockCache();
+          await syncExitLock(isCachedExitStillAllowed(cache), cache?.until ?? null);
+        }
+      }
+    })();
+  }, [ready, needsFirstRun, syncExitLock, applyWindowChromePolicy]);
+
   if (!ready) {
     return (
       <div className="shell">
@@ -1574,9 +1635,11 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
   }
 
   // Teacher may allow chip collapse; force-upgrade must not stay tucked away.
+  // First setup stays expanded so Quit remains visible.
   if (
     collapsed &&
-    (allowCollapse || needsFirstRun || !isTeacherBonded()) &&
+    !needsFirstRun &&
+    (allowCollapse || !isTeacherBonded()) &&
     !(studentAutoUpdate && versionDrift)
   ) {
     return (
@@ -1690,11 +1753,34 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
             <strong className="brand">{APP_NAME}</strong>
             <span className="meta">{t('首次配置')}</span>
           </div>
-          {collapseActions}
+          <div className="titlebar-actions" data-no-drag>
+            <button
+              type="button"
+              className="icon-btn"
+              data-testid="student-first-setup-quit"
+              onClick={() => {
+                void (async () => {
+                  // firstSetupMode already allows quit — avoid sticky exitUnlockGranted.
+                  if (window.classroomDesk?.adminQuit) {
+                    await window.classroomDesk.adminQuit();
+                    return;
+                  }
+                  if (window.classroomDesk?.grantExitAndQuit) {
+                    await window.classroomDesk.grantExitAndQuit();
+                  }
+                })();
+              }}
+            >
+              {t('退出')}
+            </button>
+          </div>
         </header>
         <main className="content" data-no-drag>
           <FirstRunSetup
             onDone={async (next) => {
+              if (window.classroomDesk?.setFirstSetupMode) {
+                await window.classroomDesk.setFirstSetupMode(false);
+              }
               setClassId(next.classId);
               const label = [next.displayName, next.className].filter(Boolean).join(' · ');
               setClassroomLabel(label || next.classId);
@@ -1707,6 +1793,10 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
                   /* roster may be empty */
                 }
                 await refreshMe();
+              } else if (isTeacherBonded()) {
+                // Offline after saving config: re-lock (do not keep setup grant).
+                const cache = readExitLockCache();
+                await syncExitLock(isCachedExitStillAllowed(cache), cache?.until ?? null);
               }
             }}
           />
@@ -1759,9 +1849,15 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
                 className="secondary"
                 data-testid="health-fail-switch-classroom"
                 onClick={() => {
-                  setNeedsFirstRun(true);
-                  setUser(null);
-                  setToken('');
+                  void (async () => {
+                    if (window.classroomDesk?.setFirstSetupMode) {
+                      await window.classroomDesk.setFirstSetupMode(true);
+                    }
+                    setNeedsFirstRun(true);
+                    setHealthOk(null);
+                    setUser(null);
+                    setToken('');
+                  })();
                 }}
               >
                 {t('换教室')}
@@ -1908,9 +2004,15 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
                   v0: classroomLabel || classId,
                 })}
                 onClick={() => {
-                  setNeedsFirstRun(true);
-                  setUser(null);
-                  setToken('');
+                  void (async () => {
+                    if (window.classroomDesk?.setFirstSetupMode) {
+                      await window.classroomDesk.setFirstSetupMode(true);
+                    }
+                    setNeedsFirstRun(true);
+                    setHealthOk(null);
+                    setUser(null);
+                    setToken('');
+                  })();
                 }}
               >
                 <span className="chip-name">{classroomLabel || classId}</span>
@@ -1966,7 +2068,10 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
               pending={pendingIdentity}
               selecting={selecting}
               switching={switchIdentity}
-              onPick={setPendingIdentity}
+              onPick={(row) => {
+                // One tap = enter class (no separate「确认是我」).
+                void selectStudent(row);
+              }}
               onConfirm={() => {
                 if (pendingIdentity) void selectStudent(pendingIdentity);
               }}
@@ -2300,6 +2405,8 @@ function FirstRunSetup({
   function joinKey(c: JoinCandidate): string {
     return `${c.apiBase}::${c.classId ?? ''}`;
   }
+
+  const autoJoinAttempted = useRef(false);
 
   useEffect(() => {
     void (async () => {
@@ -2697,8 +2804,9 @@ function FirstRunSetup({
     }
   }
 
-  /** Phase 1: discover only — never auto-connect; student must confirm. */
-  async function findClassrooms() {
+  /** Discover LAN classrooms; auto-connect when exactly one easy-join hit. */
+  async function findClassrooms(opts?: { autoConnectSingle?: boolean }) {
+    const autoConnectSingle = opts?.autoConnectSingle !== false;
     setMsg('');
     setJoinCandidates([]);
     setSelectedJoinKey('');
@@ -2730,8 +2838,23 @@ function FirstRunSetup({
       }
       setJoinCandidates(show);
       setSelectedJoinKey(joinKey(show[0]));
+      if (autoConnectSingle && joinable.length === 1 && joinable[0]?.apiBase) {
+        const hit = joinable[0];
+        setMsg(t('正在连接本教室…'));
+        await connectToClassroom({
+          apiBase: hit.apiBase,
+          classId: hit.classId,
+          className: hit.className,
+          displayName: hit.displayName,
+          hostName: hit.hostName,
+          label: hit.label,
+        });
+        return;
+      }
       setMsg(
-        t('找到 {v0} 台教师机，请选择后点「确认连接」', { v0: String(show.length) }),
+        joinable.length > 1
+          ? t('找到 {v0} 台教师机，请点选后连接', { v0: String(show.length) })
+          : t('找到教室，请点「确认连接」'),
       );
     } catch (e) {
       setMsg(
@@ -2746,7 +2869,7 @@ function FirstRunSetup({
     }
   }
 
-  /** Phase 2: connect only the student-confirmed teacher. */
+  /** Connect selected teacher (multi-lab fallback). */
   async function confirmJoinSelected() {
     setMsg('');
     const hit = joinCandidates.find((c) => joinKey(c) === selectedJoinKey);
@@ -2780,39 +2903,68 @@ function FirstRunSetup({
     }
   }
 
-  async function importFromRemovable() {
+  async function importFromRemovable(opts?: { autoConnect?: boolean }) {
     setMsg('');
     setBusy(true);
     try {
       const desk = window.classroomDesk;
       if (!desk?.findRemovableConfig) {
         setMsg(t('当前环境不支持 U 盘导入'));
-        return;
+        return false;
       }
       const r = await desk.findRemovableConfig();
       const hit = r.hits?.[0];
       if (!hit) {
-        setMsg(
-          t(
-            t('未找到 classroom-desk-config.json。请把教师下载的 config 放到 U 盘/共享盘根目录并改名。'),
-          ),
-        );
-        return;
+        if (!opts?.autoConnect) {
+          setMsg(
+            t(
+              t('未找到 classroom-desk-config.json。请把教师下载的 config 放到 U 盘/共享盘根目录并改名。'),
+            ),
+          );
+        }
+        return false;
+      }
+      if (opts?.autoConnect !== false) {
+        setMsg(t('正在连接本教室…'));
+        await connectToClassroom({
+          apiBase: hit.apiBase,
+          classId: hit.classId,
+          className: hit.className,
+        });
+        return true;
       }
       applyPayload(hit.apiBase, hit.classId);
       setMsg(t('已从 {v0} 读入，请点「保存并检测 /health」', { v0: hit.path }));
+      return true;
     } catch (e) {
       setMsg(e instanceof Error ? e.message : t('导入失败'));
+      return false;
     } finally {
       setBusy(false);
     }
   }
 
+  // Day-1 one-shot: Public Desktop config → else LAN discover + auto-join single classroom.
+  useEffect(() => {
+    if (autoJoinAttempted.current) return;
+    autoJoinAttempted.current = true;
+    void (async () => {
+      try {
+        const imported = await importFromRemovable({ autoConnect: true });
+        if (imported) return;
+        await findClassrooms({ autoConnectSingle: true });
+      } catch {
+        /* keep manual UI */
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount once for first-run auto-join
+  }, []);
+
   return (
     <section className="panel">
       <h1>{t('首次配置本机')}</h1>
       <p className="lead">
-        {t('优先重连本班 / 查找教室 / 房间码 → 确认连接。也可用 U 盘 / 扫码。')}
+        {t('正在自动连班。若未连上，点「查找教室」或用房间码 / U 盘。')}
       </p>
       {lastClassroom ? (
         <p className="hint" data-testid="first-run-last-classroom">
@@ -3130,6 +3282,17 @@ function IdentityGate({
   onCancelSwitch: () => void;
 }) {
   const [q, setQ] = useState('');
+  const lastId = useMemo(() => {
+    try {
+      return classId ? String(localStorage.getItem(`cd_last_student_${classId}`) ?? '') : '';
+    } catch {
+      return '';
+    }
+  }, [classId, roster.length]);
+  const lastRow = useMemo(
+    () => (lastId ? roster.find((r) => r.id === lastId) ?? null : null),
+    [roster, lastId],
+  );
   const filtered = useMemo(() => {
     const key = q.trim().toLowerCase();
     const list = [...roster].sort((a, b) =>
@@ -3150,9 +3313,9 @@ function IdentityGate({
       <h1>{switching ? t('更换身份') : t('你是谁？')}</h1>
       <p className="hint">
         {className
-          ? t('{v0} · 点自己的姓名，再点确认', { v0: className })
+          ? t('{v0} · 点自己的姓名即可进班', { v0: className })
           : classId
-            ? t('点自己的姓名，再点确认')
+            ? t('点自己的姓名即可进班')
             : t('本机还没有班级，请老师先配置')}
       </p>
       {sessionEndedBanner ? (
@@ -3169,8 +3332,27 @@ function IdentityGate({
         </div>
       ) : null}
       {error ? <p className="error">{error}</p> : null}
+      {lastRow && !switching ? (
+        <div className="confirm-bar" data-testid="identity-resume-last">
+          <button
+            type="button"
+            className="primary"
+            disabled={selecting}
+            onClick={() => onPick(lastRow)}
+          >
+            {selecting
+              ? t('确认中…')
+              : lastRow.studentNo
+                ? t('继续：{v0}（{v1}）', {
+                    v0: lastRow.displayName,
+                    v1: lastRow.studentNo,
+                  })
+                : t('继续：{v0}', { v0: lastRow.displayName })}
+          </button>
+        </div>
+      ) : null}
       <input value={q} onChange={(e) => setQ(e.target.value)} placeholder={t('搜索姓名或学号')} />
-      {pending ? (
+      {pending && switching ? (
         <div className="confirm-bar">
           <p>
             {pending.studentNo
@@ -3199,6 +3381,7 @@ function IdentityGate({
             type="button"
             className={pending?.id === row.id ? 'identity-btn selected' : 'identity-btn'}
             onClick={() => onPick(row)}
+            disabled={selecting}
             aria-pressed={pending?.id === row.id}
           >
             <span>{row.displayName}</span>

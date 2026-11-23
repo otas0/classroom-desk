@@ -20,7 +20,10 @@ param(
   [switch]$NoAutostart,
   [switch]$SkipSourceDownload,
   [switch]$ChinaMirrorsFirst,
-  [switch]$CheckOnly
+  [switch]$BootstrapOnline,
+  [switch]$CheckOnly,
+  # Wipe runtime Node and re-download official Windows build (CN + overseas mirrors).
+  [switch]$ForceNodeReinstall
 )
 
 $ErrorActionPreference = 'Stop'
@@ -222,50 +225,54 @@ function Find-BundledNodeZip([string]$Root, [string]$DirName) {
   return $null
 }
 
+function Test-IsWindowsNodeExe([string]$Path) {
+  if (-not (Test-Path -LiteralPath $Path)) { return $false }
+  try {
+    $fs = [IO.File]::OpenRead($Path)
+    try {
+      $buf = New-Object byte[] 4
+      if ($fs.Read($buf, 0, 4) -lt 2) { return $false }
+      if ($buf[0] -eq 0x4D -and $buf[1] -eq 0x5A) { return $true }
+      return $false
+    } finally { $fs.Close() }
+  } catch { return $false }
+}
+
 function Ensure-PortableNode([string]$Root, [string]$Version) {
+  # Always force wipe + official Windows download (CN + overseas mirrors).
+  # Never reuse bundled/host Node — Mac copies have broken many classrooms.
+  $ensurePs1 = Join-Path $PSScriptRoot 'ensure-windows-node.ps1'
+  if (-not (Test-Path -LiteralPath $ensurePs1)) {
+    $ensurePs1 = Join-Path $Root 'ensure-windows-node.ps1'
+  }
+  if (-not (Test-Path -LiteralPath $ensurePs1)) {
+    throw 'ensure-windows-node.ps1 missing — re-copy Teacher-Setup / Dist pack'
+  }
+  Write-Log 'Force Windows Node auto-install (clear runtime + CN/overseas mirrors)…' 'Cyan'
+  $arg = @(
+    '-NoProfile', '-ExecutionPolicy', 'Bypass',
+    '-File', $ensurePs1,
+    '-InstallRoot', $Root,
+    '-NodeVersion', $Version,
+    '-Force'
+  )
+  if ($ChinaMirrorsFirst) { $arg += '-ChinaMirrorsFirst' }
+  & powershell.exe @arg
+  if ($LASTEXITCODE -ne 0) {
+    throw "ensure-windows-node.ps1 failed (exit $LASTEXITCODE)"
+  }
   $arch = Get-NodeArch
   $dirName = "node-v$Version-$arch"
   $nodeRoot = Join-Path $Root "runtime\$dirName"
   $nodeExe = Join-Path $nodeRoot 'node.exe'
   $npmCmd = Join-Path $nodeRoot 'npm.cmd'
-
-  if (
-    (Test-Path $nodeExe) -and ((Get-Item $nodeExe).Length -gt 1MB) -and
-    (Test-Path $npmCmd)
-  ) {
-    $script:NodeHome = $nodeRoot
-    $script:NpmCmd = $npmCmd
-    Write-Log ("Portable Node ready: {0}" -f (& $nodeExe -v)) 'Green'
-    return
+  if (-not (Test-Path $nodeExe)) { throw "Portable Node missing after auto-install: $nodeExe" }
+  if (-not (Test-IsWindowsNodeExe $nodeExe)) {
+    throw "node.exe is not a Windows PE binary after auto-install: $nodeExe"
   }
-
-  $extractTo = Join-Path $Root 'runtime'
-  New-Item -ItemType Directory -Path $extractTo -Force | Out-Null
-
-  $bundled = Find-BundledNodeZip -Root $Root -DirName $dirName
-  if ($bundled) {
-    Write-Log ("Using bundled Node zip: {0}" -f $bundled) 'Green'
-    Expand-Archive -Path $bundled -DestinationPath $extractTo -Force
-  } else {
-    $zipPath = Join-Path $env:TEMP "$dirName.zip"
-    $urls = @(
-      "https://npmmirror.com/mirrors/node/v$Version/$dirName.zip",
-      "https://cdn.npmmirror.com/binaries/node/v$Version/$dirName.zip",
-      "https://nodejs.org/dist/v$Version/$dirName.zip"
-    )
-    Write-Log "Downloading portable Node $Version ($arch)…" 'Cyan'
-    Save-UrlFirstOk -Urls $urls -OutFile $zipPath | Out-Null
-    $dlDir = Join-Path $Root 'downloads'
-    New-Item -ItemType Directory -Path $dlDir -Force | Out-Null
-    Copy-Item -LiteralPath $zipPath -Destination (Join-Path $dlDir "$dirName.zip") -Force
-    Expand-Archive -Path $zipPath -DestinationPath $extractTo -Force
-    Remove-Item $zipPath -Force -ErrorAction SilentlyContinue
-  }
-
-  if (-not (Test-Path $nodeExe)) { throw "Portable Node missing after extract: $nodeExe" }
   $script:NodeHome = $nodeRoot
   $script:NpmCmd = $npmCmd
-  Write-Log ("Portable Node installed: {0}" -f (& $nodeExe -v)) 'Green'
+  Write-Log ("Portable Windows Node ready: {0}" -f (& $nodeExe -v)) 'Green'
 }
 
 function Get-NetworkMinimumHelp {
@@ -275,16 +282,15 @@ NETWORK MINIMUM (Classroom Desk)
 After a COMPLETE install, public internet required: NONE.
 Classroom needs only teacher↔student LAN.
 
-Easiest path: double-click Teacher-Setup.exe (or Install.bat as Administrator).
+Offline USB: double-click Teacher-Setup.exe (complete pack — ZERO public net).
+Slow public link: double-click Teacher-Bootstrap.exe (few MB) → one Dist zip via mirrors + resume.
 
-To finish install when auto-repair cannot fill gaps, you need ONE of:
-  A) One complete ClassroomDesk folder (from ClassroomDesk-*-win-x64.zip / Dist)
-     → then Teacher-Setup / Install.bat uses ZERO public network
-  B) Enough network to finish ONE resumable download:
-     ClassroomDesk-<version>-win-x64.zip (via GitHub mirrors)
-     → re-run Teacher-Setup.exe or Install.bat; curl -C - resumes per mirror
+To finish when auto-repair cannot fill gaps, you need ONE of:
+  A) Complete ClassroomDesk folder / Teacher-Setup.exe on USB
+  B) Teacher-Bootstrap.exe + network for ONE resumable Dist zip (GitHub mirrors)
+  C) ClassroomDesk-<version>-win-x64.zip already downloaded → re-run Setup
 
-Do NOT npm-install from scratch on a flaky school net if you can get the Dist zip once.
+Do NOT npm-install from scratch on a flaky school net.
 Log: your Desktop\ClassroomDesk-Install-Log.txt
 
 --- If install failed, check the LAST 30 lines of the log, then:
@@ -663,6 +669,38 @@ function Get-LanIPv4 {
   }
 }
 
+function New-DesktopLnk {
+  param(
+    [Parameter(Mandatory = $true)][string]$DeskDir,
+    [Parameter(Mandatory = $true)][string]$LinkName,
+    [Parameter(Mandatory = $true)][string]$TargetPath,
+    [string]$Arguments = '',
+    [string]$WorkingDirectory = '',
+    [string]$Description = '',
+    [string]$IconLocation = ''
+  )
+  if (-not $DeskDir -or -not (Test-Path -LiteralPath $DeskDir)) { return $false }
+  if (-not (Test-Path -LiteralPath $TargetPath) -and $TargetPath -notmatch '^[a-z]+://') { return $false }
+  try {
+    $w = New-Object -ComObject WScript.Shell
+    $lnkPath = Join-Path $DeskDir $LinkName
+    if (-not $lnkPath.EndsWith('.lnk')) { $lnkPath = "$lnkPath.lnk" }
+    $s = $w.CreateShortcut($lnkPath)
+    $s.TargetPath = $TargetPath
+    if ($Arguments) { $s.Arguments = $Arguments }
+    if ($WorkingDirectory) { $s.WorkingDirectory = $WorkingDirectory }
+    if ($Description) { $s.Description = $Description }
+    if ($IconLocation) { $s.IconLocation = $IconLocation }
+    elseif (Test-Path -LiteralPath $TargetPath) { $s.IconLocation = "$TargetPath,0" }
+    $s.Save()
+    Write-Log "Desktop shortcut: $lnkPath" 'Green'
+    return $true
+  } catch {
+    Write-Log ("Shortcut failed ($LinkName): {0}" -f $_.Exception.Message) 'Yellow'
+    return $false
+  }
+}
+
 function Write-HealthShortcut {
   # One-click “is the service alive?” — opens /health in the default browser.
   $targets = @($script:PrivateDeskDirs) + @($script:PublicDesk) | Where-Object { $_ } | Select-Object -Unique
@@ -679,28 +717,113 @@ URL=$url
   Write-Log 'Wrote Desktop\ClassroomDesk-Health.url' 'Green'
 }
 
-function Write-LoginCard([string]$TeacherPass, [string]$AdminPass) {
+function Install-TeacherExesIntoRoot([string]$Root) {
+  # Keep stable targets under C:\ClassroomDesk so Desktop .lnk never points at TEMP SFX extract.
+  $pairs = @(
+    @{ Name = 'ClassroomDesk.exe'; Cands = @(
+        (Join-Path $Root 'ClassroomDesk.exe'),
+        (Join-Path $Root 'patches\ClassroomDesk.exe'),
+        (Join-Path $PSScriptRoot 'ClassroomDesk.exe'),
+        (Join-Path $PSScriptRoot 'patches\ClassroomDesk.exe')
+      ) },
+    @{ Name = 'Teacher-Fix.exe'; Cands = @(
+        (Join-Path $Root 'Teacher-Fix.exe'),
+        (Join-Path $Root 'patches\Teacher-Fix.exe'),
+        (Join-Path $PSScriptRoot 'Teacher-Fix.exe'),
+        (Join-Path $PSScriptRoot 'patches\Teacher-Fix.exe')
+      ) },
+    @{ Name = 'Service-Fix.exe'; Cands = @(
+        (Join-Path $Root 'Service-Fix.exe'),
+        (Join-Path $Root 'patches\Service-Fix.exe'),
+        (Join-Path $PSScriptRoot 'Service-Fix.exe')
+      ) }
+  )
+  $patches = Join-Path $Root 'patches'
+  New-Item -ItemType Directory -Path $patches -Force | Out-Null
+  foreach ($p in $pairs) {
+    $src = $p.Cands | Where-Object { Test-Path $_ } | Select-Object -First 1
+    if (-not $src) { continue }
+    $dest = Join-Path $Root $p.Name
+    if ((Resolve-Path -LiteralPath $src).Path -ne (Join-Path $Root $p.Name)) {
+      Copy-Item -LiteralPath $src -Destination $dest -Force
+    }
+    Copy-Item -LiteralPath $dest -Destination (Join-Path $patches $p.Name) -Force -ErrorAction SilentlyContinue
+  }
+}
+
+function Write-StartShortcut([string]$Root) {
+  # After full Setup: real Windows shortcuts on the teacher's Desktop (not a pile of loose exes).
+  Install-TeacherExesIntoRoot -Root $Root
+
+  $launchExe = Join-Path $Root 'ClassroomDesk.exe'
+  $fixExe = Join-Path $Root 'Teacher-Fix.exe'
+  $cmd = Join-Path $Root 'Start-ClassroomDesk.cmd'
+  $fallbackCmd = Join-Path $PSScriptRoot 'Start-ClassroomDesk.cmd'
+  if (-not (Test-Path $cmd) -and (Test-Path $fallbackCmd)) {
+    Copy-Item -LiteralPath $fallbackCmd -Destination $cmd -Force
+  }
+
+  $startTarget = $null
+  if (Test-Path -LiteralPath $launchExe) { $startTarget = $launchExe }
+  elseif (Test-Path -LiteralPath $cmd) { $startTarget = $cmd }
+
+  foreach ($d in @($script:PrivateDeskDirs)) {
+    if (-not $d) { continue }
+    if ($startTarget) {
+      New-DesktopLnk -DeskDir $d -LinkName 'Classroom Desk.lnk' -TargetPath $startTarget `
+        -WorkingDirectory $Root -Description 'Start Classroom Desk (Node + Admin)' | Out-Null
+    }
+    try {
+      $adminUrlPath = Join-Path $d 'Classroom Desk Admin.url'
+      Set-Content -Path $adminUrlPath -Value @"
+[InternetShortcut]
+URL=http://127.0.0.1:8787/admin/
+"@ -Encoding ASCII
+      Write-Log "Desktop shortcut: $adminUrlPath" 'Green'
+    } catch {}
+    if (Test-Path -LiteralPath $fixExe) {
+      New-DesktopLnk -DeskDir $d -LinkName 'Classroom Desk Fix.lnk' -TargetPath $fixExe `
+        -WorkingDirectory $Root -Description 'Repair Windows Node + reset teacher/admin login' | Out-Null
+    }
+  }
+
+  if (-not $startTarget) {
+    Write-Log 'ClassroomDesk.exe / Start-ClassroomDesk.cmd missing — Desktop start shortcut skipped' 'Yellow'
+  }
+}
+
+function Write-LoginCard([string]$TeacherPass, [string]$AdminPass, [string]$SetupToken = '') {
   $ips = @(Get-LanIPv4)
+  $adminUrl = if ($SetupToken) {
+    "http://127.0.0.1:8787/admin/?setup=$SetupToken"
+  } else {
+    'http://127.0.0.1:8787/admin/'
+  }
   $lines = @(
-    'Classroom Desk — login (keep private)',
+    'Classroom Desk — backup login (keep private)',
     '',
-    'Open:     http://127.0.0.1:8787/admin/',
+    'Setup usually opens Admin already logged in.',
+    'If not, open:',
+    "  $adminUrl",
     'Username: teacher',
     "Password: $TeacherPass",
     "Admin:    $AdminPass",
+    'Change the password in Admin → 设置 after first login.',
+    'Desktop shortcuts: Classroom Desk · Classroom Desk Admin · Classroom Desk Fix',
+    'Forgot login? Double-click Desktop\Classroom Desk Fix  (or C:\ClassroomDesk\Teacher-Fix.exe)',
     ''
   )
   if ($ips.Count -gt 0) {
-    $lines += 'Students: Desktop\ClassroomDesk-Student-Install.txt (one link)'
+    $lines += 'Students: Public Desktop\ClassroomDesk-Student-Install.txt → Find classroom'
     $lines += "Teacher LAN: http://$($ips[0]):8787"
   } else {
     $lines += 'No LAN IP yet — plug Ethernet, then reopen this card / Admin.'
   }
   $lines += ''
-  $lines += 'Next: log in → import roster → students Find classroom'
+  $lines += 'You: import roster. Students: install card → Find classroom.'
   $lines += "Log: $script:LogPath"
   Write-PrivateDeskFile -FileName 'ClassroomDesk-Desk-Login.txt' -Content ($lines -join "`r`n")
-  Write-Log 'Wrote teacher Desktop\ClassroomDesk-Desk-Login.txt (not Public Desktop)' 'Green'
+  Write-Log 'Wrote teacher Desktop\ClassroomDesk-Desk-Login.txt (backup; not Public Desktop)' 'Green'
 }
 
 function Read-EnvValue([string]$EnvPath, [string]$Key) {
@@ -713,31 +836,52 @@ function Read-EnvValue([string]$EnvPath, [string]$Key) {
   return $null
 }
 
+function Set-EnvValue([string]$EnvPath, [string]$Key, [string]$Value) {
+  $lines = @()
+  $found = $false
+  if (Test-Path $EnvPath) {
+    foreach ($line in Get-Content -LiteralPath $EnvPath -Encoding UTF8) {
+      if ($line -match ("^\s*{0}=" -f [regex]::Escape($Key))) {
+        $lines += "$Key=$Value"
+        $found = $true
+      } else {
+        $lines += $line
+      }
+    }
+  }
+  if (-not $found) { $lines += "$Key=$Value" }
+  Set-Content -Path $EnvPath -Value ($lines -join "`r`n") -Encoding UTF8
+}
+
 function Ensure-EnvFile([string]$Root) {
   $envPath = Join-Path $Root '.env'
+  $setupToken = New-Secret 24
   if (Test-Path $envPath) {
-    Write-Log '.env exists — keeping passwords; refreshing Desktop login card.' 'Yellow'
+    Write-Log '.env exists — keeping passwords; refreshing setup auto-login + Desktop card.' 'Yellow'
+    Set-EnvValue -EnvPath $envPath -Key 'BOOTSTRAP_LOGIN_TOKEN' -Value $setupToken
     $teacherPass = Read-EnvValue -EnvPath $envPath -Key 'TEACHER_PASSWORD'
     $adminPass = Read-EnvValue -EnvPath $envPath -Key 'ADMIN_PASSWORD'
     if ($teacherPass -and $adminPass) {
-      Write-LoginCard -TeacherPass $teacherPass -AdminPass $adminPass
+      Write-LoginCard -TeacherPass $teacherPass -AdminPass $adminPass -SetupToken $setupToken
     }
-    return $false
+    return @{ WroteNew = $false; SetupToken = $setupToken }
   }
 
-  $teacherPass = New-Password
-  $adminPass = New-Password
+  # Fixed day-1 defaults — teacher must change in Admin → 设置 (weak-password gate).
+  $teacherPass = 'admin'
+  $adminPass = 'admin'
   @"
 JWT_SECRET=$(New-Secret 32)
 TEACHER_USERNAME=teacher
 TEACHER_PASSWORD=$teacherPass
 ADMIN_PASSWORD=$adminPass
+BOOTSTRAP_LOGIN_TOKEN=$setupToken
 HOST=0.0.0.0
 PORT=8787
 "@ | Set-Content -Path $envPath -Encoding UTF8
 
-  Write-LoginCard -TeacherPass $teacherPass -AdminPass $adminPass
-  return $true
+  Write-LoginCard -TeacherPass $teacherPass -AdminPass $adminPass -SetupToken $setupToken
+  return @{ WroteNew = $true; SetupToken = $setupToken }
 }
 
 function Unblock-Tree([string]$Path) {
@@ -810,9 +954,9 @@ function Write-StudentInstallCard([string]$Root, [string[]]$SetupNames) {
   $lines = @(
     'Classroom Desk — student install',
     '',
-    '1) On the student PC open one of these links (same LAN as teacher).',
-    '   If several IPs appear, try the one you can ping from the student PC',
-    '   (often the lab switch IP, not the campus Wi-Fi IP).',
+    'Open one link below (same LAN as teacher) → install → open app → tap your name.',
+    'App auto-joins this classroom (Public Desktop also has classroom-desk-config.json).',
+    'Several IPs? Use the one students can ping (lab switch, not campus Wi-Fi).',
     ''
   )
   if ($SetupNames.Count -gt 0 -and $ips.Count -gt 0) {
@@ -828,10 +972,8 @@ function Write-StudentInstallCard([string]$Root, [string[]]$SetupNames) {
     $lines += '  No Setup on teacher yet — copy Student-Setup.exe from Give-To-Teacher.'
   }
   $lines += ''
-  $lines += '2) If SmartScreen blocks: More info → Run anyway (unsigned — expected)'
-  $lines += '3) Install → Find classroom'
-  $lines += ''
-  $lines += 'Do not use a teacher laptop hotspot for class (IP changes / sleep).'
+  $lines += 'SmartScreen? More info → Run anyway (unsigned — expected)'
+  $lines += 'Do not use a teacher laptop hotspot (IP changes / sleep).'
   Write-PublicDeskFile -FileName 'ClassroomDesk-Student-Install.txt' -Content ($lines -join "`r`n")
   Write-Log 'Wrote Desktop\ClassroomDesk-Student-Install.txt' 'Green'
 }
@@ -852,29 +994,44 @@ function Open-Firewall([int]$Port = 8787) {
   }
 }
 
+function Resolve-BundledNodeExe([string]$Root) {
+  if ($script:NodeHome) {
+    $p = Join-Path $script:NodeHome 'node.exe'
+    if ((Test-Path $p) -and ((Get-Item $p).Length -gt 1MB)) { return (Resolve-Path $p).Path }
+  }
+  $hit = Get-ChildItem -Path (Join-Path $Root 'runtime') -Filter 'node.exe' -Recurse -ErrorAction SilentlyContinue |
+    Where-Object { $_.Length -gt 1MB } |
+    Sort-Object Length -Descending |
+    Select-Object -First 1
+  if ($hit) { return $hit.FullName }
+  return $null
+}
+
 function Register-Autostart([string]$Root, [bool]$Offline) {
   try {
     $taskName = 'ClassroomDeskServer'
+    $serverDist = (Resolve-Path (Join-Path $Root 'apps\server\dist\index.mjs') -ErrorAction SilentlyContinue).Path
+    $nodeExe = Resolve-BundledNodeExe -Root $Root
     $npm = $script:NpmCmd
-    if (-not $npm) { throw 'npm path missing' }
     $bundledEnv = if ($Offline) { 'set CLASSROOM_DESK_BUNDLED=1&& set CLASSROOM_DESK_OFFLINE=1&& set ELECTRON_SKIP_BINARY_DOWNLOAD=1&& ' } else { '' }
-    # Prefer starting bundled server directly when present (fewer npm surprises).
-    $serverDist = Join-Path $Root 'apps\server\dist\index.mjs'
-    $nodeExe = Join-Path $script:NodeHome 'node.exe'
-    if ((Test-Path $serverDist) -and (Test-Path $nodeExe) -and $Offline) {
-      $arg = "/c cd /d `"$Root`" && set CLASSROOM_DESK_BUNDLED=1&& set CLASSROOM_DESK_OFFLINE=1&& `"$nodeExe`" `"$serverDist`""
+    $svcLog = Join-Path $Root 'apps\server\data\service.log'
+    New-Item -ItemType Directory -Path (Split-Path $svcLog -Parent) -Force | Out-Null
+    # Absolute Node + server paths — SYSTEM autostart must not depend on $script:NodeHome alone.
+    if ($serverDist -and $nodeExe -and $Offline) {
+      $arg = "/c cd /d `"$Root`" && set CLASSROOM_DESK_BUNDLED=1&& set CLASSROOM_DESK_OFFLINE=1&& `"$nodeExe`" `"$serverDist`" >> `"$svcLog`" 2>&1"
+    } elseif ($npm) {
+      $arg = "/c cd /d `"$Root`" && $bundledEnv`"$npm`" run start:classroom >> `"$svcLog`" 2>&1"
     } else {
-      $arg = "/c cd /d `"$Root`" && $bundledEnv`"$npm`" run start:classroom"
+      throw 'node.exe and npm missing — cannot register autostart'
     }
     $action = New-ScheduledTaskAction -Execute 'cmd.exe' -Argument $arg -WorkingDirectory $Root
-    # At startup as SYSTEM — not tied to Administrator vs teacher interactive login.
     $trigger = New-ScheduledTaskTrigger -AtStartup
     $principal = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest
     $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
-      -StartWhenAvailable -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1)
+      -StartWhenAvailable -RestartCount 5 -RestartInterval (New-TimeSpan -Minutes 1)
     Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger `
       -Principal $principal -Settings $settings -Force | Out-Null
-    Write-Log "Autostart task: $taskName (SYSTEM @ startup)"
+    Write-Log "Autostart task: $taskName (SYSTEM @ startup, absolute paths)" 'Green'
   } catch {
     Write-Log ("Autostart skipped: {0}" -f $_.Exception.Message) 'Yellow'
   }
@@ -997,6 +1154,10 @@ try {
   Write-Log "Folder: $InstallRoot"
   Write-Log "Log:    $script:LogPath"
   if ($ChinaMirrorsFirst) { Write-Log 'Mirror preference: China-friendly (npmmirror + GitHub proxies)' 'Cyan' }
+  if ($BootstrapOnline) {
+    Write-Log 'Online bootstrap: will fetch one product zip (mirrors + resume) if pack incomplete.' 'Cyan'
+    $SkipSourceDownload = $false
+  }
 
   New-Item -ItemType Directory -Path $InstallRoot -Force | Out-Null
   Set-ChinaNpmEnv
@@ -1009,10 +1170,16 @@ try {
   }
   Write-Log "Version: $Tag (no GitHub API)"
 
-  if (Test-ProductReady -Root $InstallRoot) {
+  if ((Test-ProductReady -Root $InstallRoot) -and -not $BootstrapOnline) {
     Write-Log 'Product pack complete — ZERO public network needed for install.' 'Green'
+  } elseif ((Test-ProductReady -Root $InstallRoot) -and $BootstrapOnline) {
+    Write-Log 'Product pack already complete — skipping zip download.' 'Green'
   } else {
-    Write-Log 'Pack incomplete — trying minimum-network repair (1 Dist zip, resumable)…' 'Yellow'
+    if ($SkipSourceDownload -and -not $BootstrapOnline) {
+      Write-NetworkMinimumCard
+      throw "Pack incomplete and -SkipSourceDownload set. Use USB Teacher-Setup.exe or Teacher-Bootstrap.exe (online)."
+    }
+    Write-Log 'Fetching product zip (one file, resumable mirrors)…' 'Yellow'
     try {
       $Tag = Repair-ProductPack -Root $InstallRoot -Repository $Repo -ReleaseTag $Tag -NodeVer $NodeVersion
     } catch {
@@ -1038,8 +1205,18 @@ try {
 
   Ensure-PortableNode -Root $InstallRoot -Version $NodeVersion
   Assert-ProductLayout -Root $InstallRoot
-  $wroteLogin = Ensure-EnvFile -Root $InstallRoot
+  $envInfo = Ensure-EnvFile -Root $InstallRoot
+  $wroteLogin = [bool]$envInfo.WroteNew
+  $setupToken = [string]$envInfo.SetupToken
+  $adminUrl = if ($setupToken) {
+    "http://127.0.0.1:8787/admin/?setup=$setupToken"
+  } else {
+    'http://127.0.0.1:8787/admin/'
+  }
   Write-HealthShortcut
+  Write-StartShortcut -Root $InstallRoot
+  # Exes live under C:\ClassroomDesk; Desktop gets .lnk shortcuts only (see Write-StartShortcut).
+  Install-TeacherExesIntoRoot -Root $InstallRoot
   $setupNames = @(Publish-StudentSetupToLan -Root $InstallRoot)
   if (-not $setupNames.Count) {
     $setupNames = @(Repair-StudentSetup -Root $InstallRoot -Repository $Repo -ReleaseTag $Tag)
@@ -1056,29 +1233,50 @@ try {
   if (-not $SkipStart) {
     Write-Log 'Starting…' 'Cyan'
     Stop-ListeningPort -Port 8787
-    $serverDist = Join-Path $InstallRoot 'apps\server\dist\index.mjs'
-    $nodeExe = Join-Path $script:NodeHome 'node.exe'
-    if ((Test-Path $serverDist) -and (Test-Path $nodeExe)) {
-      $startArg = "/c cd /d `"$InstallRoot`" && set CLASSROOM_DESK_BUNDLED=1&& set CLASSROOM_DESK_OFFLINE=1&& `"$nodeExe`" `"$serverDist`""
+    $serverDist = (Join-Path $InstallRoot 'apps\server\dist\index.mjs')
+    $nodeExe = Resolve-BundledNodeExe -Root $InstallRoot
+    $svcLog = Join-Path $InstallRoot 'apps\server\data\service.log'
+    New-Item -ItemType Directory -Path (Split-Path $svcLog -Parent) -Force | Out-Null
+    if ((Test-Path $serverDist) -and $nodeExe) {
+      $startArg = "/c cd /d `"$InstallRoot`" && set CLASSROOM_DESK_BUNDLED=1&& set CLASSROOM_DESK_OFFLINE=1&& `"$nodeExe`" `"$serverDist`" >> `"$svcLog`" 2>&1"
     } else {
       $bundledPrefix = 'set CLASSROOM_DESK_BUNDLED=1&& set CLASSROOM_DESK_OFFLINE=1&& set ELECTRON_SKIP_BINARY_DOWNLOAD=1&& '
-      $startArg = "/c cd /d `"$InstallRoot`" && $bundledPrefix`"$($script:NpmCmd)`" run start:classroom"
+      $startArg = "/c cd /d `"$InstallRoot`" && $bundledPrefix`"$($script:NpmCmd)`" run start:classroom >> `"$svcLog`" 2>&1"
     }
-    Start-Process -FilePath 'cmd.exe' -ArgumentList $startArg -WindowStyle Minimized
-    # Open Admin immediately; health poll continues in parallel-ish (user can refresh).
-    try { Start-Process 'http://127.0.0.1:8787/admin/' } catch {}
+    Start-Process -FilePath 'cmd.exe' -ArgumentList $startArg -WindowStyle Hidden
     $healthy = Wait-Health -Port 8787 -Attempts 40
-    if (-not $healthy) {
-      Write-Log 'Files installed, but /health not ready yet. Re-run Teacher-Setup.exe / Install.bat later.' 'Yellow'
+    if ($healthy) {
+      try { Start-Process $adminUrl } catch {}
+    } else {
+      Write-Log 'API did not become healthy — applying service fix path…' 'Red'
+      $fixPs1 = Join-Path $InstallRoot 'fix-classroom-service.ps1'
+      $fixSrc = Join-Path $PSScriptRoot 'fix-classroom-service.ps1'
+      if (-not (Test-Path $fixPs1) -and (Test-Path $fixSrc)) {
+        Copy-Item -LiteralPath $fixSrc -Destination $fixPs1 -Force
+      }
+      if (Test-Path $fixPs1) {
+        Write-Log 'Running fix-classroom-service.ps1…' 'Cyan'
+        & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $fixPs1 -InstallRoot $InstallRoot -ChinaMirrorsFirst
+        $healthy = Wait-Health -Port 8787 -Attempts 20
+      }
+      if ($healthy) {
+        try { Start-Process $adminUrl } catch {}
+      } else {
+        Write-Log 'Still down. Ship/run ClassroomDesk-Service-Fix.exe (Service-Fix.exe).' 'Yellow'
+        Write-Log "service.log: $svcLog" 'Yellow'
+      }
     }
   }
 
   Write-Log '=== Done ===' 'Green'
   Write-Log "Folder:  $InstallRoot"
-  Write-Log 'Admin:   http://127.0.0.1:8787/admin/'
-  if ($wroteLogin) { Write-Log 'Login:   Desktop\ClassroomDesk-Desk-Login.txt' 'Yellow' }
-  Write-Log 'Students: Desktop\ClassroomDesk-Student-Install.txt'
-  Write-Log 'Time target: USB/local Setup → under 5 min to first class (often ~1–2 min).'
+  Write-Log "Admin:   $adminUrl"
+  Write-Log 'Daily: Desktop\Classroom Desk.lnk'
+  Write-Log 'Fix:   Desktop\Classroom Desk Fix.lnk'
+  Write-Log 'Backup: Desktop\ClassroomDesk-Desk-Login.txt (only if auto-login failed)'
+  if ($wroteLogin) { Write-Log 'First install: passwords on Desktop login card.' 'Yellow' }
+  Write-Log 'Next: import roster. Students: Public Desktop install card → Find classroom.'
+  Write-Log 'Time target: Setup → auto-login → roster (often ~1 min).'
   Write-Log "Log:     $script:LogPath"
   exit 0
 } catch {

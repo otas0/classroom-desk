@@ -37,7 +37,6 @@ import { c2EvidenceRouter } from './routes/c2Evidence.js';
 import { usbClassPackRouter } from './routes/usbClassPack.js';
 import { endOfLessonRouter } from './routes/endOfLesson.js';
 import { gatewayLiveRouter } from './routes/gatewayLive.js';
-import { deskDnsRouter } from './routes/deskDns.js';
 import { shieldWizardRouter } from './routes/shieldWizard.js';
 import { versionForceReportRouter } from './routes/versionForceReport.js';
 

@@ -8,6 +8,7 @@ export const ATTENDANCE_NOTICE =
 
 /** Bootstrap / lab passwords rejected for teacher accounts (single source for server + admin UI). */
 export const WEAK_TEACHER_PASSWORDS = [
+  'admin',
   'ChangeMe123',
   'TeacherPass123',
   'Classroom2026!',

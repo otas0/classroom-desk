@@ -41,7 +41,7 @@
 | 教师机局域网 IP | 学生机能 ping 通的地址 | `192.168.1.50` |
 | `apiBase` | `http://<教师机IP>:8787` | `http://192.168.1.50:8787` |
 | `classId` | 教师后台「指派学生机」复制 | UUID，登录后台后可见 |
-| 教师账号 | 首启用环境变量创建 | 默认用户名常为 `teacher`，**密码自设** |
+| 教师账号 | 首启用环境变量创建 | 默认 `teacher` / `admin`（弱口令闸强制进设置改密）；忘密见 [RESET_TEACHER_LOGIN.md](./RESET_TEACHER_LOGIN.md) |
 
 禁止在学生机使用 `127.0.0.1` / `localhost`（那是学生本机，连不上教师机服务）。
 
@@ -75,15 +75,15 @@ macOS / Linux 同样：`git clone` → `npm install` → `npm run fonts:cjk` →
 ```env
 JWT_SECRET=请改成足够长的随机串
 TEACHER_USERNAME=teacher
-TEACHER_PASSWORD=请改成个人强密码
-ADMIN_PASSWORD=请改成管理强密码
+TEACHER_PASSWORD=admin
+ADMIN_PASSWORD=admin
 HOST=0.0.0.0
 PORT=8787
 # 可选：数据目录
 # CLASSROOM_DESK_DATA_DIR=C:\classroom-desk-data
 ```
 
-首启用环境变量写入教师/管理员哈希；正式课堂 **UI 不预填**演示口令。登录后请在「设置」再改一次个人密码。
+首启用默认 `teacher` / `admin`（写入哈希）；正式课堂 **UI 不预填**口令。登录后弱口令闸会强制进「设置」改密。忘密可双击 `Reset-Teacher-Login.bat`（见 [RESET_TEACHER_LOGIN.md](./RESET_TEACHER_LOGIN.md)）。
 
 本地联调 / Playwright 若因「口令已在后台改过」出现 401，可重置哈希后再测（勿用于生产教室）：
 

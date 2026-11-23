@@ -4,13 +4,15 @@ title Classroom Desk Setup
 cd /d "%~dp0"
 
 set "ROOT=C:\ClassroomDesk"
+set "PS=%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe"
+if not exist "%PS%" set "PS=%SystemRoot%\SysWOW64\WindowsPowerShell\v1.0\powershell.exe"
 echo.
 echo  Classroom Desk Setup
 echo  Target: %ROOT%
 echo.
 
 rem Clear Zone.Identifier so unsigned files are less likely to trip SmartScreen mid-copy.
-powershell -NoProfile -ExecutionPolicy Bypass -Command ^
+if exist "%PS%" "%PS%" -NoLogo -NoProfile -ExecutionPolicy Bypass -Command ^
   "Get-ChildItem -LiteralPath '%~dp0' -Recurse -Force -ErrorAction SilentlyContinue | Unblock-File -ErrorAction SilentlyContinue" >nul 2>&1
 
 if /I not "%~dp0"=="%ROOT%\" if /I not "%~dp0"=="%ROOT%" (
@@ -56,7 +58,29 @@ if not exist "%ROOT%\install-teacher.ps1" (
   exit /b 1
 )
 
-powershell -NoProfile -ExecutionPolicy Bypass -File "%ROOT%\install-teacher.ps1" -InstallRoot "%ROOT%" -SkipSourceDownload -ChinaMirrorsFirst
+if not exist "%PS%" (
+  echo ERROR: Windows PowerShell not found
+  pause
+  exit /b 90
+)
+
+echo  Ensuring Windows Node (auto-download CN + overseas mirrors)…
+if exist "%ROOT%\ensure-windows-node.ps1" (
+  "%PS%" -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%ROOT%\ensure-windows-node.ps1" -InstallRoot "%ROOT%" -ChinaMirrorsFirst -Force
+) else if exist "%~dp0ensure-windows-node.ps1" (
+  "%PS%" -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%~dp0ensure-windows-node.ps1" -InstallRoot "%ROOT%" -ChinaMirrorsFirst -Force
+) else (
+  echo ERROR: ensure-windows-node.ps1 missing
+  pause
+  exit /b 1
+)
+if errorlevel 1 (
+  echo NODE AUTO-INSTALL FAILED
+  pause
+  exit /b 1
+)
+
+"%PS%" -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%ROOT%\install-teacher.ps1" -InstallRoot "%ROOT%" -SkipSourceDownload -ChinaMirrorsFirst -ForceNodeReinstall
 set ERR=%ERRORLEVEL%
 if not "%ERR%"=="0" (
   echo.
@@ -71,12 +95,7 @@ if not "%ERR%"=="0" (
 )
 
 echo.
-echo Done. Opening login card on your Desktop…
-rem Passwords are on the teacher user Desktop only — never Public Desktop.
-if exist "%USERPROFILE%\Desktop\ClassroomDesk-Desk-Login.txt" (
-  start "" notepad "%USERPROFILE%\Desktop\ClassroomDesk-Desk-Login.txt"
-) else (
-  echo Login card: Desktop\ClassroomDesk-Desk-Login.txt
-  echo ^(If missing, check the account that was logged in during Setup.^)
-)
+echo Done. Admin should open already logged in — import roster.
+echo Students: Public Desktop\ClassroomDesk-Student-Install.txt → Find classroom
+echo Backup passwords: %USERPROFILE%\Desktop\ClassroomDesk-Desk-Login.txt
 exit /b 0

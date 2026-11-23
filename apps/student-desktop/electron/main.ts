@@ -16,6 +16,11 @@ const WINDOW_WIDTH = 380;
 const WINDOW_HEIGHT = 560;
 const COLLAPSED_HEIGHT = 56;
 const MARGIN = 16;
+/** First-setup only: max size stays a bottom-right panel (never full screen). */
+const SETUP_MAX_WIDTH_RATIO = 0.45;
+const SETUP_MAX_HEIGHT_RATIO = 0.9;
+const SETUP_MAX_WIDTH_CAP = 560;
+const SETUP_MAX_HEIGHT_CAP = 900;
 
 let mainWindow: BrowserWindow | null = null;
 let examShellWindow: BrowserWindow | null = null;
@@ -25,6 +30,10 @@ let collapsed = false;
 /** Teacher settings (via renderer): allow chip collapse / OS minimize. */
 let allowCollapse = false;
 let allowMinimize = false;
+/** First-run setup only: resizable + quit; max bounds = bottom-right region. */
+let firstSetupMode = false;
+/** Defer startup custody until renderer confirms first-setup is off. */
+let pendingCustodyRestore = false;
 /** Deep-lock armed (freeze / exam allowlist / deny) — visible classroom policy. */
 let deepLockAggressiveActive = false;
 let deepLockFrozenActive = false;
@@ -123,6 +132,12 @@ function refreshOfflineCustodyDisplays(): void {
 }
 
 function placeFullPrimary(win: BrowserWindow): void {
+  // First setup / unbound must never cover the whole screen — stay bottom-right.
+  if (firstSetupMode || !teacherBonded) {
+    if (firstSetupMode) placeSetupMaxBottomRight(win);
+    else placeBottomRight(win, WINDOW_HEIGHT, WINDOW_WIDTH);
+    return;
+  }
   const b = screen.getPrimaryDisplay().bounds;
   win.setBounds({ x: b.x, y: b.y, width: b.width, height: b.height });
 }
@@ -194,19 +209,112 @@ function persistTeacherBonded(): void {
 
 function recomputeExitAllowed(): boolean {
   exitAllowed =
-    process.env.ALLOW_STUDENT_EXIT === '1' || !teacherBonded || exitUnlockGranted;
+    process.env.ALLOW_STUDENT_EXIT === '1' ||
+    firstSetupMode ||
+    !teacherBonded ||
+    exitUnlockGranted;
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.setClosable(exitAllowed);
   }
   return exitAllowed;
 }
 
-function placeBottomRight(win: BrowserWindow, height: number) {
+function bottomRightMaxSize(): { width: number; height: number } {
+  const { workArea } = screen.getPrimaryDisplay();
+  return {
+    width: Math.min(SETUP_MAX_WIDTH_CAP, Math.floor(workArea.width * SETUP_MAX_WIDTH_RATIO)),
+    height: Math.min(SETUP_MAX_HEIGHT_CAP, Math.floor(workArea.height * SETUP_MAX_HEIGHT_RATIO)),
+  };
+}
+
+function placeBottomRight(win: BrowserWindow, height: number, width = WINDOW_WIDTH) {
   const display = screen.getPrimaryDisplay();
   const { workArea } = display;
-  const x = Math.round(workArea.x + workArea.width - WINDOW_WIDTH - MARGIN);
-  const y = Math.round(workArea.y + workArea.height - height - MARGIN);
-  win.setBounds({ x, y, width: WINDOW_WIDTH, height });
+  // Normal widget: fixed size, only clamp into the work area (do not apply setup max caps).
+  const w = Math.min(Math.max(Math.round(width), 1), workArea.width - MARGIN * 2);
+  const h = Math.min(Math.max(Math.round(height), 1), workArea.height - MARGIN * 2);
+  const x = Math.round(workArea.x + workArea.width - w - MARGIN);
+  const y = Math.round(workArea.y + workArea.height - h - MARGIN);
+  win.setBounds({ x, y, width: w, height: h });
+}
+
+function placeSetupBottomRight(win: BrowserWindow, height: number, width = WINDOW_WIDTH) {
+  const max = bottomRightMaxSize();
+  const w = Math.min(Math.max(Math.round(width), WINDOW_WIDTH), max.width);
+  const h = Math.min(Math.max(Math.round(height), COLLAPSED_HEIGHT), max.height);
+  placeBottomRight(win, h, w);
+}
+
+/** First-setup "maximize": fill the bottom-right panel only — never cover the whole screen. */
+function placeSetupMaxBottomRight(win: BrowserWindow) {
+  const max = bottomRightMaxSize();
+  placeSetupBottomRight(win, max.height, max.width);
+}
+
+function applyFirstSetupMode(on: boolean): { ok: boolean; firstSetupMode: boolean } {
+  const turningOn = Boolean(on);
+  firstSetupMode = turningOn;
+  if (turningOn) {
+    // Entering setup cancels deferred custody and tears down a raced cover.
+    pendingCustodyRestore = false;
+    if (offlineCustodyActive) {
+      try {
+        applyOfflineCustody(false);
+      } catch {
+        /* ignore */
+      }
+    }
+    // Transient setup quit grant — do not leave exitUnlockGranted stuck after setup.
+    exitUnlockGranted = false;
+  } else {
+    // Leaving setup: drop any transient setExitAllowed(true) from the wizard.
+    exitUnlockGranted = false;
+  }
+  recomputeExitAllowed();
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    if (!turningOn && pendingCustodyRestore && teacherBonded) {
+      pendingCustodyRestore = false;
+      setTimeout(() => {
+        if (!firstSetupMode && teacherBonded) applyOfflineCustody(true);
+      }, 0);
+    }
+    return { ok: true, firstSetupMode };
+  }
+  try {
+    if (firstSetupMode) {
+      const max = bottomRightMaxSize();
+      mainWindow.setResizable(true);
+      mainWindow.setMaximizable(true);
+      mainWindow.setMinimizable(true);
+      mainWindow.setMinimumSize(WINDOW_WIDTH, COLLAPSED_HEIGHT);
+      mainWindow.setMaximumSize(max.width, max.height);
+      if (mainWindow.isFullScreen()) mainWindow.setFullScreen(false);
+      try {
+        mainWindow.setKiosk(false);
+      } catch {
+        /* ignore */
+      }
+      placeSetupBottomRight(mainWindow, WINDOW_HEIGHT, WINDOW_WIDTH);
+    } else {
+      mainWindow.setResizable(false);
+      mainWindow.setMaximizable(false);
+      mainWindow.setMinimumSize(WINDOW_WIDTH, COLLAPSED_HEIGHT);
+      mainWindow.setMaximumSize(WINDOW_WIDTH, WINDOW_HEIGHT);
+      if (mainWindow.isMaximized()) mainWindow.unmaximize();
+      if (mainWindow.isFullScreen()) mainWindow.setFullScreen(false);
+      placeBottomRight(mainWindow, collapsed ? COLLAPSED_HEIGHT : WINDOW_HEIGHT);
+      applyWindowChromePolicy();
+      if (pendingCustodyRestore && teacherBonded) {
+        pendingCustodyRestore = false;
+        setTimeout(() => {
+          if (!firstSetupMode && teacherBonded) applyOfflineCustody(true);
+        }, 0);
+      }
+    }
+  } catch {
+    /* ignore */
+  }
+  return { ok: true, firstSetupMode };
 }
 
 /** Keep the widget inside the nearest display work area (cannot drag off-screen). */
@@ -292,10 +400,44 @@ function createWindow() {
     }
   });
 
+  // First-setup "maximize" → largest bottom-right panel (never OS fullscreen).
+  mainWindow.on('maximize', () => {
+    if (!mainWindow || mainWindow.isDestroyed() || !firstSetupMode) return;
+    try {
+      mainWindow.unmaximize();
+    } catch {
+      /* ignore */
+    }
+    placeSetupMaxBottomRight(mainWindow);
+  });
+
+  mainWindow.on('will-resize', (event, newBounds) => {
+    if (!mainWindow || mainWindow.isDestroyed() || !firstSetupMode) return;
+    const max = bottomRightMaxSize();
+    const { workArea } = screen.getPrimaryDisplay();
+    const w = Math.min(Math.max(newBounds.width, WINDOW_WIDTH), max.width);
+    const h = Math.min(Math.max(newBounds.height, COLLAPSED_HEIGHT), max.height);
+    const x = Math.round(workArea.x + workArea.width - w - MARGIN);
+    const y = Math.round(workArea.y + workArea.height - h - MARGIN);
+    if (process.platform === 'win32') {
+      event.preventDefault();
+      placeSetupBottomRight(mainWindow, h, w);
+    } else {
+      newBounds.x = x;
+      newBounds.y = y;
+      newBounds.width = w;
+      newBounds.height = h;
+    }
+  });
+
+  // Re-apply layout if window was recreated while setup/custody was already active.
+  if (firstSetupMode) applyFirstSetupMode(true);
+  else if (offlineCustodyActive) applyOfflineCustody(true);
+
   // Frameless drag can leave the widget half off-screen; clamp on move / display change.
   mainWindow.on('will-move', (event, newBounds) => {
     if (!mainWindow || mainWindow.isDestroyed() || deepLockFrozenActive || offlineCustodyActive) {
-      if (offlineCustodyActive && mainWindow && !mainWindow.isDestroyed()) {
+      if (offlineCustodyActive && mainWindow && !mainWindow.isDestroyed() && !firstSetupMode) {
         event.preventDefault();
         placeFullPrimary(mainWindow);
       }
@@ -424,11 +566,15 @@ if (!gotLock) {
     installCustodyNetworkSealOnce();
     createWindow();
 
-    // Restore security-custody after crash/relaunch (bonded students only).
+    // Defer custody until renderer confirms first-setup is off (avoids kiosk race).
     if (teacherBonded && loadOfflineCustodyFlag()) {
+      pendingCustodyRestore = true;
       setTimeout(() => {
-        applyOfflineCustody(true);
-      }, 400);
+        if (pendingCustodyRestore && !firstSetupMode && teacherBonded) {
+          pendingCustodyRestore = false;
+          applyOfflineCustody(true);
+        }
+      }, 2500);
     }
 
     app.on('activate', () => {
@@ -516,6 +662,9 @@ ipcMain.handle(
     return { ok: true, allowCollapse, allowMinimize, collapsed };
   },
 );
+
+/** First-run setup only: resizable + exit; max = bottom-right region (not full screen). */
+ipcMain.handle('window:set-first-setup-mode', (_event, on: boolean) => applyFirstSetupMode(Boolean(on)));
 
 ipcMain.handle('lock:get-state', () => ({
   exitAllowed,
@@ -613,14 +762,18 @@ ipcMain.handle('config:get', () => loadConfig());
 ipcMain.handle('config:find-removable', () => {
   const names = ['classroom-desk-config.json', 'config.json'];
   const roots: string[] = [];
+  // Prefer Public + user Desktop (teacher install card drops config here) before USB letters.
   if (process.platform === 'win32') {
+    const pub = process.env.PUBLIC || 'C:\\Users\\Public';
+    roots.push(path.join(pub, 'Desktop'));
+    roots.push(path.join(os.homedir(), 'Desktop'));
     for (const letter of 'DEFGHIJKLMNOPQRSTUVWXYZ') {
       roots.push(`${letter}:\\`);
     }
   } else {
-    roots.push('/Volumes', '/media', path.join(os.homedir(), 'Desktop'));
+    roots.push(path.join(os.homedir(), 'Desktop'), '/Volumes', '/media');
   }
-  const hits: Array<{ path: string; apiBase: string; classId: string }> = [];
+  const hits: Array<{ path: string; apiBase: string; classId: string; className?: string }> = [];
   for (const root of roots) {
     try {
       if (!fs.existsSync(root)) continue;
@@ -631,6 +784,7 @@ ipcMain.handle('config:find-removable', () => {
           apiBase?: string;
           serverUrl?: string;
           classId?: string;
+          className?: string;
         };
         const apiBase = String(raw.apiBase ?? raw.serverUrl ?? '')
           .trim()
@@ -639,7 +793,12 @@ ipcMain.handle('config:find-removable', () => {
         if (!apiBase || !classId) continue;
         if (/127\.0\.0\.1|localhost/i.test(apiBase)) continue;
         if (!/^https?:\/\//i.test(apiBase)) continue;
-        hits.push({ path: p, apiBase, classId });
+        hits.push({
+          path: p,
+          apiBase,
+          classId,
+          className: String(raw.className ?? '').trim() || undefined,
+        });
       }
     } catch {
       /* skip unreadable drives */
@@ -1093,6 +1252,10 @@ function startFocusSteal(intervalMs = 600) {
 /** Apply offline security-custody (kiosk cover; survives restart via userData). */
 function applyOfflineCustody(on: boolean): { ok: boolean; error?: string } {
   if (!mainWindow || mainWindow.isDestroyed()) return { ok: false, error: 'no_window' };
+  // Never enter full-screen custody during first setup / unbound.
+  if (on && (firstSetupMode || !teacherBonded)) {
+    return { ok: false, error: 'first_setup_no_custody' };
+  }
   try {
     installCustodyNetworkSealOnce();
     offlineCustodyActive = Boolean(on);

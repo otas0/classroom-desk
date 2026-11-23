@@ -1,0 +1,21 @@
+{
+  "name": "work-desk",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Factory and office employee identity, permissions, and work-time tracking",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "npm run dev -w @work-desk/server",
+    "dev:admin": "npm run dev -w @work-desk/admin-web",
+    "dev:employee": "npm run dev -w @work-desk/employee-web",
+    "build": "npm run build -w @work-desk/shared && npm run build -w @work-desk/server && npm run build -w @work-desk/admin-web && npm run build -w @work-desk/employee-web",
+    "start": "npm run start -w @work-desk/server",
+    "typecheck": "npm run typecheck --workspaces --if-present"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
