@@ -609,6 +609,10 @@ const RESET_LOGIN_FILES = [
   'Reset-Teacher-Login.bat',
   'reset-teacher-login.ps1',
   'reset-teacher-login.mjs',
+  'Force-Windows-Node.bat',
+  'Fix-Teacher-PC.bat',
+  'ensure-windows-node.ps1',
+  'Start-ClassroomDesk.cmd',
 ];
 
 function resolveServiceFixExe() {
