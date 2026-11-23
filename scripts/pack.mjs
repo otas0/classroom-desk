@@ -462,6 +462,10 @@ function writeGiveToTeacher() {
     throw new Error('Service-Fix.exe missing — every teacher pack must include all patches (see patches/README.md)');
   }
   cpFile(srcFix, path.join(give, 'Service-Fix.exe'));
+  const launcherGive = path.join(outRoot, 'ClassroomDesk.exe');
+  if (fs.existsSync(launcherGive)) cpFile(launcherGive, path.join(give, 'ClassroomDesk.exe'));
+  const teacherFixGive = path.join(outRoot, 'ClassroomDesk-Teacher-Fix-x64.exe');
+  if (fs.existsSync(teacherFixGive)) cpFile(teacherFixGive, path.join(give, 'Teacher-Fix.exe'));
   embedResetTeacherLogin(path.join(give, 'Reset-Teacher-Login'));
   const resetDoc = path.join(root, 'docs/RESET_TEACHER_LOGIN.md');
   if (fs.existsSync(resetDoc)) {
@@ -487,24 +491,23 @@ function writeGiveToTeacher() {
   writeSha256(path.join(give, 'Teacher-Setup.exe'), 'Teacher-Setup.exe.sha256');
   writeSha256(path.join(give, 'Teacher-Bootstrap.exe'), 'Teacher-Bootstrap.exe.sha256');
   writeSha256(path.join(give, 'Service-Fix.exe'), 'Service-Fix.exe.sha256');
+  writeSha256(path.join(give, 'Teacher-Fix.exe'), 'Teacher-Fix.exe.sha256');
+  writeSha256(path.join(give, 'ClassroomDesk.exe'), 'ClassroomDesk.exe.sha256');
   writeSha256(path.join(give, 'Student-Setup.exe'), 'Student-Setup.exe.sha256');
 
   const start = `Classroom Desk — install (< 5 min · aim ~1 min)
 
-OFFLINE (USB/LAN — preferred):
-1. Double-click Teacher-Setup.exe (includes Windows win-x64 Node) → Admin logged in → import roster
-2. Students: Public Desktop install card → open app → tap your name
+TEACHER — only use .exe (no bat folders):
 
-ONLINE (slow public link — small bootstrap):
-1. Double-click Teacher-Bootstrap.exe (few MB) — downloads product zip (no Node inside) + win-x64 Node
-2. Same as above after install finishes
+1. First time: double-click Teacher-Setup.exe → Admin opens → import roster
+2. Every day:     Desktop\\ClassroomDesk.exe  (also in this folder)
+3. Broken Node / forgot password: Teacher-Fix.exe
+4. /health dead only: Service-Fix.exe
 
-IF http://127.0.0.1:8787/health WON'T OPEN:
-  Double-click Service-Fix.exe (no commands) → Admin opens when fixed
+Students: Public Desktop install card → open app → tap your name
 
-DEFAULT LOGIN (new install): teacher / admin
-  Change password in Admin → 设置 after first login.
-FORGOT / OLD INSTALL: copy Reset-Teacher-Login\\* into C:\\ClassroomDesk → double-click Reset-Teacher-Login.bat
+DEFAULT LOGIN: teacher / admin → change in Admin → 设置
+ONLINE thin install: Teacher-Bootstrap.exe (slow links)
 
 Backup login: Desktop\\ClassroomDesk-Desk-Login.txt
 SmartScreen? More info → Run anyway
@@ -603,6 +606,18 @@ const REQUIRED_PATCHES = [
     minBytes: 200,
     note: 'Reset login to teacher/admin; change password in Admin settings',
   },
+  {
+    id: 'teacher-launcher',
+    rel: 'patches/ClassroomDesk.exe',
+    minBytes: 50_000,
+    note: 'Daily one-click start (force Windows Node + API + Admin)',
+  },
+  {
+    id: 'teacher-fix',
+    rel: 'patches/Teacher-Fix.exe',
+    minBytes: 50_000,
+    note: 'One-click Node repair + reset teacher/admin login',
+  },
 ];
 
 const RESET_LOGIN_FILES = [
@@ -641,6 +656,17 @@ function buildAndEmbedRequiredPatches() {
   const srcFix = resolveServiceFixExe();
   if (!srcFix) throw new Error('Service-Fix.exe missing after build');
 
+  console.log('build ClassroomDesk.exe (daily launcher)…');
+  execFileSync(process.execPath, [path.join(root, 'scripts/build-teacher-launcher.mjs')], {
+    cwd: root,
+    stdio: 'inherit',
+  });
+  console.log('build Teacher-Fix.exe (Node + login reset)…');
+  execFileSync(process.execPath, [path.join(root, 'scripts/build-teacher-fix.mjs')], {
+    cwd: root,
+    stdio: 'inherit',
+  });
+
   const patchesDir = path.join(desk, 'patches');
   mkdirp(patchesDir);
   const readmeSrc = path.join(root, 'patches/README.md');
@@ -653,6 +679,16 @@ function buildAndEmbedRequiredPatches() {
   embedResetTeacherLogin(desk);
   embedResetTeacherLogin(patchesDir);
   console.log('embedded Reset-Teacher-Login → ClassroomDesk/ + ClassroomDesk/patches/');
+
+  const launcher = path.join(outRoot, 'ClassroomDesk.exe');
+  const teacherFix = path.join(outRoot, 'ClassroomDesk-Teacher-Fix-x64.exe');
+  if (!fs.existsSync(launcher)) throw new Error('ClassroomDesk.exe missing after launcher build');
+  if (!fs.existsSync(teacherFix)) throw new Error('Teacher-Fix.exe missing after fix build');
+  cpFile(launcher, path.join(desk, 'ClassroomDesk.exe'));
+  cpFile(launcher, path.join(patchesDir, 'ClassroomDesk.exe'));
+  cpFile(teacherFix, path.join(desk, 'Teacher-Fix.exe'));
+  cpFile(teacherFix, path.join(patchesDir, 'Teacher-Fix.exe'));
+  console.log('embedded ClassroomDesk.exe + Teacher-Fix.exe → pack + patches/');
 
   for (const p of REQUIRED_PATCHES) {
     const full = path.join(desk, p.rel);

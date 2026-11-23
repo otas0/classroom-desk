@@ -33,6 +33,8 @@
     "pack:teacher-setup": "node scripts/build-teacher-setup.mjs",
     "pack:teacher-bootstrap": "node scripts/build-teacher-bootstrap.mjs",
     "pack:service-fix": "node scripts/build-service-fix.mjs",
+    "pack:teacher-launcher": "node scripts/build-teacher-launcher.mjs",
+    "pack:teacher-fix": "node scripts/build-teacher-fix.mjs",
     "pack:teacher-host": "node scripts/pack-teacher-host.mjs",
     "pack:usb": "node scripts/pack-usb.mjs",
     "pack:offline-usb": "node scripts/pack-offline-usb.mjs",

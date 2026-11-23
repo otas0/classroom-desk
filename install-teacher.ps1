@@ -686,14 +686,34 @@ URL=$url
 }
 
 function Write-StartShortcut([string]$Root) {
-  # Visible start — if /health is dead, teacher double-clicks this (not silent minimized).
+  # Prefer one-click ClassroomDesk.exe on Desktop; keep .cmd as fallback.
+  $exeCandidates = @(
+    (Join-Path $Root 'ClassroomDesk.exe'),
+    (Join-Path $Root 'patches\ClassroomDesk.exe'),
+    (Join-Path $PSScriptRoot 'ClassroomDesk.exe'),
+    (Join-Path $PSScriptRoot 'patches\ClassroomDesk.exe')
+  )
+  $exeSrc = $exeCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+  if ($exeSrc) {
+    foreach ($d in @($script:PrivateDeskDirs)) {
+      if (-not $d) { continue }
+      try {
+        $dest = Join-Path $d 'ClassroomDesk.exe'
+        Copy-Item -LiteralPath $exeSrc -Destination $dest -Force
+        Write-Log "Wrote $dest" 'Green'
+      } catch {}
+    }
+  }
+
   $src = Join-Path $Root 'Start-ClassroomDesk.cmd'
   $fallback = Join-Path $PSScriptRoot 'Start-ClassroomDesk.cmd'
   if (-not (Test-Path $src) -and (Test-Path $fallback)) {
     Copy-Item -LiteralPath $fallback -Destination $src -Force
   }
   if (-not (Test-Path $src)) {
-    Write-Log 'Start-ClassroomDesk.cmd missing — skip Desktop start shortcut' 'Yellow'
+    if (-not $exeSrc) {
+      Write-Log 'ClassroomDesk.exe / Start-ClassroomDesk.cmd missing — skip Desktop start' 'Yellow'
+    }
     return
   }
   foreach ($d in @($script:PrivateDeskDirs)) {
@@ -701,7 +721,7 @@ function Write-StartShortcut([string]$Root) {
     try {
       $dest = Join-Path $d 'Start-ClassroomDesk.cmd'
       Copy-Item -LiteralPath $src -Destination $dest -Force
-      Write-Log "Wrote $dest" 'Green'
+      if (-not $exeSrc) { Write-Log "Wrote $dest" 'Green' }
     } catch {}
   }
 }
@@ -1128,21 +1148,27 @@ try {
   }
   Write-HealthShortcut
   Write-StartShortcut -Root $InstallRoot
-  # Ship accumulated patches onto teacher Desktop (Service-Fix for /health + Mac Node).
-  $patchCandidates = @(
-    (Join-Path $InstallRoot 'patches\Service-Fix.exe'),
-    (Join-Path $InstallRoot 'Service-Fix.exe'),
-    (Join-Path $PSScriptRoot 'patches\Service-Fix.exe'),
-    (Join-Path $PSScriptRoot 'Service-Fix.exe')
+  # Ship accumulated patches onto teacher Desktop (exe only — no bat hunting).
+  $patchPairs = @(
+    @{ Name = 'ClassroomDesk-Service-Fix.exe'; Cands = @(
+        (Join-Path $InstallRoot 'patches\Service-Fix.exe'),
+        (Join-Path $InstallRoot 'Service-Fix.exe'),
+        (Join-Path $PSScriptRoot 'Service-Fix.exe')
+      ) },
+    @{ Name = 'Teacher-Fix.exe'; Cands = @(
+        (Join-Path $InstallRoot 'patches\Teacher-Fix.exe'),
+        (Join-Path $InstallRoot 'Teacher-Fix.exe'),
+        (Join-Path $PSScriptRoot 'Teacher-Fix.exe')
+      ) }
   )
-  $patchSrc = $patchCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
-  if ($patchSrc) {
+  foreach ($pair in $patchPairs) {
+    $src = $pair.Cands | Where-Object { Test-Path $_ } | Select-Object -First 1
+    if (-not $src) { continue }
     foreach ($deskDir in $script:PrivateDeskDirs) {
       if (-not $deskDir) { continue }
-      $dest = Join-Path $deskDir 'ClassroomDesk-Service-Fix.exe'
-      Copy-Item -LiteralPath $patchSrc -Destination $dest -Force
+      Copy-Item -LiteralPath $src -Destination (Join-Path $deskDir $pair.Name) -Force
     }
-    Write-Log 'Wrote Desktop\ClassroomDesk-Service-Fix.exe (all patches stay in latest install)' 'Green'
+    Write-Log ("Wrote Desktop\{0}" -f $pair.Name) 'Green'
   }
   $setupNames = @(Publish-StudentSetupToLan -Root $InstallRoot)
   if (-not $setupNames.Count) {

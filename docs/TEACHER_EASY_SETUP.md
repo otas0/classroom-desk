@@ -11,7 +11,8 @@
 ### Offline (USB / LAN — preferred)
 
 1. Double-click **`Teacher-Setup.exe`** → Admin logged in → import roster  
-2. Students: Public Desktop install card → open app → **tap your name**
+2. Every day: double-click Desktop **`ClassroomDesk.exe`**  
+3. Students: Public Desktop install card → open app → **tap your name**
 
 ### Online (slow public network)
 
@@ -20,14 +21,16 @@
 
 | File | Who |
 |------|-----|
+| `Teacher-Setup.exe` | USB offline complete pack (first install) |
+| `ClassroomDesk.exe` | **Daily start** (Node + API + Admin) |
+| `Teacher-Fix.exe` | Broken Node / forgot password → `teacher`/`admin` |
+| `Service-Fix.exe` | `/health` & `/admin` not opening ([SERVICE_FIX.md](./SERVICE_FIX.md)) |
 | `Teacher-Bootstrap.exe` | Public download / slow links |
-| `Teacher-Setup.exe` | USB offline complete pack |
-| `Service-Fix.exe` | **Alone:** fix `/health` & `/admin` not opening ([SERVICE_FIX.md](./SERVICE_FIX.md)) |
 | `Student-Setup.exe` | USB fallback (prefer LAN install card) |
 | `START-HERE.txt` | Steps |
 
 Default login (new install): **`teacher` / `admin`** — change in Admin → **设置**.  
-Forgot / old install: copy **`Reset-Teacher-Login`** into `C:\ClassroomDesk` → double-click the bat ([RESET_TEACHER_LOGIN.md](./RESET_TEACHER_LOGIN.md)).  
+Forgot password / Mac Node: double-click **`Teacher-Fix.exe`** ([RESET_TEACHER_LOGIN.md](./RESET_TEACHER_LOGIN.md)).  
 Backup card: Desktop **`ClassroomDesk-Desk-Login.txt`**
 
 ## Hot update
