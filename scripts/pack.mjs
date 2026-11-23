@@ -644,6 +644,7 @@ for (const f of [
   'Start-ClassroomDesk.cmd',
   'fix-classroom-service.ps1',
   'setup-service-fix.cmd',
+  'ensure-windows-node.ps1',
 ]) {
   const src = path.join(root, f);
   if (fs.existsSync(src)) cpFile(src, path.join(desk, f));

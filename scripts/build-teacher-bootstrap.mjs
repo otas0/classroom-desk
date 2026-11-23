@@ -124,6 +124,7 @@ function main() {
   const files = [
     'setup-from-bootstrap.cmd',
     'install-teacher.ps1',
+    'ensure-windows-node.ps1',
     'Install.bat',
     'Install-Teacher.bat',
     'Check-Pack.bat',

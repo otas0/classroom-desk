@@ -6,7 +6,7 @@ Do not ship a “partial” teacher zip or student Setup that omits older patche
 | Patch | Artifact | Why |
 | --- | --- | --- |
 | Local API /health | `Service-Fix.exe` (`ClassroomDesk-Service-Fix-*-x64.exe`) | Teacher PC API not listening; also rejects Mac Node and re-downloads win-x64 |
-| Windows Node only | `Teacher-Setup.exe` embeds win-x64 Node; Dist zip has **no** Node; Install/Bootstrap download official win-x64 | Never ship Mac Node; zip stays lean; downloadable Setup still carries Windows Node |
+| Windows Node only | `ensure-windows-node.ps1` — bats always wipe `runtime` and download official win-x64 via CN + overseas mirrors | Never trust bundled/Mac Node; Install/Start/Service-Fix force auto-install |
 | Win deps / no Mac esbuild | `pack:teacher-host` + Dist `npm install --os=win32 --cpu=x64`; server starts from `dist/index.mjs` (no `tsx`) | Mac-packed `node_modules` crashed Windows with missing `@esbuild/win32-x64` |
 
 ## Pack guarantees

@@ -21,7 +21,9 @@ param(
   [switch]$SkipSourceDownload,
   [switch]$ChinaMirrorsFirst,
   [switch]$BootstrapOnline,
-  [switch]$CheckOnly
+  [switch]$CheckOnly,
+  # Wipe runtime Node and re-download official Windows build (CN + overseas mirrors).
+  [switch]$ForceNodeReinstall
 )
 
 $ErrorActionPreference = 'Stop'
@@ -237,58 +239,40 @@ function Test-IsWindowsNodeExe([string]$Path) {
 }
 
 function Ensure-PortableNode([string]$Root, [string]$Version) {
+  # Always force wipe + official Windows download (CN + overseas mirrors).
+  # Never reuse bundled/host Node — Mac copies have broken many classrooms.
+  $ensurePs1 = Join-Path $PSScriptRoot 'ensure-windows-node.ps1'
+  if (-not (Test-Path -LiteralPath $ensurePs1)) {
+    $ensurePs1 = Join-Path $Root 'ensure-windows-node.ps1'
+  }
+  if (-not (Test-Path -LiteralPath $ensurePs1)) {
+    throw 'ensure-windows-node.ps1 missing — re-copy Teacher-Setup / Dist pack'
+  }
+  Write-Log 'Force Windows Node auto-install (clear runtime + CN/overseas mirrors)…' 'Cyan'
+  $arg = @(
+    '-NoProfile', '-ExecutionPolicy', 'Bypass',
+    '-File', $ensurePs1,
+    '-InstallRoot', $Root,
+    '-NodeVersion', $Version,
+    '-Force'
+  )
+  if ($ChinaMirrorsFirst) { $arg += '-ChinaMirrorsFirst' }
+  & powershell.exe @arg
+  if ($LASTEXITCODE -ne 0) {
+    throw "ensure-windows-node.ps1 failed (exit $LASTEXITCODE)"
+  }
   $arch = Get-NodeArch
   $dirName = "node-v$Version-$arch"
   $nodeRoot = Join-Path $Root "runtime\$dirName"
   $nodeExe = Join-Path $nodeRoot 'node.exe'
   $npmCmd = Join-Path $nodeRoot 'npm.cmd'
-
-  if (
-    (Test-Path $nodeExe) -and ((Get-Item $nodeExe).Length -gt 1MB) -and
-    (Test-Path $npmCmd) -and
-    (Test-IsWindowsNodeExe $nodeExe)
-  ) {
-    $script:NodeHome = $nodeRoot
-    $script:NpmCmd = $npmCmd
-    Write-Log ("Portable Windows Node ready: {0}" -f (& $nodeExe -v)) 'Green'
-    return
-  }
-
-  if ((Test-Path $nodeExe) -and -not (Test-IsWindowsNodeExe $nodeExe)) {
-    Write-Log "REJECTED non-Windows node.exe (likely Mac) — re-downloading $dirName" 'Yellow'
-    Remove-Item -LiteralPath $nodeRoot -Recurse -Force -ErrorAction SilentlyContinue
-  }
-
-  $extractTo = Join-Path $Root 'runtime'
-  New-Item -ItemType Directory -Path $extractTo -Force | Out-Null
-
-  $bundled = Find-BundledNodeZip -Root $Root -DirName $dirName
-  if ($bundled) {
-    Write-Log ("Using bundled Node zip: {0}" -f $bundled) 'Green'
-    Expand-Archive -Path $bundled -DestinationPath $extractTo -Force
-  } else {
-    $zipPath = Join-Path $env:TEMP "$dirName.zip"
-    $urls = @(
-      "https://npmmirror.com/mirrors/node/v$Version/$dirName.zip",
-      "https://cdn.npmmirror.com/binaries/node/v$Version/$dirName.zip",
-      "https://nodejs.org/dist/v$Version/$dirName.zip"
-    )
-    Write-Log "Downloading portable Node $Version ($arch)…" 'Cyan'
-    Save-UrlFirstOk -Urls $urls -OutFile $zipPath | Out-Null
-    $dlDir = Join-Path $Root 'downloads'
-    New-Item -ItemType Directory -Path $dlDir -Force | Out-Null
-    Copy-Item -LiteralPath $zipPath -Destination (Join-Path $dlDir "$dirName.zip") -Force
-    Expand-Archive -Path $zipPath -DestinationPath $extractTo -Force
-    Remove-Item $zipPath -Force -ErrorAction SilentlyContinue
-  }
-
-  if (-not (Test-Path $nodeExe)) { throw "Portable Node missing after extract: $nodeExe" }
+  if (-not (Test-Path $nodeExe)) { throw "Portable Node missing after auto-install: $nodeExe" }
   if (-not (Test-IsWindowsNodeExe $nodeExe)) {
-    throw "node.exe is not a Windows PE binary (Mac/Linux binary rejected): $nodeExe"
+    throw "node.exe is not a Windows PE binary after auto-install: $nodeExe"
   }
   $script:NodeHome = $nodeRoot
   $script:NpmCmd = $npmCmd
-  Write-Log ("Portable Windows Node installed: {0}" -f (& $nodeExe -v)) 'Green'
+  Write-Log ("Portable Windows Node ready: {0}" -f (& $nodeExe -v)) 'Green'
 }
 
 function Get-NetworkMinimumHelp {

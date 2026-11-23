@@ -128,40 +128,26 @@ function Test-IsWindowsNodeExe([string]$Path) {
 }
 
 function Ensure-PortableNode([string]$Root, [string]$Version) {
-  $existing = Find-NodeExe -Root $Root -Version $Version
-  if ($existing -and (Test-IsWindowsNodeExe $existing)) {
-    Write-FixLog "Portable Windows Node OK: $existing" 'Green'
-    return $existing
+  $ensurePs1 = Join-Path $PSScriptRoot 'ensure-windows-node.ps1'
+  if (-not (Test-Path -LiteralPath $ensurePs1)) {
+    $ensurePs1 = Join-Path $Root 'ensure-windows-node.ps1'
   }
-  if ($existing) {
-    Write-FixLog "REJECTED non-Windows node (likely Mac Mach-O): $existing — re-downloading win build" 'Yellow'
-    try {
-      $badDir = Split-Path $existing -Parent
-      if ($badDir -and $badDir -match 'node-v') {
-        Remove-Item -LiteralPath $badDir -Recurse -Force -ErrorAction SilentlyContinue
-      } else {
-        Remove-Item -LiteralPath $existing -Force -ErrorAction SilentlyContinue
-      }
-    } catch {}
+  if (-not (Test-Path -LiteralPath $ensurePs1)) {
+    throw 'ensure-windows-node.ps1 missing — run Service-Fix / Teacher-Setup again'
   }
-  # Always win-x64 for Classroom Desk teacher host (Intel/AMD lab PCs). ARM64 rare.
-  $arch = 'win-x64'
-  if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { $arch = 'win-arm64' }
-  $dirName = "node-v$Version-$arch"
-  $zipPath = Join-Path $env:TEMP "$dirName.zip"
-  $urls = @(
-    "https://npmmirror.com/mirrors/node/v$Version/$dirName.zip",
-    "https://cdn.npmmirror.com/binaries/node/v$Version/$dirName.zip",
-    "https://nodejs.org/dist/v$Version/$dirName.zip"
+  Write-FixLog 'Force Windows Node auto-install (clear + CN/overseas mirrors)…' 'Cyan'
+  $arg = @(
+    '-NoProfile', '-ExecutionPolicy', 'Bypass',
+    '-File', $ensurePs1,
+    '-InstallRoot', $Root,
+    '-NodeVersion', $Version,
+    '-Force',
+    '-ChinaMirrorsFirst'
   )
-  Write-FixLog "Downloading official $dirName.zip (Windows only)…" 'Cyan'
-  Save-UrlFirstOk -Urls $urls -OutFile $zipPath -MinBytes 1MB
-  $runtime = Join-Path $Root 'runtime'
-  New-Item -ItemType Directory -Path $runtime -Force | Out-Null
-  Expand-Archive -Path $zipPath -DestinationPath $runtime -Force
-  Remove-Item $zipPath -Force -ErrorAction SilentlyContinue
+  & powershell.exe @arg
+  if ($LASTEXITCODE -ne 0) { throw "ensure-windows-node.ps1 failed ($LASTEXITCODE)" }
   $node = Find-NodeExe -Root $Root -Version $Version
-  if (-not $node) { throw "Node missing after extract under $runtime" }
+  if (-not $node) { throw "Node missing after auto-install under $Root\runtime" }
   if (-not (Test-IsWindowsNodeExe $node)) {
     throw "Downloaded node.exe is still not a Windows PE binary: $node"
   }

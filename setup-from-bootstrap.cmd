@@ -44,7 +44,23 @@ if not exist "%ROOT%\install-teacher.ps1" (
   exit /b 1
 )
 
-powershell -NoProfile -ExecutionPolicy Bypass -File "%ROOT%\install-teacher.ps1" -InstallRoot "%ROOT%" -BootstrapOnline -ChinaMirrorsFirst
+echo  Ensuring Windows Node (auto-download CN + overseas mirrors)…
+if exist "%ROOT%\ensure-windows-node.ps1" (
+  powershell -NoProfile -ExecutionPolicy Bypass -File "%ROOT%\ensure-windows-node.ps1" -InstallRoot "%ROOT%" -ChinaMirrorsFirst -Force
+) else if exist "%~dp0ensure-windows-node.ps1" (
+  powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0ensure-windows-node.ps1" -InstallRoot "%ROOT%" -ChinaMirrorsFirst -Force
+) else (
+  echo ERROR: ensure-windows-node.ps1 missing
+  pause
+  exit /b 1
+)
+if errorlevel 1 (
+  echo NODE AUTO-INSTALL FAILED
+  pause
+  exit /b 1
+)
+
+powershell -NoProfile -ExecutionPolicy Bypass -File "%ROOT%\install-teacher.ps1" -InstallRoot "%ROOT%" -BootstrapOnline -ChinaMirrorsFirst -ForceNodeReinstall
 set ERR=%ERRORLEVEL%
 if not "%ERR%"=="0" (
   echo.

@@ -67,6 +67,7 @@ function main() {
     'setup-service-fix.cmd',
     'fix-classroom-service.ps1',
     'Start-ClassroomDesk.cmd',
+    'ensure-windows-node.ps1',
   ];
   for (const f of files) {
     const src = path.join(root, f);

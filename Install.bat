@@ -23,7 +23,21 @@ if not exist "%~dp0install-teacher.ps1" (
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "Get-ChildItem -LiteralPath '%~dp0' -Recurse -Force -ErrorAction SilentlyContinue | Unblock-File -ErrorAction SilentlyContinue" >nul 2>&1
 
-powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0install-teacher.ps1" -SkipSourceDownload -ChinaMirrorsFirst
+set "ROOT=C:\ClassroomDesk"
+echo  Ensuring Windows Node into %ROOT% (auto-download CN + overseas mirrors)…
+if not exist "%~dp0ensure-windows-node.ps1" (
+  echo ERROR: ensure-windows-node.ps1 missing next to Install.bat
+  pause
+  exit /b 1
+)
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0ensure-windows-node.ps1" -InstallRoot "%ROOT%" -ChinaMirrorsFirst -Force
+if errorlevel 1 (
+  echo NODE AUTO-INSTALL FAILED — try again or check npmmirror.com / nodejs.org
+  pause
+  exit /b 1
+)
+
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0install-teacher.ps1" -InstallRoot "%ROOT%" -SkipSourceDownload -ChinaMirrorsFirst -ForceNodeReinstall
 set ERR=%ERRORLEVEL%
 
 echo.

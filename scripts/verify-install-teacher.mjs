@@ -37,6 +37,7 @@ mustExist('Check-Pack.bat');
 mustExist('Install-Offline.bat');
 mustExist('Install-Teacher.bat');
 mustExist('Unblock-ClassroomDesk.bat');
+mustExist('ensure-windows-node.ps1');
 const bat = mustExist('install-teacher.ps1');
 assertEnglishName('Install.bat');
 assertEnglishName('Check-Pack.bat');
@@ -46,10 +47,15 @@ const installBat = fs.readFileSync(path.join(root, 'Install.bat'), 'utf8');
 const checkBat = fs.readFileSync(path.join(root, 'Check-Pack.bat'), 'utf8');
 const ps1Text = fs.readFileSync(bat, 'utf8');
 
-if (!installBat.includes('install-teacher.ps1') || !installBat.includes('ChinaMirrorsFirst')) {
-  fail('Install.bat must call install-teacher.ps1 -ChinaMirrorsFirst');
+if (
+  !installBat.includes('install-teacher.ps1') ||
+  !installBat.includes('ChinaMirrorsFirst') ||
+  !installBat.includes('ensure-windows-node.ps1') ||
+  !installBat.includes('ForceNodeReinstall')
+) {
+  fail('Install.bat must force ensure-windows-node.ps1 + install-teacher.ps1 -ChinaMirrorsFirst');
 } else {
-  ok('Install.bat → ps1 mirrors');
+  ok('Install.bat → Node auto-install + ps1 mirrors');
 }
 if (/[\u4e00-\u9fff]/.test(installBat)) fail('Install.bat must be English-only');
 else ok('Install.bat English-only');

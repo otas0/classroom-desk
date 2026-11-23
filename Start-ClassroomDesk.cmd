@@ -22,20 +22,34 @@ if not exist "%ROOT%\apps\server\dist\index.mjs" (
   exit /b 1
 )
 
+set "ENSURE=%ROOT%\ensure-windows-node.ps1"
+if not exist "%ENSURE%" set "ENSURE=%~dp0ensure-windows-node.ps1"
+if not exist "%ENSURE%" (
+  echo ERROR: ensure-windows-node.ps1 missing
+  echo Re-run Teacher-Setup.exe / Install.bat
+  pause
+  exit /b 1
+)
+
+echo  Ensuring Windows Node (wipe + auto-download CN/overseas mirrors)…
+powershell -NoProfile -ExecutionPolicy Bypass -File "%ENSURE%" -InstallRoot "%ROOT%" -ChinaMirrorsFirst -Force
+if errorlevel 1 (
+  echo NODE AUTO-INSTALL FAILED — check network ^(npmmirror / nodejs.org^)
+  pause
+  exit /b 1
+)
+
 set "NODE="
 for /d %%D in ("%ROOT%\runtime\node-v*-win-*") do (
   if exist "%%~D\node.exe" set "NODE=%%~D\node.exe"
 )
-rem Never fall back to PATH node — Mac/host Node has broken many classrooms.
 if not defined NODE (
-  echo ERROR: Windows portable node.exe missing under %ROOT%\runtime\node-v*-win-*\
-  echo Double-click Service-Fix.exe / Desktop\ClassroomDesk-Fix-Service.cmd
-  echo Do NOT copy Mac Node into this folder.
+  echo ERROR: Windows portable node.exe missing after auto-install
   pause
   exit /b 1
 )
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
-  "$b=[IO.File]::ReadAllBytes('%NODE%')[0..1]; if(-not($b[0]-eq0x4D -and $b[1]-eq0x5A)){ Write-Host 'ERROR: node.exe is not a Windows PE (MZ). Likely a Mac binary.'; Write-Host 'Run Service-Fix.exe to re-download win-x64 Node.'; exit 2 }; exit 0"
+  "$b=[IO.File]::ReadAllBytes('%NODE%')[0..1]; if(-not($b[0]-eq0x4D -and $b[1]-eq0x5A)){ Write-Host 'ERROR: node.exe is not a Windows PE (MZ).'; exit 2 }; exit 0"
 if errorlevel 1 (
   pause
   exit /b 2
