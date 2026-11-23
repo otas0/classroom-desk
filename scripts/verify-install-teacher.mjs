@@ -43,10 +43,13 @@ mustExist('reset-teacher-login.ps1');
 mustExist('reset-teacher-login.mjs');
 mustExist('docs/RESET_TEACHER_LOGIN.md');
 mustExist('docs/TEACHER_EXES.md');
-if (!fs.readFileSync(path.join(root, 'docs/TEACHER_EXES.md'), 'utf8').includes('Classroom Desk.lnk')) {
-  fail('TEACHER_EXES.md must document Desktop shortcuts after Setup');
-} else {
-  ok('TEACHER_EXES.md desktop shortcuts');
+{
+  const exesDoc = fs.readFileSync(path.join(root, 'docs/TEACHER_EXES.md'), 'utf8');
+  if (!exesDoc.includes('Classroom Desk.lnk') || !exesDoc.includes('只下一个')) {
+    fail('TEACHER_EXES.md must say teachers download only Teacher-Setup + document Desktop shortcuts');
+  } else {
+    ok('TEACHER_EXES.md one-Setup + desktop shortcuts');
+  }
 }
 const bat = mustExist('install-teacher.ps1');
 assertEnglishName('Install.bat');
@@ -177,11 +180,13 @@ if (
   !packScript.includes('buildAndEmbedRequiredPatches') ||
   !packScript.includes('Service-Fix.exe') ||
   !packScript.includes('Reset-Teacher-Login') ||
-  !packScript.includes('stripNodeFromDistTree')
+  !packScript.includes('stripNodeFromDistTree') ||
+  !packScript.includes('ONLY FILE YOU NEED') ||
+  !packScript.includes("path.join(give, 'Advanced')")
 ) {
-  fail('pack.mjs must build Give-To-Teacher / Teacher-Setup / required patches / strip Node from Dist zip');
+  fail('pack.mjs must build one-Setup Give-To-Teacher + Advanced/ + required patches / strip Node from Dist zip');
 } else {
-  ok('pack.mjs Give-To-Teacher + required patches + Dist Node strip');
+  ok('pack.mjs one-Setup Give-To-Teacher + Advanced/ + Dist Node strip');
 }
 mustExist('patches/README.md');
 mustExist('scripts/build-service-fix.mjs');

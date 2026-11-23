@@ -2,7 +2,8 @@
 
 `npm run pack` → folder **`Give-To-Teacher`**
 
-**Which exe is which?** → **[TEACHER_EXES.md](./TEACHER_EXES.md)**（GitHub 说明用这一页）
+对外和学生一样：**教师只给 / 只下 `Teacher-Setup.exe`**。  
+细节：[TEACHER_EXES.md](./TEACHER_EXES.md)
 
 ## Time SLA
 
@@ -10,23 +11,16 @@
 
 ## Day-1
 
-### Offline (USB / LAN — preferred)
-
 1. Double-click **`Teacher-Setup.exe`** → Admin logged in → import roster  
-2. Setup finishes → Desktop gets shortcuts: **Classroom Desk** · **Classroom Desk Admin** · **Classroom Desk Fix**  
-3. Every day: double-click Desktop **Classroom Desk**  
+2. Desktop shortcuts appear: **Classroom Desk** · **Classroom Desk Admin** · **Classroom Desk Fix**  
+3. Every day: Desktop **Classroom Desk**  
 4. Students: Public Desktop install card → open app → **tap your name**
 
-### Online (slow public network)
-
-1. Double-click **`Teacher-Bootstrap.exe`** (few MB) — downloads product zip via mirrors (resumable)  
-2. Same student path as above
-
-Full table: [TEACHER_EXES.md](./TEACHER_EXES.md).
-
-Default login (new install): **`teacher` / `admin`** — change in Admin → **设置**.  
-Forgot password / Mac Node: Desktop **Classroom Desk Fix** / **`Teacher-Fix.exe`**.  
+Default login: **`teacher` / `admin`** → change in Admin → **设置**.  
+Broken: Desktop **Classroom Desk Fix**.  
 Backup card: Desktop **`ClassroomDesk-Desk-Login.txt`**
+
+`Give-To-Teacher/Advanced/` is IT-only (Bootstrap / Service-Fix / …). Teachers ignore it.
 
 ## Hot update
 

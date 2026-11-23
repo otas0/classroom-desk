@@ -440,7 +440,12 @@ function writeGiveToTeacher() {
       ? teacherVersioned
       : null;
   if (!srcSetup) throw new Error('Teacher Setup.exe missing — build-teacher-setup failed?');
+  // Teacher-facing folder: ONE setup exe (same UX as student Setup.exe).
+  // Launcher / Fix / Service-Fix are embedded inside Teacher-Setup → Desktop shortcuts after install.
   cpFile(srcSetup, path.join(give, 'Teacher-Setup.exe'));
+
+  const advanced = path.join(give, 'Advanced');
+  mkdirp(advanced);
 
   const bootSetup = path.join(outRoot, 'ClassroomDesk-Teacher-Bootstrap-x64.exe');
   const bootVersioned = path.join(outRoot, `ClassroomDesk-Teacher-Bootstrap-${version}-x64.exe`);
@@ -449,7 +454,7 @@ function writeGiveToTeacher() {
     : fs.existsSync(bootVersioned)
       ? bootVersioned
       : null;
-  if (srcBoot) cpFile(srcBoot, path.join(give, 'Teacher-Bootstrap.exe'));
+  if (srcBoot) cpFile(srcBoot, path.join(advanced, 'Teacher-Bootstrap.exe'));
 
   const fixSetup = path.join(outRoot, 'ClassroomDesk-Service-Fix-x64.exe');
   const fixVersioned = path.join(outRoot, `ClassroomDesk-Service-Fix-${version}-x64.exe`);
@@ -461,20 +466,33 @@ function writeGiveToTeacher() {
   if (!srcFix) {
     throw new Error('Service-Fix.exe missing — every teacher pack must include all patches (see patches/README.md)');
   }
-  cpFile(srcFix, path.join(give, 'Service-Fix.exe'));
+  cpFile(srcFix, path.join(advanced, 'Service-Fix.exe'));
   const launcherGive = path.join(outRoot, 'ClassroomDesk.exe');
-  if (fs.existsSync(launcherGive)) cpFile(launcherGive, path.join(give, 'ClassroomDesk.exe'));
+  if (fs.existsSync(launcherGive)) cpFile(launcherGive, path.join(advanced, 'ClassroomDesk.exe'));
   const teacherFixGive = path.join(outRoot, 'ClassroomDesk-Teacher-Fix-x64.exe');
-  if (fs.existsSync(teacherFixGive)) cpFile(teacherFixGive, path.join(give, 'Teacher-Fix.exe'));
-  embedResetTeacherLogin(path.join(give, 'Reset-Teacher-Login'));
+  if (fs.existsSync(teacherFixGive)) cpFile(teacherFixGive, path.join(advanced, 'Teacher-Fix.exe'));
+  embedResetTeacherLogin(path.join(advanced, 'Reset-Teacher-Login'));
   const resetDoc = path.join(root, 'docs/RESET_TEACHER_LOGIN.md');
   if (fs.existsSync(resetDoc)) {
-    cpFile(resetDoc, path.join(give, 'Reset-Teacher-Login', 'README.md'));
+    cpFile(resetDoc, path.join(advanced, 'Reset-Teacher-Login', 'README.md'));
   }
+  const exesDoc = path.join(root, 'docs/TEACHER_EXES.md');
+  if (fs.existsSync(exesDoc)) cpFile(exesDoc, path.join(advanced, 'TEACHER_EXES.md'));
+  fs.writeFileSync(
+    path.join(advanced, 'README.txt'),
+    [
+      'IT / advanced only — teachers do NOT need this folder.',
+      'Normal path: double-click ../Teacher-Setup.exe once, then use Desktop shortcuts.',
+      'See TEACHER_EXES.md',
+      '',
+    ].join('\n'),
+    'utf8',
+  );
 
   const studentSrc = path.join(students, `ClassroomDesk-Setup-${version}-x64.exe`);
   if (fs.existsSync(studentSrc)) {
-    cpFile(studentSrc, path.join(give, 'Student-Setup.exe'));
+    // Optional USB copy for rooms without LAN /get — not part of the teacher "one Setup" story.
+    cpFile(studentSrc, path.join(advanced, 'Student-Setup.exe'));
   } else {
     console.warn(
       `WARN: Student-Setup for ${version} missing — rebuild with npm run dist:win before release`,
@@ -484,34 +502,34 @@ function writeGiveToTeacher() {
   function writeSha256(filePath, outName) {
     if (!fs.existsSync(filePath)) return;
     const hash = crypto.createHash('sha256').update(fs.readFileSync(filePath)).digest('hex');
-    fs.writeFileSync(path.join(give, outName), `${hash}  ${path.basename(filePath)}\n`, 'utf8');
+    const dir = path.dirname(filePath);
+    fs.writeFileSync(path.join(dir, outName), `${hash}  ${path.basename(filePath)}\n`, 'utf8');
     fs.writeFileSync(path.join(outRoot, outName), `${hash}  ${path.basename(filePath)}\n`, 'utf8');
     console.log('SHA256', outName, hash.slice(0, 16) + '…');
   }
   writeSha256(path.join(give, 'Teacher-Setup.exe'), 'Teacher-Setup.exe.sha256');
-  writeSha256(path.join(give, 'Teacher-Bootstrap.exe'), 'Teacher-Bootstrap.exe.sha256');
-  writeSha256(path.join(give, 'Service-Fix.exe'), 'Service-Fix.exe.sha256');
-  writeSha256(path.join(give, 'Teacher-Fix.exe'), 'Teacher-Fix.exe.sha256');
-  writeSha256(path.join(give, 'ClassroomDesk.exe'), 'ClassroomDesk.exe.sha256');
-  writeSha256(path.join(give, 'Student-Setup.exe'), 'Student-Setup.exe.sha256');
+  writeSha256(path.join(advanced, 'Teacher-Bootstrap.exe'), 'Teacher-Bootstrap.exe.sha256');
+  writeSha256(path.join(advanced, 'Service-Fix.exe'), 'Service-Fix.exe.sha256');
+  writeSha256(path.join(advanced, 'Teacher-Fix.exe'), 'Teacher-Fix.exe.sha256');
+  writeSha256(path.join(advanced, 'ClassroomDesk.exe'), 'ClassroomDesk.exe.sha256');
+  writeSha256(path.join(advanced, 'Student-Setup.exe'), 'Student-Setup.exe.sha256');
 
-  const start = `Classroom Desk — install (< 5 min · aim ~1 min)
+  const start = `Classroom Desk — teacher install (same idea as student Setup.exe)
 
-TEACHER EXEs (full table: docs/TEACHER_EXES.md on GitHub)
+ONLY FILE YOU NEED:  Teacher-Setup.exe
 
-1. FIRST TIME: Teacher-Setup.exe
-   → full install + Desktop shortcuts:
-      Classroom Desk / Classroom Desk Admin / Classroom Desk Fix
-2. EVERY DAY: Desktop → "Classroom Desk"
-3. BROKEN Node/password: Desktop → "Classroom Desk Fix"  (= Teacher-Fix.exe)
-4. Only /health dead: Service-Fix.exe
+1. Double-click Teacher-Setup.exe  (SmartScreen → More info → Run anyway)
+2. Wait until Admin opens → import roster
+3. Desktop shortcuts appear automatically:
+      Classroom Desk          = every day
+      Classroom Desk Admin    = open Admin
+      Classroom Desk Fix      = repair Node / reset password
 
-Students: Public Desktop install card → open app → tap your name
 DEFAULT LOGIN: teacher / admin → change in Admin → Settings
-ONLINE thin: Teacher-Bootstrap.exe
+Students: Public Desktop install card → Find classroom
+(Advanced\\ is for IT only — ignore it)
 
-Backup: Desktop\\ClassroomDesk-Desk-Login.txt
-SmartScreen? More info → Run anyway
+GitHub: docs/TEACHER_EXES.md
 `;
   const timeDoc = path.join(root, 'docs/TIME_TO_CLASS.md');
   if (fs.existsSync(timeDoc)) cpFile(timeDoc, path.join(desk, 'docs/TIME_TO_CLASS.md'));
