@@ -5,14 +5,14 @@
  *
  *   npm run pack:service-fix
  */
-import { execFileSync, spawnSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { ensureHost7zz, ensureSfx, sfxCache as cache } from './lib/sevenZipSfx.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const distRoot = path.join(root, 'ClassroomDesk-Dist');
-const cache = path.join(root, '.cache', 'teacher-setup-tools');
 const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
 const version = String(pkg.version || '0.0.0');
 const outExe = path.join(distRoot, `ClassroomDesk-Service-Fix-${version}-x64.exe`);
@@ -22,35 +22,6 @@ function mkdirp(p) {
 }
 function rmrf(p) {
   fs.rmSync(p, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
-}
-
-function ensureHost7zz() {
-  const onPath = spawnSync(process.platform === 'win32' ? 'where' : 'which', ['7zz'], {
-    encoding: 'utf8',
-  });
-  if (onPath.status === 0 && onPath.stdout.trim()) {
-    return onPath.stdout.trim().split(/\r?\n/)[0];
-  }
-  const onPath7z = spawnSync(process.platform === 'win32' ? 'where' : 'which', ['7z'], {
-    encoding: 'utf8',
-  });
-  if (onPath7z.status === 0 && onPath7z.stdout.trim()) {
-    return onPath7z.stdout.trim().split(/\r?\n/)[0];
-  }
-  const cached = path.join(cache, 'mac7z', '7zz');
-  if (fs.existsSync(cached)) return cached;
-  throw new Error('Install 7zz/7z on PATH (or run pack:teacher-setup once to cache tools)');
-}
-
-function ensureSfx() {
-  const sfx = path.join(cache, '7zSD.sfx');
-  if (fs.existsSync(sfx) && fs.statSync(sfx).size > 1000) return sfx;
-  const alt = path.join(cache, 'extra-sfx', '7zSD.sfx');
-  if (fs.existsSync(alt)) {
-    fs.copyFileSync(alt, sfx);
-    return sfx;
-  }
-  throw new Error('7zSD.sfx missing — run npm run pack:teacher-setup once first');
 }
 
 function main() {
