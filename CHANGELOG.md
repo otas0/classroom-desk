@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+## v0.1.14 — 2026-11-23
+
+教师端对外只下一个 Setup（与学生一致）；Release 附件收敛；桌面快捷方式。
+
+### Teacher one Setup
+
+- **GitHub Release 只上传** `ClassroomDesk-Teacher-Setup-*-x64.exe` + 学生 `ClassroomDesk-Setup-*-{x64,arm64}.exe`（及 `.sha256`）
+- 不再在 Release 挂 Bootstrap / Service-Fix / Dist zip，避免误下
+- `Teacher-Setup.exe` 装完后桌面自动创建：**Classroom Desk** / **Admin** / **Fix**
+- 默认登录 `teacher` / `admin`（弱口令闸强制进设置改密）；`Teacher-Fix` 嵌在 Setup 内
+- 强制 Windows Node 自动安装（CN npmmirror + 海外 nodejs.org）；拒绝 Mac Node
+- 文档：[TEACHER_EXES.md](./docs/TEACHER_EXES.md)、[RELEASE_BUNDLE.md](./docs/RELEASE_BUNDLE.md)
+
+### Student
+
+- 首次 setup 仅可缩放/退出；最大化贴右下非全屏；修复 hooks 白屏与 exit-lock 竞态
+
 ## v0.1.10 — 2026-11-13
 
 Teacher install hotfix for school networks / local zip (no git).

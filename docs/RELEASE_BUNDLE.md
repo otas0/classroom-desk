@@ -1,6 +1,6 @@
 # Release 附件（只两个 Setup）
 
-目标 tag：**v0.1.12**（或下一日历版；勿跳到 1.0.0，除非 [`PILOT_SKU.md`](./PILOT_SKU.md) GA 门槛全过）。
+目标 tag：**v0.1.14**（勿跳到 1.0.0，除非 [`PILOT_SKU.md`](./PILOT_SKU.md) GA 门槛全过）。
 
 自检：
 
@@ -28,7 +28,7 @@ npm run check:release-bundle -- --tag v0.1.11
 | `ClassroomDesk-*-win-x64.zip` | 不进 Release；IT 本地 `npm run pack` |
 | `config.example.json` | 学生包内 / 仓库 `apps/student-desktop/resources/` |
 
-> 旧 tag（如 v0.1.11）Release 页可能仍有多余附件；**下一 tag 起**按上表收敛。
+> 自 **v0.1.14** 起 Release 页按上表收敛；旧 tag（如 v0.1.11）可能仍有多余附件。
 
 ## 产品门禁（meet / not）
 
