@@ -32,6 +32,8 @@ let allowCollapse = false;
 let allowMinimize = false;
 /** First-run setup only: resizable + quit; max bounds = bottom-right region. */
 let firstSetupMode = false;
+/** Defer startup custody until renderer confirms first-setup is off. */
+let pendingCustodyRestore = false;
 /** Deep-lock armed (freeze / exam allowlist / deny) — visible classroom policy. */
 let deepLockAggressiveActive = false;
 let deepLockFrozenActive = false;
@@ -130,9 +132,10 @@ function refreshOfflineCustodyDisplays(): void {
 }
 
 function placeFullPrimary(win: BrowserWindow): void {
-  // First setup must never cover the whole screen — stay in bottom-right region.
-  if (firstSetupMode) {
-    placeSetupMaxBottomRight(win);
+  // First setup / unbound must never cover the whole screen — stay bottom-right.
+  if (firstSetupMode || !teacherBonded) {
+    if (firstSetupMode) placeSetupMaxBottomRight(win);
+    else placeBottomRight(win, WINDOW_HEIGHT, WINDOW_WIDTH);
     return;
   }
   const b = screen.getPrimaryDisplay().bounds;
@@ -227,24 +230,54 @@ function bottomRightMaxSize(): { width: number; height: number } {
 function placeBottomRight(win: BrowserWindow, height: number, width = WINDOW_WIDTH) {
   const display = screen.getPrimaryDisplay();
   const { workArea } = display;
-  const max = bottomRightMaxSize();
-  const w = Math.min(Math.max(Math.round(width), WINDOW_WIDTH), max.width);
-  const h = Math.min(Math.max(Math.round(height), COLLAPSED_HEIGHT), max.height);
+  // Normal widget: fixed size, only clamp into the work area (do not apply setup max caps).
+  const w = Math.min(Math.max(Math.round(width), 1), workArea.width - MARGIN * 2);
+  const h = Math.min(Math.max(Math.round(height), 1), workArea.height - MARGIN * 2);
   const x = Math.round(workArea.x + workArea.width - w - MARGIN);
   const y = Math.round(workArea.y + workArea.height - h - MARGIN);
   win.setBounds({ x, y, width: w, height: h });
 }
 
+function placeSetupBottomRight(win: BrowserWindow, height: number, width = WINDOW_WIDTH) {
+  const max = bottomRightMaxSize();
+  const w = Math.min(Math.max(Math.round(width), WINDOW_WIDTH), max.width);
+  const h = Math.min(Math.max(Math.round(height), COLLAPSED_HEIGHT), max.height);
+  placeBottomRight(win, h, w);
+}
+
 /** First-setup "maximize": fill the bottom-right panel only — never cover the whole screen. */
 function placeSetupMaxBottomRight(win: BrowserWindow) {
   const max = bottomRightMaxSize();
-  placeBottomRight(win, max.height, max.width);
+  placeSetupBottomRight(win, max.height, max.width);
 }
 
 function applyFirstSetupMode(on: boolean): { ok: boolean; firstSetupMode: boolean } {
-  firstSetupMode = Boolean(on);
+  const turningOn = Boolean(on);
+  firstSetupMode = turningOn;
+  if (turningOn) {
+    // Entering setup cancels deferred custody and tears down a raced cover.
+    pendingCustodyRestore = false;
+    if (offlineCustodyActive) {
+      try {
+        applyOfflineCustody(false);
+      } catch {
+        /* ignore */
+      }
+    }
+    // Transient setup quit grant — do not leave exitUnlockGranted stuck after setup.
+    exitUnlockGranted = false;
+  } else {
+    // Leaving setup: drop any transient setExitAllowed(true) from the wizard.
+    exitUnlockGranted = false;
+  }
   recomputeExitAllowed();
   if (!mainWindow || mainWindow.isDestroyed()) {
+    if (!turningOn && pendingCustodyRestore && teacherBonded) {
+      pendingCustodyRestore = false;
+      setTimeout(() => {
+        if (!firstSetupMode && teacherBonded) applyOfflineCustody(true);
+      }, 0);
+    }
     return { ok: true, firstSetupMode };
   }
   try {
@@ -261,7 +294,7 @@ function applyFirstSetupMode(on: boolean): { ok: boolean; firstSetupMode: boolea
       } catch {
         /* ignore */
       }
-      placeBottomRight(mainWindow, WINDOW_HEIGHT, WINDOW_WIDTH);
+      placeSetupBottomRight(mainWindow, WINDOW_HEIGHT, WINDOW_WIDTH);
     } else {
       mainWindow.setResizable(false);
       mainWindow.setMaximizable(false);
@@ -271,6 +304,12 @@ function applyFirstSetupMode(on: boolean): { ok: boolean; firstSetupMode: boolea
       if (mainWindow.isFullScreen()) mainWindow.setFullScreen(false);
       placeBottomRight(mainWindow, collapsed ? COLLAPSED_HEIGHT : WINDOW_HEIGHT);
       applyWindowChromePolicy();
+      if (pendingCustodyRestore && teacherBonded) {
+        pendingCustodyRestore = false;
+        setTimeout(() => {
+          if (!firstSetupMode && teacherBonded) applyOfflineCustody(true);
+        }, 0);
+      }
     }
   } catch {
     /* ignore */
@@ -382,7 +421,7 @@ function createWindow() {
     const y = Math.round(workArea.y + workArea.height - h - MARGIN);
     if (process.platform === 'win32') {
       event.preventDefault();
-      mainWindow.setBounds({ x, y, width: w, height: h });
+      placeSetupBottomRight(mainWindow, h, w);
     } else {
       newBounds.x = x;
       newBounds.y = y;
@@ -390,6 +429,10 @@ function createWindow() {
       newBounds.height = h;
     }
   });
+
+  // Re-apply layout if window was recreated while setup/custody was already active.
+  if (firstSetupMode) applyFirstSetupMode(true);
+  else if (offlineCustodyActive) applyOfflineCustody(true);
 
   // Frameless drag can leave the widget half off-screen; clamp on move / display change.
   mainWindow.on('will-move', (event, newBounds) => {
@@ -523,11 +566,15 @@ if (!gotLock) {
     installCustodyNetworkSealOnce();
     createWindow();
 
-    // Restore security-custody after crash/relaunch (bonded students only).
+    // Defer custody until renderer confirms first-setup is off (avoids kiosk race).
     if (teacherBonded && loadOfflineCustodyFlag()) {
+      pendingCustodyRestore = true;
       setTimeout(() => {
-        applyOfflineCustody(true);
-      }, 400);
+        if (pendingCustodyRestore && !firstSetupMode && teacherBonded) {
+          pendingCustodyRestore = false;
+          applyOfflineCustody(true);
+        }
+      }, 2500);
     }
 
     app.on('activate', () => {

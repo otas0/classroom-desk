@@ -23,7 +23,7 @@ import {
   readExitLockCache,
   writeExitLockCache,
 } from './exitLockCache';
-import { isTeacherBonded, markTeacherBonded } from './teacherBond';
+import { isTeacherBonded, markTeacherBonded, syncTeacherBondedFromMain } from './teacherBond';
 import {
   EMPTY_INPUT_LOCK,
   anyInputLocked,
@@ -233,20 +233,30 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
     [],
   );
 
-  const syncExitLock = useCallback(async (allowed: boolean, until: string | null = null) => {
-    // Never bonded / first setup: always allow exit even if caller asks to lock.
-    const bonded = isTeacherBonded();
-    const grant = bonded ? allowed : true;
-    const nextUntil = grant && bonded ? until : null;
-    setExitUnlockUntil(nextUntil);
-    writeExitLockCache(grant, nextUntil);
-    if (window.classroomDesk?.setExitAllowed) {
-      const st = await window.classroomDesk.setExitAllowed(bonded ? allowed : true);
-      setExitAllowed(Boolean(st.exitAllowed));
-    } else {
-      setExitAllowed(grant);
-    }
-  }, []);
+  const syncExitLock = useCallback(
+    async (
+      allowed: boolean,
+      until: string | null = null,
+      opts?: { persistCache?: boolean },
+    ) => {
+      // Never bonded / first setup: always allow exit even if caller asks to lock.
+      const bonded = isTeacherBonded();
+      const grant = bonded ? allowed : true;
+      const nextUntil = grant && bonded ? until : null;
+      setExitUnlockUntil(nextUntil);
+      // Do not persist transient first-setup grants as offline "forever unlock".
+      if (opts?.persistCache !== false && bonded) {
+        writeExitLockCache(grant, nextUntil);
+      }
+      if (window.classroomDesk?.setExitAllowed) {
+        const st = await window.classroomDesk.setExitAllowed(bonded ? allowed : true);
+        setExitAllowed(Boolean(st.exitAllowed));
+      } else {
+        setExitAllowed(grant);
+      }
+    },
+    [],
+  );
 
   const bondToTeacher = useCallback(async () => {
     markTeacherBonded();
@@ -426,7 +436,8 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
   // Real-time exit-lock: WebSocket first; on close/error → SSE + toast; poll remains backup.
   // Input-lock uses a dedicated SSE channel (not piggybacked on exit-lock payloads).
   useEffect(() => {
-    if (!ready || healthOk === false) return;
+    // Skip during first setup / 换教室 so server lock does not fight setup quit chrome.
+    if (!ready || needsFirstRun || healthOk === false) return;
     const base = getApiBase().replace(/\/$/, '');
     if (!base) return;
     let closed = false;
@@ -570,7 +581,7 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
       inputEs?.close();
       deepEs?.close();
     };
-  }, [ready, healthOk, applyServerExitLock, applyResolvedInputLock, showToast, classId]);
+  }, [ready, needsFirstRun, healthOk, applyServerExitLock, applyResolvedInputLock, showToast, classId]);
 
   // Focus freeze / custody: blur → report violation + re-assert lock (visible policy; no screenshots).
   useEffect(() => {
@@ -1171,11 +1182,23 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
   }, [bondToTeacher, syncWindowChromeFromServer]);
 
   useEffect(() => {
+    let cancelled = false;
     void (async () => {
       await initApiBase();
+      if (cancelled) return;
+      // Reconcile renderer bond with main process (teacher-bond.json).
+      try {
+        const st = await window.classroomDesk?.getExitLockState?.();
+        if (st && typeof st.teacherBonded === 'boolean') {
+          syncTeacherBondedFromMain(Boolean(st.teacherBonded));
+        }
+      } catch {
+        /* browser preview */
+      }
+      if (cancelled) return;
       // Restore exit policy before UI: unbound → free; bonded → cache / locked.
       if (!isTeacherBonded()) {
-        await syncExitLock(true, null);
+        await syncExitLock(true, null, { persistCache: false });
         await syncWindowChromeFromServer(false, false, true);
       } else {
         const cache = readExitLockCache();
@@ -1184,6 +1207,7 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
           await window.classroomDesk.setFirstSetupMode(false);
         }
       }
+      if (cancelled) return;
       let cid = '';
       let firstRun = false;
       try {
@@ -1199,17 +1223,22 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
       } catch {
         /* browser preview: skip first-run gate */
       }
+      if (cancelled) return;
       setNeedsFirstRun(firstRun);
       if (firstRun) {
-        await syncExitLock(true, null);
+        if (window.classroomDesk?.setFirstSetupMode) {
+          await window.classroomDesk.setFirstSetupMode(true);
+        }
+        await syncExitLock(true, null, { persistCache: false });
         await syncWindowChromeFromServer(false, false, true);
         const sys = detectSystemUiLocale();
         onUiLocale?.(sys);
         window.dispatchEvent(new CustomEvent('cd-ui-locale', { detail: { uiLocale: sys } }));
-        setReady(true);
+        if (!cancelled) setReady(true);
         return;
       }
       const ok = await probeHealth();
+      if (cancelled) return;
       if (ok) {
         if (cid) {
           try {
@@ -1224,8 +1253,11 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
         const cache = readExitLockCache();
         await syncExitLock(isCachedExitStillAllowed(cache), cache?.until ?? null);
       }
-      setReady(true);
+      if (!cancelled) setReady(true);
     })();
+    return () => {
+      cancelled = true;
+    };
   }, [loadRoster, refreshMe, probeHealth, syncExitLock, syncWindowChromeFromServer, onUiLocale]);
 
   useEffect(() => {
@@ -1580,10 +1612,16 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
     void (async () => {
       if (needsFirstRun) {
         await window.classroomDesk.setFirstSetupMode(true);
-        await syncExitLock(true, null);
+        // Transient grant — do not write forever-unlock into exit-lock cache.
+        await syncExitLock(true, null, { persistCache: false });
         await applyWindowChromePolicy(true, true);
       } else {
         await window.classroomDesk.setFirstSetupMode(false);
+        // After setup: bonded machines re-lock until teacher unlock / server says otherwise.
+        if (isTeacherBonded()) {
+          const cache = readExitLockCache();
+          await syncExitLock(isCachedExitStillAllowed(cache), cache?.until ?? null);
+        }
       }
     })();
   }, [ready, needsFirstRun, syncExitLock, applyWindowChromePolicy]);
@@ -1597,9 +1635,11 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
   }
 
   // Teacher may allow chip collapse; force-upgrade must not stay tucked away.
+  // First setup stays expanded so Quit remains visible.
   if (
     collapsed &&
-    (allowCollapse || needsFirstRun || !isTeacherBonded()) &&
+    !needsFirstRun &&
+    (allowCollapse || !isTeacherBonded()) &&
     !(studentAutoUpdate && versionDrift)
   ) {
     return (
@@ -1714,28 +1754,19 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
             <span className="meta">{t('首次配置')}</span>
           </div>
           <div className="titlebar-actions" data-no-drag>
-            {showCollapseBtn ? (
-              <button
-                type="button"
-                className="icon-btn"
-                data-testid="student-collapse-btn"
-                onClick={() => void onToggleCollapse()}
-              >
-                {t('折叠')}
-              </button>
-            ) : null}
             <button
               type="button"
               className="icon-btn"
               data-testid="student-first-setup-quit"
               onClick={() => {
                 void (async () => {
-                  if (window.classroomDesk?.grantExitAndQuit) {
-                    await window.classroomDesk.grantExitAndQuit();
-                    return;
-                  }
+                  // firstSetupMode already allows quit — avoid sticky exitUnlockGranted.
                   if (window.classroomDesk?.adminQuit) {
                     await window.classroomDesk.adminQuit();
+                    return;
+                  }
+                  if (window.classroomDesk?.grantExitAndQuit) {
+                    await window.classroomDesk.grantExitAndQuit();
                   }
                 })();
               }}
@@ -1762,6 +1793,10 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
                   /* roster may be empty */
                 }
                 await refreshMe();
+              } else if (isTeacherBonded()) {
+                // Offline after saving config: re-lock (do not keep setup grant).
+                const cache = readExitLockCache();
+                await syncExitLock(isCachedExitStillAllowed(cache), cache?.until ?? null);
               }
             }}
           />
@@ -1814,9 +1849,15 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
                 className="secondary"
                 data-testid="health-fail-switch-classroom"
                 onClick={() => {
-                  setNeedsFirstRun(true);
-                  setUser(null);
-                  setToken('');
+                  void (async () => {
+                    if (window.classroomDesk?.setFirstSetupMode) {
+                      await window.classroomDesk.setFirstSetupMode(true);
+                    }
+                    setNeedsFirstRun(true);
+                    setHealthOk(null);
+                    setUser(null);
+                    setToken('');
+                  })();
                 }}
               >
                 {t('换教室')}
@@ -1963,9 +2004,15 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
                   v0: classroomLabel || classId,
                 })}
                 onClick={() => {
-                  setNeedsFirstRun(true);
-                  setUser(null);
-                  setToken('');
+                  void (async () => {
+                    if (window.classroomDesk?.setFirstSetupMode) {
+                      await window.classroomDesk.setFirstSetupMode(true);
+                    }
+                    setNeedsFirstRun(true);
+                    setHealthOk(null);
+                    setUser(null);
+                    setToken('');
+                  })();
                 }}
               >
                 <span className="chip-name">{classroomLabel || classId}</span>

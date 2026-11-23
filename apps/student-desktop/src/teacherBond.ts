@@ -10,6 +10,15 @@ export function isTeacherBonded(): boolean {
   }
 }
 
+/** Align localStorage with main-process bond (teacher-bond.json). */
+export function syncTeacherBondedFromMain(bonded: boolean): void {
+  try {
+    if (bonded) localStorage.setItem(KEY, '1');
+  } catch {
+    /* quota / private mode */
+  }
+}
+
 /** Mark first successful classroom connect. Irreversible for this profile. */
 export function markTeacherBonded(): boolean {
   const was = isTeacherBonded();
