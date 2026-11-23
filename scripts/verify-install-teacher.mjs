@@ -153,11 +153,12 @@ if (
   !packScript.includes('LAB-GO-LIVE.txt') ||
   !packScript.includes('REQUIRED_PATCHES') ||
   !packScript.includes('buildAndEmbedRequiredPatches') ||
-  !packScript.includes('Service-Fix.exe')
+  !packScript.includes('Service-Fix.exe') ||
+  !packScript.includes('stripNodeFromDistTree')
 ) {
-  fail('pack.mjs must build Give-To-Teacher / Teacher-Setup / required patches (Service-Fix)');
+  fail('pack.mjs must build Give-To-Teacher / Teacher-Setup / required patches / strip Node from Dist zip');
 } else {
-  ok('pack.mjs Give-To-Teacher + required patches');
+  ok('pack.mjs Give-To-Teacher + required patches + Dist Node strip');
 }
 mustExist('patches/README.md');
 mustExist('scripts/build-service-fix.mjs');

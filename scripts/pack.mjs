@@ -328,13 +328,7 @@ function installWinDepsOfflineReady() {
   mkdirp(path.join(dataRoot, 'uploads'));
   if (fs.existsSync(path.join(desk, '.env'))) fs.rmSync(path.join(desk, '.env'), { force: true });
 
-  // Slim SFX/zip: drop Node zip if runtime extracted (~30MB+); drop test/CI trees.
-  const nodeExeSlim = path.join(desk, 'runtime', `node-v${nodeVer}-win-x64`, 'node.exe');
-  const nodeZipSlim = path.join(desk, 'downloads', nodeZipName);
-  if (fs.existsSync(nodeExeSlim) && fs.existsSync(nodeZipSlim)) {
-    fs.rmSync(nodeZipSlim, { force: true });
-    console.log('slim: removed downloads Node zip (runtime present)');
-  }
+  // Drop test/CI trees from product Dist.
   for (const rel of [
     'e2e',
     'artifacts',
@@ -356,7 +350,8 @@ function installWinDepsOfflineReady() {
     packedAt: new Date().toISOString(),
     platform: 'win32-x64',
     serverEntry: 'apps/server/dist/index.mjs',
-    note: 'Official product distribution. Install.bat only — no npm on classroom PCs.',
+    note:
+      'Official product distribution. Windows Node is NOT in the Dist zip — Teacher-Setup.exe embeds win-x64 Node; Bootstrap/Install downloads official win-x64 Node if missing.',
   };
   const markerJson = JSON.stringify(marker, null, 2);
   fs.writeFileSync(path.join(desk, '.classroom-desk-ready'), markerJson, 'utf8');
@@ -371,13 +366,7 @@ function installWinDepsOfflineReady() {
     { path: 'install-teacher.ps1', minBytes: 1000 },
     { path: 'Install.bat', minBytes: 200 },
   ];
-  const nodeExe = path.join(desk, 'runtime', `node-v${nodeVer}-win-x64`, 'node.exe');
-  if (fs.existsSync(nodeExe)) {
-    assertWindowsNodeExe(nodeExe);
-    files.push({ path: `runtime/node-v${nodeVer}-win-x64/node.exe`, minBytes: 1_000_000 });
-  } else {
-    files.push({ path: `downloads/${nodeZipName}`, minBytes: 1_000_000 });
-  }
+  // Node is intentionally absent from Dist zip; Teacher-Setup embeds it. Optional local runtime/zip for pack-time SFX only.
   const nm = path.join(desk, 'node_modules');
   if (fs.existsSync(nm)) {
     // Directory presence checked by install; record a sentinel package.
@@ -498,11 +487,11 @@ function writeGiveToTeacher() {
   const start = `Classroom Desk — install (< 5 min · aim ~1 min)
 
 OFFLINE (USB/LAN — preferred):
-1. Double-click Teacher-Setup.exe → Admin logged in → import roster
+1. Double-click Teacher-Setup.exe (includes Windows win-x64 Node) → Admin logged in → import roster
 2. Students: Public Desktop install card → open app → tap your name
 
 ONLINE (slow public link — small bootstrap):
-1. Double-click Teacher-Bootstrap.exe (few MB) — downloads product zip via mirrors (resumable)
+1. Double-click Teacher-Bootstrap.exe (few MB) — downloads product zip (no Node inside) + win-x64 Node
 2. Same as above after install finishes
 
 IF http://127.0.0.1:8787/health WON'T OPEN:
@@ -660,20 +649,51 @@ for (const f of [
   if (fs.existsSync(src)) cpFile(src, path.join(desk, f));
 }
 
+// Win-x64 Node for Teacher-Setup.exe only (assert PE). Dist zip must NOT ship Node.
 const zip = ensureNodeZip();
 cpFile(zip, path.join(desk, 'downloads', nodeZipName));
 extractNode(zip);
+assertWindowsNodeExe(path.join(desk, 'runtime', `node-v${nodeVer}-win-x64`, 'node.exe'));
 installWinDepsOfflineReady();
 copyStudentSetup();
 
-// Patches first so Teacher-Setup SFX + Dist zip always contain them.
+// Patches first so Teacher-Setup SFX always contains them.
 buildAndEmbedRequiredPatches();
 
-console.log('build one-click teacher Setup.exe…');
+console.log('build one-click teacher Setup.exe (embeds Windows win-x64 Node)…');
 execFileSync(process.execPath, [path.join(root, 'scripts/build-teacher-setup.mjs')], {
   cwd: root,
   stdio: 'inherit',
 });
+
+// After Teacher-Setup is baked: strip Node from Dist tree so ClassroomDesk-*-win-x64.zip stays Node-free.
+// Install/Bootstrap will download official win-x64 Node; Teacher-Setup already carries it.
+function stripNodeFromDistTree() {
+  const runtime = path.join(desk, 'runtime');
+  if (fs.existsSync(runtime)) {
+    rmrf(runtime);
+    console.log('strip Dist: removed runtime/ (Node stays inside Teacher-Setup.exe only)');
+  }
+  const dlNode = path.join(desk, 'downloads', nodeZipName);
+  if (fs.existsSync(dlNode)) {
+    fs.rmSync(dlNode, { force: true });
+    console.log('strip Dist: removed downloads/', nodeZipName);
+  }
+  // Keep an empty downloads/ for install scripts that mkdir into it.
+  mkdirp(path.join(desk, 'downloads'));
+  fs.writeFileSync(
+    path.join(desk, 'downloads', 'README-NODE.txt'),
+    [
+      'Portable Node is NOT shipped in ClassroomDesk-*-win-x64.zip.',
+      'Teacher-Setup.exe embeds official Windows win-x64 Node.',
+      'Bootstrap / Install.bat download win-x64 Node from nodejs.org / npmmirror when missing.',
+      '',
+    ].join('\n'),
+    'utf8',
+  );
+}
+stripNodeFromDistTree();
+
 console.log('build thin Teacher-Bootstrap.exe (public / slow links)…');
 try {
   execFileSync(process.execPath, [path.join(root, 'scripts/build-teacher-bootstrap.mjs')], {
@@ -688,4 +708,5 @@ writeGiveToTeacher();
 console.log('\nDone.');
 console.log('Hand teachers this folder only:');
 console.log(path.join(root, 'Give-To-Teacher'));
-console.log('  → Teacher-Setup.exe (+ Service-Fix.exe always included)');
+console.log('  → Teacher-Setup.exe (includes Windows Node) + Service-Fix.exe');
+console.log('  Dist zip has NO Node — Install downloads win-x64 Node if needed');

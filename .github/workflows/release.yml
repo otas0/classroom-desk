@@ -154,6 +154,16 @@ jobs:
             Write-Error 'ClassroomDesk-Dist/ClassroomDesk missing for release zip'
             exit 1
           }
+          # Dist zip must not contain portable Node (Teacher-Setup embeds win-x64 Node).
+          if (Test-Path 'ClassroomDesk-Dist\ClassroomDesk\runtime') {
+            Write-Error 'ClassroomDesk/runtime present — Dist zip must not ship Node (pack should strip after Teacher-Setup)'
+            exit 1
+          }
+          $bundledNodeZip = Get-ChildItem 'ClassroomDesk-Dist\ClassroomDesk\downloads\node-v*-win-*.zip' -ErrorAction SilentlyContinue
+          if ($bundledNodeZip) {
+            Write-Error 'ClassroomDesk/downloads has Node zip — Dist zip must not ship Node'
+            exit 1
+          }
           Compress-Archive -Path 'ClassroomDesk-Dist\ClassroomDesk' -DestinationPath $zipName -CompressionLevel Optimal
           $zipBytes = (Get-Item $zipName).Length
           if ($zipBytes -ge 2147483648) {
