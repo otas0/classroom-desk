@@ -1434,5 +1434,6 @@
   "Tesseract CDN 加载失败": "Tesseract CDN 加载失败",
   "WebSocket 不可用": "WebSocket 不可用",
   "WebSocket 断开": "WebSocket 断开",
-  "WebSocket 关闭": "WebSocket 关闭"
+  "WebSocket 关闭": "WebSocket 关闭",
+  "退出": "退出"
 }

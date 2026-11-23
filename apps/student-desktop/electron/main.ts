@@ -16,6 +16,11 @@ const WINDOW_WIDTH = 380;
 const WINDOW_HEIGHT = 560;
 const COLLAPSED_HEIGHT = 56;
 const MARGIN = 16;
+/** First-setup only: max size stays a bottom-right panel (never full screen). */
+const SETUP_MAX_WIDTH_RATIO = 0.45;
+const SETUP_MAX_HEIGHT_RATIO = 0.9;
+const SETUP_MAX_WIDTH_CAP = 560;
+const SETUP_MAX_HEIGHT_CAP = 900;
 
 let mainWindow: BrowserWindow | null = null;
 let examShellWindow: BrowserWindow | null = null;
@@ -25,6 +30,8 @@ let collapsed = false;
 /** Teacher settings (via renderer): allow chip collapse / OS minimize. */
 let allowCollapse = false;
 let allowMinimize = false;
+/** First-run setup only: resizable + quit; max bounds = bottom-right region. */
+let firstSetupMode = false;
 /** Deep-lock armed (freeze / exam allowlist / deny) — visible classroom policy. */
 let deepLockAggressiveActive = false;
 let deepLockFrozenActive = false;
@@ -123,6 +130,11 @@ function refreshOfflineCustodyDisplays(): void {
 }
 
 function placeFullPrimary(win: BrowserWindow): void {
+  // First setup must never cover the whole screen — stay in bottom-right region.
+  if (firstSetupMode) {
+    placeSetupMaxBottomRight(win);
+    return;
+  }
   const b = screen.getPrimaryDisplay().bounds;
   win.setBounds({ x: b.x, y: b.y, width: b.width, height: b.height });
 }
@@ -194,19 +206,76 @@ function persistTeacherBonded(): void {
 
 function recomputeExitAllowed(): boolean {
   exitAllowed =
-    process.env.ALLOW_STUDENT_EXIT === '1' || !teacherBonded || exitUnlockGranted;
+    process.env.ALLOW_STUDENT_EXIT === '1' ||
+    firstSetupMode ||
+    !teacherBonded ||
+    exitUnlockGranted;
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.setClosable(exitAllowed);
   }
   return exitAllowed;
 }
 
-function placeBottomRight(win: BrowserWindow, height: number) {
+function bottomRightMaxSize(): { width: number; height: number } {
+  const { workArea } = screen.getPrimaryDisplay();
+  return {
+    width: Math.min(SETUP_MAX_WIDTH_CAP, Math.floor(workArea.width * SETUP_MAX_WIDTH_RATIO)),
+    height: Math.min(SETUP_MAX_HEIGHT_CAP, Math.floor(workArea.height * SETUP_MAX_HEIGHT_RATIO)),
+  };
+}
+
+function placeBottomRight(win: BrowserWindow, height: number, width = WINDOW_WIDTH) {
   const display = screen.getPrimaryDisplay();
   const { workArea } = display;
-  const x = Math.round(workArea.x + workArea.width - WINDOW_WIDTH - MARGIN);
-  const y = Math.round(workArea.y + workArea.height - height - MARGIN);
-  win.setBounds({ x, y, width: WINDOW_WIDTH, height });
+  const max = bottomRightMaxSize();
+  const w = Math.min(Math.max(Math.round(width), WINDOW_WIDTH), max.width);
+  const h = Math.min(Math.max(Math.round(height), COLLAPSED_HEIGHT), max.height);
+  const x = Math.round(workArea.x + workArea.width - w - MARGIN);
+  const y = Math.round(workArea.y + workArea.height - h - MARGIN);
+  win.setBounds({ x, y, width: w, height: h });
+}
+
+/** First-setup "maximize": fill the bottom-right panel only — never cover the whole screen. */
+function placeSetupMaxBottomRight(win: BrowserWindow) {
+  const max = bottomRightMaxSize();
+  placeBottomRight(win, max.height, max.width);
+}
+
+function applyFirstSetupMode(on: boolean): { ok: boolean; firstSetupMode: boolean } {
+  firstSetupMode = Boolean(on);
+  recomputeExitAllowed();
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    return { ok: true, firstSetupMode };
+  }
+  try {
+    if (firstSetupMode) {
+      const max = bottomRightMaxSize();
+      mainWindow.setResizable(true);
+      mainWindow.setMaximizable(true);
+      mainWindow.setMinimizable(true);
+      mainWindow.setMinimumSize(WINDOW_WIDTH, COLLAPSED_HEIGHT);
+      mainWindow.setMaximumSize(max.width, max.height);
+      if (mainWindow.isFullScreen()) mainWindow.setFullScreen(false);
+      try {
+        mainWindow.setKiosk(false);
+      } catch {
+        /* ignore */
+      }
+      placeBottomRight(mainWindow, WINDOW_HEIGHT, WINDOW_WIDTH);
+    } else {
+      mainWindow.setResizable(false);
+      mainWindow.setMaximizable(false);
+      mainWindow.setMinimumSize(WINDOW_WIDTH, COLLAPSED_HEIGHT);
+      mainWindow.setMaximumSize(WINDOW_WIDTH, WINDOW_HEIGHT);
+      if (mainWindow.isMaximized()) mainWindow.unmaximize();
+      if (mainWindow.isFullScreen()) mainWindow.setFullScreen(false);
+      placeBottomRight(mainWindow, collapsed ? COLLAPSED_HEIGHT : WINDOW_HEIGHT);
+      applyWindowChromePolicy();
+    }
+  } catch {
+    /* ignore */
+  }
+  return { ok: true, firstSetupMode };
 }
 
 /** Keep the widget inside the nearest display work area (cannot drag off-screen). */
@@ -292,10 +361,40 @@ function createWindow() {
     }
   });
 
+  // First-setup "maximize" → largest bottom-right panel (never OS fullscreen).
+  mainWindow.on('maximize', () => {
+    if (!mainWindow || mainWindow.isDestroyed() || !firstSetupMode) return;
+    try {
+      mainWindow.unmaximize();
+    } catch {
+      /* ignore */
+    }
+    placeSetupMaxBottomRight(mainWindow);
+  });
+
+  mainWindow.on('will-resize', (event, newBounds) => {
+    if (!mainWindow || mainWindow.isDestroyed() || !firstSetupMode) return;
+    const max = bottomRightMaxSize();
+    const { workArea } = screen.getPrimaryDisplay();
+    const w = Math.min(Math.max(newBounds.width, WINDOW_WIDTH), max.width);
+    const h = Math.min(Math.max(newBounds.height, COLLAPSED_HEIGHT), max.height);
+    const x = Math.round(workArea.x + workArea.width - w - MARGIN);
+    const y = Math.round(workArea.y + workArea.height - h - MARGIN);
+    if (process.platform === 'win32') {
+      event.preventDefault();
+      mainWindow.setBounds({ x, y, width: w, height: h });
+    } else {
+      newBounds.x = x;
+      newBounds.y = y;
+      newBounds.width = w;
+      newBounds.height = h;
+    }
+  });
+
   // Frameless drag can leave the widget half off-screen; clamp on move / display change.
   mainWindow.on('will-move', (event, newBounds) => {
     if (!mainWindow || mainWindow.isDestroyed() || deepLockFrozenActive || offlineCustodyActive) {
-      if (offlineCustodyActive && mainWindow && !mainWindow.isDestroyed()) {
+      if (offlineCustodyActive && mainWindow && !mainWindow.isDestroyed() && !firstSetupMode) {
         event.preventDefault();
         placeFullPrimary(mainWindow);
       }
@@ -516,6 +615,9 @@ ipcMain.handle(
     return { ok: true, allowCollapse, allowMinimize, collapsed };
   },
 );
+
+/** First-run setup only: resizable + exit; max = bottom-right region (not full screen). */
+ipcMain.handle('window:set-first-setup-mode', (_event, on: boolean) => applyFirstSetupMode(Boolean(on)));
 
 ipcMain.handle('lock:get-state', () => ({
   exitAllowed,
@@ -1103,6 +1205,10 @@ function startFocusSteal(intervalMs = 600) {
 /** Apply offline security-custody (kiosk cover; survives restart via userData). */
 function applyOfflineCustody(on: boolean): { ok: boolean; error?: string } {
   if (!mainWindow || mainWindow.isDestroyed()) return { ok: false, error: 'no_window' };
+  // Never enter full-screen custody during first setup / unbound.
+  if (on && (firstSetupMode || !teacherBonded)) {
+    return { ok: false, error: 'first_setup_no_custody' };
+  }
   try {
     installCustodyNetworkSealOnce();
     offlineCustodyActive = Boolean(on);

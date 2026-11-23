@@ -26,6 +26,8 @@ export type StudentDesktopAPI = {
     allowCollapse?: boolean;
     allowMinimize?: boolean;
   }) => Promise<{ ok: boolean; allowCollapse?: boolean; allowMinimize?: boolean; collapsed?: boolean }>;
+  /** First-run setup only: resizable + quit; maximize capped to bottom-right region. */
+  setFirstSetupMode: (on: boolean) => Promise<{ ok: boolean; firstSetupMode?: boolean }>;
   adminQuit: () => Promise<{ ok: boolean; error?: string } | void>;
   setAutostart: (enabled: boolean) => Promise<boolean>;
   getAutostart: () => Promise<boolean>;
@@ -94,6 +96,7 @@ const api: StudentDesktopAPI = {
   getCollapsed: () => ipcRenderer.invoke('window:get-collapsed'),
   snapBottomRight: () => ipcRenderer.invoke('window:snap-bottom-right'),
   setWindowChromePolicy: (policy) => ipcRenderer.invoke('window:set-chrome-policy', policy),
+  setFirstSetupMode: (on) => ipcRenderer.invoke('window:set-first-setup-mode', on),
   adminQuit: () => ipcRenderer.invoke('admin:quit'),
   setAutostart: (enabled) => ipcRenderer.invoke('admin:set-autostart', enabled),
   getAutostart: () => ipcRenderer.invoke('admin:get-autostart'),

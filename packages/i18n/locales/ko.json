@@ -1434,5 +1434,6 @@
   "Tesseract CDN 加载失败": "Tesseract CDN을 불러오지 못했습니다",
   "WebSocket 不可用": "WebSocket을 사용할 수 없습니다",
   "WebSocket 断开": "WebSocket 연결이 끊겼습니다",
-  "WebSocket 关闭": "WebSocket이 닫혔습니다"
+  "WebSocket 关闭": "WebSocket이 닫혔습니다",
+  "退出": "종료"
 }

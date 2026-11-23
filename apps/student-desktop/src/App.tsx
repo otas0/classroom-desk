@@ -1180,6 +1180,9 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
       } else {
         const cache = readExitLockCache();
         await syncExitLock(isCachedExitStillAllowed(cache), cache?.until ?? null);
+        if (window.classroomDesk?.setFirstSetupMode) {
+          await window.classroomDesk.setFirstSetupMode(false);
+        }
       }
       let cid = '';
       let firstRun = false;
@@ -1687,6 +1690,20 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
       </div>
     ) : null;
 
+  // First setup only: resizable + quit; max = bottom-right region (never full screen).
+  useEffect(() => {
+    if (!ready || !window.classroomDesk?.setFirstSetupMode) return;
+    void (async () => {
+      if (needsFirstRun) {
+        await window.classroomDesk.setFirstSetupMode(true);
+        await syncExitLock(true, null);
+        await applyWindowChromePolicy(true, true);
+      } else {
+        await window.classroomDesk.setFirstSetupMode(false);
+      }
+    })();
+  }, [ready, needsFirstRun, syncExitLock, applyWindowChromePolicy]);
+
   if (ready && needsFirstRun) {
     return (
       <div className="shell">
@@ -1695,11 +1712,43 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
             <strong className="brand">{APP_NAME}</strong>
             <span className="meta">{t('首次配置')}</span>
           </div>
-          {collapseActions}
+          <div className="titlebar-actions" data-no-drag>
+            {showCollapseBtn ? (
+              <button
+                type="button"
+                className="icon-btn"
+                data-testid="student-collapse-btn"
+                onClick={() => void onToggleCollapse()}
+              >
+                {t('折叠')}
+              </button>
+            ) : null}
+            <button
+              type="button"
+              className="icon-btn"
+              data-testid="student-first-setup-quit"
+              onClick={() => {
+                void (async () => {
+                  if (window.classroomDesk?.grantExitAndQuit) {
+                    await window.classroomDesk.grantExitAndQuit();
+                    return;
+                  }
+                  if (window.classroomDesk?.adminQuit) {
+                    await window.classroomDesk.adminQuit();
+                  }
+                })();
+              }}
+            >
+              {t('退出')}
+            </button>
+          </div>
         </header>
         <main className="content" data-no-drag>
           <FirstRunSetup
             onDone={async (next) => {
+              if (window.classroomDesk?.setFirstSetupMode) {
+                await window.classroomDesk.setFirstSetupMode(false);
+              }
               setClassId(next.classId);
               const label = [next.displayName, next.className].filter(Boolean).join(' · ');
               setClassroomLabel(label || next.classId);
