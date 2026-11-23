@@ -19,9 +19,9 @@ Release 附件全名：`ClassroomDesk-Teacher-Setup-<ver>-x64.exe`（Give-To-Tea
 
 | 桌面 | 干什么 |
 | --- | --- |
-| **Classroom Desk** | 每天上课（内部已带 Windows Node 校验 + 开 Admin） |
-| **Classroom Desk Admin** | 只打开后台网页 |
-| **Classroom Desk Fix** | Node 坏了 / 忘密码 → 重置为 `teacher`/`admin` |
+| **Classroom Desk.lnk** | 每天上课（内部已带 Windows Node 校验 + 开 Admin） |
+| **Classroom Desk Admin.url** | 只打开后台网页 |
+| **Classroom Desk Fix.lnk** | Node 坏了 / 忘密码 → 重置为 `teacher`/`admin` |
 
 本体在 `C:\ClassroomDesk\`；日常**只点桌面快捷方式**。
 
