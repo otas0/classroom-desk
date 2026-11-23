@@ -1573,6 +1573,21 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
     };
   }, [versionDrift, studentAutoUpdate, lanUpgradeUrl, expectedClientVersion, openUpgradeUrl, classId]);
 
+  // First setup only: resizable + quit; max = bottom-right region (never full screen).
+  // Must stay above any early return — Rules of Hooks.
+  useEffect(() => {
+    if (!ready || !window.classroomDesk?.setFirstSetupMode) return;
+    void (async () => {
+      if (needsFirstRun) {
+        await window.classroomDesk.setFirstSetupMode(true);
+        await syncExitLock(true, null);
+        await applyWindowChromePolicy(true, true);
+      } else {
+        await window.classroomDesk.setFirstSetupMode(false);
+      }
+    })();
+  }, [ready, needsFirstRun, syncExitLock, applyWindowChromePolicy]);
+
   if (!ready) {
     return (
       <div className="shell">
@@ -1689,20 +1704,6 @@ export function App({ onUiLocale }: { onUiLocale?: (locale: UiLocale) => void } 
         </button>
       </div>
     ) : null;
-
-  // First setup only: resizable + quit; max = bottom-right region (never full screen).
-  useEffect(() => {
-    if (!ready || !window.classroomDesk?.setFirstSetupMode) return;
-    void (async () => {
-      if (needsFirstRun) {
-        await window.classroomDesk.setFirstSetupMode(true);
-        await syncExitLock(true, null);
-        await applyWindowChromePolicy(true, true);
-      } else {
-        await window.classroomDesk.setFirstSetupMode(false);
-      }
-    })();
-  }, [ready, needsFirstRun, syncExitLock, applyWindowChromePolicy]);
 
   if (ready && needsFirstRun) {
     return (
