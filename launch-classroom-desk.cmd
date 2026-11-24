@@ -48,20 +48,26 @@ if not exist "%ENSURE%" (
   exit /b 1
 )
 
-echo  [1/2] Windows Node…
-"%PS%" -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%ENSURE%" -InstallRoot "%ROOT%" -ChinaMirrorsFirst -Force
+echo  [1/2] Windows Node...
+"%PS%" -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%ENSURE%" -InstallRoot "%ROOT%" -ChinaMirrorsFirst
 if errorlevel 1 (
-  echo NODE FAILED — check network ^(npmmirror / nodejs.org^)
+  echo NODE FAILED - re-run Teacher-Setup.exe and pick node.exe
   pause
   exit /b 1
 )
 
 set "NODE="
-for /d %%D in ("%ROOT%\runtime\node-v*-win-*") do (
-  if exist "%%~D\node.exe" set "NODE=%%~D\node.exe"
+if exist "%ROOT%\node-path.txt" (
+  set /p NODE=<"%ROOT%\node-path.txt"
+)
+if not defined NODE if exist "%ProgramFiles%\nodejs\node.exe" set "NODE=%ProgramFiles%\nodejs\node.exe"
+if not defined NODE (
+  for /d %%D in ("%ROOT%\runtime\node-v*-win-*") do (
+    if exist "%%~D\node.exe" set "NODE=%%~D\node.exe"
+  )
 )
 if not defined NODE (
-  echo ERROR: node.exe missing after install
+  echo ERROR: node.exe missing - re-run Teacher-Setup.exe
   pause
   exit /b 1
 )
@@ -73,7 +79,7 @@ if errorlevel 1 (
   exit /b 2
 )
 
-echo  [2/2] Start API…
+echo  [2/2] Start API...
 for /f "tokens=5" %%P in ('netstat -ano ^| findstr /R /C:":8787 .*LISTENING"') do (
   taskkill /F /PID %%P >nul 2>&1
 )

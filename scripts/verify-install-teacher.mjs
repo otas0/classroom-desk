@@ -38,6 +38,8 @@ mustExist('Install-Offline.bat');
 mustExist('Install-Teacher.bat');
 mustExist('Unblock-ClassroomDesk.bat');
 mustExist('ensure-windows-node.ps1');
+mustExist('setup-wizard.cmd');
+mustExist('setup-wizard.ps1');
 mustExist('Reset-Teacher-Login.bat');
 mustExist('reset-teacher-login.ps1');
 mustExist('reset-teacher-login.mjs');
@@ -56,9 +58,13 @@ assertEnglishName('Install.bat');
 assertEnglishName('Check-Pack.bat');
 assertEnglishName('install-teacher.ps1');
 assertEnglishName('Reset-Teacher-Login.bat');
+assertEnglishName('setup-wizard.cmd');
 
 const installBat = fs.readFileSync(path.join(root, 'Install.bat'), 'utf8');
 const checkBat = fs.readFileSync(path.join(root, 'Check-Pack.bat'), 'utf8');
+const wizardCmd = fs.readFileSync(path.join(root, 'setup-wizard.cmd'), 'utf8');
+const wizardPs1 = fs.readFileSync(path.join(root, 'setup-wizard.ps1'), 'utf8');
+const ensurePs1 = fs.readFileSync(path.join(root, 'ensure-windows-node.ps1'), 'utf8');
 const ps1Text = fs.readFileSync(bat, 'utf8');
 if (!ps1Text.includes('New-DesktopLnk') || !ps1Text.includes('Classroom Desk.lnk')) {
   fail('install-teacher.ps1 must create Desktop Classroom Desk.lnk after setup');
@@ -66,18 +72,43 @@ if (!ps1Text.includes('New-DesktopLnk') || !ps1Text.includes('Classroom Desk.lnk
   ok('install-teacher.ps1 Desktop .lnk shortcuts');
 }
 
-if (
-  !installBat.includes('install-teacher.ps1') ||
-  !installBat.includes('ChinaMirrorsFirst') ||
-  !installBat.includes('ensure-windows-node.ps1') ||
-  !installBat.includes('ForceNodeReinstall')
-) {
-  fail('Install.bat must force ensure-windows-node.ps1 + install-teacher.ps1 -ChinaMirrorsFirst');
+if (!installBat.includes('setup-wizard.cmd')) {
+  fail('Install.bat must launch setup-wizard.cmd (single GUI entry)');
 } else {
-  ok('Install.bat → Node auto-install + ps1 mirrors');
+  ok('Install.bat → setup-wizard.cmd');
 }
 if (/[\u4e00-\u9fff]/.test(installBat)) fail('Install.bat must be English-only');
 else ok('Install.bat English-only');
+
+if (!wizardCmd.includes('setup-wizard.ps1')) {
+  fail('setup-wizard.cmd must run setup-wizard.ps1');
+} else {
+  ok('setup-wizard.cmd → setup-wizard.ps1');
+}
+if (
+  !wizardPs1.includes('Windows.Forms') ||
+  !wizardPs1.includes('ensure-windows-node.ps1') ||
+  !wizardPs1.includes('install-teacher.ps1') ||
+  !wizardPs1.includes('-NodeExe')
+) {
+  fail('setup-wizard.ps1 must be WinForms + Node auto/custom + install-teacher');
+} else {
+  ok('setup-wizard.ps1 GUI + Node options');
+}
+if (
+  !ensurePs1.includes('.msi') ||
+  !ensurePs1.includes('node-path.txt') ||
+  !ensurePs1.includes('Never downloads or extracts Node zip')
+) {
+  fail('ensure-windows-node.ps1 must use MSI + node-path.txt and ban zip');
+} else {
+  ok('ensure-windows-node.ps1 MSI + node-path (no zip)');
+}
+if (!ps1Text.includes('node-path.txt')) {
+  fail('install-teacher.ps1 must resolve node via node-path.txt');
+} else {
+  ok('install-teacher.ps1 node-path.txt');
+}
 
 if (!checkBat.includes('-CheckOnly')) fail('Check-Pack.bat must use -CheckOnly');
 else ok('Check-Pack.bat');
@@ -120,15 +151,19 @@ for (const needle of [
 ok('ps1 min-network repair markers');
 
 const setupCmd = fs.readFileSync(path.join(root, 'setup-from-installer.cmd'), 'utf8');
-if (
-  !setupCmd.includes('Unblock-File') ||
-  !setupCmd.includes('%USERPROFILE%\\Desktop\\ClassroomDesk-Desk-Login.txt') ||
-  !setupCmd.includes('cd-keep-') ||
-  !setupCmd.includes('Kept existing')
-) {
-  fail('setup-from-installer.cmd must unblock, preserve data, open teacher Desktop login');
+if (!setupCmd.includes('setup-wizard.cmd')) {
+  fail('setup-from-installer.cmd must forward to setup-wizard.cmd');
 } else {
-  ok('setup-from-installer.cmd elevation-safe UX');
+  ok('setup-from-installer.cmd → setup-wizard.cmd');
+}
+if (
+  !wizardPs1.includes('cd-keep-') ||
+  !wizardPs1.includes('Kept existing') ||
+  !wizardPs1.includes('Unblock-File')
+) {
+  fail('setup-wizard.ps1 must unblock and preserve .env / classroom data');
+} else {
+  ok('setup-wizard.ps1 preserve data on re-install');
 }
 
 if (!ps1Text.includes('never Public') && !ps1Text.includes('not Public Desktop')) {
@@ -140,10 +175,10 @@ if (!ps1Text.includes('never Public') && !ps1Text.includes('not Public Desktop')
 const sfxBuild = fs.readFileSync(path.join(root, 'scripts/build-teacher-setup.mjs'), 'utf8');
 if (sfxBuild.includes('InstallPath=')) {
   fail('build-teacher-setup must NOT InstallPath=C:\\ClassroomDesk (wipes live DB on re-run)');
-} else if (!sfxBuild.includes('RunProgram="setup-from-installer.cmd"')) {
-  fail('build-teacher-setup missing RunProgram setup-from-installer.cmd');
+} else if (!sfxBuild.includes('RunProgram="setup-wizard.cmd"')) {
+  fail('build-teacher-setup missing RunProgram setup-wizard.cmd');
 } else {
-  ok('teacher SFX extracts to TEMP then merges');
+  ok('teacher SFX extracts to TEMP then opens setup wizard');
 }
 
 const packText = fs.readFileSync(path.join(root, 'scripts/pack.mjs'), 'utf8');
