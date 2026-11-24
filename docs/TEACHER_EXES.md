@@ -9,7 +9,7 @@
 
 | 下载 | 作用 |
 | --- | --- |
-| **`Teacher-Setup.exe`** | 双击一次 → 装到 `C:\ClassroomDesk` → 起服务 → 打开 Admin → **自动在桌面建快捷方式** |
+| **`Teacher-Setup.exe`** | 双击一次 → **配置向导**（安装目录 / 自动装 Node 或自选 `node.exe`）→ 起服务 → 打开 Admin → **自动在桌面建快捷方式** |
 
 Release 附件全名：`ClassroomDesk-Teacher-Setup-<ver>-x64.exe`（Give-To-Teacher 里稳定名叫 `Teacher-Setup.exe`）。
 

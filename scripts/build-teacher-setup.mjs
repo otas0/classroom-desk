@@ -182,11 +182,13 @@ function main() {
     throw new Error('install-teacher.ps1 missing in product pack');
   }
 
-  // Ensure installer bootstrap is present in the payload.
-  const bootstrapSrc = path.join(root, 'setup-from-installer.cmd');
-  const bootstrapDest = path.join(desk, 'setup-from-installer.cmd');
-  if (fs.existsSync(bootstrapSrc)) fs.copyFileSync(bootstrapSrc, bootstrapDest);
-  if (!fs.existsSync(bootstrapDest)) throw new Error('setup-from-installer.cmd missing');
+  // GUI wizard is the single Teacher-Setup entry (folder / Node MSI or pick node.exe).
+  for (const name of ['setup-wizard.cmd', 'setup-wizard.ps1', 'setup-from-installer.cmd', 'ensure-windows-node.ps1']) {
+    const src = path.join(root, name);
+    const dest = path.join(desk, name);
+    if (fs.existsSync(src)) fs.copyFileSync(src, dest);
+    if (!fs.existsSync(dest)) throw new Error(`${name} missing in product pack`);
+  }
 
   mkdirp(distRoot);
   mkdirp(cache);
@@ -198,7 +200,7 @@ function main() {
   const archive = path.join(cache, 'teacher-payload.7z');
   rmrf(staging);
   mkdirp(staging);
-  // Payload root = contents of ClassroomDesk (setup-from-installer.cmd at top)
+  // Payload root = contents of ClassroomDesk (setup-wizard.cmd at top)
   fs.cpSync(desk, staging, { recursive: true });
 
   rmrf(archive);
@@ -209,11 +211,11 @@ function main() {
   });
 
   // Extract to TEMP (not C:\ClassroomDesk) so re-runs cannot wipe live .env / classroom.db.
-  // setup-from-installer.cmd merges into C:\ClassroomDesk and preserves teacher data.
+  // setup-wizard merges into the chosen folder and preserves teacher data.
   const config = `;!@Install@!UTF-8!
 Title="Classroom Desk"
 ExtractTitle="Classroom Desk"
-RunProgram="setup-from-installer.cmd"
+RunProgram="setup-wizard.cmd"
 GUIMode="1"
 ;!@InstallEnd@!
 `;

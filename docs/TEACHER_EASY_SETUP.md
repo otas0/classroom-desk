@@ -11,7 +11,7 @@
 
 ## Day-1
 
-1. Double-click **`Teacher-Setup.exe`** → Admin logged in → import roster  
+1. Double-click **`Teacher-Setup.exe`** → GUI wizard (install folder, auto Node MSI or pick `node.exe`) → Admin logged in → import roster  
 2. Desktop shortcuts appear: **Classroom Desk** · **Classroom Desk Admin** · **Classroom Desk Fix**  
 3. Every day: Desktop **Classroom Desk**  
 4. Students: Public Desktop install card → open app → **tap your name**

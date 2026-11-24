@@ -732,6 +732,8 @@ for (const f of [
   'install-teacher.ps1',
   'Unblock-ClassroomDesk.bat',
   'setup-from-installer.cmd',
+  'setup-wizard.cmd',
+  'setup-wizard.ps1',
   'Start-ClassroomDesk.cmd',
   'fix-classroom-service.ps1',
   'setup-service-fix.cmd',

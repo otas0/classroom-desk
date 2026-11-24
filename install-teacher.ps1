@@ -239,40 +239,42 @@ function Test-IsWindowsNodeExe([string]$Path) {
 }
 
 function Ensure-PortableNode([string]$Root, [string]$Version) {
-  # Always force wipe + official Windows download (CN + overseas mirrors).
-  # Never reuse bundled/host Node — Mac copies have broken many classrooms.
+  # MSI or user node-path.txt — never zip. Wizard may have already configured Node.
   $ensurePs1 = Join-Path $PSScriptRoot 'ensure-windows-node.ps1'
   if (-not (Test-Path -LiteralPath $ensurePs1)) {
     $ensurePs1 = Join-Path $Root 'ensure-windows-node.ps1'
   }
   if (-not (Test-Path -LiteralPath $ensurePs1)) {
-    throw 'ensure-windows-node.ps1 missing — re-copy Teacher-Setup / Dist pack'
+    throw 'ensure-windows-node.ps1 missing — re-run Teacher-Setup.exe'
   }
-  Write-Log 'Force Windows Node auto-install (clear runtime + CN/overseas mirrors)…' 'Cyan'
+  if ($ForceNodeReinstall) {
+    Write-Log 'Windows Node: reinstall (MSI / node-path.txt)...' 'Cyan'
+  } else {
+    Write-Log 'Windows Node: resolve (node-path.txt / system / MSI)...' 'Cyan'
+  }
   $arg = @(
     '-NoProfile', '-ExecutionPolicy', 'Bypass',
     '-File', $ensurePs1,
     '-InstallRoot', $Root,
     '-NodeVersion', $Version,
-    '-Force'
+    '-MinVersion', '22.5.0'
   )
+  if ($ForceNodeReinstall) { $arg += '-Force' }
   if ($ChinaMirrorsFirst) { $arg += '-ChinaMirrorsFirst' }
   & powershell.exe @arg
   if ($LASTEXITCODE -ne 0) {
     throw "ensure-windows-node.ps1 failed (exit $LASTEXITCODE)"
   }
-  $arch = Get-NodeArch
-  $dirName = "node-v$Version-$arch"
-  $nodeRoot = Join-Path $Root "runtime\$dirName"
-  $nodeExe = Join-Path $nodeRoot 'node.exe'
-  $npmCmd = Join-Path $nodeRoot 'npm.cmd'
-  if (-not (Test-Path $nodeExe)) { throw "Portable Node missing after auto-install: $nodeExe" }
-  if (-not (Test-IsWindowsNodeExe $nodeExe)) {
-    throw "node.exe is not a Windows PE binary after auto-install: $nodeExe"
+  $nodeExe = Resolve-BundledNodeExe -Root $Root
+  if (-not $nodeExe -or -not (Test-Path -LiteralPath $nodeExe)) {
+    throw "Node missing after resolve — open Teacher-Setup and pick node.exe"
   }
-  $script:NodeHome = $nodeRoot
-  $script:NpmCmd = $npmCmd
-  Write-Log ("Portable Windows Node ready: {0}" -f (& $nodeExe -v)) 'Green'
+  if (-not (Test-IsWindowsNodeExe $nodeExe)) {
+    throw "node.exe is not a Windows PE binary: $nodeExe"
+  }
+  $script:NodeHome = Split-Path $nodeExe -Parent
+  $script:NpmCmd = Join-Path $script:NodeHome 'npm.cmd'
+  Write-Log ("Windows Node ready: {0}" -f (& $nodeExe -v)) 'Green'
 }
 
 function Get-NetworkMinimumHelp {
@@ -997,13 +999,38 @@ function Open-Firewall([int]$Port = 8787) {
 function Resolve-BundledNodeExe([string]$Root) {
   if ($script:NodeHome) {
     $p = Join-Path $script:NodeHome 'node.exe'
-    if ((Test-Path $p) -and ((Get-Item $p).Length -gt 1MB)) { return (Resolve-Path $p).Path }
+    if ((Test-Path $p) -and (Test-IsWindowsNodeExe $p)) { return (Resolve-Path $p).Path }
   }
-  $hit = Get-ChildItem -Path (Join-Path $Root 'runtime') -Filter 'node.exe' -Recurse -ErrorAction SilentlyContinue |
-    Where-Object { $_.Length -gt 1MB } |
-    Sort-Object Length -Descending |
+  $pathFile = Join-Path $Root 'node-path.txt'
+  if (Test-Path -LiteralPath $pathFile) {
+    $line = (Get-Content -LiteralPath $pathFile -TotalCount 1 -ErrorAction SilentlyContinue)
+    if ($line) {
+      $p = ([string]$line).Trim().Trim('"')
+      if ((Test-Path -LiteralPath $p) -and (Test-IsWindowsNodeExe $p)) {
+        return (Resolve-Path -LiteralPath $p).Path
+      }
+    }
+  }
+  if ($env:CLASSROOM_DESK_NODE) {
+    $p = ([string]$env:CLASSROOM_DESK_NODE).Trim().Trim('"')
+    if ((Test-Path -LiteralPath $p) -and (Test-Path -LiteralPath $p -PathType Container)) {
+      $p = Join-Path $p 'node.exe'
+    }
+    if ((Test-Path -LiteralPath $p) -and (Test-IsWindowsNodeExe $p)) {
+      return (Resolve-Path -LiteralPath $p).Path
+    }
+  }
+  $runtime = Join-Path $Root 'runtime'
+  if (-not (Test-Path -LiteralPath $runtime)) { return $null }
+  $hit = Get-ChildItem -Path $runtime -Filter 'node.exe' -Recurse -ErrorAction SilentlyContinue |
+    Where-Object { Test-IsWindowsNodeExe $_.FullName } |
+    Sort-Object LastWriteTime -Descending |
     Select-Object -First 1
   if ($hit) { return $hit.FullName }
+  $sys = Join-Path $env:ProgramFiles 'nodejs\node.exe'
+  if ((Test-Path -LiteralPath $sys) -and (Test-IsWindowsNodeExe $sys)) {
+    return (Resolve-Path -LiteralPath $sys).Path
+  }
   return $null
 }
 

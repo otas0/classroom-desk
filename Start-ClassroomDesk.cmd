@@ -1,6 +1,6 @@
 @echo off
 chcp 65001 >nul 2>&1
-title Classroom Desk — start API
+title Classroom Desk - start API
 setlocal EnableExtensions
 
 set "PS=%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe"
@@ -13,7 +13,7 @@ if not exist "%ROOT%\apps\server\dist\index.mjs" (
 )
 
 echo.
-echo  Classroom Desk — start local API
+echo  Classroom Desk - start local API
 echo  Folder: %ROOT%
 echo.
 
@@ -25,7 +25,7 @@ if not exist "%ROOT%\apps\server\dist\index.mjs" (
 )
 
 if not exist "%PS%" (
-  echo ERROR: Windows PowerShell not found — cannot auto-install Node.
+  echo ERROR: Windows PowerShell not found - cannot auto-install Node.
   pause
   exit /b 90
 )
@@ -38,17 +38,23 @@ if not exist "%ENSURE%" (
   exit /b 1
 )
 
-echo  Ensuring Windows Node ^(wipe + CN/overseas download^)…
-"%PS%" -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%ENSURE%" -InstallRoot "%ROOT%" -ChinaMirrorsFirst -Force
+echo  Ensuring Windows Node ^(auto-detect: reuse / local zip / best mirror^)...
+"%PS%" -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%ENSURE%" -InstallRoot "%ROOT%" -ChinaMirrorsFirst
 if errorlevel 1 (
-  echo NODE AUTO-INSTALL FAILED — check network ^(npmmirror / nodejs.org^)
+  echo NODE AUTO-INSTALL FAILED - check network or run Force-Windows-Node.bat
   pause
   exit /b 1
 )
 
 set "NODE="
-for /d %%D in ("%ROOT%\runtime\node-v*-win-*") do (
-  if exist "%%~D\node.exe" set "NODE=%%~D\node.exe"
+if exist "%ROOT%\node-path.txt" (
+  set /p NODE=<"%ROOT%\node-path.txt"
+)
+if not defined NODE if exist "%ProgramFiles%\nodejs\node.exe" set "NODE=%ProgramFiles%\nodejs\node.exe"
+if not defined NODE (
+  for /d %%D in ("%ROOT%\runtime\node-v*-win-*") do (
+    if exist "%%~D\node.exe" set "NODE=%%~D\node.exe"
+  )
 )
 if not defined NODE (
   echo ERROR: Windows portable node.exe missing after auto-install
@@ -65,8 +71,8 @@ if errorlevel 1 (
 )
 
 echo  Node: %NODE%
-echo  Stopping old listener on 8787 ^(if any^)…
-REM Prefer netstat+taskkill — Get-NetTCPConnection often missing on locked images
+echo  Stopping old listener on 8787 ^(if any^)...
+REM Prefer netstat+taskkill - Get-NetTCPConnection often missing on locked images
 for /f "tokens=5" %%P in ('netstat -ano ^| findstr /R /C:":8787 .*LISTENING"') do (
   taskkill /F /PID %%P >nul 2>&1
 )
@@ -76,7 +82,7 @@ set CLASSROOM_DESK_BUNDLED=1
 set CLASSROOM_DESK_OFFLINE=1
 set ELECTRON_SKIP_BINARY_DOWNLOAD=1
 
-echo  Starting… ^(keep this window open^)
+echo  Starting... ^(keep this window open^)
 echo  Health: http://127.0.0.1:8787/health
 echo  Admin:  http://127.0.0.1:8787/admin/
 echo.
