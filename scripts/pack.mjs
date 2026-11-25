@@ -414,8 +414,11 @@ function copyStudentSetup() {
     if (copied) break;
   }
   if (!copied) {
-    console.warn('WARN: student Setup.exe not found — copy manually into students/');
-    return;
+    throw new Error(
+      `Required student Setup missing for v${version}. ` +
+        `Build with: npm run dist:win (expect ClassroomDesk-Setup-${version}-x64.exe under apps/student-desktop/release/). ` +
+        `Pack refuses to ship Teacher-Setup without a matching student installer.`,
+    );
   }
   // Pre-seed LAN upgrades so after teacher Install, students pull from LAN (not public net).
   const upgrades = path.join(desk, 'apps/server/data/upgrades');
@@ -478,26 +481,36 @@ function writeGiveToTeacher() {
   }
   const exesDoc = path.join(root, 'docs/TEACHER_EXES.md');
   if (fs.existsSync(exesDoc)) cpFile(exesDoc, path.join(advanced, 'TEACHER_EXES.md'));
+  const repairTxt = path.join(root, 'docs/IT-ONLY-REPAIR.txt');
+  const repairMd = path.join(root, 'docs/IT_REPAIR_CHAIN.md');
+  if (!fs.existsSync(repairTxt) || !fs.existsSync(repairMd)) {
+    throw new Error('Missing docs/IT-ONLY-REPAIR.txt or docs/IT_REPAIR_CHAIN.md — required in every pack');
+  }
+  cpFile(repairTxt, path.join(advanced, 'IT-ONLY-REPAIR.txt'));
+  cpFile(repairMd, path.join(advanced, 'IT_REPAIR_CHAIN.md'));
   fs.writeFileSync(
     path.join(advanced, 'README.txt'),
     [
       'IT / advanced only — teachers do NOT need this folder.',
       'Normal path: double-click ../Teacher-Setup.exe once, then use Desktop shortcuts.',
-      'See TEACHER_EXES.md',
+      '',
+      'READ FIRST: IT-ONLY-REPAIR.txt',
+      '  GitHub Release does NOT ship Bootstrap / Dist zip / standalone Fix exes.',
+      '  Teacher-Bootstrap needs a Dist zip from local: npm run pack (IT hosts it).',
+      'See also TEACHER_EXES.md and IT_REPAIR_CHAIN.md',
       '',
     ].join('\n'),
     'utf8',
   );
 
   const studentSrc = path.join(students, `ClassroomDesk-Setup-${version}-x64.exe`);
-  if (fs.existsSync(studentSrc)) {
-    // Optional USB copy for rooms without LAN /get — not part of the teacher "one Setup" story.
-    cpFile(studentSrc, path.join(advanced, 'Student-Setup.exe'));
-  } else {
-    console.warn(
-      `WARN: Student-Setup for ${version} missing — rebuild with npm run dist:win before release`,
+  if (!fs.existsSync(studentSrc)) {
+    throw new Error(
+      `Student-Setup for v${version} missing after copyStudentSetup — cannot finish Give-To-Teacher`,
     );
   }
+  // USB copy for rooms without LAN /get — version must match teacher pack.
+  cpFile(studentSrc, path.join(advanced, 'Student-Setup.exe'));
 
   function writeSha256(filePath, outName) {
     if (!fs.existsSync(filePath)) return;
@@ -519,20 +532,23 @@ function writeGiveToTeacher() {
 ONLY FILE YOU NEED:  Teacher-Setup.exe
 
 1. Double-click Teacher-Setup.exe  (SmartScreen → More info → Run anyway)
-2. Wait until Admin opens → import roster
-3. Desktop shortcuts appear automatically:
+2. Wizard: install folder + Node (auto MSI OR pick existing node.exe)
+3. Wait until Admin opens → import roster
+4. Desktop shortcuts appear automatically:
       Classroom Desk          = every day
       Classroom Desk Admin    = open Admin
       Classroom Desk Fix      = repair Node / reset password
 
 DEFAULT LOGIN: teacher / admin → change in Admin → Settings
-Students: Public Desktop install card → Find classroom
-(Advanced\\ is for IT only — ignore it)
+Students: Public Desktop install card → open app (auto-join); if needed Find classroom / room code
 
-GitHub: docs/TEACHER_EXES.md
+Do NOT look on GitHub Release for Bootstrap / Dist zip / Service-Fix.
+Those are IT-only (Advanced\\) or already inside this Setup.
+Teachers: ignore Advanced\\. IT: read Advanced\\IT-ONLY-REPAIR.txt
+
+GitHub Release = Teacher-Setup + Student-Setup only.
 `;
-  const timeDoc = path.join(root, 'docs/TIME_TO_CLASS.md');
-  if (fs.existsSync(timeDoc)) cpFile(timeDoc, path.join(desk, 'docs/TIME_TO_CLASS.md'));
+  cpFile(repairTxt, path.join(give, 'IT-ONLY-REPAIR.txt'));
   fs.writeFileSync(path.join(give, 'START-HERE.txt'), start, 'utf8');
   fs.writeFileSync(path.join(outRoot, 'START-HERE.txt'), start, 'utf8');
 
@@ -540,7 +556,7 @@ GitHub: docs/TEACHER_EXES.md
 
 [ ] Admin opens already logged in on roster import
 [ ] Import a short roster
-[ ] Student: Public Desktop\\ClassroomDesk-Student-Install.txt → Find classroom
+[ ] Student: Public Desktop\\ClassroomDesk-Student-Install.txt → open app (auto-join or Find classroom / room code)
 [ ] Teacher sees the student online
 
 If auto-login failed: Desktop\\ClassroomDesk-Desk-Login.txt
@@ -584,7 +600,7 @@ SmartScreen: More info → Run anyway (unsigned — expected)
    - Without a cert: do not promise "no SmartScreen"
 
 7) Guest Wi-Fi / client isolation
-   - If students cannot reach the teacher, "Find classroom" fails
+   - If students cannot reach the teacher, auto-join / Find classroom / room code fail
    - Teacher PC on Ethernet, or ask IT to allow student ↔ teacher TCP 8787
 `;
   fs.writeFileSync(path.join(give, 'LAB-GO-LIVE.txt'), labGoLive, 'utf8');
@@ -752,6 +768,36 @@ assertWindowsNodeExe(path.join(desk, 'runtime', `node-v${nodeVer}-win-x64`, 'nod
 installWinDepsOfflineReady();
 copyStudentSetup();
 
+// Nested inside Teacher-Setup SFX before bake — teachers/IT opening extracted folder see the same rules.
+function embedItRepairDocsIntoDesk() {
+  const repairTxt = path.join(root, 'docs/IT-ONLY-REPAIR.txt');
+  const repairMd = path.join(root, 'docs/IT_REPAIR_CHAIN.md');
+  const timeDoc = path.join(root, 'docs/TIME_TO_CLASS.md');
+  const exesDoc = path.join(root, 'docs/TEACHER_EXES.md');
+  if (!fs.existsSync(repairTxt) || !fs.existsSync(repairMd)) {
+    throw new Error('Missing docs/IT-ONLY-REPAIR.txt or docs/IT_REPAIR_CHAIN.md — required in every Teacher-Setup');
+  }
+  mkdirp(path.join(desk, 'docs'));
+  cpFile(repairTxt, path.join(desk, 'IT-ONLY-REPAIR.txt'));
+  cpFile(repairMd, path.join(desk, 'docs/IT_REPAIR_CHAIN.md'));
+  if (fs.existsSync(timeDoc)) cpFile(timeDoc, path.join(desk, 'docs/TIME_TO_CLASS.md'));
+  if (fs.existsSync(exesDoc)) cpFile(exesDoc, path.join(desk, 'docs/TEACHER_EXES.md'));
+  fs.writeFileSync(
+    path.join(desk, 'START-HERE.txt'),
+    [
+      'Classroom Desk — after extract / install',
+      '',
+      'Teachers: run setup-wizard (or Teacher-Setup.exe). Ignore Advanced tools.',
+      'Do NOT look on GitHub Release for Bootstrap / Dist zip / Service-Fix.',
+      'IT: read IT-ONLY-REPAIR.txt and docs\\IT_REPAIR_CHAIN.md',
+      '',
+    ].join('\n'),
+    'utf8',
+  );
+  console.log('embedded IT-ONLY-REPAIR + repair-chain docs into ClassroomDesk/ (SFX payload)');
+}
+embedItRepairDocsIntoDesk();
+
 // Patches first so Teacher-Setup SFX always contains them.
 buildAndEmbedRequiredPatches();
 
@@ -779,9 +825,9 @@ function stripNodeFromDistTree() {
   fs.writeFileSync(
     path.join(desk, 'downloads', 'README-NODE.txt'),
     [
-      'Portable Node is NOT shipped in ClassroomDesk-*-win-x64.zip.',
-      'Teacher-Setup.exe embeds official Windows win-x64 Node.',
-      'Bootstrap / Install.bat download win-x64 Node from nodejs.org / npmmirror when missing.',
+      'Portable Node is NOT shipped in ClassroomDesk-*-win-x64.zip (Dist zip).',
+      'Teacher-Setup.exe may embed win-x64 Node; otherwise Setup wizard uses MSI or your node.exe.',
+      'Dist zip is IT-built (npm run pack) — NOT on GitHub Release. See ..\\IT-ONLY-REPAIR.txt',
       '',
     ].join('\n'),
     'utf8',

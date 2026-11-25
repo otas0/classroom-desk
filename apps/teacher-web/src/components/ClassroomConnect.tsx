@@ -361,11 +361,11 @@ export function ClassroomConnect({
 
   return (
     <section>
-      <h2>{t('上课前指派学生机')}</h2>
+      <h2>{t('学生怎么连上教室')}</h2>
       {copyMsg ? <p className="toast-inline">{copyMsg}</p> : null}
       <div className="help-bubble">
         {t(
-          '傻瓜批量：打开「一键连班」→ 学生「查找教室」并确认班名/教师机后再连。备选：U 盘 config / 扫码。禁止 127.0.0.1。',
+          '打开「一键连班」→ 学生自动连或点「查找教室」。连不上时看投影上的房间码。',
         )}
       </div>
       <p>
@@ -379,8 +379,83 @@ export function ClassroomConnect({
           disabled={!classId || easyJoinBusy}
           onChange={(e) => void setEasyJoinOn(e.target.checked)}
         />
-        {t('开放本班「一键连班」（学生端一键连教室）')}
+        {t('开放本班一键连班（学生可自动/查找连上）')}
       </label>
+      {easyJoin ? (
+        <p className="hint" role="status">
+          {t('已开放。学生打开应用即可；失败时输入下方房间码。')}
+        </p>
+      ) : (
+        <p className="hint" role="status">
+          {t('未开放：学生暂时无法一键连班。勾选上方开关即可。')}
+        </p>
+      )}
+      <label>
+        {t('讲台显示名（学生查找列表里看到的名字）')}
+        <input
+          value={displayName}
+          onChange={(e) => setDisplayName(e.target.value)}
+          placeholder={t('例如：高一3班讲台')}
+          maxLength={64}
+          data-testid="classroom-display-name"
+        />
+      </label>{' '}
+      <button type="button" className="secondary" onClick={() => void saveDisplayName()}>
+        {t('保存显示名')}
+      </button>
+      {roomCode ? (
+        <p className="hint" data-testid="classroom-room-code">
+          {t('房间码（给学生手输 / 投影）：')}{' '}
+          <code style={{ fontSize: '1.35rem', letterSpacing: '0.06em' }}>{roomCode}</code>{' '}
+          {roomCodeIp ? (
+            <span className="hint">
+              {' '}
+              ({t('来自')} {roomCodeIp})
+            </span>
+          ) : null}{' '}
+          <button
+            type="button"
+            className="secondary"
+            onClick={() => void copyText(t('房间码'), roomCode)}
+          >
+            {t('复制房间码')}
+          </button>
+        </p>
+      ) : (
+        <p className="hint">{t('房间码需有效局域网 IP；请先确认网卡 / 教室地址。')}</p>
+      )}
+      {roomCode ? (
+        <RoomJoinQr
+          payload={roomCode}
+          width={180}
+          label={t('房间码二维码')}
+          testId="classroom-room-code-qr"
+        />
+      ) : null}
+      {pendingDevices.length ? (
+        <fieldset className="field" data-testid="join-pending-devices">
+          <legend>{t('待批准设备')}</legend>
+          <ul>
+            {pendingDevices.map((d) => (
+              <li key={d.id}>
+                <code>{d.deviceId}</code> · {d.hostname || '—'} · {d.clientIp || '—'}{' '}
+                <button type="button" className="secondary" onClick={() => void decideDevice(d.id, 'approved')}>
+                  {t('批准')}
+                </button>{' '}
+                <button type="button" className="secondary" onClick={() => void decideDevice(d.id, 'denied')}>
+                  {t('拒绝')}
+                </button>
+              </li>
+            ))}
+          </ul>
+          <button type="button" className="linkish" onClick={() => void refreshPendingDevices()}>
+            {t('刷新列表')}
+          </button>
+        </fieldset>
+      ) : null}
+
+      <details className="field" data-testid="classroom-connect-advanced">
+        <summary>{t('高级：鉴权 / 网卡 / U 盘 / IT（一般不用）')}</summary>
       <label className="row" data-testid="easy-join-auto-off">
         <input
           type="checkbox"
@@ -456,13 +531,6 @@ export function ClassroomConnect({
       >
         {t('保存教室号')}
       </button>
-      {easyJoin ? (
-        <p className="hint" role="status">
-          {t(
-            '已开放：学生「查找教室」或输入房间码 → 认准显示名/班名 →「确认连接」。',
-          )}
-        </p>
-      ) : null}
       <h3>{t('连班鉴权')}</h3>
       <p className="hint">
         {t('可选：连班 PIN + 陌生设备批准；连班失败过多会按 IP 限流（10 次/5 分钟）。')}
@@ -490,27 +558,6 @@ export function ClassroomConnect({
         />
         {t('陌生设备须批准后才能连班')}
       </label>
-      {pendingDevices.length ? (
-        <fieldset className="field" data-testid="join-pending-devices">
-          <legend>{t('待批准设备')}</legend>
-          <ul>
-            {pendingDevices.map((d) => (
-              <li key={d.id}>
-                <code>{d.deviceId}</code> · {d.hostname || '—'} · {d.clientIp || '—'}{' '}
-                <button type="button" className="secondary" onClick={() => void decideDevice(d.id, 'approved')}>
-                  {t('批准')}
-                </button>{' '}
-                <button type="button" className="secondary" onClick={() => void decideDevice(d.id, 'denied')}>
-                  {t('拒绝')}
-                </button>
-              </li>
-            ))}
-          </ul>
-          <button type="button" className="linkish" onClick={() => void refreshPendingDevices()}>
-            {t('刷新列表')}
-          </button>
-        </fieldset>
-      ) : null}
       <label className="row" data-testid="class-list-pull-join">
         <input
           type="checkbox"
@@ -546,33 +593,6 @@ export function ClassroomConnect({
           ))}
         </select>
       </label>
-      {roomCode ? (
-        <p className="hint" data-testid="classroom-room-code">
-          {t('房间码（访客隔离 / 跨网段时给学生手输）：')}{' '}
-          <code style={{ fontSize: '1.25rem', letterSpacing: '0.06em' }}>{roomCode}</code>{' '}
-          {roomCodeIp ? (
-            <span className="hint">
-              {' '}
-              ({t('来自')} {roomCodeIp})
-            </span>
-          ) : null}{' '}
-          <button
-            type="button"
-            className="secondary"
-            onClick={() => void copyText(t('房间码'), roomCode)}
-          >
-            {t('复制房间码')}
-          </button>
-        </p>
-      ) : null}
-      {roomCode ? (
-        <RoomJoinQr
-          payload={roomCode}
-          width={200}
-          label={t('房间码二维码（学生端扫码填码）')}
-          testId="classroom-room-code-qr"
-        />
-      ) : null}
       <p>
         classId：<code>{classId || t('（请先选班）')}</code>{' '}
         <button
@@ -615,21 +635,8 @@ export function ClassroomConnect({
         {t('教师机 apiBase（学生机用）')}
         <input value={apiBase} onChange={(e) => setApiBase(e.target.value)} placeholder="http://192.168.x.x:8787" />
       </label>
-      <label>
-        {t('讲台显示名（学生查找列表）')}
-        <input
-          value={displayName}
-          onChange={(e) => setDisplayName(e.target.value)}
-          placeholder={t('例如：高一3班讲台')}
-          maxLength={64}
-          data-testid="classroom-display-name"
-        />
-      </label>
       <button type="button" onClick={() => void saveApiBase().catch((e) => window.alert(String(e)))}>
         {t('保存为教室地址')}
-      </button>{' '}
-      <button type="button" className="secondary" onClick={() => void saveDisplayName()}>
-        {t('保存显示名')}
       </button>{' '}
       <button type="button" disabled={!classId || !apiBase} onClick={downloadConfig}>
         {t('下载 classroom-desk-config.json（U盘批量）')}
@@ -686,6 +693,7 @@ export function ClassroomConnect({
       <pre className="code-block">{`{\n  "apiBase": "${apiBase.replace(/\/$/, '')}",\n  "classId": "${classId}"\n}`}</pre>
 
       <FederationHubWizard />
+      </details>
     </section>
   );
 }

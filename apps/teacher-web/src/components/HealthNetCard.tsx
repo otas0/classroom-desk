@@ -69,11 +69,14 @@ export function HealthNetCard() {
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState(false);
   const [probeHost, setProbeHost] = useState('');
+  const [deskDnsOpen, setDeskDnsOpen] = useState(true);
 
   async function refreshHealth() {
     const res = await fetch(`${API_BASE}/health`, { cache: 'no-store' });
     const body = (await res.json()) as HealthNet;
     setH(body);
+    // Suggest open when DeskDNS is not running; still allow user toggle via onToggle.
+    if (body.deskDns && body.deskDns.running !== true) setDeskDnsOpen(true);
   }
 
   useEffect(() => {
@@ -163,7 +166,12 @@ export function HealthNetCard() {
     <section className="health-net-card" data-testid="health-net-card">
       <h3>{t('网络适配状态')}</h3>
       {err ? <p className="error">{err}</p> : null}
-      <details className="deskdns-wizard" data-testid="deskdns-wizard" open={!dns?.running}>
+      <details
+        className="deskdns-wizard"
+        data-testid="deskdns-wizard"
+        open={deskDnsOpen}
+        onToggle={(e) => setDeskDnsOpen((e.target as HTMLDetailsElement).open)}
+      >
         <summary>{t('本教室只改 DNS（DeskDNS）')}</summary>
         <ol className="hint">
           <li>{t('教师机启动前设置 CLASSROOM_DESK_DNS=1（可选 CLASSROOM_DESK_DNS_PORT=53）')}</li>

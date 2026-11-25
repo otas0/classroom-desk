@@ -43,11 +43,13 @@ Release 附件全名：`ClassroomDesk-Teacher-Setup-<ver>-x64.exe`（Give-To-Tea
 
 ## IT / 高级（一般教师不用）
 
-`npm run pack` 后在本机 `Give-To-Teacher/Advanced/`；**不进 GitHub Release**：
+`npm run pack` 后在本机 `Give-To-Teacher/Advanced/`；**不进 GitHub Release**。  
+安装包内嵌说明：`IT-ONLY-REPAIR.txt` / [IT_REPAIR_CHAIN.md](./IT_REPAIR_CHAIN.md)。
 
 | 文件 | 何时 |
 | --- | --- |
-| `Teacher-Bootstrap.exe` | 公网很慢时的小引导 |
+| `IT-ONLY-REPAIR.txt` | **先读**：Release 没有 Dist zip；Bootstrap 要 IT 自建 zip |
+| `Teacher-Bootstrap.exe` | 薄引导；依赖 IT 本地 `npm run pack` 产出的 Dist zip（**不是** Release 附件） |
 | `Service-Fix.exe` | `/health` 死透时的单独修复包 |
 | `Teacher-Fix.exe` / `ClassroomDesk.exe` | 与桌面快捷方式相同；已嵌在 Teacher-Setup 里 |
 
@@ -55,4 +57,5 @@ Release 附件全名：`ClassroomDesk-Teacher-Setup-<ver>-x64.exe`（Give-To-Tea
 
 - 五分钟上手：[TEACHER_EASY_SETUP.md](./TEACHER_EASY_SETUP.md)  
 - 发版附件：[RELEASE_BUNDLE.md](./RELEASE_BUNDLE.md)  
+- IT 修复链：[IT_REPAIR_CHAIN.md](./IT_REPAIR_CHAIN.md)  
 - Service Fix：[SERVICE_FIX.md](./SERVICE_FIX.md)  

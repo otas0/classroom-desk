@@ -2398,6 +2398,8 @@ function FirstRunSetup({
   };
   const [joinCandidates, setJoinCandidates] = useState<JoinCandidate[]>([]);
   const [selectedJoinKey, setSelectedJoinKey] = useState('');
+  /** Uncontrolled-friendly: force-open for camera/paste/scan, still allow user toggle. */
+  const [advancedOpen, setAdvancedOpen] = useState(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const scanTimerRef = useRef<number | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -2478,6 +2480,10 @@ function FirstRunSetup({
   }
 
   useEffect(() => () => stopScan(), []);
+
+  useEffect(() => {
+    if (cameraLocked || showPaste || scanning) setAdvancedOpen(true);
+  }, [cameraLocked, showPaste, scanning]);
 
   async function startScan() {
     setMsg('');
@@ -2962,9 +2968,9 @@ function FirstRunSetup({
 
   return (
     <section className="panel">
-      <h1>{t('首次配置本机')}</h1>
+      <h1>{t('连上教室')}</h1>
       <p className="lead">
-        {t('正在自动连班。若未连上，点「查找教室」或用房间码 / U 盘。')}
+        {t('正在自动连班。连不上时：① 查找教室 ② 或输入教师投影上的房间码。')}
       </p>
       {lastClassroom ? (
         <p className="hint" data-testid="first-run-last-classroom">
@@ -3011,69 +3017,6 @@ function FirstRunSetup({
         >
           {t('确认连接')}
         </button>
-        <button
-          type="button"
-          className="secondary"
-          disabled={busy}
-          data-testid="first-run-import-usb"
-          onClick={() => void importFromRemovable()}
-        >
-          {t('从 U 盘/共享盘导入')}
-        </button>
-        <button
-          type="button"
-          className="secondary"
-          disabled={scanning || cameraLocked}
-          data-testid="first-run-scan-qr"
-          title={cameraLocked ? t('相机已锁定，请粘贴 JSON') : undefined}
-          onClick={() => void startScan()}
-        >
-          {cameraLocked
-            ? t('扫码不可用（相机锁）')
-            : scanning
-              ? t('扫码中…')
-              : t('扫教师 QR')}
-        </button>
-        {scanning ? (
-          <button type="button" className="secondary" onClick={stopScan}>
-            {t('停止摄像头')}
-          </button>
-        ) : null}
-        <label
-          className="secondary"
-          style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: 6,
-            opacity: cameraLocked ? 0.45 : 1,
-            pointerEvents: cameraLocked ? 'none' : 'auto',
-          }}
-          title={cameraLocked ? t('相机已锁定') : undefined}
-        >
-          {t('选 QR 图片')}
-          <input
-            type="file"
-            accept="image/*"
-            hidden
-            disabled={cameraLocked}
-            onChange={(e) => {
-              void onQrImage(e.target.files?.[0] ?? null);
-              e.target.value = '';
-            }}
-          />
-        </label>
-        <button
-          type="button"
-          className="secondary"
-          data-testid="first-run-paste-toggle"
-          onClick={() => setShowPaste((v) => (cameraLocked ? true : !v))}
-        >
-          {cameraLocked
-            ? t('粘贴 JSON（必填）')
-            : showPaste
-              ? t('收起粘贴')
-              : t('粘贴 JSON 兜底')}
-        </button>
       </div>
       {scanProgress && scanProgress.total > 0 ? (
         <div className="field" data-testid="first-run-scan-progress">
@@ -3090,68 +3033,9 @@ function FirstRunSetup({
           </label>
         </div>
       ) : null}
-      {joinAuthHint ? (
-        <p className="hint" role="status" data-testid="first-run-join-auth-hint">
-          {joinAuthHint}
-        </p>
-      ) : null}
-      <div className="field" data-testid="first-run-join-pin">
-        <label>
-          {t('连班 PIN（教师开启鉴权时必填）')}
-          <input
-            value={joinPin}
-            onChange={(e) => setJoinPin(e.target.value)}
-            type="password"
-            autoComplete="off"
-            placeholder={t('向教师索取')}
-            maxLength={32}
-          />
-        </label>
-      </div>
-      <div className="field" data-testid="first-run-room-code">
-        <label>
-          {t('房间码（访客隔离时用，教师投影 XXXX-XXXX）')}
-          <input
-            value={roomCode}
-            onChange={(e) => setRoomCode(e.target.value.toUpperCase())}
-            placeholder="XXXX-XXXX"
-            maxLength={12}
-            autoCapitalize="characters"
-          />
-        </label>
-        <button
-          type="button"
-          className="secondary"
-          disabled={busy || !roomCode.trim()}
-          data-testid="first-run-room-code-join"
-          onClick={() => void joinByRoomCode()}
-        >
-          {t('用房间码连接')}
-        </button>
-      </div>
-      <div className="field" data-testid="first-run-room-id">
-        <label>
-          {t('教室号（房间模式）')}
-          <input
-            value={roomIdInput}
-            onChange={(e) => setRoomIdInput(e.target.value)}
-            placeholder="302"
-            maxLength={32}
-          />
-        </label>
-        <button
-          type="button"
-          className="secondary"
-          disabled={busy || !roomIdInput.trim()}
-          data-testid="first-run-room-id-join"
-          onClick={() => void joinByRoomId()}
-        >
-          {t('按教室号连接')}
-        </button>
-      </div>
       {joinCandidates.length ? (
         <fieldset className="field" data-testid="first-run-join-list">
-          <legend>{t('选择教师机（确认后再连接）')}</legend>
+          <legend>{t('选择教室后点「确认连接」')}</legend>
           <ul className="join-candidate-list">
             {joinCandidates.map((c) => {
               const key = joinKey(c);
@@ -3188,54 +3072,194 @@ function FirstRunSetup({
           </ul>
         </fieldset>
       ) : null}
-      {cameraLocked ? (
-        <p className="hint" data-testid="first-run-camera-locked" role="status">
-          {t('相机锁已开启：二维码扫码/选图已灰态，请使用粘贴区完成指派。')}
+      {joinAuthHint ? (
+        <p className="hint" role="status" data-testid="first-run-join-auth-hint">
+          {joinAuthHint}
         </p>
       ) : null}
-      {scanning ? (
-        <video ref={videoRef} className="qr-scan-video" playsInline muted style={{ width: '100%', maxHeight: 220 }} />
-      ) : null}
-      {showPaste ? (
-        <label className="field">
-          {t('教师 QR 原文（JSON）')}
-          <textarea
-            value={pasteJson}
-            onChange={(e) => setPasteJson(e.target.value)}
-            rows={4}
-            placeholder='{"apiBase":"http://192.168.x.x:8787","classId":"..."}'
+      <div className="field" data-testid="first-run-room-code">
+        <label>
+          {t('房间码（教师投影上的 XXXX-XXXX）')}
+          <input
+            value={roomCode}
+            onChange={(e) => setRoomCode(e.target.value.toUpperCase())}
+            placeholder="XXXX-XXXX"
+            maxLength={12}
+            autoCapitalize="characters"
           />
-          <button type="button" className="secondary" onClick={applyPasteJson}>
-            {t('从粘贴填入')}
-          </button>
         </label>
-      ) : null}
-      <label className="field">
-        {t('服务器地址（serverUrl / apiBase）')}
-        <input
-          value={serverUrl}
-          onChange={(e) => setServerUrl(e.target.value)}
-          placeholder={t('http://教师机局域网IP:8787')}
-          autoComplete="off"
-        />
-      </label>
-      <label className="field">
-        {t('机位班级（seat / classId）')}
-        <input
-          value={seat}
-          onChange={(e) => setSeat(e.target.value)}
-          placeholder={t('从教师后台「复制 classId」粘贴')}
-          autoComplete="off"
-        />
-      </label>
-      <button type="button" className="primary" disabled={busy} onClick={() => void saveAndProbe()}>
-        {busy ? t('检测中…') : t('保存并检测 /health')}
-      </button>
+        <button
+          type="button"
+          className="secondary"
+          disabled={busy || !roomCode.trim()}
+          data-testid="first-run-room-code-join"
+          onClick={() => void joinByRoomCode()}
+        >
+          {t('用房间码连接')}
+        </button>
+      </div>
+      <div className="field" data-testid="first-run-join-pin">
+        <label>
+          {t('连班 PIN（仅教师要求时填写）')}
+          <input
+            value={joinPin}
+            onChange={(e) => setJoinPin(e.target.value)}
+            type="password"
+            autoComplete="off"
+            placeholder={t('向教师索取')}
+            maxLength={32}
+          />
+        </label>
+      </div>
       {msg ? <p className="hint">{msg}</p> : null}
+
+      <details
+        className="field"
+        data-testid="first-run-advanced"
+        open={advancedOpen}
+        onToggle={(e) => setAdvancedOpen((e.target as HTMLDetailsElement).open)}
+      >
+        <summary>{t('高级：U 盘 / 扫码 / 手填地址（一般不用）')}</summary>
+        <div className="row" style={{ marginTop: 8 }}>
+          <button
+            type="button"
+            className="secondary"
+            disabled={busy}
+            data-testid="first-run-import-usb"
+            onClick={() => void importFromRemovable()}
+          >
+            {t('从 U 盘/共享盘导入')}
+          </button>
+          <button
+            type="button"
+            className="secondary"
+            disabled={scanning || cameraLocked}
+            data-testid="first-run-scan-qr"
+            title={cameraLocked ? t('相机已锁定，请粘贴 JSON') : undefined}
+            onClick={() => void startScan()}
+          >
+            {cameraLocked
+              ? t('扫码不可用（相机锁）')
+              : scanning
+                ? t('扫码中…')
+                : t('扫教师 QR')}
+          </button>
+          {scanning ? (
+            <button type="button" className="secondary" onClick={stopScan}>
+              {t('停止摄像头')}
+            </button>
+          ) : null}
+          <label
+            className="secondary"
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+              opacity: cameraLocked ? 0.45 : 1,
+              pointerEvents: cameraLocked ? 'none' : 'auto',
+            }}
+            title={cameraLocked ? t('相机已锁定') : undefined}
+          >
+            {t('选 QR 图片')}
+            <input
+              type="file"
+              accept="image/*"
+              hidden
+              disabled={cameraLocked}
+              onChange={(e) => {
+                void onQrImage(e.target.files?.[0] ?? null);
+                e.target.value = '';
+              }}
+            />
+          </label>
+          <button
+            type="button"
+            className="secondary"
+            data-testid="first-run-paste-toggle"
+            onClick={() => setShowPaste((v) => (cameraLocked ? true : !v))}
+          >
+            {cameraLocked
+              ? t('粘贴 JSON（必填）')
+              : showPaste
+                ? t('收起粘贴')
+                : t('粘贴 JSON 兜底')}
+          </button>
+        </div>
+        <div className="field" data-testid="first-run-room-id">
+          <label>
+            {t('教室号（房间模式）')}
+            <input
+              value={roomIdInput}
+              onChange={(e) => setRoomIdInput(e.target.value)}
+              placeholder="302"
+              maxLength={32}
+            />
+          </label>
+          <button
+            type="button"
+            className="secondary"
+            disabled={busy || !roomIdInput.trim()}
+            data-testid="first-run-room-id-join"
+            onClick={() => void joinByRoomId()}
+          >
+            {t('按教室号连接')}
+          </button>
+        </div>
+        {cameraLocked ? (
+          <p className="hint" data-testid="first-run-camera-locked" role="status">
+            {t('相机锁已开启：二维码扫码/选图已灰态，请使用粘贴区完成指派。')}
+          </p>
+        ) : null}
+        {scanning ? (
+          <video
+            ref={videoRef}
+            className="qr-scan-video"
+            playsInline
+            muted
+            style={{ width: '100%', maxHeight: 220 }}
+          />
+        ) : null}
+        {showPaste ? (
+          <label className="field">
+            {t('教师 QR 原文（JSON）')}
+            <textarea
+              value={pasteJson}
+              onChange={(e) => setPasteJson(e.target.value)}
+              rows={4}
+              placeholder='{"apiBase":"http://192.168.x.x:8787","classId":"..."}'
+            />
+            <button type="button" className="secondary" onClick={applyPasteJson}>
+              {t('从粘贴填入')}
+            </button>
+          </label>
+        ) : null}
+        <label className="field">
+          {t('服务器地址（serverUrl / apiBase）')}
+          <input
+            value={serverUrl}
+            onChange={(e) => setServerUrl(e.target.value)}
+            placeholder={t('http://教师机局域网IP:8787')}
+            autoComplete="off"
+          />
+        </label>
+        <label className="field">
+          {t('机位班级（seat / classId）')}
+          <input
+            value={seat}
+            onChange={(e) => setSeat(e.target.value)}
+            placeholder={t('从教师后台「复制 classId」粘贴')}
+            autoComplete="off"
+          />
+        </label>
+        <button type="button" className="primary" disabled={busy} onClick={() => void saveAndProbe()}>
+          {busy ? t('检测中…') : t('保存并检测 /health')}
+        </button>
+      </details>
       <p className="hint">{t('禁止 127.0.0.1。本机版本 v{v0}。', { v0: CLIENT_VERSION })}</p>
     </section>
   );
 }
+
 
 function statusZh(status: string): string {
   const map: Record<string, string> = {

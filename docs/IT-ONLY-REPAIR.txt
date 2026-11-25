@@ -1,0 +1,40 @@
+Classroom Desk — IT ONLY repair chain (NOT for teachers)
+
+TEACHERS: ignore this file. Use Teacher-Setup.exe only.
+        After install: Desktop "Classroom Desk" / "Classroom Desk Fix".
+
+GitHub Release NEVER contains:
+  - Teacher-Bootstrap.exe
+  - Service-Fix.exe / Teacher-Fix.exe / ClassroomDesk.exe (standalone)
+  - ClassroomDesk-*-win-x64.zip  (Dist zip)
+
+Release has ONLY:
+  - ClassroomDesk-Teacher-Setup-<ver>-x64.exe
+  - ClassroomDesk-Setup-<ver>-x64.exe (+ arm64)
+  - .sha256 sidecars
+
+----------------------------------------------------------------
+If Teacher-Setup failed or pack looks incomplete
+----------------------------------------------------------------
+1) Preferred: re-run the FULL Teacher-Setup.exe from USB / IT share
+   (same file teachers already use — complete payload, no Dist zip).
+
+2) Node download blocked at school:
+   Open Setup wizard again → "Use Node already on this PC"
+   → Detect / Browse to C:\Program Files\nodejs\node.exe
+   Or install Node 22 LTS from https://nodejs.org/en/download then retry.
+   See Desktop\ClassroomDesk-Node-Manual.txt if the wizard wrote it.
+
+3) IT Advanced folder (Give-To-Teacher\Advanced\ — not on GitHub):
+   - Teacher-Bootstrap.exe = thin online bootstrap. It needs ONE Dist zip
+     that IT builds locally with:  npm run pack
+     Dist zip is NOT published on GitHub Release. Do not tell teachers
+     to hunt for it on the Release page.
+   - Service-Fix.exe / Teacher-Fix.exe = emergency repair; also embedded
+     inside Teacher-Setup (Desktop Fix shortcut after install).
+
+4) Do NOT npm-install from scratch on a flaky school network.
+
+Log: Desktop\ClassroomDesk-Install-Log.txt
+Network card: Desktop\ClassroomDesk-Network-Minimum.txt (same rules)
+Full notes: docs\IT_REPAIR_CHAIN.md (inside this install folder)

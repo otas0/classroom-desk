@@ -96,6 +96,16 @@ if (
   ok('setup-wizard.ps1 GUI + Node options');
 }
 if (
+  !wizardPs1.includes('Show-NodeFallbackUi') ||
+  !wizardPs1.includes('Find-InstalledNodeExe') ||
+  !wizardPs1.includes('ClassroomDesk-Node-Manual.txt') ||
+  !wizardPs1.includes('nodejs.org')
+) {
+  fail('setup-wizard.ps1 must fall back to pick/detect Node + manual download when MSI fails');
+} else {
+  ok('setup-wizard.ps1 MSI-fail → custom Node + manual help');
+}
+if (
   !ensurePs1.includes('.msi') ||
   !ensurePs1.includes('node-path.txt') ||
   !ensurePs1.includes('Never downloads or extracts Node zip')
@@ -145,10 +155,20 @@ for (const needle of [
   'AtStartup',
   'ClassroomDesk-Health.url',
   'Port 8787 already in use',
+  'IT-ONLY-REPAIR.txt',
+  'NOT on GitHub',
 ]) {
   if (!ps1Text.includes(needle)) fail(`install-teacher.ps1 missing marker: ${needle}`);
 }
 ok('ps1 min-network repair markers');
+if (
+  ps1Text.includes('Dist zip via mirrors + resume') ||
+  /Teacher-Bootstrap\.exe \(few MB\) → one Dist zip via mirrors/.test(ps1Text)
+) {
+  fail('install-teacher.ps1 must not tell users Dist zip comes from public mirrors/Release');
+} else {
+  ok('install-teacher.ps1 does not advertise Release Dist zip');
+}
 
 const setupCmd = fs.readFileSync(path.join(root, 'setup-from-installer.cmd'), 'utf8');
 if (!setupCmd.includes('setup-wizard.cmd')) {
@@ -223,6 +243,26 @@ if (
 } else {
   ok('pack.mjs one-Setup Give-To-Teacher + Advanced/ + Dist Node strip');
 }
+if (
+  !packScript.includes('Pack refuses to ship Teacher-Setup without a matching student installer') ||
+  packScript.includes('WARN: student Setup.exe not found') ||
+  packScript.includes('WARN: Student-Setup for ${version} missing')
+) {
+  fail('pack.mjs must hard-fail when student Setup for this version is missing');
+} else {
+  ok('pack.mjs hard-fails without matching student Setup');
+}
+if (
+  !packScript.includes('embedItRepairDocsIntoDesk') ||
+  !packScript.includes('IT-ONLY-REPAIR.txt') ||
+  !packScript.includes('IT_REPAIR_CHAIN.md')
+) {
+  fail('pack.mjs must nest IT-ONLY-REPAIR docs inside Teacher-Setup payload');
+} else {
+  ok('pack.mjs embeds IT repair docs into SFX payload');
+}
+mustExist('docs/IT-ONLY-REPAIR.txt');
+mustExist('docs/IT_REPAIR_CHAIN.md');
 mustExist('patches/README.md');
 mustExist('scripts/build-service-fix.mjs');
 if (!fs.readFileSync(path.join(root, 'patches/README.md'), 'utf8').includes('Reset-Teacher-Login')) {

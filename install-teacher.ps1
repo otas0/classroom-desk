@@ -284,15 +284,25 @@ NETWORK MINIMUM (Classroom Desk)
 After a COMPLETE install, public internet required: NONE.
 Classroom needs only teacher↔student LAN.
 
-Offline USB: double-click Teacher-Setup.exe (complete pack — ZERO public net).
-Slow public link: double-click Teacher-Bootstrap.exe (few MB) → one Dist zip via mirrors + resume.
+Teachers — normal path:
+  Double-click Teacher-Setup.exe (USB / IT share). Wizard: auto Node MSI OR pick node.exe.
+  GitHub Release has Teacher-Setup + Student-Setup ONLY.
+  There is NO Dist zip / Bootstrap / Service-Fix on the Release page.
 
-To finish when auto-repair cannot fill gaps, you need ONE of:
-  A) Complete ClassroomDesk folder / Teacher-Setup.exe on USB
-  B) Teacher-Bootstrap.exe + network for ONE resumable Dist zip (GitHub mirrors)
-  C) ClassroomDesk-<version>-win-x64.zip already downloaded → re-run Setup
+If Node MSI download fails at school:
+  Wizard → "Use Node already on this PC" → Detect / Browse
+  Usual path: C:\Program Files\nodejs\node.exe
+  Manual download: https://nodejs.org/en/download
+  (Desktop may also have ClassroomDesk-Node-Manual.txt)
+
+If the product pack is incomplete:
+  A) Preferred: re-run FULL Teacher-Setup.exe from USB / IT share
+  B) IT only: Give-To-Teacher\Advanced\Teacher-Bootstrap.exe + ONE Dist zip that
+     IT built with "npm run pack" and hosts themselves — Dist zip is NOT on GitHub
+  C) Read C:\ClassroomDesk\IT-ONLY-REPAIR.txt (shipped inside Teacher-Setup)
 
 Do NOT npm-install from scratch on a flaky school net.
+Do NOT tell teachers to download Dist zip from GitHub Release.
 Log: your Desktop\ClassroomDesk-Install-Log.txt
 
 --- If install failed, check the LAST 30 lines of the log, then:
@@ -302,7 +312,7 @@ Port 8787 already in use
   → Task Scheduler → ClassroomDeskServer (SYSTEM @ startup)
 
 Incomplete pack / download failed
-  → Need ONE Dist zip once (mirrors + curl resume). Then re-run Setup offline.
+  → Re-run Teacher-Setup.exe (full). IT: see IT-ONLY-REPAIR.txt — not Release Dist zip.
 
 SmartScreen / blocked exe
   → More info → Run anyway (expected until Setup is code-signed)
@@ -816,13 +826,13 @@ function Write-LoginCard([string]$TeacherPass, [string]$AdminPass, [string]$Setu
     ''
   )
   if ($ips.Count -gt 0) {
-    $lines += 'Students: Public Desktop\ClassroomDesk-Student-Install.txt → Find classroom'
+    $lines += 'Students: Public Desktop\ClassroomDesk-Student-Install.txt → open app (auto-join; Find classroom / room code if needed)'
     $lines += "Teacher LAN: http://$($ips[0]):8787"
   } else {
     $lines += 'No LAN IP yet — plug Ethernet, then reopen this card / Admin.'
   }
   $lines += ''
-  $lines += 'You: import roster. Students: install card → Find classroom.'
+  $lines += 'You: import roster. Students: install card → open app (auto-join; Find classroom / room code if needed).'
   $lines += "Log: $script:LogPath"
   Write-PrivateDeskFile -FileName 'ClassroomDesk-Desk-Login.txt' -Content ($lines -join "`r`n")
   Write-Log 'Wrote teacher Desktop\ClassroomDesk-Desk-Login.txt (backup; not Public Desktop)' 'Green'
@@ -1302,7 +1312,7 @@ try {
   Write-Log 'Fix:   Desktop\Classroom Desk Fix.lnk'
   Write-Log 'Backup: Desktop\ClassroomDesk-Desk-Login.txt (only if auto-login failed)'
   if ($wroteLogin) { Write-Log 'First install: passwords on Desktop login card.' 'Yellow' }
-  Write-Log 'Next: import roster. Students: Public Desktop install card → Find classroom.'
+  Write-Log 'Next: import roster. Students: install card → open app (auto-join; Find classroom / room code if needed).'
   Write-Log 'Time target: Setup → auto-login → roster (often ~1 min).'
   Write-Log "Log:     $script:LogPath"
   exit 0

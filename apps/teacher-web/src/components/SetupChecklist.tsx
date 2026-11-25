@@ -70,7 +70,7 @@ export function SetupChecklist({
       <h2>{rosterDone ? t('开课健康') : t('开课准备')}</h2>
       {!rosterDone ? (
         <p className="hint">
-          {t('导入名单即可上课。学生用公共桌面安装卡 → 查找教室。')}
+          {t('导入名单即可上课。学生装好打开应用会自动连班；连不上再「查找教室」或输房间码。')}
         </p>
       ) : null}
 

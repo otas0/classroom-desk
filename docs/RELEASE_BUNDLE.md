@@ -25,7 +25,7 @@ npm run check:release-bundle -- --tag v0.1.11
 | 资产 | 去向 |
 |---|---|
 | `Teacher-Bootstrap.exe` / `Service-Fix.exe` / `Teacher-Fix.exe` / `ClassroomDesk.exe` | 打进 **Teacher-Setup**；或本机 `Give-To-Teacher/Advanced/`（IT） |
-| `ClassroomDesk-*-win-x64.zip` | 不进 Release；IT 本地 `npm run pack` |
+| `ClassroomDesk-*-win-x64.zip` | **永不进 Release**；仅 IT 本地 `npm run pack` 后自托管；说明嵌在 Setup 内 `IT-ONLY-REPAIR.txt` |
 | `config.example.json` | 学生包内 / 仓库 `apps/student-desktop/resources/` |
 
 > 自 **v0.1.14** 起 Release 页按上表收敛；**v0.1.15** Teacher-Setup 打开 GUI 配置向导（安装目录 / 自动 MSI 或自选 Node）。旧 tag（如 v0.1.11）可能仍有多余附件。
