@@ -45,8 +45,10 @@ function shouldSkip(rel) {
   const skipDirs = new Set([
     'node_modules',
     '.git',
+    '.cache',
     'dist-electron',
     'release',
+    'releases',
     'artifacts',
     'ClassroomDesk-Dist',
     'Give-To-Teacher',
@@ -404,6 +406,12 @@ function copyStudentSetup() {
     for (const name of names) {
       const p = path.join(dir, name);
       if (fs.existsSync(p)) {
+        const sz = fs.statSync(p).size;
+        // Real NSIS student Setup is ~100MB+; reject truncated/error downloads.
+        if (sz < 40_000_000) {
+          console.warn(`skip undersized student Setup (${sz} bytes): ${p}`);
+          continue;
+        }
         const destName = name.includes('x64') ? name : `ClassroomDesk-Setup-${version}-x64.exe`;
         cpFile(p, path.join(students, destName));
         console.log('student Setup →', path.join(students, destName));

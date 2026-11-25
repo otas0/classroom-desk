@@ -223,10 +223,24 @@ GUIMode="1"
   fs.writeFileSync(configPath, config, 'utf8');
 
   console.log('link SFX →', outExe);
-  const sfxBuf = fs.readFileSync(sfx);
-  const cfgBuf = fs.readFileSync(configPath);
-  const arcBuf = fs.readFileSync(archive);
-  fs.writeFileSync(outExe, Buffer.concat([sfxBuf, cfgBuf, arcBuf]));
+  // Stream concat — Node readFileSync throws above 2 GiB.
+  const out = fs.openSync(outExe, 'w');
+  try {
+    for (const part of [sfx, configPath, archive]) {
+      const fd = fs.openSync(part, 'r');
+      try {
+        const buf = Buffer.alloc(8 * 1024 * 1024);
+        let n;
+        while ((n = fs.readSync(fd, buf, 0, buf.length, null)) > 0) {
+          fs.writeSync(out, buf, 0, n);
+        }
+      } finally {
+        fs.closeSync(fd);
+      }
+    }
+  } finally {
+    fs.closeSync(out);
+  }
 
   // Stable name for "just double-click this"
   const stable = path.join(distRoot, 'ClassroomDesk-Teacher-Setup-x64.exe');
